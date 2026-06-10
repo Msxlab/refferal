@@ -1,0 +1,36 @@
+# Refearn - lokal gelistirme servisleri.
+# api / web / caddy / backup servisleri ilgili fazlarda eklenecek (docs/SPEC.md Bolum 5).
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: refearn
+      POSTGRES_PASSWORD: refearn
+      POSTGRES_DB: refearn
+    ports:
+      # 5432/6379 bu makinede baska projelerde dolu; Refearn 5434/6380 kullanir
+      - "5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U refearn -d refearn"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7
+    ports:
+      - "6380:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:
+  redisdata:

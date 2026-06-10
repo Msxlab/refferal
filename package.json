@@ -1,0 +1,30 @@
+{
+  "name": "refearn",
+  "private": true,
+  "packageManager": "pnpm@10.29.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "test:int": "turbo run test:int",
+    "lint": "turbo run lint",
+    "db:up": "docker compose up -d postgres redis",
+    "db:migrate": "pnpm --filter @refearn/api db:migrate",
+    "db:seed": "pnpm --filter @refearn/api db:seed"
+  },
+  "devDependencies": {
+    "prettier": "^3.5.3",
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@node-rs/argon2",
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma"
+    ]
+  }
+}

@@ -1,0 +1,383 @@
+// Refearn veri modeli — docs/SPEC.md Bolum 6.
+// Kurallar:
+// - Tum tutarlar BIGINT integer cent; oranlar bps (10000 = %100).
+// - Tenant-scoped tablolarda tenant_id + index.
+// - ledger_entries SILINMEZ; guncellenen tek alanlar status/payout_id.
+// - memberships.path: ltree-uyumlu TEXT (uuid'ler _ ile), yerlesim DEGISTIRILEMEZ.
+//   ltree extension migration'da aktif (docs/DECISIONS.md).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  platform_admin
+  tenant_owner
+  tenant_admin
+  tenant_staff
+  member
+}
+
+enum TenantStatus {
+  active
+  suspended
+}
+
+enum MembershipStatus {
+  active
+  inactive
+}
+
+enum InviteStatus {
+  active
+  used
+  expired
+  revoked
+}
+
+enum MaturationRule {
+  on_approval
+  on_delivery
+  days_after_approval
+}
+
+enum SaleStatus {
+  draft
+  approved
+  void
+}
+
+enum LedgerType {
+  commission
+  reversal
+  adjustment
+}
+
+enum LedgerStatus {
+  pending
+  payable
+  paid
+  reversed
+}
+
+enum PayoutMethod {
+  manual
+  csv
+  stripe
+}
+
+enum PayoutStatus {
+  requested
+  processing
+  paid
+  failed
+}
+
+enum NotificationChannel {
+  push
+  email
+}
+
+enum NotificationStatus {
+  pending
+  sent
+  failed
+}
+
+model Tenant {
+  id                  String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug                String         @unique
+  name                String
+  currency            String         @default("USD")
+  timezone            String         @default("America/New_York")
+  maturationRule      MaturationRule @default(on_delivery) @map("maturation_rule")
+  maturationDays      Int?           @map("maturation_days")
+  payoutMinCents      BigInt         @default(100000) @map("payout_min_cents")
+  compressionEnabled  Boolean        @default(false) @map("compression_enabled")
+  inactiveMembersEarn Boolean        @default(true) @map("inactive_members_earn")
+  notifyNewMemberName Boolean        @default(true) @map("notify_new_member_name")
+  branding            Json           @default("{}")
+  status              TenantStatus   @default(active)
+  createdAt           DateTime       @default(now()) @map("created_at")
+  updatedAt           DateTime       @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  invites     Invite[]
+  plans       CommissionPlan[]
+  sales       Sale[]
+  ledger      LedgerEntry[]
+  summaries   MonthlySummary[]
+  teamStats   TeamStat[]
+  payouts     Payout[]
+
+  @@map("tenants")
+}
+
+model User {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email           String    @unique
+  passwordHash    String    @map("password_hash")
+  fullName        String    @map("full_name")
+  avatarPath      String?   @map("avatar_path")
+  locale          String    @default("en")
+  emailVerifiedAt DateTime? @map("email_verified_at")
+  totpSecret      String?   @map("totp_secret")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  devices     Device[]
+
+  @@map("users")
+}
+
+model Membership {
+  id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId            String           @map("tenant_id") @db.Uuid
+  userId              String           @map("user_id") @db.Uuid
+  role                Role             @default(member)
+  sponsorMembershipId String?          @map("sponsor_membership_id") @db.Uuid
+  referralCode        String           @map("referral_code")
+  // ltree-uyumlu materialized path: parent.path || own_id (uuid'ler _ ile). DEGISTIRILEMEZ.
+  path                String
+  depth               Int
+  status              MembershipStatus @default(active)
+  joinedAt            DateTime         @default(now()) @map("joined_at")
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+
+  tenant   Tenant       @relation(fields: [tenantId], references: [id])
+  user     User         @relation(fields: [userId], references: [id])
+  sponsor  Membership?  @relation("SponsorTree", fields: [sponsorMembershipId], references: [id])
+  children Membership[] @relation("SponsorTree")
+
+  invitesSent Invite[]         @relation("Inviter")
+  sales       Sale[]           @relation("Seller")
+  ledger      LedgerEntry[]    @relation("Beneficiary")
+  summaries   MonthlySummary[]
+  teamStats   TeamStat[]
+  payouts     Payout[]
+
+  @@unique([tenantId, userId])
+  @@unique([tenantId, referralCode])
+  @@index([tenantId, sponsorMembershipId])
+  @@index([tenantId, path])
+  @@map("memberships")
+}
+
+model Invite {
+  id                  String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId            String       @map("tenant_id") @db.Uuid
+  inviterMembershipId String       @map("inviter_membership_id") @db.Uuid
+  code                String       @unique
+  email               String?
+  expiresAt           DateTime     @map("expires_at")
+  usedByMembershipId  String?      @map("used_by_membership_id") @db.Uuid
+  status              InviteStatus @default(active)
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+
+  tenant  Tenant     @relation(fields: [tenantId], references: [id])
+  inviter Membership @relation("Inviter", fields: [inviterMembershipId], references: [id])
+
+  @@index([tenantId, status])
+  @@map("invites")
+}
+
+model CommissionPlan {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  name          String
+  poolRateBps   Int      @map("pool_rate_bps")
+  depth         Int
+  effectiveFrom DateTime @map("effective_from")
+  createdBy     String?  @map("created_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant                @relation(fields: [tenantId], references: [id])
+  levels CommissionPlanLevel[]
+
+  // Tarihsel sorgu: satis tarihinde aktif plan (effective_from <= sale_date, en yeni)
+  @@index([tenantId, effectiveFrom(sort: Desc)])
+  @@map("commission_plans")
+}
+
+model CommissionPlanLevel {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  planId    String   @map("plan_id") @db.Uuid
+  level     Int
+  rateBps   Int      @map("rate_bps")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  plan CommissionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  // SUM(rate_bps) <= pool_rate_bps kurali migration'daki constraint trigger ile zorlanir
+  @@unique([planId, level])
+  @@map("commission_plan_levels")
+}
+
+model Sale {
+  id                 String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String     @map("tenant_id") @db.Uuid
+  sellerMembershipId String     @map("seller_membership_id") @db.Uuid
+  amountCents        BigInt     @map("amount_cents")
+  currency           String     @default("USD")
+  customerRef        String?    @map("customer_ref")
+  saleDate           DateTime   @map("sale_date")
+  status             SaleStatus @default(draft)
+  approvedBy         String?    @map("approved_by") @db.Uuid
+  approvedAt         DateTime?  @map("approved_at")
+  deliveredAt        DateTime?  @map("delivered_at")
+  externalRef        String?    @map("external_ref")
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+
+  tenant Tenant        @relation(fields: [tenantId], references: [id])
+  seller Membership    @relation("Seller", fields: [sellerMembershipId], references: [id])
+  ledger LedgerEntry[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, saleDate])
+  @@map("sales")
+}
+
+model LedgerEntry {
+  id                      String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                String       @map("tenant_id") @db.Uuid
+  saleId                  String       @map("sale_id") @db.Uuid
+  beneficiaryMembershipId String       @map("beneficiary_membership_id") @db.Uuid
+  level                   Int
+  rateBpsUsed             Int          @map("rate_bps_used")
+  amountCents             BigInt       @map("amount_cents")
+  type                    LedgerType
+  status                  LedgerStatus
+  maturesAt               DateTime?    @map("matures_at")
+  payoutId                String?      @map("payout_id") @db.Uuid
+  createdAt               DateTime     @default(now()) @map("created_at")
+  updatedAt               DateTime     @updatedAt @map("updated_at")
+
+  tenant      Tenant     @relation(fields: [tenantId], references: [id])
+  sale        Sale       @relation(fields: [saleId], references: [id])
+  beneficiary Membership @relation("Beneficiary", fields: [beneficiaryMembershipId], references: [id])
+  payout      Payout?    @relation(fields: [payoutId], references: [id])
+
+  // Cift odeme imkansiz: motor kac kez cagrilirsa cagrilsin ayni sonuc
+  @@unique([saleId, level, type])
+  @@index([tenantId, beneficiaryMembershipId, status])
+  @@index([status, maturesAt])
+  @@map("ledger_entries")
+}
+
+model MonthlySummary {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  membershipId String   @map("membership_id") @db.Uuid
+  // Tenant timezone'una gore YYYY-MM (SPEC 10 — Zaman)
+  month        String
+  level        Int
+  pendingCents BigInt   @default(0) @map("pending_cents")
+  payableCents BigInt   @default(0) @map("payable_cents")
+  paidCents    BigInt   @default(0) @map("paid_cents")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
+  membership Membership @relation(fields: [membershipId], references: [id])
+
+  @@unique([tenantId, membershipId, month, level])
+  @@index([tenantId, month])
+  @@map("monthly_summaries")
+}
+
+model TeamStat {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  membershipId String   @map("membership_id") @db.Uuid
+  level        Int
+  memberCount  Int      @default(0) @map("member_count")
+  activeCount  Int      @default(0) @map("active_count")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
+  membership Membership @relation(fields: [membershipId], references: [id])
+
+  @@unique([tenantId, membershipId, level])
+  @@map("team_stats")
+}
+
+model Payout {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String       @map("tenant_id") @db.Uuid
+  membershipId String       @map("membership_id") @db.Uuid
+  totalCents   BigInt       @map("total_cents")
+  method       PayoutMethod @default(manual)
+  status       PayoutStatus @default(requested)
+  // Donem: YYYY-MM (aylik, docs/DECISIONS.md)
+  period       String
+  paidAt       DateTime?    @map("paid_at")
+  ref          String?
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  tenant     Tenant        @relation(fields: [tenantId], references: [id])
+  membership Membership    @relation(fields: [membershipId], references: [id])
+  entries    LedgerEntry[]
+
+  @@index([tenantId, status])
+  @@map("payouts")
+}
+
+model Device {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  expoPushToken String   @unique @map("expo_push_token")
+  platform      String
+  lastSeenAt    DateTime @default(now()) @map("last_seen_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("devices")
+}
+
+// Outbox (SPEC 5): transaction icinde yazilir, BullMQ worker asenkron gonderir
+model Notification {
+  id                    String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId              String?             @map("tenant_id") @db.Uuid
+  recipientMembershipId String              @map("recipient_membership_id") @db.Uuid
+  channel               NotificationChannel
+  template              String
+  payload               Json                @default("{}")
+  status                NotificationStatus  @default(pending)
+  sentAt                DateTime?           @map("sent_at")
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String?  @map("tenant_id") @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  action      String
+  entity      String
+  entityId    String?  @map("entity_id") @db.Uuid
+  before      Json?
+  after       Json?
+  ip          String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@map("audit_logs")
+}

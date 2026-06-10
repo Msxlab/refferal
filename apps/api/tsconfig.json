@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "strictPropertyInitialization": false,
+    "types": ["node", "jest"],
+    "paths": {
+      "@refearn/shared": ["../../packages/shared/src/index.ts"]
+    }
+  },
+  "include": ["src", "test", "prisma"]
+}
