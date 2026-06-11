@@ -4,6 +4,8 @@ import {
   LedgerType,
   MaturationRule,
   NotificationChannel,
+  PayoutMethod,
+  PayoutStatus,
   Prisma,
   SaleStatus,
   Tenant,
@@ -263,6 +265,102 @@ export class EngineService {
     });
   }
 
+  /**
+   * Bir uyenin TUM payable satirlarini tek payout'ta oder (SPEC 6/9):
+   * payable satirlari FOR UPDATE ile kilitle → net topla → net < min ise atla →
+   * payout olustur (paid) → satirlari paid + payout_id → summary payable→paid → outbox.
+   * Negatif reversal (mahsup) satirlari da dahildir: net, clawback dusulmus tutardir.
+   * Idempotent degildir ama atomiktir; net<min atlanir (skipped doner).
+   */
+  async payoutMember(params: {
+    tenantId: string;
+    membershipId: string;
+    period: string;
+    method?: PayoutMethod;
+    actorUserId?: string;
+  }): Promise<
+    | { paid: true; payoutId: string; totalCents: bigint; entryCount: number }
+    | { paid: false; reason: 'below_min' | 'nothing_payable'; netCents: bigint }
+  > {
+    return this.tx(async (tx) => {
+      const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: params.tenantId } });
+
+      const rows = await tx.$queryRaw<
+        Array<{ id: string; level: number; amountCents: bigint; month: string }>
+      >`
+        SELECT le.id,
+               le.level,
+               le.amount_cents AS "amountCents",
+               COALESCE(
+                 s.summary_month,
+                 to_char(s.sale_date AT TIME ZONE ${tenant.timezone}, 'YYYY-MM')
+               ) AS "month"
+        FROM ledger_entries le
+        JOIN sales s ON s.id = le.sale_id
+        WHERE le.tenant_id = ${params.tenantId}::uuid
+          AND le.beneficiary_membership_id = ${params.membershipId}::uuid
+          AND le.status = 'payable'
+        FOR UPDATE OF le`;
+
+      if (rows.length === 0) {
+        return { paid: false as const, reason: 'nothing_payable' as const, netCents: 0n };
+      }
+      const net = rows.reduce((a, r) => a + r.amountCents, 0n);
+      if (net < tenant.payoutMinCents) {
+        return { paid: false as const, reason: 'below_min' as const, netCents: net };
+      }
+
+      const payout = await tx.payout.create({
+        data: {
+          tenantId: params.tenantId,
+          membershipId: params.membershipId,
+          totalCents: net,
+          method: params.method ?? PayoutMethod.manual,
+          status: PayoutStatus.paid,
+          period: params.period,
+          paidAt: new Date(),
+        },
+      });
+
+      await tx.ledgerEntry.updateMany({
+        where: { id: { in: rows.map((r) => r.id) } },
+        data: { status: LedgerStatus.paid, payoutId: payout.id },
+      });
+
+      // summary: (month, level) basina payable→paid kaydir
+      const byKey = new Map<string, { month: string; level: number; amount: bigint }>();
+      for (const r of rows) {
+        const key = `${r.month}|${r.level}`;
+        const cur = byKey.get(key) ?? { month: r.month, level: r.level, amount: 0n };
+        cur.amount += r.amountCents;
+        byKey.set(key, cur);
+      }
+      for (const { month, level, amount } of byKey.values()) {
+        await this.bumpSummary(tx, params.tenantId, params.membershipId, month, level, {
+          payable: -amount,
+          paid: amount,
+        });
+      }
+
+      await tx.notification.create({
+        data: {
+          tenantId: params.tenantId,
+          recipientMembershipId: params.membershipId,
+          channel: NotificationChannel.push,
+          template: 'payout_sent',
+          payload: { payoutId: payout.id, totalCents: net.toString(), period: params.period },
+        },
+      });
+      await this.audit(tx, params.tenantId, params.actorUserId, 'payout.paid', payout.id, {}, {
+        membershipId: params.membershipId,
+        totalCents: net.toString(),
+        entryCount: rows.length,
+      });
+
+      return { paid: true as const, payoutId: payout.id, totalCents: net, entryCount: rows.length };
+    });
+  }
+
   // ---------------------------------------------------------------- internals
 
   /**
@@ -457,7 +555,8 @@ export class EngineService {
         tenantId,
         actorUserId: actorUserId ?? null,
         action,
-        entity: 'sale',
+        // entity action prefix'inden: 'sale.approve'→'sale', 'payout.paid'→'payout'
+        entity: action.split('.')[0],
         entityId,
         before,
         after,
