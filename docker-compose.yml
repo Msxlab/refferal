@@ -1,5 +1,7 @@
-# Refearn - lokal gelistirme servisleri.
-# api / web / caddy / backup servisleri ilgili fazlarda eklenecek (docs/SPEC.md Bolum 5).
+# Refearn — postgres+redis her zaman; api/web/caddy/backup "app" profilinde.
+#   Lokal gelistirme:  docker compose up -d postgres redis   (api/web'i pnpm ile kos)
+#   Tam yigin (prod):  docker compose --profile app up -d --build   (Caddy :80/:443)
+# Ayarlar .env'den okunur (DOMAIN, JWT_ACCESS_SECRET, PUBLIC_ORIGIN, SMTP_*).
 services:
   postgres:
     image: postgres:17
@@ -31,6 +33,86 @@ services:
       timeout: 3s
       retries: 30
 
+  api:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://refearn:refearn@postgres:5432/refearn
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET .env'de tanimli olmali}
+      CORS_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost}
+      WEB_URL: ${PUBLIC_ORIGIN:-http://localhost}
+      THROTTLE_LIMIT: ${THROTTLE_LIMIT:-120}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-Refearn <no-reply@refearn.local>}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3001/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  web:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Tarayici ayni origin'den /v1 cagirir (Caddy proxy) → CORS yok
+        NEXT_PUBLIC_API_URL: /v1
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  caddy:
+    profiles: ["app"]
+    image: caddy:2
+    environment:
+      # Bos → ":80" (lokal HTTP). Gercek alan adi → Caddy otomatik HTTPS.
+      DOMAIN: ${DOMAIN:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      - web
+      - api
+    restart: unless-stopped
+
+  backup:
+    profiles: ["app"]
+    image: postgres:17
+    environment:
+      DATABASE_URL: postgresql://refearn:refearn@postgres:5432/refearn
+      RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_OFFSITE_CMD: ${BACKUP_OFFSITE_CMD:-}
+    entrypoint: ["sh", "/backup.sh"]
+    volumes:
+      - ./docker/backup/backup.sh:/backup.sh:ro
+      - backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pgdata:
   redisdata:
+  caddydata:
+  caddyconfig:
+  backups:

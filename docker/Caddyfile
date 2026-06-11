@@ -1,0 +1,19 @@
+# Refearn reverse proxy. Site adresi DOMAIN env'inden gelir (compose ":80" verir).
+# Gercek alan adi verilirse Caddy otomatik TLS (Let's Encrypt) saglar.
+{$DOMAIN::80} {
+	# NOT: compose DOMAIN'i ":80" veya alan adi olarak gecirir; ":80" ise duz HTTP.
+	encode gzip zstd
+
+	# API: /v1/* ve /healthz → NestJS (api servisi). Prefix korunur (api globalPrefix=v1).
+	handle /v1/* {
+		reverse_proxy api:3001
+	}
+	handle /healthz {
+		reverse_proxy api:3001
+	}
+
+	# Geri kalan her sey → Next.js web
+	handle {
+		reverse_proxy web:3000
+	}
+}

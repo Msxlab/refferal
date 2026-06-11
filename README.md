@@ -50,6 +50,14 @@ pnpm --filter @refearn/api test:int    # entegrasyon (gerçek Postgres, refearn_
 - Oranlar bps (10000 = %100). Seviye tutarı `floor(amount * rate_bps / 10000)`; kalan kuruş şirkette kalır.
 - Ledger satırı asla silinmez; düzeltme = eşit-ters reversal satırı.
 
-## Yedek / Restore
+## Dağıtım (tam yığın)
 
-Günlük `pg_dump` cron container'ı ve test edilmiş restore prosedürü Faz 1 sonunda eklenecek (SPEC 13/9).
+Caddy (otomatik TLS) + web + API + Postgres + Redis + günlük yedek tek komutla:
+
+```bash
+cp .env.example .env     # JWT_ACCESS_SECRET, DOMAIN, PUBLIC_ORIGIN, SMTP_* doldur
+docker compose --profile app up -d --build
+```
+
+Detay, restore prosedürü ve operasyon: **[docs/DEPLOY.md](docs/DEPLOY.md)**.
+Sağlık ucu: `GET /healthz`. Yedek: `backup` servisi günlük `pg_dump`, 30 gün saklama.

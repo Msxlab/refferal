@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module';
 import { EngineModule } from './engine/engine.module';
+import { HealthModule } from './health/health.module';
 import { InvitesModule } from './invites/invites.module';
 import { MeModule } from './memberships/me.module';
 import { MembersAdminModule } from './members/members.admin.module';
@@ -45,6 +46,7 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
     ReportsModule,
     NotificationsModule,
     SettingsModule,
+    HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
