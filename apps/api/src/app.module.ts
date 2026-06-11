@@ -5,8 +5,19 @@ import { InvitesModule } from './invites/invites.module';
 import { MeModule } from './memberships/me.module';
 import { MembershipsModule } from './memberships/memberships.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { SalesModule } from './sales/sales.module';
+import { WalletModule } from './wallet/wallet.module';
 
 @Module({
-  imports: [PrismaModule, EngineModule, AuthModule, MembershipsModule, MeModule, InvitesModule],
+  imports: [
+    PrismaModule,
+    EngineModule,
+    AuthModule,
+    MembershipsModule,
+    MeModule,
+    InvitesModule,
+    SalesModule,
+    WalletModule,
+  ],
 })
 export class AppModule {}

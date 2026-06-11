@@ -1,0 +1,31 @@
+import { Controller, Get, Query } from '@nestjs/common';
+import { CurrentUser, RequireMembership } from '../auth/auth.guard';
+import { RequestUser } from '../auth/auth.types';
+import { ZodValidationPipe } from '../common/zod.pipe';
+import { WalletService } from './wallet.service';
+import { dashboardQuerySchema, DashboardQuery, walletQuerySchema, WalletQuery } from './wallet.types';
+
+/** Uye yuzeyi (/app). Aktif uyelik gerekli; her zaman KENDI verisini doner. */
+@RequireMembership()
+@Controller('app')
+export class WalletController {
+  constructor(private readonly wallet: WalletService) {}
+
+  @Get('dashboard')
+  dashboard(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(dashboardQuerySchema)) q: DashboardQuery,
+  ) {
+    return this.wallet.dashboard(user.mid as string, user.tid as string, q.month);
+  }
+
+  @Get('wallet')
+  walletView(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(walletQuerySchema)) q: WalletQuery) {
+    return this.wallet.wallet(user.mid as string, q);
+  }
+
+  @Get('team')
+  team(@CurrentUser() user: RequestUser) {
+    return this.wallet.team(user.mid as string, user.tid as string);
+  }
+}
