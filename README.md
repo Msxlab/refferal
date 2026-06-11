@@ -9,7 +9,7 @@ Mimari ve iş kuralları: **[docs/SPEC.md](docs/SPEC.md)** · Karar kaydı: **[d
 
 ```
 apps/api          NestJS + Prisma (komisyon motoru burada)        — API :3101
-apps/web          Next.js — admin paneli /admin (login + sales + members + payouts) :3000
+apps/web          Next.js — /admin (yonetim) + /app (uye) + /i/{code} (davetle kayit) :3000
 apps/mobile       Expo (React Native)                              [henüz yok — Faz 1 sırası 8]
 packages/shared   zod şemaları, sabitler, para yardımcıları, saf komisyon çekirdeği
 ```

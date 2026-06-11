@@ -3,7 +3,7 @@
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { login } from '@/lib/api';
-import { isAdminRole, setSession, activeMembership } from '@/lib/auth';
+import { activeMembership, landingPath, setSession } from '@/lib/auth';
 import { t } from '@/lib/i18n';
 
 export default function LoginPage() {
@@ -19,14 +19,15 @@ export default function LoginPage() {
     setBusy(true);
     try {
       const session = await login(email.trim(), password);
-      const active = activeMembership(session);
-      if (!isAdminRole(active?.role)) {
-        setError('Bu hesabin isletme yonetim yetkisi yok.');
+      if (session.memberships.length === 0) {
+        setError('Bu hesabin aktif uyeligi yok.');
         setBusy(false);
         return;
       }
       setSession(session);
-      router.replace('/admin');
+      // rol bazli yonlendirme: admin → /admin, uye → /app
+      const active = activeMembership(session);
+      router.replace(landingPath(active?.role));
     } catch {
       setError(t('login.error'));
       setBusy(false);

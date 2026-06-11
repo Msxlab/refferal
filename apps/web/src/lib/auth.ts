@@ -44,3 +44,8 @@ const ADMIN_ROLES = new Set(['tenant_owner', 'tenant_admin', 'tenant_staff']);
 export function isAdminRole(role: string | undefined): boolean {
   return role !== undefined && ADMIN_ROLES.has(role);
 }
+
+/** Rol bazli varsayilan inis: admin roller /admin, uye /app (SPEC 4.3). */
+export function landingPath(role: string | undefined): string {
+  return isAdminRole(role) ? '/admin' : '/app';
+}
