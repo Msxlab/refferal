@@ -127,13 +127,59 @@ model User {
   locale          String    @default("en")
   emailVerifiedAt DateTime? @map("email_verified_at")
   totpSecret      String?   @map("totp_secret")
+  // "son secim hatirlanir" (SPEC 4.1): coklu uyelikte aktif tenant secimi
+  lastMembershipId String?  @map("last_membership_id") @db.Uuid
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  memberships Membership[]
-  devices     Device[]
+  memberships   Membership[]
+  devices       Device[]
+  refreshTokens RefreshToken[]
+  userTokens    UserToken[]
 
   @@map("users")
+}
+
+// Rotasyonlu refresh token (SPEC 5): DB'de yalnizca SHA-256 hash saklanir.
+// Reuse detection: revoke edilmis token sunulursa kullanicinin tum token'lari iptal edilir.
+model RefreshToken {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  tokenHash    String    @unique @map("token_hash")
+  expiresAt    DateTime  @map("expires_at")
+  revokedAt    DateTime? @map("revoked_at")
+  replacedById String?   @map("replaced_by_id") @db.Uuid
+  ip           String?
+  userAgent    String?   @map("user_agent")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+enum UserTokenPurpose {
+  email_verify
+  password_reset
+}
+
+// E-posta dogrulama / sifre sifirlama token'lari (tek kullanimlik, hash'li)
+model UserToken {
+  id        String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  purpose   UserTokenPurpose
+  tokenHash String           @unique @map("token_hash")
+  expiresAt DateTime         @map("expires_at")
+  usedAt    DateTime?        @map("used_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@map("user_tokens")
 }
 
 model Membership {
@@ -231,6 +277,9 @@ model Sale {
   currency           String     @default("USD")
   customerRef        String?    @map("customer_ref")
   saleDate           DateTime   @map("sale_date")
+  // monthly_summaries ay anahtari ilk apply'da DONDURULUR (tenant.timezone sonradan
+  // degisse bile kredi/dusum ayni bucket'a gider — bkz. DECISIONS "Inceleme bulgulari").
+  summaryMonth       String?    @map("summary_month")
   status             SaleStatus @default(draft)
   approvedBy         String?    @map("approved_by") @db.Uuid
   approvedAt         DateTime?  @map("approved_at")
@@ -266,7 +315,9 @@ model LedgerEntry {
   tenant      Tenant     @relation(fields: [tenantId], references: [id])
   sale        Sale       @relation(fields: [saleId], references: [id])
   beneficiary Membership @relation("Beneficiary", fields: [beneficiaryMembershipId], references: [id])
-  payout      Payout?    @relation(fields: [payoutId], references: [id])
+  // Restrict: payout silinince 'paid' satirin payout_id'si sessizce NULL olmasin
+  // (ledger degismezligi — bkz. DECISIONS "Inceleme bulgulari").
+  payout      Payout?    @relation(fields: [payoutId], references: [id], onDelete: Restrict)
 
   // Cift odeme imkansiz: motor kac kez cagrilirsa cagrilsin ayni sonuc
   @@unique([saleId, level, type])

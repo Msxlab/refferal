@@ -21,8 +21,19 @@ interface LockedSale {
   amountCents: bigint;
   status: SaleStatus;
   saleDate: Date;
+  summaryMonth: string | null;
   approvedAt: Date | null;
   deliveredAt: Date | null;
+}
+
+/** void icin kilitlenen ledger satiri (FOR UPDATE sonrasi TAZE statu). */
+interface LockedLedgerRow {
+  id: string;
+  beneficiaryMembershipId: string;
+  level: number;
+  rateBpsUsed: number;
+  amountCents: bigint;
+  status: LedgerStatus;
 }
 
 interface SummaryDelta {
@@ -39,6 +50,32 @@ export interface ApplyResult {
 
 const TX_OPTS: { timeout: number; maxWait: number } = { timeout: 20_000, maxWait: 15_000 };
 
+// Eszamanli summary upsert'leri kilit sirasi farkindan deadlock (40P01) verebilir;
+// serialization failure (40001) de olabilir. Bu gecici hatalar guvenle yeniden denenir
+// (bkz. DECISIONS "Inceleme bulgulari" — deadlock).
+const RETRYABLE_PG_CODES = new Set(['40P01', '40001']);
+const MAX_TX_RETRIES = 5;
+
+function isRetryable(err: unknown): boolean {
+  const code =
+    (err as { code?: string })?.code ??
+    ((err as { meta?: { code?: string } })?.meta?.code as string | undefined);
+  return code !== undefined && RETRYABLE_PG_CODES.has(code);
+}
+
+async function withTxRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < MAX_TX_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryable(err)) throw err;
+    }
+  }
+  throw lastErr;
+}
+
 /**
  * Komisyon motoru (SPEC 7). Para etkileyen her sey TEK Postgres transaction'inda:
  * ledger + monthly_summaries + outbox + audit birlikte commit olur.
@@ -47,9 +84,14 @@ const TX_OPTS: { timeout: number; maxWait: number } = { timeout: 20_000, maxWait
 export class EngineService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Tum motor mutasyonlari icin ortak sarmalayici: tek transaction + deadlock retry. */
+  private tx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+    return withTxRetry(() => this.prisma.$transaction(fn, TX_OPTS));
+  }
+
   /** Satisi onaylar ve ayni transaction icinde komisyonlari dagitir. */
   async approveSale(saleId: string, actorUserId?: string): Promise<ApplyResult> {
-    return this.prisma.$transaction(async (tx) => {
+    return this.tx(async (tx) => {
       const sale = await this.lockSale(tx, saleId);
       if (sale.status === SaleStatus.void) {
         throw new ConflictException('void edilmis satis onaylanamaz');
@@ -65,15 +107,15 @@ export class EngineService {
         await this.audit(tx, sale.tenantId, actorUserId, 'sale.approve', saleId, { status: 'draft' }, { status: 'approved' });
       }
       return this.applyCommissionsInTx(tx, sale);
-    }, TX_OPTS);
+    });
   }
 
   /** Idempotent: ayni satisa kac kez cagrilirsa cagrilsin sonuc ayni (T4/T10). */
   async applyCommissions(saleId: string): Promise<ApplyResult> {
-    return this.prisma.$transaction(async (tx) => {
+    return this.tx(async (tx) => {
       const sale = await this.lockSale(tx, saleId);
       return this.applyCommissionsInTx(tx, sale);
-    }, TX_OPTS);
+    });
   }
 
   /**
@@ -81,7 +123,7 @@ export class EngineService {
    * Muhasebe kurallari docs/DECISIONS.md "Reversal muhasebesi" bolumunde.
    */
   async voidSale(saleId: string, actorUserId?: string): Promise<{ voided: boolean; reversalCount: number }> {
-    return this.prisma.$transaction(async (tx) => {
+    return this.tx(async (tx) => {
       const sale = await this.lockSale(tx, saleId);
       if (sale.status === SaleStatus.void) {
         return { voided: false, reversalCount: 0 };
@@ -90,20 +132,28 @@ export class EngineService {
       await tx.sale.update({ where: { id: saleId }, data: { status: SaleStatus.void } });
       await this.audit(tx, sale.tenantId, actorUserId, 'sale.void', saleId, { status: before }, { status: 'void' });
 
-      const entries = await tx.ledgerEntry.findMany({
-        where: {
-          saleId,
-          type: LedgerType.commission,
-          status: { in: [LedgerStatus.pending, LedgerStatus.payable, LedgerStatus.paid] },
-        },
-        orderBy: { level: 'asc' },
-      });
+      // FOR UPDATE: eszamanli matureCommissions bu satirlari kilitlemisse bekle, sonra
+      // TAZE (commit'li) statuyu oku — yoksa bayat 'pending' okuyup yanlis summary deltasi
+      // yazardik (hayalet payable). mature SKIP LOCKED kullandigi icin kilitledigimiz
+      // satirlari atlar; deadlock olmaz. (bkz. DECISIONS "Inceleme bulgulari")
+      const entries = await tx.$queryRaw<LockedLedgerRow[]>`
+        SELECT id,
+               beneficiary_membership_id AS "beneficiaryMembershipId",
+               level,
+               rate_bps_used             AS "rateBpsUsed",
+               amount_cents              AS "amountCents",
+               status
+        FROM ledger_entries
+        WHERE sale_id = ${saleId}::uuid
+          AND type = 'commission'
+          AND status IN ('pending', 'payable', 'paid')
+        ORDER BY level ASC
+        FOR UPDATE`;
       if (entries.length === 0) {
         return { voided: true, reversalCount: 0 };
       }
 
-      const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: sale.tenantId } });
-      const month = monthKey(sale.saleDate, tenant.timezone);
+      const month = sale.summaryMonth ?? (await this.fallbackMonth(tx, sale));
 
       for (const entry of entries) {
         // paid satirin reversal'i payable kalir (eksiye duser, sonraki kazanclardan
@@ -146,12 +196,12 @@ export class EngineService {
       }
 
       return { voided: true, reversalCount: entries.length };
-    }, TX_OPTS);
+    });
   }
 
   /** Teslimati isaretler; on_delivery kuralinda pending satirlarin matures_at'ini doldurur (T7). */
   async markDelivered(saleId: string, deliveredAt: Date = new Date()): Promise<{ delivered: boolean }> {
-    return this.prisma.$transaction(async (tx) => {
+    return this.tx(async (tx) => {
       const sale = await this.lockSale(tx, saleId);
       if (sale.status !== SaleStatus.approved) {
         throw new ConflictException('yalnizca onaylanmis satis teslim edilebilir');
@@ -165,12 +215,14 @@ export class EngineService {
         data: { maturesAt: deliveredAt },
       });
       return { delivered: true };
-    }, TX_OPTS);
+    });
   }
 
   /** Job (5 dk'da bir): matures_at <= now olan pending satirlari payable yapar (SPEC 7). */
   async matureCommissions(now: Date = new Date()): Promise<{ matured: number }> {
-    return this.prisma.$transaction(async (tx) => {
+    return this.tx(async (tx) => {
+      // Ay anahtari satista DONDURULMUS summary_month'tan gelir (apply'da yazildi);
+      // null kalmis tarihsel kayitlar icin sale_date + tenant.timezone'a duser.
       const due = await tx.$queryRaw<
         Array<{
           id: string;
@@ -178,8 +230,7 @@ export class EngineService {
           membershipId: string;
           level: number;
           amountCents: bigint;
-          saleDate: Date;
-          timezone: string;
+          month: string;
         }>
       >`
         SELECT le.id,
@@ -187,8 +238,10 @@ export class EngineService {
                le.beneficiary_membership_id  AS "membershipId",
                le.level,
                le.amount_cents               AS "amountCents",
-               s.sale_date                   AS "saleDate",
-               t.timezone
+               COALESCE(
+                 s.summary_month,
+                 to_char(s.sale_date AT TIME ZONE t.timezone, 'YYYY-MM')
+               )                             AS "month"
         FROM ledger_entries le
         JOIN sales s   ON s.id = le.sale_id
         JOIN tenants t ON t.id = le.tenant_id
@@ -201,14 +254,13 @@ export class EngineService {
 
       for (const row of due) {
         await tx.ledgerEntry.update({ where: { id: row.id }, data: { status: LedgerStatus.payable } });
-        const month = monthKey(row.saleDate, row.timezone);
-        await this.bumpSummary(tx, row.tenantId, row.membershipId, month, row.level, {
+        await this.bumpSummary(tx, row.tenantId, row.membershipId, row.month, row.level, {
           pending: -row.amountCents,
           payable: row.amountCents,
         });
       }
       return { matured: due.length };
-    }, TX_OPTS);
+    });
   }
 
   // ---------------------------------------------------------------- internals
@@ -233,7 +285,14 @@ export class EngineService {
     const lines = computeCommissionLines(sale.amountCents, plan.levels, chain);
 
     const { status, maturesAt } = this.maturation(tenant, sale);
-    const month = monthKey(sale.saleDate, tenant.timezone);
+
+    // Ay anahtarini DONDUR: ilk apply'da hesapla ve satista sakla; void/mature ayni
+    // degeri kullanir (tenant.timezone sonradan degisse bile tutarli bucket).
+    const month = sale.summaryMonth ?? monthKey(sale.saleDate, tenant.timezone);
+    if (!sale.summaryMonth) {
+      await tx.sale.update({ where: { id: sale.id }, data: { summaryMonth: month } });
+      sale.summaryMonth = month;
+    }
 
     for (const line of lines) {
       await tx.ledgerEntry.create({
@@ -276,6 +335,7 @@ export class EngineService {
              amount_cents         AS "amountCents",
              status,
              sale_date            AS "saleDate",
+             summary_month        AS "summaryMonth",
              approved_at          AS "approvedAt",
              delivered_at         AS "deliveredAt"
       FROM sales
@@ -285,6 +345,12 @@ export class EngineService {
       throw new NotFoundException(`satis bulunamadi: ${saleId}`);
     }
     return rows[0];
+  }
+
+  /** summary_month NULL kalmis (apply oncesi void edilmis) satis icin son care. */
+  private async fallbackMonth(tx: Tx, sale: LockedSale): Promise<string> {
+    const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: sale.tenantId } });
+    return monthKey(sale.saleDate, tenant.timezone);
   }
 
   /** Satis tarihinde gecerli plan: effective_from <= sale_date, en yeni (SPEC 3.2 / T6). */

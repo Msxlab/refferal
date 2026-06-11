@@ -15,9 +15,9 @@ const next = () => ++seq;
 export async function truncateAll(prisma: PrismaClient): Promise<void> {
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
-      audit_logs, notifications, devices, payouts, monthly_summaries, team_stats,
-      ledger_entries, sales, commission_plan_levels, commission_plans, invites,
-      memberships, users, tenants
+      audit_logs, notifications, devices, refresh_tokens, user_tokens, payouts,
+      monthly_summaries, team_stats, ledger_entries, sales, commission_plan_levels,
+      commission_plans, invites, memberships, users, tenants
     CASCADE`);
 }
 

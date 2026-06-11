@@ -41,3 +41,29 @@ buradaki kararlar spec'in "acik karar" boslugunu doldurur, spec'i ezmez.
 - **Test stratejisi**: saf dagitim fonksiyonu (`@refearn/shared/commission`) unit testlerle,
   motor (transaction/idempotency/concurrency) gercek Postgres'e karsi entegrasyon
   testleriyle (`refearn_test` DB). T1–T10 entegrasyonda, T1/T2/T3/T8/T9 ayrica unit'te.
+
+## Inceleme bulgulari (ultracode adversarial review, 2026-06-11)
+
+Motor T1–T10 yesil olduktan sonra 5-mercekli cok-ajanli inceleme kosuldu; her bulgu
+3 bagimsiz refute denemesiyle dogrulandi. Bulgular ve duzeltmeleri (regresyon testleri:
+`apps/api/test/engine-review-fixes.int-spec.ts` B1–B4):
+
+- **B1 — void/mature ay anahtari tutarsizligi (Yuksek/para)**: `monthKey` her cagrida
+  `tenant.timezone`'dan yeniden hesaplaniyordu; tenant timezone'u apply'dan sonra degisirse
+  kredi ve dusum FARKLI `monthly_summaries` bucket'larina gidiyordu. **Cozum**: ay anahtari
+  ilk apply'da hesaplanip `sales.summary_month`'ta DONDURULUR; void/mature bu degeri kullanir.
+- **B2 — void↔mature yarisi (Yuksek/para)**: `voidSale` commission satirlarini kilitsiz
+  okuyup statuye gore summary deltasi seciyordu; eszamanli `matureCommissions` araya girip
+  `pending→payable` yaparsa bayat statu yuzunden hayalet `payable` (void edilmis satistan
+  odeme) olusuyordu. **Cozum**: void artik satirlari `SELECT ... FOR UPDATE` ile kilitleyip
+  TAZE statuyu okur; mature `SKIP LOCKED` kullandigi icin deadlock olmaz.
+- **B3 — payout silinince ledger bagi kopuyor (Orta)**: `ledger_entries.payout_id` FK
+  varsayilani SetNull'di; payout silinince `paid` satirin payout_id'si sessizce NULL oluyordu.
+  **Cozum**: FK `ON DELETE RESTRICT` — bagli satir varken payout silinemez.
+- **B4 — plan trigger yaris penceresi (Orta)**: `SUM(rate_bps) <= pool_rate_bps` DEFERRABLE
+  trigger'i kilitsiz SELECT yapiyordu; READ COMMITTED altinda eszamanli iki level commit'i
+  invariant'i asabiliyordu. **Cozum**: trigger SUM'dan once plan satirini `FOR UPDATE` ile
+  kilitler (ayni plana yazimlar serilesir).
+- **Deadlock dayanikliligi (Orta)**: eszamanli summary upsert'leri kilit sirasi farkindan
+  40P01/40001 verebilir. **Cozum**: tum motor mutasyonlari `withTxRetry` ile sarildi
+  (gecici hatada 5 kez yeniden dener).
