@@ -6,11 +6,14 @@ import Link from 'next/link';
 import { activeMembership, clearSession, getSession, isAdminRole, type Session } from '@/lib/auth';
 import { t } from '@/lib/i18n';
 
-const NAV: Array<{ href: string; key: Parameters<typeof t>[0] }> = [
-  { href: '/admin', key: 'nav.dashboard' },
-  { href: '/admin/sales', key: 'nav.sales' },
-  { href: '/admin/members', key: 'nav.members' },
-  { href: '/admin/payouts', key: 'nav.payouts' },
+const NAV: Array<{ href: string; key: Parameters<typeof t>[0]; ic: string; adminOnly?: boolean }> = [
+  { href: '/admin', key: 'nav.dashboard', ic: '◈' },
+  { href: '/admin/sales', key: 'nav.sales', ic: '◇' },
+  { href: '/admin/members', key: 'nav.members', ic: '⬡' },
+  { href: '/admin/tree', key: 'nav.tree', ic: '⤳' },
+  { href: '/admin/payouts', key: 'nav.payouts', ic: '◆', adminOnly: true },
+  { href: '/admin/audit', key: 'nav.audit', ic: '☰', adminOnly: true },
+  { href: '/admin/settings', key: 'nav.settings', ic: '⚙', adminOnly: true },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -29,8 +32,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }, [router]);
 
   if (!session) return <div className="center muted">{t('common.loading')}</div>;
-
   const active = activeMembership(session);
+  const isStaff = active?.role === 'tenant_staff';
 
   function logout() {
     clearSession();
@@ -40,18 +43,21 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <div className="shell">
       <aside className="side">
-        <div className="brand">Refearn</div>
+        <div className="brand"><span className="dot" /> Refearn</div>
         <nav>
-          {NAV.map((n) => (
+          {NAV.filter((n) => !(n.adminOnly && isStaff)).map((n) => (
             <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
-              {t(n.key)}
+              <span className="ic">{n.ic}</span>{t(n.key)}
             </Link>
           ))}
         </nav>
-        <div style={{ marginTop: 24, padding: '0 10px' }}>
-          <div className="muted" style={{ fontSize: 12 }}>{active?.tenantName}</div>
-          <div style={{ fontSize: 13, margin: '2px 0 10px' }}>{session.user.fullName}</div>
-          <button className="btn ghost sm" onClick={logout}>{t('nav.logout')}</button>
+        <div className="foot">
+          <div className="faint" style={{ fontSize: 11 }}>{active?.tenantName}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, margin: '2px 0 4px' }}>{session.user.fullName}</div>
+          <div className="row spread">
+            <span className="badge active" style={{ fontSize: 10 }}>{active?.role}</span>
+            <button className="btn ghost sm" onClick={logout}>{t('nav.logout')}</button>
+          </div>
         </div>
       </aside>
       <main className="main">{children}</main>

@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
+import { Confirm, Loading, useToast } from '@/components/ui';
 import { dateShort } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -9,7 +10,6 @@ interface MemberItem {
   id: string;
   fullName: string;
   email: string;
-  emailVerified: boolean;
   referralCode: string;
   role: string;
   status: 'active' | 'inactive';
@@ -17,135 +17,129 @@ interface MemberItem {
   sponsorReferralCode: string | null;
   joinedAt: string;
 }
-interface MembersList {
-  total: number;
-  items: MemberItem[];
-}
-
+interface MembersList { total: number; items: MemberItem[] }
 const ROLES = ['member', 'tenant_staff', 'tenant_admin'];
 
 export default function MembersPage() {
   const [list, setList] = useState<MembersList | null>(null);
+  const [search, setSearch] = useState('');
   const [error, setError] = useState('');
-  const [toast, setToast] = useState('');
+  const [toast, showToast] = useToast();
   const [sponsor, setSponsor] = useState('');
-  const [inviteCode, setInviteCode] = useState<string | null>(null);
+  const [latest, setLatest] = useState<string | null>(null);
+  const [confirmM, setConfirmM] = useState<MemberItem | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      setList(await api.get<MembersList>('/admin/members?pageSize=100'));
-    } catch (e) {
-      setError(String((e as ApiError).message));
-    }
-  }, []);
+      const q = search.trim() ? `&search=${encodeURIComponent(search.trim())}` : '';
+      setList(await api.get<MembersList>(`/admin/members?pageSize=100${q}`));
+    } catch (e) { setError(String((e as ApiError).message)); }
+  }, [search]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  function flash(msg: string) {
-    setToast(msg);
-    setTimeout(() => setToast(''), 2500);
-  }
+  useEffect(() => { void load(); }, [load]);
 
   async function invite(e: FormEvent) {
-    e.preventDefault();
-    setError('');
+    e.preventDefault(); setError('');
     try {
       const res = await api.post<{ code: string }>('/admin/members/invite', sponsor.trim() ? { sponsorReferralCode: sponsor.trim() } : {});
-      setInviteCode(res.code);
-      flash('Davet olusturuldu');
-    } catch (e) {
-      setError(String((e as ApiError).message));
-    }
+      setLatest(res.code);
+      showToast('Davet olusturuldu ✓');
+    } catch (e) { setError(String((e as ApiError).message)); }
   }
 
   async function toggleStatus(m: MemberItem) {
+    setBusy(true);
     try {
       await api.post(`/admin/members/${m.id}/${m.status === 'active' ? 'deactivate' : 'activate'}`);
+      setConfirmM(null);
       await load();
-    } catch (e) {
-      setError(String((e as ApiError).message));
-    }
+    } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
   }
 
   async function changeRole(m: MemberItem, role: string) {
-    try {
-      await api.post(`/admin/members/${m.id}/role`, { role });
-      flash('Rol guncellendi');
-      await load();
-    } catch (e) {
-      setError(String((e as ApiError).message));
-    }
+    try { await api.post(`/admin/members/${m.id}/role`, { role }); showToast('Rol guncellendi'); await load(); }
+    catch (e) { setError(String((e as ApiError).message)); }
   }
 
-  const inviteUrl = inviteCode ? `${typeof window !== 'undefined' ? window.location.origin : ''}/i/${inviteCode}` : '';
+  const inviteUrl = latest ? `${typeof window !== 'undefined' ? window.location.origin : ''}/i/${latest}` : '';
 
   return (
     <div>
-      <h1 className="h1">{t('nav.members')}</h1>
+      <div className="eyebrow fade-in">{t('nav.members')}</div>
+      <h1 className="h1 fade-in">Uye yonetimi</h1>
+      <p className="sub fade-in">Davet edin, rol atayin, pasiflestirin. Yerlesim kalicidir.</p>
 
-      <form className="card" onSubmit={invite} style={{ marginBottom: 18 }}>
+      <form className="card fade-in delay-1" onSubmit={invite} style={{ marginBottom: 16 }}>
         <div className="row" style={{ alignItems: 'flex-end' }}>
           <div style={{ flex: 1, minWidth: 200 }}>
             <label>Sponsor referral kodu (bos = kendiniz)</label>
             <input value={sponsor} onChange={(e) => setSponsor(e.target.value)} placeholder="ORN: ALICE1" />
           </div>
-          <button className="btn">{t('members.invite')}</button>
+          <button className="btn">✦ {t('members.invite')}</button>
         </div>
-        {inviteCode && (
-          <div className="muted" style={{ marginTop: 10, fontSize: 13 }}>
-            Davet linki: <span style={{ color: 'var(--accent)' }}>{inviteUrl}</span>
+        {latest && (
+          <div className="card" style={{ background: 'rgba(124,139,255,.08)', marginTop: 12, padding: 12 }}>
+            <div className="row spread">
+              <span style={{ color: 'var(--primary)', wordBreak: 'break-all' }}>{inviteUrl}</span>
+              <button type="button" className="btn ghost sm" onClick={() => { navigator.clipboard.writeText(inviteUrl); showToast('Kopyalandi ✓'); }}>Kopyala</button>
+            </div>
           </div>
         )}
       </form>
 
       {error && <div className="error">{error}</div>}
 
-      <div className="card">
-        <table>
-          <thead>
-            <tr>
-              <th>Uye</th>
-              <th>Kod</th>
-              <th>Sponsor</th>
-              <th>Sev.</th>
-              <th>{t('members.role')}</th>
-              <th>Durum</th>
-              <th>Katilim</th>
-              <th>{t('common.actions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list?.items.map((m) => (
-              <tr key={m.id}>
-                <td>{m.fullName}<div className="muted" style={{ fontSize: 12 }}>{m.email}</div></td>
-                <td>{m.referralCode}</td>
-                <td className="muted">{m.sponsorReferralCode ?? '—'}</td>
-                <td>{m.depth}</td>
-                <td>
-                  {m.role === 'tenant_owner' ? (
-                    <span className="muted">owner</span>
-                  ) : (
-                    <select value={m.role} onChange={(e) => changeRole(m, e.target.value)} style={{ width: 130 }}>
-                      {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                    </select>
-                  )}
-                </td>
-                <td><span className={`badge ${m.status}`}>{m.status}</span></td>
-                <td>{dateShort(m.joinedAt)}</td>
-                <td>
-                  {m.role !== 'tenant_owner' && (
-                    <button className="btn sm ghost" onClick={() => toggleStatus(m)}>
-                      {m.status === 'active' ? t('members.deactivate') : t('members.activate')}
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="card fade-in delay-2">
+        <div className="spread" style={{ marginBottom: 12 }}>
+          <strong>Uyeler {list && <span className="faint">({list.total})</span>}</strong>
+          <input placeholder="Ara: ad, e-posta, kod" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 240 }} />
+        </div>
+        {!list ? <Loading rows={4} /> : (
+          <table>
+            <thead><tr><th>Uye</th><th>Kod</th><th>Sponsor</th><th>Sev.</th><th>{t('members.role')}</th><th>Durum</th><th style={{ textAlign: 'right' }}>{t('common.actions')}</th></tr></thead>
+            <tbody>
+              {list.items.map((m) => (
+                <tr key={m.id}>
+                  <td>{m.fullName}<div className="faint" style={{ fontSize: 12 }}>{m.email}</div></td>
+                  <td style={{ fontFamily: 'ui-monospace, monospace' }}>{m.referralCode}</td>
+                  <td className="faint">{m.sponsorReferralCode ?? '—'}</td>
+                  <td>{m.depth}</td>
+                  <td>
+                    {m.role === 'tenant_owner' ? <span className="faint">owner</span> : (
+                      <select value={m.role} onChange={(e) => changeRole(m, e.target.value)} style={{ width: 134 }}>
+                        {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    )}
+                  </td>
+                  <td><span className={`badge ${m.status}`}>{m.status}</span></td>
+                  <td style={{ textAlign: 'right' }}>
+                    {m.role !== 'tenant_owner' && (
+                      <button className="btn ghost sm" onClick={() => setConfirmM(m)}>
+                        {m.status === 'active' ? t('members.deactivate') : t('members.activate')}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
+
+      {confirmM && (
+        <Confirm
+          title={confirmM.status === 'active' ? 'Uyeyi pasiflestir' : 'Uyeyi aktiflestir'}
+          message={confirmM.status === 'active'
+            ? `${confirmM.fullName} pasiflestirilecek. Yeni davet/giris kisitlanir; mevcut komisyon hakki korunur.`
+            : `${confirmM.fullName} yeniden aktiflestirilecek.`}
+          confirmLabel={confirmM.status === 'active' ? t('members.deactivate') : t('members.activate')}
+          danger={confirmM.status === 'active'}
+          busy={busy}
+          onConfirm={() => toggleStatus(confirmM)}
+          onClose={() => setConfirmM(null)}
+        />
+      )}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

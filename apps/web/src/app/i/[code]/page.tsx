@@ -4,6 +4,7 @@ import { FormEvent, use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
 import { landingPath, setSession, activeMembership, type Session } from '@/lib/auth';
+import { Brand, Loading } from '@/components/ui';
 import { t } from '@/lib/i18n';
 
 interface InviteResolve {
@@ -52,55 +53,55 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
     }
   }
 
-  if (loadError) {
-    return (
-      <div className="center">
-        <div className="card" style={{ width: 380, textAlign: 'center' }}>
-          <div style={{ fontWeight: 800, fontSize: 18 }}>Refearn</div>
-          <div className="error" style={{ marginTop: 12 }}>{t('reg.invalid')}</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!invite) return <div className="center muted">{t('common.loading')}</div>;
-
   return (
     <div className="center">
-      <form className="card" style={{ width: 400 }} onSubmit={onSubmit}>
-        <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 4 }}>Refearn</div>
-        <div className="muted" style={{ marginBottom: 16 }}>{t('reg.title')}</div>
+      <div className="fade-in" style={{ width: 420 }}>
+        <div style={{ textAlign: 'center', marginBottom: 20 }}><Brand size="lg" /></div>
+        <div className="card card-glow">
+          <div className="eyebrow" style={{ marginBottom: 4 }}>{t('reg.title')}</div>
 
-        {!invite.valid ? (
-          <div className="error">{t('reg.invalid')}</div>
-        ) : (
-          <>
-            <div className="card" style={{ background: 'var(--panel-2)', marginBottom: 16, padding: 12 }}>
-              <div className="muted" style={{ fontSize: 12 }}>{t('reg.tenant')}</div>
-              <div style={{ fontWeight: 600 }}>{invite.tenantName}</div>
-              <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>{t('reg.invitedBy')}</div>
-              <div>{invite.inviterName}</div>
-            </div>
-            <div className="field">
-              <label>{t('reg.fullName')}</label>
-              <input value={fullName} onChange={(e) => setFullName(e.target.value)} required minLength={2} autoFocus />
-            </div>
-            <div className="field">
-              <label>{t('login.email')}</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            </div>
-            <div className="field">
-              <label>{t('login.password')} <span className="muted">(min 10)</span></label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={10} />
-            </div>
-            {error && <div className="error">{error}</div>}
-            <button className="btn" style={{ width: '100%', justifyContent: 'center' }} disabled={busy}>
-              {busy ? t('common.loading') : t('reg.submit')}
-            </button>
-          </>
-        )}
-        <div className="muted" style={{ fontSize: 11, marginTop: 14 }}>{t('me.incomeNote')}</div>
-      </form>
+          {loadError || (invite && !invite.valid) ? (
+            <>
+              <h1 className="h1">Davet kullanilamiyor</h1>
+              <div className="error">{t('reg.invalid')}</div>
+            </>
+          ) : !invite ? (
+            <Loading rows={2} />
+          ) : (
+            <>
+              <h1 className="h1" style={{ marginBottom: 14 }}>
+                <span className="gradient-text">{invite.inviterName}</span> sizi davet etti
+              </h1>
+              <div className="card" style={{ background: 'rgba(124,139,255,.08)', padding: 14, marginBottom: 18 }}>
+                <div className="spread">
+                  <div>
+                    <div className="faint" style={{ fontSize: 11 }}>{t('reg.tenant')}</div>
+                    <div style={{ fontWeight: 700 }}>{invite.tenantName}</div>
+                  </div>
+                  <span className="badge active">Aktif davet</span>
+                </div>
+              </div>
+              <div className="field">
+                <label>{t('reg.fullName')}</label>
+                <input value={fullName} onChange={(e) => setFullName(e.target.value)} required minLength={2} autoFocus placeholder="Ad Soyad" />
+              </div>
+              <div className="field">
+                <label>{t('login.email')}</label>
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="ornek@firma.com" />
+              </div>
+              <div className="field">
+                <label>{t('login.password')} <span className="faint">(min 10)</span></label>
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={10} placeholder="••••••••••" />
+              </div>
+              {error && <div className="error">{error}</div>}
+              <button className="btn block" style={{ marginTop: 6 }} disabled={busy}>
+                {busy ? t('common.loading') : t('reg.submit')} {!busy && <span>→</span>}
+              </button>
+            </>
+          )}
+          <div className="faint" style={{ fontSize: 11, marginTop: 16, lineHeight: 1.5 }}>{t('me.incomeNote')}</div>
+        </div>
+      </div>
     </div>
   );
 }

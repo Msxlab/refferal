@@ -4,6 +4,7 @@ import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { login } from '@/lib/api';
 import { activeMembership, landingPath, setSession } from '@/lib/auth';
+import { Brand } from '@/components/ui';
 import { t } from '@/lib/i18n';
 
 export default function LoginPage() {
@@ -25,9 +26,7 @@ export default function LoginPage() {
         return;
       }
       setSession(session);
-      // rol bazli yonlendirme: admin → /admin, uye → /app
-      const active = activeMembership(session);
-      router.replace(landingPath(active?.role));
+      router.replace(landingPath(activeMembership(session)?.role));
     } catch {
       setError(t('login.error'));
       setBusy(false);
@@ -36,22 +35,28 @@ export default function LoginPage() {
 
   return (
     <div className="center">
-      <form className="card" style={{ width: 360 }} onSubmit={onSubmit}>
-        <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 4 }}>Refearn</div>
-        <div className="muted" style={{ marginBottom: 18 }}>{t('login.title')}</div>
-        <div className="field">
-          <label>{t('login.email')}</label>
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+      <div className="fade-in" style={{ width: 392 }}>
+        <div style={{ textAlign: 'center', marginBottom: 22 }}>
+          <Brand size="lg" />
+          <div className="muted" style={{ marginTop: 10 }}>Referans agini buyut, komisyonu otomatik dagit.</div>
         </div>
-        <div className="field">
-          <label>{t('login.password')}</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        </div>
-        {error && <div className="error">{error}</div>}
-        <button className="btn" style={{ width: '100%', justifyContent: 'center' }} disabled={busy}>
-          {busy ? t('common.loading') : t('login.submit')}
-        </button>
-      </form>
+        <form className="card card-glow" onSubmit={onSubmit}>
+          <div className="eyebrow" style={{ marginBottom: 4 }}>{t('login.title')}</div>
+          <h1 className="h1" style={{ marginBottom: 18 }}>Tekrar hos geldiniz</h1>
+          <div className="field">
+            <label>{t('login.email')}</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus placeholder="ornek@firma.com" />
+          </div>
+          <div className="field">
+            <label>{t('login.password')}</label>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" />
+          </div>
+          {error && <div className="error">{error}</div>}
+          <button className="btn block" style={{ marginTop: 6 }} disabled={busy}>
+            {busy ? t('common.loading') : t('login.submit')} {!busy && <span>→</span>}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

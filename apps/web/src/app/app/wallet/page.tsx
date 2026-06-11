@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
+import { Loading, MoneyCounter, useToast } from '@/components/ui';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -29,15 +30,12 @@ export default function WalletPage() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [history, setHistory] = useState<PayoutReq[]>([]);
   const [error, setError] = useState('');
-  const [toast, setToast] = useState('');
+  const [toast, showToast] = useToast();
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [w, h] = await Promise.all([
-        api.get<Wallet>('/app/wallet'),
-        api.get<PayoutReq[]>('/app/payout-requests'),
-      ]);
+      const [w, h] = await Promise.all([api.get<Wallet>('/app/wallet'), api.get<PayoutReq[]>('/app/payout-requests')]);
       setWallet(w);
       setHistory(h);
     } catch (e) {
@@ -54,8 +52,7 @@ export default function WalletPage() {
     setError('');
     try {
       await api.post('/app/payout-requests');
-      setToast(t('me.requestPayout') + ' ✓');
-      setTimeout(() => setToast(''), 2500);
+      showToast('Odeme talebiniz alindi ✓');
       await load();
     } catch (e) {
       setError(String((e as ApiError).message));
@@ -65,63 +62,62 @@ export default function WalletPage() {
   }
 
   if (error && !wallet) return <div className="error">{error}</div>;
-  if (!wallet) return <div className="muted">{t('common.loading')}</div>;
-
+  if (!wallet) return <Loading />;
   const b = wallet.balance;
+
   return (
     <div>
-      <h1 className="h1">{t('anav.wallet')}</h1>
+      <div className="eyebrow fade-in">{t('anav.wallet')}</div>
+      <h1 className="h1 fade-in">Cuzdaniniz</h1>
+      <p className="sub fade-in">Odenebilir bakiyenizi takip edin ve odeme talep edin.</p>
 
-      <div className="card" style={{ marginBottom: 18 }}>
-        <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+      <div className="card hero fade-in delay-1">
+        <div className="spread">
           <div>
-            <span className="muted">{t('me.payable')}</span>
-            <div className="bignum">{money(b.payableCents)}</div>
-            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-              {t('me.pending')}: {money(b.pendingCents)} · {t('me.paid')}: {money(b.paidCents)}
+            <div className="faint" style={{ fontSize: 12 }}>{t('me.payable')} bakiye</div>
+            <div className="bignum gradient-text" style={{ marginTop: 6 }}>
+              <MoneyCounter cents={b.payableCents} />
+            </div>
+            <div className="faint" style={{ fontSize: 12, marginTop: 8 }}>
+              {t('me.pending')}: <b className="tnum">{money(b.pendingCents)}</b> · {t('me.paid')}:{' '}
+              <b className="tnum">{money(b.paidCents)}</b>
             </div>
           </div>
-          <button className="btn" onClick={requestPayout} disabled={busy}>{t('me.requestPayout')}</button>
+          <button className="btn success" onClick={requestPayout} disabled={busy}>{t('me.requestPayout')}</button>
         </div>
         {error && <div className="error" style={{ marginTop: 10 }}>{error}</div>}
       </div>
 
-      <div className="card" style={{ marginBottom: 18 }}>
-        <strong style={{ display: 'block', marginBottom: 10 }}>{t('me.ledger')}</strong>
+      <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
+        <strong style={{ display: 'block', marginBottom: 12 }}>{t('me.ledger')}</strong>
         <table>
-          <thead>
-            <tr><th>Tarih</th><th>{t('me.level')}</th><th>Tip</th><th>Durum</th><th>Tutar</th></tr>
-          </thead>
+          <thead><tr><th>Tarih</th><th>Seviye</th><th>Tip</th><th>Durum</th><th style={{ textAlign: 'right' }}>Tutar</th></tr></thead>
           <tbody>
             {wallet.ledger.items.map((e) => (
               <tr key={e.id}>
-                <td>{dateShort(e.createdAt)}</td>
+                <td className="muted">{dateShort(e.createdAt)}</td>
                 <td>L{e.level}</td>
-                <td className="muted">{e.type}</td>
+                <td className="faint">{e.type}</td>
                 <td><span className={`badge ${e.status}`}>{e.status}</span></td>
-                <td>{money(e.amountCents)}</td>
+                <td className="tnum" style={{ textAlign: 'right', fontWeight: 650, color: Number(e.amountCents) < 0 ? 'var(--rose)' : undefined }}>{money(e.amountCents)}</td>
               </tr>
             ))}
-            {wallet.ledger.items.length === 0 && (
-              <tr><td colSpan={5} className="muted">{t('me.noData')}</td></tr>
-            )}
+            {wallet.ledger.items.length === 0 && <tr><td colSpan={5} className="muted">{t('me.noData')}</td></tr>}
           </tbody>
         </table>
       </div>
 
-      <div className="card">
-        <strong style={{ display: 'block', marginBottom: 10 }}>{t('me.payoutHistory')}</strong>
+      <div className="card fade-in delay-3" style={{ marginTop: 16 }}>
+        <strong style={{ display: 'block', marginBottom: 12 }}>{t('me.payoutHistory')}</strong>
         <table>
-          <thead>
-            <tr><th>Donem</th><th>Tutar</th><th>Durum</th><th>Tarih</th></tr>
-          </thead>
+          <thead><tr><th>Donem</th><th>Tutar</th><th>Durum</th><th>Tarih</th></tr></thead>
           <tbody>
             {history.map((p) => (
               <tr key={p.id}>
                 <td>{p.period}</td>
-                <td>{money(p.totalCents)}</td>
+                <td className="tnum">{money(p.totalCents)}</td>
                 <td><span className={`badge ${p.status}`}>{p.status}</span></td>
-                <td>{dateShort(p.paidAt)}</td>
+                <td className="muted">{dateShort(p.paidAt)}</td>
               </tr>
             ))}
             {history.length === 0 && <tr><td colSpan={4} className="muted">{t('me.noData')}</td></tr>}

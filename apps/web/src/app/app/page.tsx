@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
+import { Bars, Donut, Loading, MoneyCounter } from '@/components/ui';
 import { money } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -27,59 +28,86 @@ export default function MemberDashboard() {
   }, []);
 
   if (error) return <div className="error">{error}</div>;
-  if (!data) return <div className="muted">{t('common.loading')}</div>;
+  if (!data) return <Loading />;
 
   const c = data.currency;
-  const cards = [
-    { k: t('me.pending'), v: money(data.totals.pendingCents, c), cls: 'pending' },
-    { k: t('me.payable'), v: money(data.totals.payableCents, c), cls: 'payable' },
-    { k: t('me.paid'), v: money(data.totals.paidCents, c), cls: 'paid' },
+  const pending = Number(data.totals.pendingCents);
+  const payable = Number(data.totals.payableCents);
+  const paid = Number(data.totals.paidCents);
+  const total = pending + payable + paid;
+
+  const segs = [
+    { label: t('me.pending'), value: Math.max(0, pending), color: 'var(--amber)' },
+    { label: t('me.payable'), value: Math.max(0, payable), color: 'var(--sky)' },
+    { label: t('me.paid'), value: Math.max(0, paid), color: 'var(--emerald)' },
   ];
+
+  const levelBars = data.levels.map((l) => ({
+    label: `Seviye ${l.level}`,
+    value: Number(l.payableCents) + Number(l.pendingCents) + Number(l.paidCents),
+    color: 'var(--grad-primary)',
+  }));
 
   return (
     <div>
-      <h1 className="h1">{t('anav.home')} <span className="muted" style={{ fontSize: 14 }}>· {data.month}</span></h1>
+      <div className="eyebrow fade-in">{t('anav.home')} · {data.month}</div>
+      <h1 className="h1 fade-in">Kazanc ozetiniz</h1>
+      <p className="sub fade-in">Bu ay agacinizdan dogan komisyonlarin durumu.</p>
 
-      <div className="stat-grid" style={{ marginBottom: 18 }}>
-        {cards.map((c2) => (
-          <div className="card" key={c2.k}>
-            <div className="row" style={{ justifyContent: 'space-between' }}>
-              <span className="muted">{c2.k}</span>
-              <span className={`badge ${c2.cls}`}>{c2.cls}</span>
-            </div>
-            <div className="bignum" style={{ marginTop: 8 }}>{c2.v}</div>
+      {/* hero + donut */}
+      <div className="grid fade-in delay-1" style={{ gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', alignItems: 'stretch' }}>
+        <div className="card hero">
+          <div className="faint" style={{ fontSize: 12 }}>Bu ay toplam kazanc</div>
+          <div className="bignum gradient-text" style={{ marginTop: 6 }}>
+            <MoneyCounter cents={total} currency={c} />
           </div>
-        ))}
+          <div className="row" style={{ marginTop: 20, gap: 18 }}>
+            <Chip color="var(--amber)" label={t('me.pending')} value={money(pending, c)} />
+            <Chip color="var(--sky)" label={t('me.payable')} value={money(payable, c)} />
+            <Chip color="var(--emerald)" label={t('me.paid')} value={money(paid, c)} />
+          </div>
+        </div>
+
+        <div className="card" style={{ display: 'grid', placeItems: 'center' }}>
+          <Donut
+            segments={segs}
+            center={
+              <div>
+                <div className="faint" style={{ fontSize: 11 }}>{t('me.balance')}</div>
+                <div style={{ fontWeight: 800, fontSize: 18 }}>{money(payable, c)}</div>
+                <div className="faint" style={{ fontSize: 10 }}>{t('me.payable')}</div>
+              </div>
+            }
+          />
+        </div>
       </div>
 
-      <div className="card">
-        <strong style={{ display: 'block', marginBottom: 10 }}>{t('me.levelBreakdown')}</strong>
-        <table>
-          <thead>
-            <tr>
-              <th>{t('me.level')}</th>
-              <th>{t('me.pending')}</th>
-              <th>{t('me.payable')}</th>
-              <th>{t('me.paid')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.levels.map((l) => (
-              <tr key={l.level}>
-                <td>L{l.level}</td>
-                <td>{money(l.pendingCents, c)}</td>
-                <td>{money(l.payableCents, c)}</td>
-                <td>{money(l.paidCents, c)}</td>
-              </tr>
-            ))}
-            {data.levels.length === 0 && (
-              <tr><td colSpan={4} className="muted">{t('me.noData')}</td></tr>
-            )}
-          </tbody>
-        </table>
+      {/* seviye dokumu */}
+      <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
+        <div className="spread" style={{ marginBottom: 14 }}>
+          <strong>{t('me.levelBreakdown')}</strong>
+          <span className="faint" style={{ fontSize: 12 }}>Hangi seviyeden ne kadar kazandiniz</span>
+        </div>
+        {levelBars.length > 0 ? (
+          <Bars data={levelBars} format={(v) => money(v, c)} />
+        ) : (
+          <div className="muted">{t('me.noData')}</div>
+        )}
       </div>
 
-      <div className="muted" style={{ fontSize: 11, marginTop: 14 }}>{t('me.incomeNote')}</div>
+      <div className="faint fade-in" style={{ fontSize: 11, marginTop: 16, lineHeight: 1.5 }}>{t('me.incomeNote')}</div>
+    </div>
+  );
+}
+
+function Chip({ color, label, value }: { color: string; label: string; value: string }) {
+  return (
+    <div>
+      <div className="row" style={{ gap: 7 }}>
+        <span style={{ width: 9, height: 9, borderRadius: 3, background: color }} />
+        <span className="faint" style={{ fontSize: 11 }}>{label}</span>
+      </div>
+      <div className="tnum" style={{ fontWeight: 700, marginTop: 3 }}>{value}</div>
     </div>
   );
 }

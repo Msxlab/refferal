@@ -4,13 +4,14 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { activeMembership, clearSession, getSession, type Session } from '@/lib/auth';
+import { Brand } from '@/components/ui';
 import { t } from '@/lib/i18n';
 
-const NAV: Array<{ href: string; key: Parameters<typeof t>[0] }> = [
-  { href: '/app', key: 'anav.home' },
-  { href: '/app/wallet', key: 'anav.wallet' },
-  { href: '/app/team', key: 'anav.team' },
-  { href: '/app/invite', key: 'anav.invite' },
+const NAV: Array<{ href: string; key: Parameters<typeof t>[0]; ic: string }> = [
+  { href: '/app', key: 'anav.home', ic: '◈' },
+  { href: '/app/wallet', key: 'anav.wallet', ic: '◇' },
+  { href: '/app/team', key: 'anav.team', ic: '⬡' },
+  { href: '/app/invite', key: 'anav.invite', ic: '✦' },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -28,7 +29,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   if (!session) return <div className="center muted">{t('common.loading')}</div>;
-
   const active = activeMembership(session);
 
   function logout() {
@@ -40,15 +40,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div>
       <header className="topbar">
         <div className="inner">
-          <span className="brand">Refearn</span>
+          <Brand />
           <nav>
             {NAV.map((n) => (
               <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
-                {t(n.key)}
+                <span style={{ opacity: 0.85, marginRight: 6 }}>{n.ic}</span>{t(n.key)}
               </Link>
             ))}
           </nav>
-          <span className="muted" style={{ fontSize: 12 }}>{active?.tenantName}</span>
+          <span className="faint" style={{ fontSize: 12 }}>{active?.tenantName}</span>
           <button className="btn ghost sm" onClick={logout}>{t('nav.logout')}</button>
         </div>
       </header>

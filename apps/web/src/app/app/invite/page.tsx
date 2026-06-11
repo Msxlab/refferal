@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { api, ApiError } from '@/lib/api';
+import { Loading, useToast } from '@/components/ui';
 import { dateShort } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -17,11 +18,11 @@ interface InviteItem {
 }
 
 export default function InvitePage() {
-  const [invites, setInvites] = useState<InviteItem[]>([]);
+  const [invites, setInvites] = useState<InviteItem[] | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [latest, setLatest] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [toast, showToast] = useToast();
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const linkFor = (code: string) => `${origin}/i/${code}`;
@@ -44,7 +45,6 @@ export default function InvitePage() {
     try {
       const inv = await api.post<{ code: string }>('/app/invites', {});
       setLatest(inv.code);
-      setCopied(false);
       await load();
     } catch (e) {
       setError(String((e as ApiError).message));
@@ -55,59 +55,61 @@ export default function InvitePage() {
 
   async function copy(code: string) {
     await navigator.clipboard.writeText(linkFor(code));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    showToast(t('me.copied') + ' ✓');
   }
 
   return (
     <div>
-      <h1 className="h1">{t('anav.invite')}</h1>
+      <div className="eyebrow fade-in">{t('anav.invite')}</div>
+      <h1 className="h1 fade-in">Ekibinizi buyutun</h1>
+      <p className="sub fade-in">Davet linkinizi paylasin; katilan herkes agacinizda yer alir.</p>
 
-      <div className="card" style={{ marginBottom: 18, textAlign: 'center' }}>
-        <button className="btn" onClick={create} disabled={busy} style={{ margin: '0 auto' }}>
-          {t('me.inviteCreate')}
-        </button>
-
-        {latest && (
-          <div style={{ marginTop: 18 }}>
-            <div className="qr">
-              <QRCodeSVG value={linkFor(latest)} size={160} />
+      <div className="card card-glow fade-in delay-1" style={{ textAlign: 'center' }}>
+        {!latest ? (
+          <>
+            <div style={{ fontSize: 40, marginBottom: 8 }}>✦</div>
+            <p className="muted" style={{ marginTop: 0 }}>Yeni bir davet baglantisi olusturun.</p>
+            <button className="btn" onClick={create} disabled={busy} style={{ margin: '0 auto' }}>{t('me.inviteCreate')}</button>
+          </>
+        ) : (
+          <>
+            <div className="qr"><QRCodeSVG value={linkFor(latest)} size={172} /></div>
+            <div className="row" style={{ justifyContent: 'center', marginTop: 16 }}>
+              <input readOnly value={linkFor(latest)} style={{ maxWidth: 340 }} onFocus={(e) => e.currentTarget.select()} />
+              <button className="btn sm" onClick={() => copy(latest)}>{t('me.copy')}</button>
             </div>
-            <div className="row" style={{ justifyContent: 'center', marginTop: 12 }}>
-              <input readOnly value={linkFor(latest)} style={{ maxWidth: 320 }} />
-              <button className="btn ghost sm" onClick={() => copy(latest)}>
-                {copied ? t('me.copied') : t('me.copy')}
-              </button>
-            </div>
-          </div>
+            <button className="btn ghost sm" onClick={create} disabled={busy} style={{ margin: '14px auto 0' }}>Yeni davet</button>
+          </>
         )}
-        {error && <div className="error" style={{ marginTop: 10 }}>{error}</div>}
+        {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
       </div>
 
-      <div className="card">
-        <strong style={{ display: 'block', marginBottom: 10 }}>{t('me.myInvites')}</strong>
-        <table>
-          <thead>
-            <tr><th>Kod</th><th>Durum</th><th>Gecerlilik</th><th>Olusturma</th><th></th></tr>
-          </thead>
-          <tbody>
-            {invites.map((i) => (
-              <tr key={i.id}>
-                <td>{i.code}</td>
-                <td><span className={`badge ${i.status === 'used' ? 'paid' : i.status === 'active' ? 'payable' : 'inactive'}`}>{i.status}</span></td>
-                <td>{dateShort(i.expiresAt)}</td>
-                <td>{dateShort(i.createdAt)}</td>
-                <td>
-                  {i.status === 'active' && (
-                    <button className="btn ghost sm" onClick={() => copy(i.code)}>{t('me.copy')}</button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {invites.length === 0 && <tr><td colSpan={5} className="muted">{t('me.noData')}</td></tr>}
-          </tbody>
-        </table>
+      <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
+        <strong style={{ display: 'block', marginBottom: 12 }}>{t('me.myInvites')}</strong>
+        {!invites ? (
+          <Loading rows={2} />
+        ) : (
+          <table>
+            <thead><tr><th>Kod</th><th>Durum</th><th>Gecerlilik</th><th>Olusturma</th><th></th></tr></thead>
+            <tbody>
+              {invites.map((i) => (
+                <tr key={i.id}>
+                  <td style={{ fontFamily: 'ui-monospace, monospace' }}>{i.code}</td>
+                  <td><span className={`badge ${i.status}`}>{i.status}</span></td>
+                  <td className="muted">{dateShort(i.expiresAt)}</td>
+                  <td className="muted">{dateShort(i.createdAt)}</td>
+                  <td style={{ textAlign: 'right' }}>
+                    {i.status === 'active' && <button className="btn ghost sm" onClick={() => copy(i.code)}>{t('me.copy')}</button>}
+                  </td>
+                </tr>
+              ))}
+              {invites.length === 0 && <tr><td colSpan={5} className="muted">{t('me.noData')}</td></tr>}
+            </tbody>
+          </table>
+        )}
       </div>
+
+      {toast && <div className="toast">{toast}</div>}
     </div>
   );
 }
