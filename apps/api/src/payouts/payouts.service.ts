@@ -27,7 +27,7 @@ export class PayoutsService {
       SELECT le.beneficiary_membership_id AS "membershipId",
              m.referral_code              AS "referralCode",
              u.full_name                  AS "fullName",
-             SUM(le.amount_cents)         AS "netCents"
+             SUM(le.amount_cents)::bigint AS "netCents"
       FROM ledger_entries le
       JOIN memberships m ON m.id = le.beneficiary_membership_id
       JOIN users u       ON u.id = m.user_id
