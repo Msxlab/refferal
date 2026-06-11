@@ -8,6 +8,7 @@ import { InvitesModule } from './invites/invites.module';
 import { MeModule } from './memberships/me.module';
 import { MembersAdminModule } from './members/members.admin.module';
 import { MembershipsModule } from './memberships/memberships.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { PayoutsModule } from './payouts/payouts.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ReportsModule } from './reports/reports.module';
@@ -41,6 +42,7 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
     PayoutsModule,
     MembersAdminModule,
     ReportsModule,
+    NotificationsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
