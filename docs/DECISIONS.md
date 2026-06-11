@@ -73,3 +73,27 @@ Motor T1–T10 yesil olduktan sonra 5-mercekli cok-ajanli inceleme kosuldu; her 
 - **Deadlock dayanikliligi (Orta)**: eszamanli summary upsert'leri kilit sirasi farkindan
   40P01/40001 verebilir. **Cozum**: tum motor mutasyonlari `withTxRetry` ile sarildi
   (gecici hatada 5 kez yeniden dener).
+
+## Analiz sonrasi kritik duzeltmeler (cok-ajanli derin analiz, 2026-06-11)
+
+Admin+sistem 4-mercekli analiz + elestirmen incelemesi (462K token, 127 dosya). Bulunan
+en kritik domino ve hizli guvenlik kazanimlari ANINDA duzeltildi:
+
+- **Olgunlasma scheduler'i (MVP-kiran)**: `matureCommissions` metodu vardi ama onu cagiran
+  zamanlanmis is YOKTU. Varsayilan `on_delivery`'de `markDelivered` yalniz `matures_at`
+  doldurur, statuyu cevirmez → `pending→payable` gecisi hic olmazdi → payable hep bos →
+  payout dongusu donuk. **Cozum**: `SchedulerModule` + `@Cron('*/5')` (SchedulerService).
+  Testte kapali (cron cakismasi/yan etki), `scheduler.int-spec.ts` zinciri dogrular.
+- **Rate-limit (spec ihlaliydi)**: `@nestjs/throttler` global guard (varsayilan 120/dk),
+  auth uclari `@Throttle` ile 10/dk. MVP'de in-memory (tek instance); cok-instance icin
+  Redis store'a gecilecek. Testte `skipIf NODE_ENV==='test'`. Runtime dogrulandi (429).
+- **ActorContext modul bagimliligi**: `sales`'tan `common/actor.ts`'e tasindi; payouts/
+  members artik yaprak sales modulune bagimli degil.
+- **Secret fail-fast**: `JWT_ACCESS_SECRET` yoksa uretimde (`NODE_ENV=production`) uygulama
+  acilmaz; dev fallback korunur. `apps/api/.env`'e gercek secret eklendi (env tutarsizligi giderildi).
+
+**Henuz acik (analizde tespit, sirada/sonraki fazlar)**: uye web `/app` + public `/i/{code}`
+(siradaki is), bildirim worker'i, JWT iptali (pasiflestirilen uye 15dk yetkili), RLS +
+Prisma tenant-middleware, CSV formula-injection notrleme, e-posta dogrulama zorunlulugu,
+admin UI eksikleri (agac/audit/ayarlar sayfalari, CSV import UI, onay diyaloglari, sayfalama),
+2FA, yedek/Caddy/deploy, /healthz+gozlemlenebilirlik, 1099/income-disclosure.

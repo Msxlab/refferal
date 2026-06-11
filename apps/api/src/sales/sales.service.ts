@@ -1,14 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { MembershipStatus, Prisma, SaleStatus } from '@prisma/client';
+import { ActorContext } from '../common/actor';
 import { EngineService } from '../engine/engine.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { parseCsv } from './csv';
 import { CreateSaleInput, ListSalesInput } from './sales.types';
-
-export interface ActorContext {
-  userId: string;
-  tenantId: string;
-}
 
 @Injectable()
 export class SalesService {

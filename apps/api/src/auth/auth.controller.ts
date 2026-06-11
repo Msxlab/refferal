@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { Public } from './auth.guard';
@@ -22,6 +23,9 @@ function meta(req: Request): RequestMeta {
   return { ip: req.ip, userAgent: req.headers['user-agent']?.slice(0, 255) };
 }
 
+// Hassas kimlik uclari: brute-force/spam'e karsi siki limit (IP bazli, dk'da 10).
+// Global throttler tabani 120/dk; bu uclar daha sikidir (SPEC 10).
+@Throttle({ default: { limit: 10, ttl: 60_000 } })
 @Public()
 @Controller('auth')
 export class AuthController {

@@ -3,7 +3,7 @@ import { LedgerStatus, PayoutMethod, PayoutStatus, Prisma } from '@prisma/client
 import { EngineService } from '../engine/engine.service';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
-import { ActorContext } from '../sales/sales.service';
+import { ActorContext } from '../common/actor';
 
 @Injectable()
 export class PayoutsService {

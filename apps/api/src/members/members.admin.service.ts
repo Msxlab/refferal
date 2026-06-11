@@ -3,7 +3,7 @@ import { MembershipStatus, Prisma, Role, TenantStatus } from '@prisma/client';
 import { randomCode } from '../common/crypto';
 import { authConfig } from '../auth/auth.config';
 import { PrismaService } from '../prisma/prisma.service';
-import { ActorContext } from '../sales/sales.service';
+import { ActorContext } from '../common/actor';
 
 // Admin'in atayabilecegi roller (owner devri ve platform_admin bu uctan YAPILMAZ)
 const ASSIGNABLE_ROLES: Role[] = [Role.tenant_admin, Role.tenant_staff, Role.member];

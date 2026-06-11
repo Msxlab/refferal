@@ -3,7 +3,8 @@ import { Role } from '@prisma/client';
 import { CurrentUser, RequireMembership, Roles } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
 import { ZodValidationPipe } from '../common/zod.pipe';
-import { ActorContext, SalesService } from './sales.service';
+import { ActorContext } from '../common/actor';
+import { SalesService } from './sales.service';
 import {
   createSaleSchema,
   CreateSaleInput,
