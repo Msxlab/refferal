@@ -8,11 +8,22 @@ Mimari ve iş kuralları: **[docs/SPEC.md](docs/SPEC.md)** · Karar kaydı: **[d
 ## Yapı (pnpm + Turborepo)
 
 ```
-apps/api          NestJS + Prisma (komisyon motoru burada)
-apps/web          Next.js (public + /app + /admin + platform)  [henüz yok — Faz 1 sırası 6-7]
-apps/mobile       Expo (React Native)                          [henüz yok — Faz 1 sırası 8]
+apps/api          NestJS + Prisma (komisyon motoru burada)        — API :3101
+apps/web          Next.js — admin paneli /admin (login + sales + members + payouts) :3000
+apps/mobile       Expo (React Native)                              [henüz yok — Faz 1 sırası 8]
 packages/shared   zod şemaları, sabitler, para yardımcıları, saf komisyon çekirdeği
 ```
+
+## Çalıştırma (geliştirme)
+
+```bash
+pnpm db:up && pnpm db:migrate && pnpm db:seed   # Postgres/Redis + şema + örnek tenant
+pnpm dev:api                                    # API → http://localhost:3101/v1
+pnpm dev:web                                    # Admin web → http://localhost:3000
+```
+
+Demo giriş (seed): `owner@oppein.test` / `Refearn-Demo-2026!`. Portlar bu makinede
+kaydırıldı (Postgres 5434, Redis 6380, API 3101) — bkz. docs/DECISIONS.md.
 
 ## Kurulum
 

@@ -12,7 +12,9 @@
     "lint": "turbo run lint",
     "db:up": "docker compose up -d postgres redis",
     "db:migrate": "pnpm --filter @refearn/api db:migrate",
-    "db:seed": "pnpm --filter @refearn/api db:seed"
+    "db:seed": "pnpm --filter @refearn/api db:seed",
+    "dev:api": "pnpm --filter @refearn/api start:dev",
+    "dev:web": "pnpm --filter @refearn/web dev"
   },
   "devDependencies": {
     "prettier": "^3.5.3",

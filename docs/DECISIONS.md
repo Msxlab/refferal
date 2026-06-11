@@ -19,6 +19,12 @@ buradaki kararlar spec'in "acik karar" boslugunu doldurur, spec'i ezmez.
   Seviye tutari `floor(amount_cents * rate_bps / 10000)` — BigInt tam bolme ile.
 - **0-cent satir**: floor sonucu 0 cikan seviye icin ledger satiri YAZILMAZ (gurultu);
   eksik upline ile ayni muamele — pay sirkette kalir.
+- **Lokal portlar (bu makine)**: 5432/6379/3001 baska projelerce dolu. Refearn:
+  Postgres **5434**, Redis **6380**, API **3101** (`apps/api/.env` PORT). Web 3000.
+  Diger ortamlarda varsayilanlar serbest; yalnizca bu gelistirme makinesi icin kaydirildi.
+- **Web auth (admin SPA)**: token'lar tarayicida localStorage'da; API client 401'de bir kez
+  refresh dener, basarisizsa /login'e atar. CORS API'de `CORS_ORIGINS` ile acik. MVP tercihi;
+  uretimde httpOnly cookie'ye gecilebilir.
 - **memberships.path**: ltree-uyumlu TEXT (uuid'ler `-`→`_` cevrilip `.` ile birlestirilir).
   `ltree` extension migration'da aktif; GiST index ve ltree cast'i team_stats/agac sorgulari
   gerektirdiginde eklenecek. Motor, zinciri `sponsor_membership_id` uzerinden yuruyor
