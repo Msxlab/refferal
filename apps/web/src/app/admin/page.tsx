@@ -34,8 +34,8 @@ export default function DashboardPage() {
   return (
     <div>
       <div className="eyebrow fade-in">{t('nav.dashboard')} · {data.month}</div>
-      <h1 className="h1 fade-in">Genel bakis</h1>
-      <p className="sub fade-in">Bu donemin ciro, komisyon ve uye ozeti.</p>
+      <h1 className="h1 fade-in">{t('dash.title')}</h1>
+      <p className="sub fade-in">{t('dash.sub')}</p>
 
       <div className="grid fade-in delay-1" style={{ gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)' }}>
         <div className="card hero">
@@ -51,7 +51,7 @@ export default function DashboardPage() {
               <div className="tnum" style={{ fontWeight: 700 }}>{bps(data.thisMonth.effectiveRateBps)}</div>
             </div>
             <div>
-              <div className="faint" style={{ fontSize: 11 }}>Onayli satis</div>
+              <div className="faint" style={{ fontSize: 11 }}>{t('dash.approvedSales')}</div>
               <div className="tnum" style={{ fontWeight: 700 }}>{data.thisMonth.approvedSalesCount}</div>
             </div>
           </div>
@@ -61,11 +61,11 @@ export default function DashboardPage() {
           <Donut
             segments={[
               { label: 'Net', value: net, color: 'var(--emerald)' },
-              { label: 'Komisyon', value: commission, color: 'var(--primary)' },
+              { label: t('dash.commission'), value: commission, color: 'var(--primary)' },
             ]}
             center={
               <div>
-                <div className="faint" style={{ fontSize: 11 }}>Komisyon payi</div>
+                <div className="faint" style={{ fontSize: 11 }}>{t('dash.commissionShare')}</div>
                 <div style={{ fontWeight: 800, fontSize: 18 }}>{bps(data.thisMonth.effectiveRateBps)}</div>
               </div>
             }
@@ -74,9 +74,9 @@ export default function DashboardPage() {
       </div>
 
       <div className="stat-grid fade-in delay-2" style={{ marginTop: 16 }}>
-        <StatCard label={t('dash.payable')} value={money(data.outstandingPayableCents, c)} icon="◆" grad="var(--grad-sky)" hint="Odenmeyi bekleyen toplam" />
-        <StatCard label={t('dash.members')} value={`${data.members.active} / ${data.members.total}`} icon="⬡" grad="var(--grad-primary)" hint="Aktif / toplam" />
-        <StatCard label={t('dash.pendingReq')} value={String(data.pendingPayoutRequests)} icon="◷" grad="var(--grad-amber)" hint="Uye odeme talepleri" />
+        <StatCard label={t('dash.payable')} value={money(data.outstandingPayableCents, c)} icon="◆" hint={t('dash.payableHint')} />
+        <StatCard label={t('dash.members')} value={`${data.members.active} / ${data.members.total}`} icon="⬡" hint={t('dash.membersHint')} />
+        <StatCard label={t('dash.pendingReq')} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} />
       </div>
     </div>
   );

@@ -1,6 +1,96 @@
-// Minimal i18n (SPEC 10): varsayilan TR. Tum metinler burada (genisletilebilir).
-const tr = {
-  'app.title': 'Refearn Yonetim',
+// i18n (SPEC 10): varsayilan EN, TR opsiyonel. Tum metinler burada.
+// Aktif dil localStorage('refearn.locale'); t(key) aktif dile gore.
+const en = {
+  'app.title': 'Refearn',
+  'nav.dashboard': 'Overview',
+  'nav.sales': 'Sales',
+  'nav.members': 'Members',
+  'nav.tree': 'Network',
+  'nav.payouts': 'Payouts',
+  'nav.audit': 'Audit',
+  'nav.settings': 'Settings',
+  'nav.logout': 'Log out',
+  'login.title': 'Business sign-in',
+  'login.welcome': 'Welcome back',
+  'login.tagline': 'Grow your referral network, distribute commissions automatically.',
+  'login.email': 'Email',
+  'login.password': 'Password',
+  'login.submit': 'Sign in',
+  'login.error': 'Incorrect email or password',
+  'common.loading': 'Loading…',
+  'common.save': 'Save',
+  'common.cancel': 'Cancel',
+  'common.create': 'Create',
+  'common.refresh': 'Refresh',
+  'common.actions': 'Actions',
+  'common.total': 'Total',
+  'dash.title': 'Overview',
+  'dash.sub': 'Revenue, commission and members for this period.',
+  'dash.revenue': 'Revenue this month',
+  'dash.commission': 'Commission this month',
+  'dash.members': 'Members',
+  'dash.payable': 'Payable balance',
+  'dash.effRate': 'Effective rate',
+  'dash.pendingReq': 'Pending requests',
+  'dash.approvedSales': 'Approved sales',
+  'dash.commissionShare': 'Commission share',
+  'dash.payableHint': 'Total awaiting payout',
+  'dash.membersHint': 'Active / total',
+  'dash.requestsHint': 'Member payout requests',
+  'sales.new': 'New sale',
+  'sales.seller': 'Seller (referral code)',
+  'sales.amount': 'Amount (cents)',
+  'sales.status': 'Status',
+  'sales.approve': 'Approve',
+  'sales.void': 'Void',
+  'sales.deliver': 'Deliver',
+  'sales.import': 'Import CSV',
+  'members.invite': 'Invite',
+  'members.deactivate': 'Deactivate',
+  'members.activate': 'Activate',
+  'members.role': 'Role',
+  'payouts.payable': 'Payable',
+  'payouts.run': 'Run payouts',
+  'payouts.export': 'Export CSV',
+  'payouts.history': 'Payout history',
+  'anav.home': 'Overview',
+  'anav.wallet': 'Wallet',
+  'anav.team': 'Team',
+  'anav.invite': 'Invite',
+  'me.title': 'Your earnings',
+  'me.sub': 'How this month’s commissions from your network are doing.',
+  'me.monthTotal': 'Total this month',
+  'me.pending': 'Pending',
+  'me.payable': 'Payable',
+  'me.paid': 'Paid',
+  'me.levelBreakdown': 'Level breakdown',
+  'me.levelHint': 'How much you earned at each level',
+  'me.level': 'Level',
+  'me.balance': 'Balance',
+  'me.ledger': 'Activity',
+  'me.requestPayout': 'Request payout',
+  'me.payoutHistory': 'My payout requests',
+  'me.teamTitle': 'My team',
+  'me.members': 'People',
+  'me.activeMembers': 'Active',
+  'me.inviteCreate': 'Create invite',
+  'me.inviteLink': 'Invite link',
+  'me.copy': 'Copy',
+  'me.copied': 'Copied',
+  'me.myInvites': 'My invites',
+  'me.noData': 'No data',
+  'me.incomeNote':
+    'Past earnings are not a guarantee of future income. Commission is earned only from real product sales.',
+  'reg.title': 'Invite sign-up',
+  'reg.invalid': 'This invite is invalid or has expired',
+  'reg.fullName': 'Full name',
+  'reg.submit': 'Create account',
+  'reg.invitedBy': 'Invited by',
+  'reg.tenant': 'Business',
+};
+
+const tr: Record<keyof typeof en, string> = {
+  'app.title': 'Refearn',
   'nav.dashboard': 'Panel',
   'nav.sales': 'Satislar',
   'nav.members': 'Uyeler',
@@ -10,23 +100,32 @@ const tr = {
   'nav.settings': 'Ayarlar',
   'nav.logout': 'Cikis',
   'login.title': 'Isletme Girisi',
+  'login.welcome': 'Tekrar hos geldiniz',
+  'login.tagline': 'Referans agini buyut, komisyonu otomatik dagit.',
   'login.email': 'E-posta',
   'login.password': 'Sifre',
   'login.submit': 'Giris yap',
   'login.error': 'E-posta veya sifre hatali',
-  'common.loading': 'Yukleniyor...',
+  'common.loading': 'Yukleniyor…',
   'common.save': 'Kaydet',
   'common.cancel': 'Vazgec',
   'common.create': 'Olustur',
   'common.refresh': 'Yenile',
   'common.actions': 'Islemler',
   'common.total': 'Toplam',
+  'dash.title': 'Genel bakis',
+  'dash.sub': 'Bu donemin ciro, komisyon ve uye ozeti.',
   'dash.revenue': 'Bu ay ciro',
   'dash.commission': 'Bu ay komisyon',
   'dash.members': 'Uyeler',
   'dash.payable': 'Odenebilir bakiye',
   'dash.effRate': 'Efektif oran',
   'dash.pendingReq': 'Bekleyen talep',
+  'dash.approvedSales': 'Onayli satis',
+  'dash.commissionShare': 'Komisyon payi',
+  'dash.payableHint': 'Odenmeyi bekleyen toplam',
+  'dash.membersHint': 'Aktif / toplam',
+  'dash.requestsHint': 'Uye odeme talepleri',
   'sales.new': 'Yeni satis',
   'sales.seller': 'Satici (referral kod)',
   'sales.amount': 'Tutar (cent)',
@@ -43,21 +142,24 @@ const tr = {
   'payouts.run': 'Odeme calistir',
   'payouts.export': 'CSV indir',
   'payouts.history': 'Odeme gecmisi',
-  // uye yuzeyi (/app)
   'anav.home': 'Ozet',
   'anav.wallet': 'Cuzdan',
   'anav.team': 'Ekibim',
   'anav.invite': 'Davet',
+  'me.title': 'Kazanc ozetiniz',
+  'me.sub': 'Bu ay agacinizdan dogan komisyonlarin durumu.',
+  'me.monthTotal': 'Bu ay toplam',
   'me.pending': 'Bekleyen',
   'me.payable': 'Odenebilir',
   'me.paid': 'Odenen',
   'me.levelBreakdown': 'Seviye dokumu',
+  'me.levelHint': 'Hangi seviyeden ne kadar kazandiniz',
   'me.level': 'Seviye',
   'me.balance': 'Bakiye',
   'me.ledger': 'Hareketler',
   'me.requestPayout': 'Odeme talep et',
   'me.payoutHistory': 'Odeme taleplerim',
-  'me.teamTitle': 'Ekibim (seviye basina)',
+  'me.teamTitle': 'Ekibim',
   'me.members': 'Kisi',
   'me.activeMembers': 'Aktif',
   'me.inviteCreate': 'Davet olustur',
@@ -76,8 +178,22 @@ const tr = {
   'reg.tenant': 'Isletme',
 };
 
-export type MsgKey = keyof typeof tr;
+const dicts = { en, tr } as const;
+export type Locale = keyof typeof dicts;
+export type MsgKey = keyof typeof en;
+
+const DEFAULT_LOCALE: Locale = 'en';
+
+export function getLocale(): Locale {
+  if (typeof window === 'undefined') return DEFAULT_LOCALE;
+  const v = window.localStorage.getItem('refearn.locale');
+  return v === 'tr' || v === 'en' ? v : DEFAULT_LOCALE;
+}
+
+export function setLocale(locale: Locale): void {
+  window.localStorage.setItem('refearn.locale', locale);
+}
 
 export function t(key: MsgKey): string {
-  return tr[key] ?? key;
+  return dicts[getLocale()][key] ?? en[key] ?? key;
 }

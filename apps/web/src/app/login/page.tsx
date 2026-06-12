@@ -38,11 +38,11 @@ export default function LoginPage() {
       <div className="fade-in" style={{ width: 392 }}>
         <div style={{ textAlign: 'center', marginBottom: 22 }}>
           <Brand size="lg" />
-          <div className="muted" style={{ marginTop: 10 }}>Referans agini buyut, komisyonu otomatik dagit.</div>
+          <div className="muted" style={{ marginTop: 10 }}>{t('login.tagline')}</div>
         </div>
         <form className="card card-glow" onSubmit={onSubmit}>
           <div className="eyebrow" style={{ marginBottom: 4 }}>{t('login.title')}</div>
-          <h1 className="h1" style={{ marginBottom: 18 }}>Tekrar hos geldiniz</h1>
+          <h1 className="h1" style={{ marginBottom: 18 }}>{t('login.welcome')}</h1>
           <div className="field">
             <label>{t('login.email')}</label>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus placeholder="ornek@firma.com" />

@@ -98,6 +98,21 @@ Prisma tenant-middleware, CSV formula-injection notrleme, e-posta dogrulama zoru
 admin UI eksikleri (agac/audit/ayarlar sayfalari, CSV import UI, onay diyaloglari, sayfalama),
 2FA, yedek/Caddy/deploy, /healthz+gozlemlenebilirlik, 1099/income-disclosure.
 
+## Luxury redesign — modul kararlari (tur 1, 2026-06-12)
+
+Musteri "tasarim cok kotu, kucuk dusunuyorsun, uctan uca dusun" geri bildirimi sonrasi
+docs/DESIGN-VISION.md + docs/PRODUCT-BLUEPRINT.md olusturuldu. Gorsel yon: **Obsidian &
+Champagne** (light+dark, EN, Lucide, tabular para) — globals.css yeniden yazildi, tema toggle
++ EN-varsayilan i18n eklendi. Modul karar turu 1:
+- **Network/agac**: react-flow **org-chart** (admin) + gizlilik-korumali **radial "My Network"**
+  (uye), iki gorunum toggle. Girintili liste birakilir.
+- **RBAC**: 5 sabit rol + **gorunur izin matrisi** (Settings > Roles; aksiyon x rol). Ozel roller
+  Enterprise/Faz D.
+- **Audit/log saklama**: **1 yil sicak**, sonra sifreli Google Drive arsivine + sicak tablodan sil
+  (gece cron). Ayni mantik notifications (sent > 1 yil).
+- **Auth/hesap**: **2FA (TOTP) + aktif oturumlar + Account sayfasi** simdi kurulur (self-hosted).
+  SSO/SAML Faz 3.
+
 ## Uretim-hazirlik denetimi sonrasi "hemen kumesi" (2026-06-11)
 
 Cok-ajanli uretim-hazirlik denetimi (guvenlik-ops / yedek-DR / dolandiricilik / uyumluluk)

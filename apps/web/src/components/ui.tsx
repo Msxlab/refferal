@@ -123,7 +123,7 @@ export function StatCard({ label, value, icon, grad, hint, delay }: { label: str
     <div className={`card hover stat fade-in ${delay ?? ''}`}>
       <div className="spread">
         <span className="k">{label}</span>
-        {icon && <span className="icon" style={{ background: grad ?? 'var(--grad-primary)' }}>{icon}</span>}
+        {icon && <span className="icon" style={grad ? { background: grad } : undefined}>{icon}</span>}
       </div>
       <div className="v">{value}</div>
       {hint && <div className="faint" style={{ fontSize: 11, marginTop: 6 }}>{hint}</div>}
@@ -176,21 +176,56 @@ export function Confirm({ title, message, confirmLabel, danger, onConfirm, onClo
     <Modal title={title} onClose={onClose}>
       <p className="muted" style={{ marginTop: 0 }}>{message}</p>
       <div className="row" style={{ justifyContent: 'flex-end', marginTop: 18 }}>
-        <button className="btn ghost" onClick={onClose} disabled={busy}>Vazgec</button>
+        <button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
         <button className={`btn ${danger ? 'danger' : ''}`} onClick={onConfirm} disabled={busy}>{confirmLabel}</button>
       </div>
     </Modal>
   );
 }
 
-/* ----------------------------------------------------- marka */
+/* ----------------------------------------------------- marka (altin R monogram) */
 export function Brand({ size = 'md' }: { size?: 'md' | 'lg' }) {
-  const dot = size === 'lg' ? 32 : 24;
+  const dot = size === 'lg' ? 34 : 26;
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-      <span style={{ width: dot, height: dot, borderRadius: dot * 0.32, background: 'var(--grad-primary)', boxShadow: '0 8px 20px -6px rgba(124,139,255,.9)' }} />
-      <span style={{ fontWeight: 820, fontSize: size === 'lg' ? 22 : 17, letterSpacing: '-.01em' }}>Refearn</span>
+      <span
+        style={{
+          width: dot, height: dot, borderRadius: dot * 0.32, background: 'var(--foil)',
+          display: 'grid', placeItems: 'center', color: 'var(--on-gold)',
+          fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: dot * 0.56,
+          boxShadow: '0 8px 20px -8px rgba(212,175,55,.7)',
+        }}
+      >
+        R
+      </span>
+      <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: size === 'lg' ? 22 : 17, letterSpacing: '-.01em' }}>
+        Refearn
+      </span>
     </span>
+  );
+}
+
+/* ----------------------------------------------------- tema toggle (light/dark) */
+export function ThemeToggle() {
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  useEffect(() => {
+    const cur = (document.documentElement.getAttribute('data-theme') as 'light' | 'dark') ?? 'dark';
+    setTheme(cur);
+  }, []);
+  function toggle() {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try {
+      localStorage.setItem('refearn.theme', next);
+    } catch {
+      /* yok say */
+    }
+    setTheme(next);
+  }
+  return (
+    <button className="theme-toggle" onClick={toggle} aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
+      {theme === 'dark' ? '☾' : '☀'}
+    </button>
   );
 }
 

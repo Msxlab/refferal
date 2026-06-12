@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { activeMembership, clearSession, getSession, isAdminRole, type Session } from '@/lib/auth';
+import { ThemeToggle } from '@/components/ui';
 import { t } from '@/lib/i18n';
 
 const NAV: Array<{ href: string; key: Parameters<typeof t>[0]; ic: string; adminOnly?: boolean }> = [
@@ -43,7 +44,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <div className="shell">
       <aside className="side">
-        <div className="brand"><span className="dot" /> Refearn</div>
+        <div className="brand"><span className="dot">R</span> Refearn</div>
         <nav>
           {NAV.filter((n) => !(n.adminOnly && isStaff)).map((n) => (
             <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
@@ -56,7 +57,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <div style={{ fontSize: 13, fontWeight: 600, margin: '2px 0 4px' }}>{session.user.fullName}</div>
           <div className="row spread">
             <span className="badge active" style={{ fontSize: 10 }}>{active?.role}</span>
-            <button className="btn ghost sm" onClick={logout}>{t('nav.logout')}</button>
+            <div className="row" style={{ gap: 6 }}>
+              <ThemeToggle />
+              <button className="btn ghost sm" onClick={logout}>{t('nav.logout')}</button>
+            </div>
           </div>
         </div>
       </aside>

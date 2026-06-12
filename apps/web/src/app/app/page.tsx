@@ -51,13 +51,13 @@ export default function MemberDashboard() {
   return (
     <div>
       <div className="eyebrow fade-in">{t('anav.home')} · {data.month}</div>
-      <h1 className="h1 fade-in">Kazanc ozetiniz</h1>
-      <p className="sub fade-in">Bu ay agacinizdan dogan komisyonlarin durumu.</p>
+      <h1 className="h1 fade-in">{t('me.title')}</h1>
+      <p className="sub fade-in">{t('me.sub')}</p>
 
       {/* hero + donut */}
       <div className="grid fade-in delay-1" style={{ gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', alignItems: 'stretch' }}>
         <div className="card hero">
-          <div className="faint" style={{ fontSize: 12 }}>Bu ay toplam kazanc</div>
+          <div className="faint" style={{ fontSize: 12 }}>{t('me.monthTotal')}</div>
           <div className="bignum gradient-text" style={{ marginTop: 6 }}>
             <MoneyCounter cents={total} currency={c} />
           </div>
@@ -86,7 +86,7 @@ export default function MemberDashboard() {
       <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
         <div className="spread" style={{ marginBottom: 14 }}>
           <strong>{t('me.levelBreakdown')}</strong>
-          <span className="faint" style={{ fontSize: 12 }}>Hangi seviyeden ne kadar kazandiniz</span>
+          <span className="faint" style={{ fontSize: 12 }}>{t('me.levelHint')}</span>
         </div>
         {levelBars.length > 0 ? (
           <Bars data={levelBars} format={(v) => money(v, c)} />

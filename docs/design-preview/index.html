@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Refearn — Obsidian &amp; Champagne</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --gold-200:#F0DCA8; --gold-400:#E4C266; --gold-500:#D4AF37; --gold-600:#B8922E; --gold-800:#6B5414;
+    --foil:linear-gradient(135deg,#F0DCA8 0%,#D4AF37 45%,#B8922E 100%);
+    --pos:#23A981; --pending:#C98A2B; --neg:#E0683C; --sapphire:#5B7CFA;
+  }
+  /* DARK (Obsidian) */
+  .obsidian{
+    --bg:#08090d; --s1:#101218; --s2:#161922; --s3:#1c2029; --raised:#1e2330;
+    --text:#E9ECF4; --muted:#9aa2b6; --faint:#646b80;
+    --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.12);
+    --shadow:0 1px 2px rgba(0,0,0,.5),0 18px 50px -22px rgba(0,0,0,.8);
+    --inset:inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  /* LIGHT (Porcelain) */
+  .porcelain{
+    --bg:#EFF1F6; --s1:#FFFFFF; --s2:#F7F9FC; --s3:#EEF1F7; --raised:#FFFFFF;
+    --text:#15171E; --muted:#5a6172; --faint:#8b91a2;
+    --line:rgba(20,22,30,.10); --line2:rgba(20,22,30,.16);
+    --shadow:0 1px 2px rgba(20,22,40,.06),0 16px 40px -20px rgba(20,22,40,.22);
+    --inset:inset 0 1px 0 rgba(255,255,255,.8);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Inter,system-ui,sans-serif;background:#04050a;color:#E9ECF4;-webkit-font-smoothing:antialiased;padding:40px;line-height:1.55}
+  .wrap{max-width:1180px;margin:0 auto;display:grid;gap:34px}
+  .display{font-family:Sora,Inter,sans-serif;letter-spacing:-.02em}
+  .tnum{font-variant-numeric:tabular-nums}
+  .eyebrow{font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--gold-500)}
+  .brand{display:flex;align-items:center;gap:12px}
+  .mono{width:38px;height:38px;border-radius:11px;background:var(--foil);display:grid;place-items:center;color:#1a1404;font-family:Sora;font-weight:800;font-size:19px;box-shadow:0 8px 22px -8px rgba(212,175,55,.65)}
+  .brandtxt{font-family:Sora;font-weight:800;font-size:20px;letter-spacing:-.01em}
+  .toprow{display:flex;align-items:center;justify-content:space-between}
+  .themetag{font-size:12px;color:#7b8298;border:1px solid rgba(255,255,255,.12);padding:6px 12px;border-radius:999px}
+
+  /* showcase panel = a faux app surface */
+  .panel{background:var(--bg);border-radius:24px;padding:26px;border:1px solid var(--line);box-shadow:0 30px 80px -40px rgba(0,0,0,.9);position:relative;overflow:hidden}
+  .panel::after{content:"";position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,.025) 1px,transparent 1px);background-size:3px 3px;opacity:.5;pointer-events:none}
+  .panel .lbl{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+  .panel .lbl .name{font-size:13px;color:var(--muted)}
+  .toggle{display:flex;gap:4px;background:var(--s2);border:1px solid var(--line);border-radius:999px;padding:3px}
+  .toggle span{font-size:12px;padding:5px 12px;border-radius:999px;color:var(--faint)}
+  .toggle span.on{background:var(--raised);color:var(--text);box-shadow:var(--inset)}
+
+  .grid{display:grid;gap:14px}
+  .hero{background:var(--s1);border:1px solid var(--line);border-radius:18px;padding:22px 24px;box-shadow:var(--shadow),var(--inset);position:relative}
+  .hero::before{content:"";position:absolute;top:0;left:24px;right:24px;height:1px;background:linear-gradient(90deg,transparent,var(--gold-600),transparent);opacity:.5}
+  .hero .k{font-size:12px;color:var(--muted)}
+  .bignum{font-family:Sora;font-weight:800;font-size:46px;letter-spacing:-.02em;margin-top:4px;line-height:1.05}
+  .delta{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--pos);background:rgba(35,169,129,.12);padding:3px 9px;border-radius:999px;margin-left:10px;vertical-align:6px}
+  .sub{display:flex;gap:26px;margin-top:18px}
+  .sub .it .t{font-size:11px;color:var(--faint)}
+  .sub .it .v{font-weight:700;margin-top:2px}
+
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .card{background:var(--s1);border:1px solid var(--line);border-radius:16px;padding:16px 18px;box-shadow:var(--shadow),var(--inset)}
+  .card .row{display:flex;align-items:center;justify-content:space-between}
+  .card .ic{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;border:1px solid var(--line2)}
+  .card .val{font-family:Sora;font-weight:700;font-size:24px;margin-top:10px}
+  .card .cap{font-size:11px;color:var(--faint);margin-top:4px}
+
+  .twocol{display:grid;grid-template-columns:1.3fr 1fr;gap:14px;margin-top:14px}
+  .panelcard{background:var(--s1);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--shadow),var(--inset)}
+  .h{font-weight:600;font-size:14px;margin-bottom:14px}
+  .node{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:11px;background:var(--s2);border:1px solid var(--line);margin-bottom:8px}
+  .ava{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-weight:700;font-size:12px;color:#1a1404;background:var(--foil)}
+  .ava.b{background:rgba(91,124,250,.22);color:#cdd6ff}
+  .ava.g{background:rgba(255,255,255,.1);color:var(--muted)}
+  .node .nm{font-weight:600;font-size:13px}
+  .node .rc{font-size:11px;color:var(--faint);font-family:ui-monospace,monospace}
+  .pill{font-size:10px;font-weight:700;padding:3px 9px;border-radius:999px;display:inline-flex;align-items:center;gap:5px;border:1px solid transparent}
+  .pill.pay{color:var(--sapphire);background:rgba(91,124,250,.14)}
+  .pill.pend{color:var(--pending);background:rgba(201,138,43,.14)}
+  .pill.paid{color:var(--pos);background:rgba(35,169,129,.14)}
+  .pill::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+  .btn{background:var(--foil);color:#1a1404;font-weight:700;font-size:13px;border:none;border-radius:11px;padding:11px 16px;box-shadow:0 8px 22px -10px rgba(212,175,55,.7);cursor:pointer}
+  .btn.ghost{background:transparent;color:var(--text);border:1px solid var(--line2);box-shadow:none}
+
+  .palrow{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .palcard{background:#0e1016;border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:16px;box-shadow:0 18px 50px -30px #000}
+  .palcard.sel{border-color:var(--gold-500);box-shadow:0 0 0 1px var(--gold-600),0 18px 50px -28px rgba(212,175,55,.4)}
+  .palcard .pn{font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px}
+  .star{font-size:10px;color:#1a1404;background:var(--foil);padding:2px 8px;border-radius:999px;font-weight:800}
+  .sw{display:flex;gap:6px;margin:12px 0 10px}
+  .sw i{width:30px;height:30px;border-radius:8px;display:block;border:1px solid rgba(255,255,255,.08)}
+  .palcard .ff{font-size:11.5px;color:#9aa2b6;line-height:1.5}
+  .miniline{height:34px;width:100%}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="toprow">
+    <div class="brand"><div class="mono">R</div><div><div class="brandtxt">Refearn</div><div style="font-size:11px;color:#7b8298;margin-top:-2px">Referral commission platform</div></div></div>
+    <div class="themetag">Direction 1 · Obsidian &amp; Champagne · Dark + Light</div>
+  </div>
+
+  <!-- DARK SHOWCASE -->
+  <div class="panel obsidian">
+    <div class="lbl"><span class="name">Admin · Overview — Dark</span>
+      <div class="toggle"><span class="on">Dark</span><span>Light</span></div></div>
+
+    <div class="grid">
+      <div class="hero">
+        <div class="k">Total revenue · this month</div>
+        <div class="bignum display tnum">$596,000<span class="delta">▲ 18.4%</span></div>
+        <div class="sub">
+          <div class="it"><div class="t">Commission</div><div class="v tnum">$54,890</div></div>
+          <div class="it"><div class="t">Effective rate</div><div class="v tnum">9.20%</div></div>
+          <div class="it"><div class="t">Approved sales</div><div class="v tnum">6</div></div>
+          <div class="it"><div class="t" style="color:var(--pos)">Payable</div><div class="v tnum" style="color:var(--pos)">$44,890</div></div>
+        </div>
+      </div>
+
+      <div class="kpis">
+        <div class="card"><div class="row"><span style="font-size:12px;color:var(--muted)">Active members</span><span class="ic" style="color:var(--gold-500)">◷</span></div><div class="val tnum">9 / 9</div>
+          <svg class="miniline" viewBox="0 0 120 34"><polyline points="0,28 20,24 40,26 60,16 80,18 100,8 120,6" fill="none" stroke="#D4AF37" stroke-width="2"/></svg></div>
+        <div class="card"><div class="row"><span style="font-size:12px;color:var(--muted)">Commission paid out</span><span class="ic" style="color:var(--pos)">✓</span></div><div class="val tnum" style="color:var(--pos)">$0</div><div class="cap">0 payouts this period</div></div>
+        <div class="card"><div class="row"><span style="font-size:12px;color:var(--muted)">Pending requests</span><span class="ic" style="color:var(--pending)">◷</span></div><div class="val tnum">0</div><div class="cap">Member payout requests</div></div>
+      </div>
+
+      <div class="twocol">
+        <div class="panelcard">
+          <div class="h">Referral tree · top of network</div>
+          <div class="node"><span class="ava">O</span><div style="flex:1"><div class="nm">Oppein Owner</div><div class="rc">OPPEIN · L0</div></div><span class="pill paid">owner</span></div>
+          <div class="node" style="margin-left:18px"><span class="ava b">A</span><div style="flex:1"><div class="nm">Alice Aydin</div><div class="rc">ALICE1 · L1</div></div><span style="font-size:11px;color:var(--faint)">14 in team</span></div>
+          <div class="node" style="margin-left:36px"><span class="ava g">B</span><div style="flex:1"><div class="nm">Bob Berk</div><div class="rc">BOB1 · L2</div></div><span class="pill pay">$4,280</span></div>
+        </div>
+        <div class="panelcard">
+          <div class="h">Payouts ready</div>
+          <div style="display:flex;align-items:baseline;gap:8px"><span class="bignum display tnum" style="font-size:30px;color:var(--gold-500)">$44,890</span></div>
+          <div style="font-size:12px;color:var(--faint);margin:2px 0 16px">7 members over threshold</div>
+          <div style="display:flex;gap:10px"><button class="btn">Run payouts</button><button class="btn ghost">Export CSV</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LIGHT SHOWCASE -->
+  <div class="panel porcelain" style="box-shadow:0 30px 80px -45px rgba(20,22,50,.5)">
+    <div class="lbl"><span class="name" style="color:#5a6172">Member · Earnings — Light (Porcelain)</span>
+      <div class="toggle"><span>Dark</span><span class="on">Light</span></div></div>
+    <div class="grid">
+      <div class="twocol" style="margin:0">
+        <div class="hero">
+          <div class="k">Your earnings · this month</div>
+          <div class="bignum display tnum" style="color:#15171E">$16,200</div>
+          <div class="sub">
+            <div class="it"><div class="t">Pending</div><div class="v tnum" style="color:var(--pending)">$5,000</div></div>
+            <div class="it"><div class="t">Payable</div><div class="v tnum" style="color:var(--sapphire)">$11,200</div></div>
+            <div class="it"><div class="t">Paid</div><div class="v tnum" style="color:var(--pos)">$0</div></div>
+          </div>
+          <div style="margin-top:18px"><button class="btn">Request payout</button></div>
+        </div>
+        <div class="panelcard" style="display:grid;place-items:center">
+          <svg width="150" height="150" viewBox="0 0 150 150">
+            <circle cx="75" cy="75" r="58" fill="none" stroke="rgba(20,22,30,.07)" stroke-width="16"/>
+            <circle cx="75" cy="75" r="58" fill="none" stroke="#C98A2B" stroke-width="16" stroke-linecap="round" stroke-dasharray="76 288" transform="rotate(-90 75 75)"/>
+            <circle cx="75" cy="75" r="58" fill="none" stroke="#5B7CFA" stroke-width="16" stroke-linecap="round" stroke-dasharray="170 288" stroke-dashoffset="-76" transform="rotate(-90 75 75)"/>
+            <text x="75" y="72" text-anchor="middle" font-size="11" fill="#5a6172">Balance</text>
+            <text x="75" y="90" text-anchor="middle" font-family="Sora" font-weight="800" font-size="17" fill="#15171E">$11,200</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DIRECTIONS -->
+  <div>
+    <div class="eyebrow" style="margin-bottom:12px">Pick a visual direction</div>
+    <div class="palrow">
+      <div class="palcard sel">
+        <div class="pn">Obsidian &amp; Champagne <span class="star">RECOMMENDED</span></div>
+        <div class="sw"><i style="background:#08090d"></i><i style="background:#161922"></i><i style="background:#D4AF37"></i><i style="background:#B8922E"></i><i style="background:#5B7CFA"></i><i style="background:#23A981"></i></div>
+        <div class="ff">Obsidian surfaces + warm champagne gold. Mercury/Ramp warmth, Stripe discipline. Gold = value/reward. Calm, expensive, trustworthy.</div>
+      </div>
+      <div class="palcard">
+        <div class="pn">Porcelain &amp; Ink</div>
+        <div class="sw"><i style="background:#FAFBFE"></i><i style="background:#EEF1F7"></i><i style="background:#15171E"></i><i style="background:#D4AF37"></i><i style="background:#5B7CFA"></i><i style="background:#23A981"></i></div>
+        <div class="ff">Light-first porcelain + ink black + subtle gold. Editorial, airy, private-banking feel. Matches a luxury furniture brand.</div>
+      </div>
+      <div class="palcard">
+        <div class="pn">Onyx &amp; Emerald</div>
+        <div class="sw"><i style="background:#08090d"></i><i style="background:#161922"></i><i style="background:#1D9E75"></i><i style="background:#D4AF37"></i><i style="background:#5B7CFA"></i><i style="background:#E0683C"></i></div>
+        <div class="ff">Obsidian + dual accent: emerald (growth) with gold (reward). Energetic fintech-challenger tone — gamification &amp; growth pop.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
