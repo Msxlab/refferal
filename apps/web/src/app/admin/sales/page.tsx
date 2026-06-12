@@ -2,8 +2,9 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import { Confirm, Loading, useToast } from '@/components/ui';
+import { Confirm, Loading, Modal, useToast } from '@/components/ui';
 import { Drawer } from '@/components/Drawer';
+import { Popover } from '@/components/Popover';
 import { ImportWizard } from '@/components/ImportWizard';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
@@ -38,6 +39,7 @@ export default function SalesPage() {
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<Pending | null>(null);
   const [showImport, setShowImport] = useState(false);
+  const [showNew, setShowNew] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailId, setDetailId] = useState<string | null>(null);
   const [views, setViews] = useState<SavedView[]>([]);
@@ -75,7 +77,7 @@ export default function SalesPage() {
     setBusy(true); setError('');
     try {
       await api.post('/admin/sales', { sellerReferralCode: code.trim(), amountCents: Number(amount) });
-      setCode(''); setAmount('');
+      setCode(''); setAmount(''); setShowNew(false);
       showToast('Sale created (draft)');
       await load();
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
@@ -127,6 +129,7 @@ export default function SalesPage() {
   const selDrafts = useMemo(() => list?.items.filter((s) => selected.has(s.id) && s.status === 'draft').map((s) => s.id) ?? [], [list, selected]);
   const selVoidable = useMemo(() => list?.items.filter((s) => selected.has(s.id) && s.status !== 'void').map((s) => s.id) ?? [], [list, selected]);
   const activeFilters = filters.status || filters.q || filters.from || filters.to || filters.minCents || filters.maxCents;
+  const advCount = [filters.status, filters.from, filters.to, filters.minCents, filters.maxCents].filter(Boolean).length;
 
   return (
     <div>
@@ -135,69 +138,52 @@ export default function SalesPage() {
           <div className="eyebrow fade-in">{t('nav.sales')}</div>
           <h1 className="h1 fade-in">Sales Management</h1>
         </div>
-        <button className="btn ghost fade-in" onClick={() => setShowImport(true)}>⇪ Import sales</button>
-      </div>
-
-      <form className="card fade-in delay-1" onSubmit={createSale} style={{ marginBottom: 16 }}>
-        <div className="row" style={{ alignItems: 'flex-end' }}>
-          <div style={{ flex: 1, minWidth: 180 }}>
-            <label>{t('sales.seller')}</label>
-            <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. ALICE1" required />
-          </div>
-          <div style={{ flex: 1, minWidth: 160 }}>
-            <label>{t('sales.amount')}</label>
-            <input type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="10000000" required />
-          </div>
-          <button className="btn" disabled={busy}>+ {t('sales.new')}</button>
+        <div className="row fade-in" style={{ gap: 8 }}>
+          <button className="btn ghost" onClick={() => setShowImport(true)}>⇪ Import</button>
+          <button className="btn" onClick={() => setShowNew(true)}>＋ New sale</button>
         </div>
-        <div className="faint" style={{ fontSize: 12, marginTop: 8 }}>Amount is in cents (e.g. $100,000 = 10000000).</div>
-      </form>
+      </div>
 
       {error && <div className="error">{error}</div>}
 
-      {/* ---- filtre cubugu ---- */}
-      <div className="card fade-in delay-2" style={{ marginBottom: 14 }}>
-        <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div style={{ flex: 2, minWidth: 200 }}>
-            <label>Search</label>
-            <input value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} placeholder="Seller name, code, customer…" />
-          </div>
-          <div style={{ minWidth: 130 }}>
-            <label>Status</label>
-            <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
-              {STATUSES.map((s) => <option key={s} value={s}>{s || 'All statuses'}</option>)}
-            </select>
-          </div>
-          <div style={{ minWidth: 130 }}>
-            <label>From</label>
-            <input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} />
-          </div>
-          <div style={{ minWidth: 130 }}>
-            <label>To</label>
-            <input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} />
-          </div>
-          <div style={{ width: 120 }}>
-            <label>Min (¢)</label>
-            <input type="number" min={0} value={filters.minCents} onChange={(e) => setFilters({ ...filters, minCents: e.target.value })} />
-          </div>
-          <div style={{ width: 120 }}>
-            <label>Max (¢)</label>
-            <input type="number" min={0} value={filters.maxCents} onChange={(e) => setFilters({ ...filters, maxCents: e.target.value })} />
-          </div>
-        </div>
-        <div className="row" style={{ gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span className="faint" style={{ fontSize: 12 }}>Saved views:</span>
-          {views.length === 0 && <span className="faint" style={{ fontSize: 12 }}>none yet</span>}
-          {views.map((v) => (
-            <span key={v.name} className="row" style={{ gap: 4 }}>
-              <button className="btn ghost sm" onClick={() => setFilters(v.filters)}>{v.name}</button>
-              <button className="faint" onClick={() => deleteView(v.name)} aria-label={`Delete ${v.name}`} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>✕</button>
-            </span>
-          ))}
-          <span style={{ flex: 1 }} />
-          {activeFilters && <button className="btn ghost sm" onClick={() => setFilters(EMPTY)}>Clear</button>}
-          <button className="btn ghost sm" onClick={saveView}>＋ Save view</button>
-        </div>
+      {/* ---- ince arac cubugu: ara + filtreler (talep uzerine) + kayitli gorunumler ---- */}
+      <div className="row fade-in delay-1" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '14px 0' }}>
+        <input value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })}
+          placeholder="🔍  Search seller, code, customer…" style={{ flex: 1, minWidth: 200, maxWidth: 360 }} />
+
+        <Popover label={<>Filters</>} badge={advCount} width={300}>
+          {(close) => (
+            <div className="grid" style={{ gap: 12 }}>
+              <div className="field" style={{ margin: 0 }}>
+                <label>Status</label>
+                <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
+                  {STATUSES.map((s) => <option key={s} value={s}>{s || 'All statuses'}</option>)}
+                </select>
+              </div>
+              <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div className="field" style={{ margin: 0 }}><label>From</label><input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} /></div>
+                <div className="field" style={{ margin: 0 }}><label>To</label><input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} /></div>
+                <div className="field" style={{ margin: 0 }}><label>Min (¢)</label><input type="number" min={0} value={filters.minCents} onChange={(e) => setFilters({ ...filters, minCents: e.target.value })} /></div>
+                <div className="field" style={{ margin: 0 }}><label>Max (¢)</label><input type="number" min={0} value={filters.maxCents} onChange={(e) => setFilters({ ...filters, maxCents: e.target.value })} /></div>
+              </div>
+              <div className="row" style={{ justifyContent: 'space-between' }}>
+                <button className="btn ghost sm" onClick={() => setFilters({ ...EMPTY, q: filters.q })}>Reset</button>
+                <button className="btn sm" onClick={close}>Done</button>
+              </div>
+            </div>
+          )}
+        </Popover>
+
+        {views.map((v) => (
+          <span key={v.name} className="row" style={{ gap: 3 }}>
+            <button className="btn ghost sm" onClick={() => setFilters(v.filters)}>{v.name}</button>
+            <button className="faint" onClick={() => deleteView(v.name)} aria-label={`Delete ${v.name}`} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>✕</button>
+          </span>
+        ))}
+
+        <span style={{ flex: 1 }} />
+        {activeFilters && <button className="btn ghost sm" onClick={() => setFilters(EMPTY)}>Clear</button>}
+        <button className="btn ghost sm" onClick={saveView}>＋ Save view</button>
       </div>
 
       {/* ---- tablo ---- */}
@@ -260,6 +246,21 @@ export default function SalesPage() {
           onConfirm={() => act(confirm)}
           onClose={() => setConfirm(null)}
         />
+      )}
+
+      {showNew && (
+        <Modal title="Record a sale" onClose={() => setShowNew(false)}>
+          <form onSubmit={createSale} style={{ width: 'min(420px, 88vw)' }}>
+            <div className="field"><label>{t('sales.seller')}</label><input value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. ALICE1" required autoFocus /></div>
+            <div className="field"><label>{t('sales.amount')} (cents)</label><input type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="10000000" required /></div>
+            <div className="faint" style={{ fontSize: 12 }}>e.g. $100,000 = 10000000</div>
+            {error && <div className="error">{error}</div>}
+            <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+              <button type="button" className="btn ghost" onClick={() => setShowNew(false)} disabled={busy}>Cancel</button>
+              <button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Create draft'}</button>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {showImport && <ImportWizard onClose={() => setShowImport(false)} onDone={(n) => { setShowImport(false); showToast(`${n} sales imported`); void load(); }} />}

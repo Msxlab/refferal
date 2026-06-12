@@ -232,7 +232,9 @@ export class ReportsService {
         entity: a.entity,
         entityId: a.entityId,
         actorUserId: a.actorUserId,
+        before: a.before,
         after: a.after,
+        ip: a.ip,
         createdAt: a.createdAt,
       })),
     };

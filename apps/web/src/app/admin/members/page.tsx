@@ -2,8 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import { Confirm, Loading, useToast } from '@/components/ui';
-import { dateShort } from '@/lib/format';
+import { Confirm, Loading, Modal, useToast } from '@/components/ui';
 import { t } from '@/lib/i18n';
 
 interface MemberItem {
@@ -29,6 +28,7 @@ export default function MembersPage() {
   const [latest, setLatest] = useState<string | null>(null);
   const [confirmM, setConfirmM] = useState<MemberItem | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -66,34 +66,24 @@ export default function MembersPage() {
 
   return (
     <div>
-      <div className="eyebrow fade-in">{t('nav.members')}</div>
-      <h1 className="h1 fade-in">Member Management</h1>
-      <p className="sub fade-in">Invite members, assign roles, deactivate. Placement is permanent.</p>
-
-      <form className="card fade-in delay-1" onSubmit={invite} style={{ marginBottom: 16 }}>
-        <div className="row" style={{ alignItems: 'flex-end' }}>
-          <div style={{ flex: 1, minWidth: 200 }}>
-            <label>Sponsor referral code (blank = yourself)</label>
-            <input value={sponsor} onChange={(e) => setSponsor(e.target.value)} placeholder="e.g. ALICE1" />
-          </div>
-          <button className="btn">✦ {t('members.invite')}</button>
+      <div className="spread">
+        <div>
+          <div className="eyebrow fade-in">{t('nav.members')}</div>
+          <h1 className="h1 fade-in">Member Management</h1>
+          <p className="sub fade-in">Invite members, assign roles, deactivate. Placement is permanent.</p>
         </div>
-        {latest && (
-          <div className="card" style={{ background: 'rgba(124,139,255,.08)', marginTop: 12, padding: 12 }}>
-            <div className="row spread">
-              <span style={{ color: 'var(--primary)', wordBreak: 'break-all' }}>{inviteUrl}</span>
-              <button type="button" className="btn ghost sm" onClick={() => { navigator.clipboard.writeText(inviteUrl); showToast('Copied ✓'); }}>Copy</button>
-            </div>
-          </div>
-        )}
-      </form>
+        <button className="btn fade-in" onClick={() => { setLatest(null); setShowInvite(true); }}>✦ {t('members.invite')}</button>
+      </div>
 
       {error && <div className="error">{error}</div>}
+
+      <div className="row fade-in delay-1" style={{ margin: '14px 0' }}>
+        <input placeholder="🔍  Search name, email or code…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ flex: 1, maxWidth: 360 }} />
+      </div>
 
       <div className="card fade-in delay-2">
         <div className="spread" style={{ marginBottom: 12 }}>
           <strong>Members {list && <span className="faint">({list.total})</span>}</strong>
-          <input placeholder="Search: name, email, code" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 240 }} />
         </div>
         {!list ? <Loading rows={4} /> : (
           <table>
@@ -126,6 +116,31 @@ export default function MembersPage() {
           </table>
         )}
       </div>
+
+      {showInvite && (
+        <Modal title="Invite a member" onClose={() => setShowInvite(false)}>
+          <form onSubmit={invite} style={{ width: 'min(440px, 88vw)' }}>
+            <div className="field">
+              <label>Sponsor referral code (blank = yourself)</label>
+              <input value={sponsor} onChange={(e) => setSponsor(e.target.value)} placeholder="e.g. ALICE1" autoFocus />
+            </div>
+            {error && <div className="error">{error}</div>}
+            {latest ? (
+              <div className="card" style={{ background: 'rgba(124,139,255,.08)', padding: 12, marginTop: 4 }}>
+                <div className="faint" style={{ fontSize: 11, marginBottom: 6 }}>Invite link — share it:</div>
+                <div className="row spread" style={{ gap: 8 }}>
+                  <span style={{ color: 'var(--sky)', wordBreak: 'break-all', fontSize: 12.5 }}>{inviteUrl}</span>
+                  <button type="button" className="btn ghost sm" onClick={() => { navigator.clipboard.writeText(inviteUrl); showToast('Copied ✓'); }}>Copy</button>
+                </div>
+              </div>
+            ) : null}
+            <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+              <button type="button" className="btn ghost" onClick={() => setShowInvite(false)}>{latest ? 'Done' : 'Cancel'}</button>
+              <button className="btn">✦ {latest ? 'New invite' : t('members.invite')}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
 
       {confirmM && (
         <Confirm
