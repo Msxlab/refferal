@@ -4,6 +4,10 @@ import { randomCode } from '../common/crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { authConfig } from '../auth/auth.config';
 
+// Davet limitleri (sybil/spam onleme) — uye basina
+const MAX_ACTIVE_INVITES = 50;
+const MAX_INVITES_PER_DAY = 20;
+
 @Injectable()
 export class InvitesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -19,6 +23,23 @@ export class InvitesService {
     }
     if (inviter.tenant.status !== TenantStatus.active) {
       throw new BadRequestException('isletme aktif degil');
+    }
+
+    // Dolandiricilik kapisi: sinirsiz davet -> sybil agac sismesi. Uye basina cap.
+    const [activeCount, todayCount] = await Promise.all([
+      this.prisma.invite.count({ where: { inviterMembershipId: inviter.id, status: InviteStatus.active } }),
+      this.prisma.invite.count({
+        where: {
+          inviterMembershipId: inviter.id,
+          createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+        },
+      }),
+    ]);
+    if (activeCount >= MAX_ACTIVE_INVITES) {
+      throw new BadRequestException(`en fazla ${MAX_ACTIVE_INVITES} aktif davetiniz olabilir`);
+    }
+    if (todayCount >= MAX_INVITES_PER_DAY) {
+      throw new BadRequestException(`gunluk davet limitine ulastiniz (${MAX_INVITES_PER_DAY})`);
     }
 
     for (let attempt = 0; attempt < 5; attempt++) {

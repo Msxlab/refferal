@@ -5,6 +5,7 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  Logger,
   SetMetadata,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -36,6 +37,8 @@ export const CurrentUser = createParamDecorator((_: unknown, ctx: ExecutionConte
  */
 @Injectable()
 export class AccessTokenGuard implements CanActivate {
+  private readonly logger = new Logger(AccessTokenGuard.name);
+
   constructor(
     private readonly jwt: JwtService,
     private readonly reflector: Reflector,
@@ -70,6 +73,10 @@ export class AccessTokenGuard implements CanActivate {
     const roles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, targets);
     if (roles?.length) {
       if (!payload.role || !roles.includes(payload.role)) {
+        // yetki ihlali: tespit/forensics icin logla (DB yazimi guard'da agir, structured log yeterli)
+        this.logger.warn(
+          `[security] authz_denied user=${payload.sub} role=${payload.role} need=${roles.join('|')} ${req.method} ${req.url}`,
+        );
         throw new ForbiddenException('bu islem icin yetkiniz yok');
       }
     }

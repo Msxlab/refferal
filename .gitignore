@@ -11,3 +11,6 @@ coverage/
 !.env.local.example
 uploads/
 .DS_Store
+# Yedek sirlari (service account JSON, age private key) — ASLA commit edilmez
+docker/backup/secrets/*
+!docker/backup/secrets/.gitkeep

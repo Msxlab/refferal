@@ -18,6 +18,7 @@ const updateSchema = z.object({
   notifyNewMemberName: z.boolean().optional(),
   compressionEnabled: z.boolean().optional(),
   inactiveMembersEarn: z.boolean().optional(),
+  requireSeparateApprover: z.boolean().optional(),
 });
 type UpdateBody = z.infer<typeof updateSchema>;
 

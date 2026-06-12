@@ -103,6 +103,9 @@ model Tenant {
   compressionEnabled  Boolean        @default(false) @map("compression_enabled")
   inactiveMembersEarn Boolean        @default(true) @map("inactive_members_earn")
   notifyNewMemberName Boolean        @default(true) @map("notify_new_member_name")
+  // Gorevler ayrimi (maker-checker): satisi giren onaylayamaz. Varsayilan kapali
+  // (tek-admin tenant'lari kirmasin); kapali iken self-onay audit'te isaretlenir.
+  requireSeparateApprover Boolean    @default(false) @map("require_separate_approver")
   branding            Json           @default("{}")
   status              TenantStatus   @default(active)
   createdAt           DateTime       @default(now()) @map("created_at")
@@ -278,6 +281,7 @@ model Sale {
   amountCents        BigInt     @map("amount_cents")
   currency           String     @default("USD")
   customerRef        String?    @map("customer_ref")
+  createdBy          String?    @map("created_by") @db.Uuid
   saleDate           DateTime   @map("sale_date")
   // monthly_summaries ay anahtari ilk apply'da DONDURULUR (tenant.timezone sonradan
   // degisse bile kredi/dusum ayni bucket'a gider — bkz. DECISIONS "Inceleme bulgulari").

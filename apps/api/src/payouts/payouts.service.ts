@@ -152,6 +152,18 @@ export class PayoutsService {
 
   /** Uye payout talebi (SPEC 8): net payable >= esik ise 'requested' kayit. */
   async requestPayout(membershipId: string, tenantId: string) {
+    // Dolandiricilik kapisi: dogrulanmamis (sybil) hesap kazanc cekemesin.
+    const membership = await this.prisma.membership.findFirst({
+      where: { id: membershipId, tenantId },
+      select: { user: { select: { emailVerifiedAt: true } } },
+    });
+    if (!membership) {
+      throw new BadRequestException('uyelik bulunamadi');
+    }
+    if (!membership.user.emailVerifiedAt) {
+      throw new BadRequestException('odeme talebi icin e-posta adresinizi dogrulamaniz gerekir');
+    }
+
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const agg = await this.prisma.ledgerEntry.aggregate({
       where: { tenantId, beneficiaryMembershipId: membershipId, status: LedgerStatus.payable },

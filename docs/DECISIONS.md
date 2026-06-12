@@ -97,3 +97,30 @@ en kritik domino ve hizli guvenlik kazanimlari ANINDA duzeltildi:
 Prisma tenant-middleware, CSV formula-injection notrleme, e-posta dogrulama zorunlulugu,
 admin UI eksikleri (agac/audit/ayarlar sayfalari, CSV import UI, onay diyaloglari, sayfalama),
 2FA, yedek/Caddy/deploy, /healthz+gozlemlenebilirlik, 1099/income-disclosure.
+
+## Uretim-hazirlik denetimi sonrasi "hemen kumesi" (2026-06-11)
+
+Cok-ajanli uretim-hazirlik denetimi (guvenlik-ops / yedek-DR / dolandiricilik / uyumluluk)
+sonrasi yuksek-getirili hizli sertlestirmeler uygulandi:
+- **trust proxy + helmet**: `app.set('trust proxy', 1)` (Caddy arkasinda gercek IP cozulur —
+  rate-limit/audit/IP-tespit bunsuz etkisizdi) + helmet (API); Caddyfile guvenlik basliklari
+  (HSTS/X-Frame-Options DENY/nosniff/Referrer-Policy, -Server).
+- **SoD maker-checker**: `Sale.createdBy` + `Tenant.requireSeparateApprover` (varsayilan kapali).
+  Acikken satisi giren onaylayamaz; kapaliyken self-onay `security.self_approved_sale` audit'iyle
+  isaretlenir. Admin ayarlar sayfasinda toggle.
+- **E-posta dogrulama kapisi**: payout talebi `emailVerifiedAt` doluya bagli (sybil hesap kazanc
+  cekemez). **Davet cap**: uye basina 50 aktif + 20/gun (sybil agac sismesi).
+- **Guvenlik olay logu**: `security.login_failed`, `security.refresh_reuse_detected` audit + warn;
+  guard'da `authz_denied` structured log (tespit/forensics tabani).
+- **Yedek sertlestirme**: backup.sh `set -euo pipefail` + atomik `.part`->`mv` + retention yalniz
+  basarili dumptan sonra & MIN_KEEP korumasi (onceki kod bozuk gunlerde saglam yedekleri silebilirdi).
+  Opsiyonel **age sifreleme** + offsite + alarm.
+- **Google Drive offsite**: `docker/backup/Dockerfile` (postgres+rclone+age), compose'da rclone-env
+  ile Google Drive remote'u, `BACKUP_OFFSITE_CMD`, sifreli `.sql.gz.age`, `restore-test.sh` haftalik
+  tatbikat. Kurulum + service-account adimlari docs/DEPLOY.md'de. Sirlar `docker/backup/secrets/`
+  (gitignore). Test: 60 entegrasyon yesil.
+
+**Kalan oncelikli acik (denetim yol haritasi)**: kill-switch uclari (tenant/uye suspend + token
+iptali), payout anomali/velocity, JWT iptali (para uclarinda DB-teyit), Sentry+merkezi log+alarm,
+self-sale engeli, KYC/odeme profili, RLS, 2FA, 1099/TIN, FTC income-disclosure, money-transmitter
+hukuki gorus, PITR/WAL. Tam liste denetim raporunda (sohbet) + bu listede.

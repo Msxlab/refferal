@@ -43,6 +43,7 @@ export class SalesService {
         saleDate: input.saleDate ?? new Date(),
         customerRef: input.customerRef,
         externalRef: input.externalRef,
+        createdBy: actor.userId, // gorevler ayrimi: onaylayan bu kisi olamaz
         status: SaleStatus.draft,
       },
     });
@@ -134,6 +135,7 @@ export class SalesService {
             saleDate,
             customerRef: idx.customer >= 0 ? cells[idx.customer]?.trim() || undefined : undefined,
             externalRef: idx.external >= 0 ? cells[idx.external]?.trim() || undefined : undefined,
+            createdBy: actor.userId,
             status: SaleStatus.draft,
           },
         });

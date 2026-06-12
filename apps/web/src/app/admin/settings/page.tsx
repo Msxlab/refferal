@@ -16,6 +16,7 @@ interface Settings {
   notifyNewMemberName: boolean;
   compressionEnabled: boolean;
   inactiveMembersEarn: boolean;
+  requireSeparateApprover: boolean;
 }
 
 const MATURATION = [
@@ -47,6 +48,7 @@ export default function SettingsPage() {
         notifyNewMemberName: s.notifyNewMemberName,
         compressionEnabled: s.compressionEnabled,
         inactiveMembersEarn: s.inactiveMembersEarn,
+        requireSeparateApprover: s.requireSeparateApprover,
       });
       setS(res);
       showToast('Ayarlar kaydedildi ✓');
@@ -87,6 +89,7 @@ export default function SettingsPage() {
           <input value={s.timezone} onChange={(e) => setS({ ...s, timezone: e.target.value })} />
         </div>
 
+        <Toggle label="Gorevler ayrimi: satisi giren onaylayamasin (maker-checker)" checked={s.requireSeparateApprover} onChange={(v) => setS({ ...s, requireSeparateApprover: v })} />
         <Toggle label="Yeni katilim bildiriminde uye adini goster" checked={s.notifyNewMemberName} onChange={(v) => setS({ ...s, notifyNewMemberName: v })} />
         <Toggle label="Pasif uye komisyon almaya devam etsin" checked={s.inactiveMembersEarn} onChange={(v) => setS({ ...s, inactiveMembersEarn: v })} />
         <Toggle label="Compression (pasifi atla) — gelismis" checked={s.compressionEnabled} onChange={(v) => setS({ ...s, compressionEnabled: v })} />

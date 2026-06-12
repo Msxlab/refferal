@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   LedgerStatus,
   LedgerType,
@@ -24,6 +24,7 @@ interface LockedSale {
   status: SaleStatus;
   saleDate: Date;
   summaryMonth: string | null;
+  createdBy: string | null;
   approvedAt: Date | null;
   deliveredAt: Date | null;
 }
@@ -99,6 +100,18 @@ export class EngineService {
         throw new ConflictException('void edilmis satis onaylanamaz');
       }
       if (sale.status === SaleStatus.draft) {
+        // Gorevler ayrimi (maker-checker): satisi giren onaylayamaz.
+        const selfApproval = !!actorUserId && !!sale.createdBy && sale.createdBy === actorUserId;
+        if (selfApproval) {
+          const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: sale.tenantId } });
+          if (tenant.requireSeparateApprover) {
+            throw new ForbiddenException('satisi giren kisi onaylayamaz (gorevler ayrimi)');
+          }
+          // ayar kapaliyken engellemiyoruz ama guvenlik sinyali olarak audit'e isaretliyoruz
+          await this.audit(tx, sale.tenantId, actorUserId, 'security.self_approved_sale', saleId, {}, {
+            createdBy: sale.createdBy,
+          });
+        }
         const approvedAt = new Date();
         await tx.sale.update({
           where: { id: saleId },
@@ -434,6 +447,7 @@ export class EngineService {
              status,
              sale_date            AS "saleDate",
              summary_month        AS "summaryMonth",
+             created_by           AS "createdBy",
              approved_at          AS "approvedAt",
              delivered_at         AS "deliveredAt"
       FROM sales

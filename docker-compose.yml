@@ -96,15 +96,27 @@ services:
 
   backup:
     profiles: ["app"]
-    image: postgres:17
+    build:
+      context: .
+      dockerfile: docker/backup/Dockerfile
     environment:
       DATABASE_URL: postgresql://refearn:refearn@postgres:5432/refearn
       RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      # age public key — set edilirse yedek SIFRELI yazilir (offsite'e sifreli cikar)
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
+      # offsite kopya komutu; $1 = yedek dosya yolu (orn. rclone copyto "$1" gdrive:)
       BACKUP_OFFSITE_CMD: ${BACKUP_OFFSITE_CMD:-}
-    entrypoint: ["sh", "/backup.sh"]
+      BACKUP_ALERT_CMD: ${BACKUP_ALERT_CMD:-}
+      # rclone Google Drive remote'u env ile (rclone.conf dosyasi gerekmez)
+      RCLONE_CONFIG_GDRIVE_TYPE: drive
+      RCLONE_CONFIG_GDRIVE_SCOPE: drive.file
+      RCLONE_CONFIG_GDRIVE_SERVICE_ACCOUNT_FILE: /secrets/gdrive.json
+      RCLONE_CONFIG_GDRIVE_ROOT_FOLDER_ID: ${GDRIVE_FOLDER_ID:-}
+      # restore-test icin private age key yolu (opsiyonel)
+      AGE_IDENTITY_FILE: ${AGE_IDENTITY_FILE:-/secrets/age.key}
     volumes:
-      - ./docker/backup/backup.sh:/backup.sh:ro
       - backups:/backups
+      - ./docker/backup/secrets:/secrets:ro
     depends_on:
       postgres:
         condition: service_healthy

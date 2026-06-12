@@ -11,6 +11,7 @@ export interface UpdateSettingsInput {
   notifyNewMemberName?: boolean;
   compressionEnabled?: boolean;
   inactiveMembersEarn?: boolean;
+  requireSeparateApprover?: boolean;
 }
 
 @Injectable()
@@ -30,6 +31,7 @@ export class SettingsService {
       notifyNewMemberName: t.notifyNewMemberName,
       compressionEnabled: t.compressionEnabled,
       inactiveMembersEarn: t.inactiveMembersEarn,
+      requireSeparateApprover: t.requireSeparateApprover,
       branding: t.branding,
     };
   }
@@ -47,6 +49,7 @@ export class SettingsService {
         notifyNewMemberName: input.notifyNewMemberName,
         compressionEnabled: input.compressionEnabled,
         inactiveMembersEarn: input.inactiveMembersEarn,
+        requireSeparateApprover: input.requireSeparateApprover,
       },
     });
 

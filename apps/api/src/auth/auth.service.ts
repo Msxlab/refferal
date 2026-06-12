@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -59,6 +60,16 @@ type ActiveMembership = Membership & {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
+  /** Guvenlik olayi: structured log + audit (tespit/forensics icin). */
+  private async securityEvent(action: string, payload: object, userId?: string): Promise<void> {
+    this.logger.warn(`[security] ${action} ${JSON.stringify(payload)}`);
+    await this.prisma.auditLog.create({
+      data: { actorUserId: userId ?? null, action, entity: 'security', after: payload },
+    });
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
@@ -189,6 +200,7 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { email: input.email } });
     const ok = await safeVerify(user?.passwordHash ?? (await dummyHash()), input.password);
     if (!user || !ok) {
+      await this.securityEvent('security.login_failed', { email: input.email, ip: meta.ip }, user?.id);
       throw new UnauthorizedException('e-posta veya sifre hatali');
     }
     return this.issueSession(user.id, meta);
@@ -207,6 +219,8 @@ export class AuthService {
         where: { userId: token.userId, revokedAt: null },
         data: { revokedAt: new Date() },
       });
+      // kritik guvenlik olayi: tespit/forensics icin logla + audit'le
+      await this.securityEvent('security.refresh_reuse_detected', { ip: meta.ip }, token.userId);
       throw new UnauthorizedException('refresh token yeniden kullanimi tespit edildi');
     }
     if (token.expiresAt < new Date()) {

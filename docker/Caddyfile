@@ -4,6 +4,16 @@
 	# NOT: compose DOMAIN'i ":80" veya alan adi olarak gecirir; ":80" ise duz HTTP.
 	encode gzip zstd
 
+	# Guvenlik basliklari (clickjacking/MIME-sniff/XSS yuzeyi + HSTS).
+	# HSTS yalniz gercek HTTPS modunda anlamli; ":80" lokal modda tarayici yok sayar.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
 	# API: /v1/* ve /healthz → NestJS (api servisi). Prefix korunur (api globalPrefix=v1).
 	handle /v1/* {
 		reverse_proxy api:3001

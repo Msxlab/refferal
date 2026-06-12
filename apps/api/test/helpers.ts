@@ -83,6 +83,7 @@ export async function createChain(
         email: `user-${k}@test.refearn.local`,
         passwordHash: 'test-only',
         fullName: `User ${k}`,
+        emailVerifiedAt: new Date(), // test uyeleri dogrulanmis sayilir (payout kapisi)
       },
     });
     const member: Membership = await prisma.membership.create({
