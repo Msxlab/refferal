@@ -64,11 +64,13 @@ function MemberNode({ data }: NodeProps<Node<NodeData>>) {
 const nodeTypes = { member: MemberNode };
 
 export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]; title?: string }) {
-  const [view, setView] = useState<'tree' | 'list'>('tree');
+  const [view, setView] = useState<'tree' | 'list'>('list');
   const [focusId, setFocusId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<ApiNode | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<'dark' | 'light'>('dark');
+  const toggleExpand = (id: string) => setExpanded((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   useEffect(() => {
     setMode((document.documentElement.getAttribute('data-theme') as 'dark' | 'light') ?? 'dark');
@@ -149,16 +151,39 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
     return { rfNodes: ns, rfEdges: es };
   }, [subtree, roots, focusId, teamOf, childrenOf, matches]);
 
-  /* ---- liste (girintili DFS) ---- */
+  /* ---- liste = koleps-edilebilir klasor agaci. Kapali baslar (yalniz kokler = ilk kisiler).
+         Arama: eslesen + atalari acik gosterilir. ---- */
+  const sortKids = (n: ApiNode) => (childrenOf.get(n.id) ?? []).slice().sort((a, b) => a.fullName.localeCompare(b.fullName));
   const listRows = useMemo(() => {
-    const out: Array<{ n: ApiNode; rel: number }> = [];
-    const walk = (n: ApiNode, rel: number) => {
-      out.push({ n, rel });
-      for (const c of (childrenOf.get(n.id) ?? []).sort((a, b) => a.fullName.localeCompare(b.fullName))) walk(c, rel + 1);
-    };
-    roots.forEach((r) => walk(r, 0));
-    return q ? out.filter(({ n }) => n.fullName.toLowerCase().includes(q) || n.referralCode.toLowerCase().includes(q)) : out;
-  }, [roots, childrenOf, q]);
+    const out: Array<{ n: ApiNode; rel: number; hasChildren: boolean }> = [];
+    if (q) {
+      const matchIds = new Set(subtree.filter((n) => n.fullName.toLowerCase().includes(q) || n.referralCode.toLowerCase().includes(q)).map((n) => n.id));
+      if (matchIds.size === 0) return out;
+      const keep = new Set<string>();
+      for (const id of matchIds) {
+        let cur: ApiNode | undefined = byId.get(id);
+        while (cur) { keep.add(cur.id); cur = cur.parentId ? byId.get(cur.parentId) : undefined; }
+      }
+      const walk = (n: ApiNode, rel: number) => {
+        if (!keep.has(n.id)) return;
+        const kids = sortKids(n);
+        out.push({ n, rel, hasChildren: kids.length > 0 });
+        kids.forEach((c) => walk(c, rel + 1));
+      };
+      roots.forEach((r) => walk(r, 0));
+    } else {
+      const walk = (n: ApiNode, rel: number) => {
+        const kids = sortKids(n);
+        out.push({ n, rel, hasChildren: kids.length > 0 });
+        if (expanded.has(n.id)) kids.forEach((c) => walk(c, rel + 1));
+      };
+      roots.forEach((r) => walk(r, 0));
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roots, childrenOf, expanded, q, subtree, byId]);
+
+  const parentIds = useMemo(() => subtree.filter((n) => (childrenOf.get(n.id) ?? []).length > 0).map((n) => n.id), [subtree, childrenOf]);
 
   return (
     <div>
@@ -169,6 +194,12 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
           <button className={`seg-tab ${view === 'list' ? 'on' : ''}`} onClick={() => setView('list')}>☰ List</button>
         </div>
         <input placeholder="Search name or code…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ maxWidth: 240, flex: 1, minWidth: 160 }} />
+        {view === 'list' && !query && (
+          <>
+            <button className="btn ghost sm" onClick={() => setExpanded(new Set(parentIds))}>Expand all</button>
+            <button className="btn ghost sm" onClick={() => setExpanded(new Set())}>Collapse all</button>
+          </>
+        )}
         <span className="faint" style={{ fontSize: 12 }}>{subtree.length} {subtree.length === 1 ? 'person' : 'people'}</span>
       </div>
 
@@ -203,26 +234,36 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
           <table>
             <thead><tr><th>Member</th><th>Role</th><th style={{ textAlign: 'right' }}>Level</th><th style={{ textAlign: 'right' }}>Team</th><th>Status</th><th></th></tr></thead>
             <tbody>
-              {listRows.map(({ n, rel }) => (
-                <tr key={n.id} style={{ cursor: 'pointer' }} onClick={() => setSelected(n)}>
-                  <td>
-                    <div className="row" style={{ gap: 8, paddingLeft: q ? 0 : rel * 20 }}>
-                      {!q && rel > 0 && <span className="faint" style={{ fontSize: 11 }}>↳</span>}
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>{n.fullName}</div>
-                        <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{n.referralCode}</div>
+              {listRows.map(({ n, rel, hasChildren }) => {
+                const open = !!q || expanded.has(n.id);
+                return (
+                  <tr key={n.id} style={{ cursor: 'pointer' }} onClick={() => setSelected(n)}>
+                    <td>
+                      <div className="row" style={{ gap: 6, paddingLeft: rel * 22 }}>
+                        {hasChildren ? (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleExpand(n.id); }}
+                            aria-label={open ? 'Collapse' : 'Expand'}
+                            style={{ width: 18, height: 18, display: 'grid', placeItems: 'center', background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 10, flexShrink: 0, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s ease' }}
+                          >▶</button>
+                        ) : <span style={{ width: 18, flexShrink: 0, textAlign: 'center', color: 'var(--faint)' }}>·</span>}
+                        <span style={{ flexShrink: 0 }}>{hasChildren ? '🗂' : '👤'}</span>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{n.fullName}</div>
+                          <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{n.referralCode}</div>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td>{n.role !== 'member' ? <span className="badge active" style={{ fontSize: 9 }}>{n.role.replace('tenant_', '')}</span> : <span className="faint" style={{ fontSize: 12 }}>member</span>}</td>
-                  <td className="tnum" style={{ textAlign: 'right' }}>{n.depth}</td>
-                  <td className="tnum" style={{ textAlign: 'right' }}>{teamOf(n.id)}</td>
-                  <td><span className={`badge ${n.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>{n.status}</span></td>
-                  <td onClick={(e) => e.stopPropagation()}>
-                    {teamOf(n.id) > 0 && <button className="btn ghost sm" onClick={() => setFocusId(n.id)}>Focus ⤢</button>}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td>{n.role !== 'member' ? <span className="badge active" style={{ fontSize: 9 }}>{n.role.replace('tenant_', '')}</span> : <span className="faint" style={{ fontSize: 12 }}>member</span>}</td>
+                    <td className="tnum" style={{ textAlign: 'right' }}>{n.depth}</td>
+                    <td className="tnum" style={{ textAlign: 'right' }}>{hasChildren ? teamOf(n.id) : '—'}</td>
+                    <td><span className={`badge ${n.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>{n.status}</span></td>
+                    <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'right' }}>
+                      {hasChildren && <button className="btn ghost sm" onClick={() => setFocusId(n.id)}>Focus ⤢</button>}
+                    </td>
+                  </tr>
+                );
+              })}
               {listRows.length === 0 && <tr><td colSpan={6} className="muted">No members match.</td></tr>}
             </tbody>
           </table>
@@ -231,7 +272,12 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
 
       {selected && (
         <Drawer title={selected.fullName} subtitle={`${selected.referralCode} · ${title}`} onClose={() => setSelected(null)}
-          footer={teamOf(selected.id) > 0 && <button className="btn" onClick={() => { setFocusId(selected.id); setSelected(null); }}>Focus subtree ⤢</button>}>
+          footer={
+            <>
+              <button className="btn ghost" onClick={() => { setView('tree'); setQuery(selected.referralCode); setSelected(null); }}>Show in tree ⤳</button>
+              {teamOf(selected.id) > 0 && <button className="btn" onClick={() => { setFocusId(selected.id); setSelected(null); }}>Focus subtree ⤢</button>}
+            </>
+          }>
           <div className="grid" style={{ gap: 16 }}>
             <div className="row" style={{ gap: 8 }}>
               {selected.role !== 'member' && <span className="badge active" style={{ fontSize: 10 }}>{selected.role.replace('tenant_', '')}</span>}
