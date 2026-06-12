@@ -141,6 +141,49 @@ describe('admin members/tree/dashboard (entegrasyon)', () => {
     expect(dash.body.outstandingPayableCents).toBe('950000');
   });
 
+  it('analytics: zaman serisi + totals + funnel + top performers + onceki donem', async () => {
+    const { tenant, chain, owner } = await setup();
+    const tok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
+    const engine = new EngineService(prisma);
+
+    const sale = await createSale(prisma, tenant.id, chain[3].id, 10_000_000n);
+    await engine.approveSale(sale.id);
+
+    const res = await request(app.getHttpServer())
+      .get('/v1/admin/analytics?months=6')
+      .set('Authorization', `Bearer ${tok}`)
+      .expect(200);
+
+    expect(res.body.range.months).toBe(6);
+    expect(res.body.series).toHaveLength(6);
+    // bu ay (serinin sonu) ciro/komisyon dolu, onceki aylar bos
+    const cur = res.body.series[5];
+    expect(cur.revenueCents).toBe('10000000');
+    expect(cur.commissionCents).toBe('950000');
+    expect(cur.approvedSales).toBe(1);
+
+    expect(res.body.totals.revenueCents).toBe('10000000');
+    expect(res.body.totals.commissionCents).toBe('950000');
+    expect(res.body.totals.effectiveRateBps).toBe(950);
+
+    // onceki esit donem bos → yuzde delta null (yeni)
+    expect(res.body.previous.revenueCents).toBe('0');
+    expect(res.body.deltas.revenuePct).toBeNull();
+
+    // huni: 1 onayli satis
+    expect(res.body.funnel.approved.count).toBe(1);
+    expect(res.body.funnel.draft.count).toBe(0);
+
+    // top performers: satici chain[3]
+    expect(res.body.topPerformers[0].membershipId).toBe(chain[3].id);
+    expect(res.body.topPerformers[0].revenueCents).toBe('10000000');
+    expect(res.body.topPerformers[0].salesCount).toBe(1);
+
+    // member rolu goremez
+    const member = token({ userId: chain[3].userId, membershipId: chain[3].id, tenantId: tenant.id, role: Role.member });
+    await request(app.getHttpServer()).get('/v1/admin/analytics').set('Authorization', `Bearer ${member}`).expect(403);
+  });
+
   it('tenant izolasyonu: baska tenant uyeligi pasiflestirilemez (404)', async () => {
     const t1 = await setup();
     const tok = token({ userId: t1.owner.userId, membershipId: t1.owner.id, tenantId: t1.tenant.id, role: Role.tenant_owner });

@@ -10,6 +10,7 @@ const STAFF = [Role.tenant_owner, Role.tenant_admin, Role.tenant_staff];
 const ADMIN = [Role.tenant_owner, Role.tenant_admin];
 
 const dashboardSchema = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/).optional() });
+const analyticsSchema = z.object({ months: z.coerce.number().int().min(3).max(12).default(6) });
 const auditSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
@@ -24,6 +25,15 @@ export class ReportsController {
   @Get('dashboard')
   dashboard(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(dashboardSchema)) q: z.infer<typeof dashboardSchema>) {
     return this.reports.dashboard(user.tid as string, q.month);
+  }
+
+  @Roles(...STAFF)
+  @Get('analytics')
+  analytics(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(analyticsSchema)) q: z.infer<typeof analyticsSchema>,
+  ) {
+    return this.reports.analytics(user.tid as string, q.months);
   }
 
   // audit yalniz admin+ (para/rol gecmisi)

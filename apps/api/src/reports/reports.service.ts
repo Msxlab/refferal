@@ -61,6 +61,156 @@ export class ReportsService {
     };
   }
 
+  /**
+   * Dashboard analitik (zaman serisi + donem karsilastirma + huni + top performers).
+   * Komisyon zaman serisi monthly_summaries'ten (net: reversal'lar bucket'i dusurur).
+   * Ciro/sayim approved sales'in DONDURULMUS summary_month'una gore — dashboard ile tutarli.
+   */
+  async analytics(tenantId: string, months: number) {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    const anchor = monthKey(new Date(), tenant.timezone);
+    const range = this.monthsBack(anchor, months, 0);
+    const prevRange = this.monthsBack(anchor, months, months);
+    const rangeStart = new Date(`${range[0]}-01T00:00:00.000Z`);
+
+    // Promise.all (transaction degil): salt-okunur dashboard anlik goruntusu, groupBy tiplerini korur
+    const [revByMonth, comByMonth, prevRev, prevCom, funnelRows, topRows] = await Promise.all([
+      // ciro + onayli satis sayisi (ay basina)
+      this.prisma.sale.groupBy({
+        by: ['summaryMonth'],
+        where: { tenantId, status: SaleStatus.approved, summaryMonth: { in: range } },
+        _sum: { amountCents: true },
+        _count: { _all: true },
+        orderBy: { summaryMonth: 'asc' },
+      }),
+      // komisyon (ay basina, net) — monthly_summaries
+      this.prisma.monthlySummary.groupBy({
+        by: ['month'],
+        where: { tenantId, month: { in: range } },
+        _sum: { pendingCents: true, payableCents: true, paidCents: true },
+        orderBy: { month: 'asc' },
+      }),
+      // onceki esit-uzunluktaki donem (karsilastirma)
+      this.prisma.sale.aggregate({
+        where: { tenantId, status: SaleStatus.approved, summaryMonth: { in: prevRange } },
+        _sum: { amountCents: true },
+        _count: { _all: true },
+      }),
+      this.prisma.monthlySummary.aggregate({
+        where: { tenantId, month: { in: prevRange } },
+        _sum: { pendingCents: true, payableCents: true, paidCents: true },
+      }),
+      // huni: durum dagilimi (secili pencere, sale_date'e gore)
+      this.prisma.sale.groupBy({
+        by: ['status'],
+        where: { tenantId, saleDate: { gte: rangeStart } },
+        _sum: { amountCents: true },
+        _count: { _all: true },
+        orderBy: { status: 'asc' },
+      }),
+      // top performers: onayli ciroya gore en iyi saticilar
+      this.prisma.sale.groupBy({
+        by: ['sellerMembershipId'],
+        where: { tenantId, status: SaleStatus.approved, summaryMonth: { in: range } },
+        _sum: { amountCents: true },
+        _count: { _all: true },
+        orderBy: { _sum: { amountCents: 'desc' } },
+        take: 8,
+      }),
+    ]);
+
+    const revMap = new Map(revByMonth.map((r) => [r.summaryMonth ?? '', r]));
+    const comMap = new Map(
+      comByMonth.map((c) => [
+        c.month,
+        (c._sum.pendingCents ?? 0n) + (c._sum.payableCents ?? 0n) + (c._sum.paidCents ?? 0n),
+      ]),
+    );
+    const series = range.map((m) => {
+      const rev = revMap.get(m)?._sum.amountCents ?? 0n;
+      return {
+        month: m,
+        revenueCents: rev.toString(),
+        commissionCents: (comMap.get(m) ?? 0n).toString(),
+        approvedSales: revMap.get(m)?._count._all ?? 0,
+      };
+    });
+
+    const sum = (arr: bigint[]) => arr.reduce((a, b) => a + b, 0n);
+    const revenue = sum(series.map((s) => BigInt(s.revenueCents)));
+    const commission = sum(series.map((s) => BigInt(s.commissionCents)));
+    const approvedSales = series.reduce((a, s) => a + s.approvedSales, 0);
+
+    const prevRevenue = prevRev._sum.amountCents ?? 0n;
+    const prevCommission =
+      (prevCom._sum.pendingCents ?? 0n) + (prevCom._sum.payableCents ?? 0n) + (prevCom._sum.paidCents ?? 0n);
+    const prevSales = prevRev._count._all;
+
+    const pct = (cur: bigint, prev: bigint): number | null =>
+      prev === 0n ? (cur > 0n ? null : 0) : Math.round((Number(cur - prev) / Number(prev)) * 1000) / 10;
+    const pctN = (cur: number, prev: number): number | null =>
+      prev === 0 ? (cur > 0 ? null : 0) : Math.round(((cur - prev) / prev) * 1000) / 10;
+
+    // top performers isim/kod ile zenginlestir
+    const sellerIds = topRows.map((t) => t.sellerMembershipId);
+    const sellers = await this.prisma.membership.findMany({
+      where: { id: { in: sellerIds } },
+      select: { id: true, referralCode: true, user: { select: { fullName: true } } },
+    });
+    const sellerMap = new Map(sellers.map((s) => [s.id, s]));
+    const topPerformers = topRows.map((t) => ({
+      membershipId: t.sellerMembershipId,
+      fullName: sellerMap.get(t.sellerMembershipId)?.user.fullName ?? '—',
+      referralCode: sellerMap.get(t.sellerMembershipId)?.referralCode ?? '',
+      revenueCents: (t._sum.amountCents ?? 0n).toString(),
+      salesCount: t._count._all,
+    }));
+
+    const funnelOf = (status: SaleStatus) => {
+      const r = funnelRows.find((f) => f.status === status);
+      return { count: r?._count._all ?? 0, amountCents: (r?._sum.amountCents ?? 0n).toString() };
+    };
+
+    return {
+      currency: tenant.currency,
+      range: { months, from: range[0], to: range[range.length - 1] },
+      series,
+      totals: {
+        revenueCents: revenue.toString(),
+        commissionCents: commission.toString(),
+        approvedSales,
+        effectiveRateBps: revenue > 0n ? Number((commission * 10000n) / revenue) : 0,
+      },
+      previous: {
+        revenueCents: prevRevenue.toString(),
+        commissionCents: prevCommission.toString(),
+        approvedSales: prevSales,
+      },
+      deltas: {
+        revenuePct: pct(revenue, prevRevenue),
+        commissionPct: pct(commission, prevCommission),
+        salesPct: pctN(approvedSales, prevSales),
+      },
+      funnel: {
+        draft: funnelOf(SaleStatus.draft),
+        approved: funnelOf(SaleStatus.approved),
+        void: funnelOf(SaleStatus.void),
+      },
+      topPerformers,
+    };
+  }
+
+  /** anchor ('YYYY-MM') dahil, skip kadar oncesinden baslayarak n ayin anahtarlari (eskiden yeniye). */
+  private monthsBack(anchor: string, n: number, skip: number): string[] {
+    const [y, m] = anchor.split('-').map(Number);
+    const out: string[] = [];
+    for (let i = n - 1 + skip; i >= skip; i--) {
+      const d = new Date(Date.UTC(y, m - 1 - i, 1));
+      out.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+    }
+    return out;
+  }
+
   /** Tenant audit log (SPEC 9). */
   async audit(tenantId: string, q: { page: number; pageSize: number }) {
     const [total, rows] = await this.prisma.$transaction([

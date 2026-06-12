@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Donut, Loading, MoneyCounter, StatCard } from '@/components/ui';
+import { TrendChart } from '@/components/TrendChart';
 import { bps, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -15,13 +16,33 @@ interface Dashboard {
   pendingPayoutRequests: number;
 }
 
+interface Analytics {
+  currency: string;
+  range: { months: number; from: string; to: string };
+  series: Array<{ month: string; revenueCents: string; commissionCents: string; approvedSales: number }>;
+  totals: { revenueCents: string; commissionCents: string; approvedSales: number; effectiveRateBps: number };
+  previous: { revenueCents: string; commissionCents: string; approvedSales: number };
+  deltas: { revenuePct: number | null; commissionPct: number | null; salesPct: number | null };
+  funnel: Record<'draft' | 'approved' | 'void', { count: number; amountCents: string }>;
+  topPerformers: Array<{ membershipId: string; fullName: string; referralCode: string; revenueCents: string; salesCount: number }>;
+}
+
+const RANGES = [3, 6, 12];
+
 export default function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [months, setMonths] = useState(6);
   const [error, setError] = useState('');
 
   useEffect(() => {
     api.get<Dashboard>('/admin/dashboard').then(setData).catch((e) => setError(String((e as ApiError).message)));
   }, []);
+
+  useEffect(() => {
+    setAnalytics(null);
+    api.get<Analytics>(`/admin/analytics?months=${months}`).then(setAnalytics).catch(() => {});
+  }, [months]);
 
   if (error) return <div className="error">{error}</div>;
   if (!data) return <Loading />;
@@ -78,6 +99,129 @@ export default function DashboardPage() {
         <StatCard label={t('dash.members')} value={`${data.members.active} / ${data.members.total}`} icon="⬡" hint={t('dash.membersHint')} />
         <StatCard label={t('dash.pendingReq')} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} />
       </div>
+
+      {/* ---- analitik: zaman serisi + karsilastirma + huni + top performers ---- */}
+      <div className="spread fade-in" style={{ marginTop: 28, marginBottom: 14, alignItems: 'flex-end' }}>
+        <div>
+          <h2 style={{ fontSize: 18, fontWeight: 750, margin: 0 }}>Performance</h2>
+          <span className="faint" style={{ fontSize: 12 }}>Trends and comparison vs the previous period.</span>
+        </div>
+        <div className="seg-tabs" role="tablist">
+          {RANGES.map((r) => (
+            <button key={r} className={`seg-tab ${months === r ? 'on' : ''}`} onClick={() => setMonths(r)} role="tab" aria-selected={months === r}>
+              {r}M
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {!analytics ? (
+        <Loading rows={3} />
+      ) : (
+        <>
+          <div className="card fade-in" style={{ marginBottom: 16 }}>
+            <div className="row" style={{ gap: 22, marginBottom: 14, flexWrap: 'wrap' }}>
+              <Metric label="Revenue" value={money(analytics.totals.revenueCents, c)} delta={analytics.deltas.revenuePct} />
+              <Metric label="Commission" value={money(analytics.totals.commissionCents, c)} delta={analytics.deltas.commissionPct} invertGood />
+              <Metric label="Approved sales" value={String(analytics.totals.approvedSales)} delta={analytics.deltas.salesPct} />
+              <Metric label="Effective rate" value={bps(analytics.totals.effectiveRateBps)} />
+            </div>
+            <TrendChart series={analytics.series} currency={c} />
+          </div>
+
+          <div className="grid fade-in" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.2fr)', gap: 16 }}>
+            <div className="card">
+              <strong style={{ fontSize: 14 }}>Sales funnel</strong>
+              <div className="faint" style={{ fontSize: 12, marginBottom: 14 }}>Status mix over the selected window.</div>
+              <Funnel funnel={analytics.funnel} currency={c} />
+            </div>
+
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ padding: '16px 18px 10px' }}>
+                <strong style={{ fontSize: 14 }}>Top performers</strong>
+                <div className="faint" style={{ fontSize: 12 }}>By approved revenue in this window.</div>
+              </div>
+              {analytics.topPerformers.length === 0 ? (
+                <div className="muted" style={{ padding: 18 }}>No approved sales in this window.</div>
+              ) : (
+                <table>
+                  <thead><tr><th>Member</th><th style={{ textAlign: 'right' }}>Sales</th><th style={{ textAlign: 'right' }}>Revenue</th></tr></thead>
+                  <tbody>
+                    {analytics.topPerformers.map((p, i) => (
+                      <tr key={p.membershipId}>
+                        <td>
+                          <div className="row" style={{ gap: 9 }}>
+                            <span style={{ width: 22, height: 22, borderRadius: 6, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, background: i === 0 ? 'var(--foil)' : 'var(--panel-2)', color: i === 0 ? 'var(--on-gold)' : 'var(--muted)' }}>{i + 1}</span>
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: 13 }}>{p.fullName}</div>
+                              <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{p.referralCode}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="tnum" style={{ textAlign: 'right' }}>{p.salesCount}</td>
+                        <td className="tnum" style={{ textAlign: 'right', fontWeight: 700 }}>{money(p.revenueCents, c)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Metric({ label, value, delta, invertGood }: { label: string; value: string; delta?: number | null; invertGood?: boolean }) {
+  return (
+    <div>
+      <div className="faint" style={{ fontSize: 11 }}>{label}</div>
+      <div className="tnum" style={{ fontWeight: 750, fontSize: 19, marginTop: 2 }}>{value}</div>
+      {delta !== undefined && <Delta pct={delta} invertGood={invertGood} />}
+    </div>
+  );
+}
+
+function Delta({ pct, invertGood }: { pct: number | null; invertGood?: boolean }) {
+  if (pct === null) return <span className="faint" style={{ fontSize: 11 }}>— new</span>;
+  const up = pct > 0;
+  const flat = pct === 0;
+  const good = flat ? null : invertGood ? !up : up;
+  const color = good === null ? 'var(--muted)' : good ? 'var(--emerald)' : 'var(--rose)';
+  return (
+    <span className="row" style={{ gap: 4, fontSize: 11.5, color, marginTop: 3, fontWeight: 650 }}>
+      {flat ? '→' : up ? '▲' : '▼'} {Math.abs(pct)}%
+      <span className="faint" style={{ fontWeight: 400 }}>vs prev</span>
+    </span>
+  );
+}
+
+function Funnel({ funnel, currency }: { funnel: Record<'draft' | 'approved' | 'void', { count: number; amountCents: string }>; currency: string }) {
+  const rows: Array<{ k: 'draft' | 'approved' | 'void'; label: string; color: string }> = [
+    { k: 'draft', label: 'Draft', color: 'var(--muted)' },
+    { k: 'approved', label: 'Approved', color: 'var(--emerald)' },
+    { k: 'void', label: 'Void', color: 'var(--rose)' },
+  ];
+  const max = Math.max(1, ...rows.map((r) => funnel[r.k].count));
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      {rows.map((r) => {
+        const f = funnel[r.k];
+        return (
+          <div key={r.k}>
+            <div className="spread" style={{ marginBottom: 5 }}>
+              <span className="row" style={{ gap: 7, fontSize: 12.5 }}>
+                <span style={{ width: 9, height: 9, borderRadius: 3, background: r.color }} /> {r.label}
+              </span>
+              <span className="tnum" style={{ fontSize: 12.5 }}>{f.count} · {money(f.amountCents, currency)}</span>
+            </div>
+            <div style={{ height: 9, borderRadius: 6, background: 'rgba(255,255,255,.05)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${(f.count / max) * 100}%`, borderRadius: 6, background: r.color, transition: 'width .7s cubic-bezier(.2,.9,.3,1)' }} />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
