@@ -32,6 +32,60 @@
   --shadow-glow: 0 0 0 1px rgba(124, 139, 255, 0.25), 0 18px 50px -16px rgba(124, 139, 255, 0.35);
   --radius: 18px;
   --radius-sm: 12px;
+
+  /* Bosluk olcegi (4px taban) — inline style yerine bunlari kullanin */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Tipografi olcegi */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 16px;
+  --text-xl: 22px;
+  --text-2xl: 30px;
+  --text-hero: 42px;
+
+  /* Hareket: sure + easing (animasyonlarda bunlari kullanin) */
+  --dur-fast: 0.15s;
+  --dur-base: 0.25s;
+  --dur-slow: 0.7s;
+  --ease-out: cubic-bezier(0.2, 0.9, 0.3, 1);
+  --ease-spring: cubic-bezier(0.2, 0.9, 0.3, 1.2);
+
+  /* Odak halkasi (erisilebilirlik) */
+  --focus-ring: 0 0 0 3px rgba(124, 139, 255, 0.45);
+}
+
+/* ---------------------------------------------------------------- a11y */
+/* Klavye odagi: fare tiklamasinda degil yalniz klavyede gorunur halka */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: 8px;
+}
+.btn:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Hareket azaltma tercihi: tum animasyon/gecisleri kapat */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 * { box-sizing: border-box; }

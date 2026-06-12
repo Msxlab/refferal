@@ -109,7 +109,7 @@ export default function InvitePage() {
         )}
       </div>
 
-      {toast && <div className="toast">{toast}</div>}
+      {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
 }

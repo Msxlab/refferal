@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import { Loading, useToast } from '@/components/ui';
+import { Loading, Toggle, useToast } from '@/components/ui';
 import { t } from '@/lib/i18n';
 
 interface Settings {
@@ -97,18 +97,8 @@ export default function SettingsPage() {
         {error && <div className="error">{error}</div>}
         <button className="btn" style={{ marginTop: 8 }} disabled={busy}>{busy ? t('common.loading') : t('common.save')}</button>
       </form>
-    </div>
-  );
-}
 
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div className="spread" style={{ padding: '10px 0', borderTop: '1px solid var(--border)' }}>
-      <span style={{ fontSize: 13 }}>{label}</span>
-      <button type="button" onClick={() => onChange(!checked)}
-        style={{ width: 46, height: 26, borderRadius: 999, border: 'none', cursor: 'pointer', position: 'relative', background: checked ? 'var(--grad-emerald)' : 'rgba(255,255,255,.12)', transition: 'background .2s' }}>
-        <span style={{ position: 'absolute', top: 3, left: checked ? 23 : 3, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left .2s' }} />
-      </button>
+      {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
 }

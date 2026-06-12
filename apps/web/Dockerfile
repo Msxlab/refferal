@@ -11,6 +11,8 @@ COPY apps/web apps/web
 # Tarayici API'yi ayni origin'den /v1 ile cagirir (Caddy proxy'ler) → CORS gerekmez
 ARG NEXT_PUBLIC_API_URL=/v1
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# standalone cikti yalniz Docker'da (next.config.mjs kosulu)
+ENV NEXT_STANDALONE=1
 RUN pnpm --filter @refearn/web build
 
 # --- runtime ---

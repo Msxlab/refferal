@@ -51,9 +51,13 @@ export function Donut({ segments, size = 168, thickness = 20, center }: { segmen
   const r = (size - thickness) / 2;
   const c = 2 * Math.PI * r;
   let offset = 0;
+  // ekran okuyucu icin grafik ozeti
+  const ariaLabel = segments
+    .map((s) => `${s.label}: ${total > 0 ? Math.round((Math.max(0, s.value) / total) * 100) : 0}%`)
+    .join(', ');
   return (
-    <div style={{ position: 'relative', width: size, height: size }}>
-      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+    <div role="img" aria-label={ariaLabel} style={{ position: 'relative', width: size, height: size }}>
+      <svg width={size} height={size} aria-hidden="true" style={{ transform: 'rotate(-90deg)' }}>
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,.06)" strokeWidth={thickness} />
         {total > 0 &&
           segments.map((s, i) => {
@@ -89,9 +93,9 @@ export function Donut({ segments, size = 168, thickness = 20, center }: { segmen
 export function Bars({ data, max, format }: { data: Array<{ label: string; value: number; color?: string }>; max?: number; format?: (v: number) => string }) {
   const top = max ?? Math.max(1, ...data.map((d) => d.value));
   return (
-    <div className="grid" style={{ gap: 12 }}>
+    <div className="grid" role="list" style={{ gap: 'var(--space-3)' }}>
       {data.map((d, i) => (
-        <div key={i}>
+        <div key={i} role="listitem" aria-label={`${d.label}: ${format ? format(d.value) : d.value}`}>
           <div className="spread" style={{ marginBottom: 5 }}>
             <span className="muted" style={{ fontSize: 12 }}>{d.label}</span>
             <span className="tnum" style={{ fontSize: 13, fontWeight: 650 }}>{format ? format(d.value) : d.value}</span>
@@ -129,10 +133,30 @@ export function StatCard({ label, value, icon, grad, hint, delay }: { label: str
 
 /* ----------------------------------------------------- modal / onay */
 export function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  // a11y: acilista odagi modala tasi; ESC ile kapat
+  useEffect(() => {
+    ref.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div style={{ fontWeight: 720, fontSize: 16, marginBottom: 12 }}>{title}</div>
+      <div
+        ref={ref}
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ fontWeight: 720, fontSize: 'var(--text-lg)', marginBottom: 'var(--space-3)' }}>{title}</div>
         {children}
       </div>
     </div>
@@ -170,10 +194,52 @@ export function Brand({ size = 'md' }: { size?: 'md' | 'lg' }) {
   );
 }
 
+/* ----------------------------------------------------- toggle (switch) */
+export function Toggle({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <div className="spread" style={{ padding: 'var(--space-3) 0', borderTop: '1px solid var(--border)' }}>
+      <span style={{ fontSize: 'var(--text-md)' }}>{label}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        style={{
+          width: 46,
+          height: 26,
+          borderRadius: 999,
+          border: 'none',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          position: 'relative',
+          background: checked ? 'var(--grad-emerald)' : 'rgba(255,255,255,.12)',
+          transition: 'background var(--dur-fast) ease',
+          opacity: disabled ? 0.5 : 1,
+        }}
+      >
+        <span
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: 3,
+            left: checked ? 23 : 3,
+            width: 20,
+            height: 20,
+            borderRadius: '50%',
+            background: '#fff',
+            transition: 'left var(--dur-fast) ease',
+          }}
+        />
+      </button>
+    </div>
+  );
+}
+
 /* ----------------------------------------------------- yukleme iskeleti */
 export function Loading({ rows = 3 }: { rows?: number }) {
   return (
-    <div className="grid">
+    <div className="grid" role="status" aria-label="Yukleniyor">
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="skeleton" style={{ height: 64 }} />
       ))}
