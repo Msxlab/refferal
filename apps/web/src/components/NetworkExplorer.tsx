@@ -31,7 +31,6 @@ function MemberNode({ data }: NodeProps<Node<NodeData>>) {
   const owner = n.role === 'tenant_owner';
   return (
     <div
-      onClick={() => data && (window as unknown as { __netSelect?: (x: ApiNode) => void }).__netSelect?.(n)}
       style={{
         width: 196, background: 'var(--panel)', cursor: 'pointer',
         border: `1px solid ${data.isFocus ? 'var(--gold-500)' : data.match ? 'var(--gold-500)' : 'var(--border)'}`,
@@ -56,13 +55,7 @@ function MemberNode({ data }: NodeProps<Node<NodeData>>) {
           {n.role !== 'member' && <span className="badge active" style={{ fontSize: 9 }}>{n.role.replace('tenant_', '')}</span>}
           {n.status !== 'active' && <span className="badge inactive" style={{ fontSize: 9 }}>{n.status}</span>}
         </div>
-        {data.team > 0 && (
-          <button
-            onClick={(e) => { e.stopPropagation(); (window as unknown as { __netFocus?: (id: string) => void }).__netFocus?.(n.id); }}
-            title="Focus this subtree"
-            style={{ fontSize: 10, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer' }}
-          >⬡ {data.team} ⤢</button>
-        )}
+        {data.team > 0 && <span style={{ fontSize: 10, color: 'var(--muted)' }}>⬡ {data.team}</span>}
       </div>
       <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
     </div>
@@ -79,9 +72,13 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
 
   useEffect(() => {
     setMode((document.documentElement.getAttribute('data-theme') as 'dark' | 'light') ?? 'dark');
-    (window as unknown as { __netSelect?: (x: ApiNode) => void }).__netSelect = (x) => setSelected(x);
-    (window as unknown as { __netFocus?: (id: string) => void }).__netFocus = (id) => { setFocusId(id); setSelected(null); };
   }, []);
+
+  // react-flow dugum tiklamasi (resmi API; dugum-ici DOM tiklamalari react-flow tarafindan yutulur)
+  const onNodeClick = useCallback((_e: unknown, node: { id: string }) => {
+    const n = nodes.find((x) => x.id === node.id);
+    if (n) setSelected(n);
+  }, [nodes]);
 
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   const childrenOf = useMemo(() => {
@@ -192,8 +189,9 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
         <div className="card" style={{ padding: 0, overflow: 'hidden', height: '66vh' }}>
           <ReactFlow
             nodes={rfNodes} edges={rfEdges} nodeTypes={nodeTypes} fitView colorMode={mode}
+            onNodeClick={onNodeClick}
             minZoom={0.2} maxZoom={1.8} proOptions={{ hideAttribution: true }}
-            nodesDraggable={false} nodesConnectable={false} elementsSelectable={false}
+            nodesDraggable={false} nodesConnectable={false}
           >
             <Background gap={20} size={1} color="var(--border)" />
             <Controls showInteractive={false} />
