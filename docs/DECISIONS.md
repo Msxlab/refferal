@@ -139,3 +139,26 @@ sonrasi yuksek-getirili hizli sertlestirmeler uygulandi:
 iptali), payout anomali/velocity, JWT iptali (para uclarinda DB-teyit), Sentry+merkezi log+alarm,
 self-sale engeli, KYC/odeme profili, RLS, 2FA, 1099/TIN, FTC income-disclosure, money-transmitter
 hukuki gorus, PITR/WAL. Tam liste denetim raporunda (sohbet) + bu listede.
+
+## Luxury redesign — modul kararlari (tur 2)
+
+Mustafa onayiyla (12 Haz 2026), "her modulu ayri ayri sor" talebi geregi:
+
+- **RBAC = ozel roller + izin matrisi.** `TenantRole` (kiracci-kapsamli; isSystem owner/admin/
+  finance/support/analyst seed'leri + serbest ozel roller). `Membership.roleId` ince katman;
+  enum `role` kaba katman (owner/platform god-mode). Izin katalogu kodda (`common/permissions.ts`,
+  kaynak.eylem anahtarlari). JWT'ye `perms[]` gomulur (owner/platform'ta gomulmez — guard tum-izinli
+  sayar). `@RequirePermission('x.y')` guard. Sistem rolleri `ensureSystemRoles` ile idempotent;
+  acilista bos `role_id`'ler enum katmandan geri-doldurulur.
+- **2FA = TOTP + e-posta OTP yedegi + kurtarma kodlari.** Sema hazir (`User.totpEnabledAt`,
+  `mfaRecoveryCodes`, `UserTokenPurpose.login_otp`). Backend/UI sirada (Account + Settings>Security,
+  login 2-adim challenge, aktif oturum listesi/iptal).
+- **E-posta = esnek adaptor.** `createEmailAdapter()` env ile secer: `MAIL_PROVIDER=resend` (HTTP),
+  `smtp` veya `SMTP_HOST` (nodemailer), aksi halde dev-console. HTML govde (markali sablon).
+  Self-hosted ilke korunur — yalniz gonderim, kimlik dis serviste DEGIL.
+- **Bildirim kanallari = uygulama-ici + e-posta + push** (webhook/Slack su an yok).
+  `NotificationChannel.in_app` eklendi; relay'de in_app DB'de yasar (okunma `readAt`).
+  Gelen-kutusu + zil + tercih matrisi sirada.
+- **Settings Center** sekmeli: General / Brand (canli onizleme, branding JSON) / People & Roles
+  (izin matrisi editoru + atama) / Security / Notifications / Data & Backup. Tam Ingilizce.
+  Branding `tenant.branding` JSON'a yazilir (settings PATCH genisletildi).

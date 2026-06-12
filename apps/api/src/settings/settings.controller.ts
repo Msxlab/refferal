@@ -19,6 +19,14 @@ const updateSchema = z.object({
   compressionEnabled: z.boolean().optional(),
   inactiveMembersEarn: z.boolean().optional(),
   requireSeparateApprover: z.boolean().optional(),
+  branding: z
+    .object({
+      logoText: z.string().trim().max(40).optional(),
+      tagline: z.string().trim().max(120).optional(),
+      primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+      accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+    })
+    .optional(),
 });
 type UpdateBody = z.infer<typeof updateSchema>;
 

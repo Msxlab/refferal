@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { MaturationRule } from '@prisma/client';
+import { MaturationRule, Prisma } from '@prisma/client';
 import { ActorContext } from '../common/actor';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -12,6 +12,7 @@ export interface UpdateSettingsInput {
   compressionEnabled?: boolean;
   inactiveMembersEarn?: boolean;
   requireSeparateApprover?: boolean;
+  branding?: Prisma.InputJsonValue;
 }
 
 @Injectable()
@@ -50,6 +51,7 @@ export class SettingsService {
         compressionEnabled: input.compressionEnabled,
         inactiveMembersEarn: input.inactiveMembersEarn,
         requireSeparateApprover: input.requireSeparateApprover,
+        branding: input.branding,
       },
     });
 
