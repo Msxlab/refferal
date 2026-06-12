@@ -61,14 +61,14 @@ export default function InvitePage() {
   return (
     <div>
       <div className="eyebrow fade-in">{t('anav.invite')}</div>
-      <h1 className="h1 fade-in">Ekibinizi buyutun</h1>
-      <p className="sub fade-in">Davet linkinizi paylasin; katilan herkes agacinizda yer alir.</p>
+      <h1 className="h1 fade-in">Grow Your Team</h1>
+      <p className="sub fade-in">Share your invite link; everyone who joins becomes part of your tree.</p>
 
       <div className="card card-glow fade-in delay-1" style={{ textAlign: 'center' }}>
         {!latest ? (
           <>
             <div style={{ fontSize: 40, marginBottom: 8 }}>✦</div>
-            <p className="muted" style={{ marginTop: 0 }}>Yeni bir davet baglantisi olusturun.</p>
+            <p className="muted" style={{ marginTop: 0 }}>Create a new invite link.</p>
             <button className="btn" onClick={create} disabled={busy} style={{ margin: '0 auto' }}>{t('me.inviteCreate')}</button>
           </>
         ) : (
@@ -78,7 +78,7 @@ export default function InvitePage() {
               <input readOnly value={linkFor(latest)} style={{ maxWidth: 340 }} onFocus={(e) => e.currentTarget.select()} />
               <button className="btn sm" onClick={() => copy(latest)}>{t('me.copy')}</button>
             </div>
-            <button className="btn ghost sm" onClick={create} disabled={busy} style={{ margin: '14px auto 0' }}>Yeni davet</button>
+            <button className="btn ghost sm" onClick={create} disabled={busy} style={{ margin: '14px auto 0' }}>New invite</button>
           </>
         )}
         {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
@@ -90,7 +90,7 @@ export default function InvitePage() {
           <Loading rows={2} />
         ) : (
           <table>
-            <thead><tr><th>Kod</th><th>Durum</th><th>Gecerlilik</th><th>Olusturma</th><th></th></tr></thead>
+            <thead><tr><th>Code</th><th>Status</th><th>Expires</th><th>Created</th><th></th></tr></thead>
             <tbody>
               {invites.map((i) => (
                 <tr key={i.id}>

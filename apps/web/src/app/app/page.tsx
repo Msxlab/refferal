@@ -43,7 +43,7 @@ export default function MemberDashboard() {
   ];
 
   const levelBars = data.levels.map((l) => ({
-    label: `Seviye ${l.level}`,
+    label: `Level ${l.level}`,
     value: Number(l.payableCents) + Number(l.pendingCents) + Number(l.paidCents),
     color: 'var(--grad-primary)',
   }));

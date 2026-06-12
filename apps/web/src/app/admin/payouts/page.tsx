@@ -32,7 +32,7 @@ export default function PayoutsPage() {
     setBusy(true); setError('');
     try {
       const res = await api.post<RunResult>('/admin/payouts/run', { method: 'csv' });
-      showToast(`${res.paidCount} odeme yapildi, ${res.skippedCount} atlandi`);
+      showToast(`${res.paidCount} payouts processed, ${res.skippedCount} skipped`);
       setConfirmRun(false);
       await load();
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
@@ -53,16 +53,16 @@ export default function PayoutsPage() {
   return (
     <div>
       <div className="eyebrow fade-in">{t('nav.payouts')}</div>
-      <h1 className="h1 fade-in">Odeme yonetimi</h1>
-      <p className="sub fade-in">Esigi gecen uyeleri tek tikla odeyin, banka CSV'si indirin.</p>
+      <h1 className="h1 fade-in">Payout Management</h1>
+      <p className="sub fade-in">Pay members above the threshold with one click and download the bank CSV.</p>
       {error && <div className="error">{error}</div>}
 
       <div className="card hero fade-in delay-1" style={{ marginBottom: 16 }}>
         <div className="spread">
           <div>
-            <div className="faint" style={{ fontSize: 12 }}>Odenecek toplam ({payable?.members.length ?? 0} uye)</div>
+            <div className="faint" style={{ fontSize: 12 }}>Total payable ({payable?.members.length ?? 0} members)</div>
             <div className="bignum gradient-text" style={{ marginTop: 6 }}><MoneyCounter cents={totalPayable} currency={c} /></div>
-            <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>Min esik: {payable ? money(payable.payoutMinCents, c) : '—'}</div>
+            <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>Min threshold: {payable ? money(payable.payoutMinCents, c) : '—'}</div>
           </div>
           <div className="row">
             <button className="btn success" onClick={() => setConfirmRun(true)} disabled={busy || !payable?.members.length}>{t('payouts.run')}</button>
@@ -75,7 +75,7 @@ export default function PayoutsPage() {
         <strong style={{ display: 'block', marginBottom: 12 }}>{t('payouts.payable')}</strong>
         {!payable ? <Loading rows={2} /> : (
           <table>
-            <thead><tr><th>Uye</th><th>Kod</th><th style={{ textAlign: 'right' }}>Net odenebilir</th></tr></thead>
+            <thead><tr><th>Member</th><th>Code</th><th style={{ textAlign: 'right' }}>Net payable</th></tr></thead>
             <tbody>
               {payable.members.map((m) => (
                 <tr key={m.membershipId}>
@@ -84,7 +84,7 @@ export default function PayoutsPage() {
                   <td className="tnum" style={{ textAlign: 'right', fontWeight: 650 }}>{money(m.netCents, c)}</td>
                 </tr>
               ))}
-              {payable.members.length === 0 && <tr><td colSpan={3} className="muted">Esigi gecen uye yok.</td></tr>}
+              {payable.members.length === 0 && <tr><td colSpan={3} className="muted">No members above the threshold.</td></tr>}
             </tbody>
           </table>
         )}
@@ -94,7 +94,7 @@ export default function PayoutsPage() {
         <strong style={{ display: 'block', marginBottom: 12 }}>{t('payouts.history')}</strong>
         {!history ? <Loading rows={2} /> : (
           <table>
-            <thead><tr><th>Uye</th><th>Tutar</th><th>Yontem</th><th>Durum</th><th>Donem</th><th>Tarih</th></tr></thead>
+            <thead><tr><th>Member</th><th>Amount</th><th>Method</th><th>Status</th><th>Period</th><th>Date</th></tr></thead>
             <tbody>
               {history.map((p) => (
                 <tr key={p.id}>
@@ -106,7 +106,7 @@ export default function PayoutsPage() {
                   <td className="muted">{dateShort(p.paidAt)}</td>
                 </tr>
               ))}
-              {history.length === 0 && <tr><td colSpan={6} className="muted">Henuz odeme yok.</td></tr>}
+              {history.length === 0 && <tr><td colSpan={6} className="muted">No payouts yet.</td></tr>}
             </tbody>
           </table>
         )}
@@ -114,8 +114,8 @@ export default function PayoutsPage() {
 
       {confirmRun && (
         <Confirm
-          title="Odemeleri calistir"
-          message={`Esigi gecen ${payable?.members.length ?? 0} uyeye toplam ${money(totalPayable, c)} odenecek. Bu islem ledger'i 'paid' yapar ve geri alinamaz.`}
+          title="Run payouts"
+          message={`A total of ${money(totalPayable, c)} will be paid to ${payable?.members.length ?? 0} members above the threshold. This action marks the ledger as 'paid' and cannot be undone.`}
           confirmLabel={t('payouts.run')}
           busy={busy}
           onConfirm={runAll}

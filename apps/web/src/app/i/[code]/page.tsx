@@ -62,7 +62,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
 
           {loadError || (invite && !invite.valid) ? (
             <>
-              <h1 className="h1">Davet kullanilamiyor</h1>
+              <h1 className="h1">Invitation Unavailable</h1>
               <div className="error">{t('reg.invalid')}</div>
             </>
           ) : !invite ? (
@@ -70,7 +70,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
           ) : (
             <>
               <h1 className="h1" style={{ marginBottom: 14 }}>
-                <span className="gradient-text">{invite.inviterName}</span> sizi davet etti
+                <span className="gradient-text">{invite.inviterName}</span> invited you
               </h1>
               <div className="card" style={{ background: 'rgba(124,139,255,.08)', padding: 14, marginBottom: 18 }}>
                 <div className="spread">
@@ -78,16 +78,16 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
                     <div className="faint" style={{ fontSize: 11 }}>{t('reg.tenant')}</div>
                     <div style={{ fontWeight: 700 }}>{invite.tenantName}</div>
                   </div>
-                  <span className="badge active">Aktif davet</span>
+                  <span className="badge active">Active invitation</span>
                 </div>
               </div>
               <div className="field">
                 <label>{t('reg.fullName')}</label>
-                <input value={fullName} onChange={(e) => setFullName(e.target.value)} required minLength={2} autoFocus placeholder="Ad Soyad" />
+                <input value={fullName} onChange={(e) => setFullName(e.target.value)} required minLength={2} autoFocus placeholder="Full name" />
               </div>
               <div className="field">
                 <label>{t('login.email')}</label>
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="ornek@firma.com" />
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@company.com" />
               </div>
               <div className="field">
                 <label>{t('login.password')} <span className="faint">(min 10)</span></label>

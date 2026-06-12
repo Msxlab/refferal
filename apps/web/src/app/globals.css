@@ -179,6 +179,21 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px
   border-color: transparent; box-shadow: 0 6px 16px -8px rgba(212,175,55,.6);
 }
 
+/* ---------------------------------------------------- notification inbox */
+.inbox-pop {
+  position: absolute; width: 360px; max-width: 92vw;
+  background: var(--panel-solid, var(--panel)); border: 1px solid var(--border-strong);
+  border-radius: 14px; box-shadow: var(--shadow-lg); overflow: hidden; z-index: 50;
+  animation: pop .18s var(--ease-spring, ease);
+}
+.inbox-row {
+  display: flex; gap: 11px; width: 100%; padding: 11px 14px; border: none;
+  border-bottom: 1px solid var(--border); cursor: pointer; text-align: left;
+  transition: background var(--dur-fast) ease;
+}
+.inbox-row:last-child { border-bottom: none; }
+.inbox-row:hover { background: var(--panel-2) !important; }
+
 /* ---------------------------------------------------------------- tables */
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }

@@ -1,7 +1,5 @@
 'use client';
 
-import Link from 'next/link';
-
 interface Item { title: string; desc: string; state: 'on' | 'soon' }
 
 const ACCESS: Item[] = [
@@ -28,9 +26,9 @@ export default function Security() {
       <div className="card" style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 220 }}>
           <strong style={{ fontSize: 14 }}>Your account security</strong>
-          <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>Enable two-factor and manage your own sessions from your account.</div>
+          <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>Two-factor setup and active-session management arrive in the next update.</div>
         </div>
-        <Link href="/admin/account" className="btn ghost sm">Open account →</Link>
+        <span className="badge pending" style={{ fontSize: 10 }}>coming soon</span>
       </div>
     </div>
   );

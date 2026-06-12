@@ -33,12 +33,12 @@ export default function AuditPage() {
   return (
     <div>
       <div className="eyebrow fade-in">{t('nav.audit')}</div>
-      <h1 className="h1 fade-in">Denetim kaydi</h1>
-      <p className="sub fade-in">Para, rol ve plan etkileyen tum aksiyonlar burada kayitlidir.</p>
+      <h1 className="h1 fade-in">Audit Log</h1>
+      <p className="sub fade-in">Every action affecting money, roles, and plans is recorded here.</p>
 
       <div className="card fade-in delay-1">
         {!list ? <Loading rows={6} /> : list.items.length === 0 ? (
-          <div className="muted">Kayit yok.</div>
+          <div className="muted">No records yet.</div>
         ) : (
           <div className="grid" style={{ gap: 0 }}>
             {list.items.map((a) => (

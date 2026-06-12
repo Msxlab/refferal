@@ -62,7 +62,7 @@ describe('bildirim relay (entegrasyon)', () => {
     expect(all.every((n) => n.sentAt !== null)).toBe(true);
 
     expect(sentEmails).toHaveLength(1);
-    expect(sentEmails[0].subject).toContain('dogrulayin');
+    expect(sentEmails[0].subject).toContain('Verify');
     // push: token yok ama dispatch cagrildi (best-effort)
     expect(sentPush).toHaveLength(1);
     expect(sentPush[0].tokens).toHaveLength(0);

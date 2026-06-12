@@ -274,7 +274,7 @@ export function Toggle({ label, checked, onChange, disabled }: { label: string; 
 /* ----------------------------------------------------- yukleme iskeleti */
 export function Loading({ rows = 3 }: { rows?: number }) {
   return (
-    <div className="grid" role="status" aria-label="Yukleniyor">
+    <div className="grid" role="status" aria-label="Loading">
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="skeleton" style={{ height: 64 }} />
       ))}

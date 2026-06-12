@@ -50,7 +50,7 @@ export default function SalesPage() {
     try {
       await api.post('/admin/sales', { sellerReferralCode: code.trim(), amountCents: Number(amount) });
       setCode(''); setAmount('');
-      showToast('Satis olusturuldu (taslak)');
+      showToast('Sale created (draft)');
       await load();
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
   }
@@ -59,14 +59,14 @@ export default function SalesPage() {
     setBusy(true);
     try {
       await api.post(`/admin/sales/${p.id}/${p.action}`);
-      showToast(p.action === 'approve' ? 'Onaylandi, komisyonlar dagitildi ✓' : 'Iptal edildi');
+      showToast(p.action === 'approve' ? 'Approved, commissions distributed ✓' : 'Voided');
       setConfirm(null);
       await load();
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
   }
 
   async function deliver(id: string) {
-    try { await api.post(`/admin/sales/${id}/deliver`, {}); showToast('Teslim isaretlendi'); await load(); }
+    try { await api.post(`/admin/sales/${id}/deliver`, {}); showToast('Marked as delivered'); await load(); }
     catch (e) { setError(String((e as ApiError).message)); }
   }
 
@@ -74,7 +74,7 @@ export default function SalesPage() {
     setBusy(true); setError('');
     try {
       const res = await api.post<{ created: number; errors: { line: number; reason: string }[] }>('/admin/sales/import', { csv });
-      showToast(`${res.created} satis olusturuldu, ${res.errors.length} hata`);
+      showToast(`${res.created} sales created, ${res.errors.length} errors`);
       setShowImport(false);
       await load();
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
@@ -85,7 +85,7 @@ export default function SalesPage() {
       <div className="spread">
         <div>
           <div className="eyebrow fade-in">{t('nav.sales')}</div>
-          <h1 className="h1 fade-in">Satis yonetimi</h1>
+          <h1 className="h1 fade-in">Sales Management</h1>
         </div>
         <button className="btn ghost fade-in" onClick={() => setShowImport(true)}>⇪ {t('sales.import')}</button>
       </div>
@@ -94,7 +94,7 @@ export default function SalesPage() {
         <div className="row" style={{ alignItems: 'flex-end' }}>
           <div style={{ flex: 1, minWidth: 180 }}>
             <label>{t('sales.seller')}</label>
-            <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="ORN: ALICE1" required />
+            <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. ALICE1" required />
           </div>
           <div style={{ flex: 1, minWidth: 160 }}>
             <label>{t('sales.amount')}</label>
@@ -102,21 +102,21 @@ export default function SalesPage() {
           </div>
           <button className="btn" disabled={busy}>+ {t('sales.new')}</button>
         </div>
-        <div className="faint" style={{ fontSize: 12, marginTop: 8 }}>Tutar cent cinsindendir (orn. $100.000 = 10000000).</div>
+        <div className="faint" style={{ fontSize: 12, marginTop: 8 }}>Amount is in cents (e.g. $100,000 = 10000000).</div>
       </form>
 
       {error && <div className="error">{error}</div>}
 
       <div className="card fade-in delay-2">
         <div className="spread" style={{ marginBottom: 12 }}>
-          <strong>Satislar</strong>
+          <strong>Sales</strong>
           <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ width: 160 }}>
-            {STATUSES.map((s) => <option key={s} value={s}>{s || 'Tum durumlar'}</option>)}
+            {STATUSES.map((s) => <option key={s} value={s}>{s || 'All statuses'}</option>)}
           </select>
         </div>
         {!list ? <Loading rows={3} /> : (
           <table>
-            <thead><tr><th>Satici</th><th>Tutar</th><th>{t('sales.status')}</th><th>Tarih</th><th style={{ textAlign: 'right' }}>{t('common.actions')}</th></tr></thead>
+            <thead><tr><th>Seller</th><th>Amount</th><th>{t('sales.status')}</th><th>Date</th><th style={{ textAlign: 'right' }}>{t('common.actions')}</th></tr></thead>
             <tbody>
               {list.items.map((s) => (
                 <tr key={s.id}>
@@ -133,7 +133,7 @@ export default function SalesPage() {
                   </td>
                 </tr>
               ))}
-              {list.items.length === 0 && <tr><td colSpan={5} className="muted">Henuz satis yok.</td></tr>}
+              {list.items.length === 0 && <tr><td colSpan={5} className="muted">No sales yet.</td></tr>}
             </tbody>
           </table>
         )}
@@ -141,10 +141,10 @@ export default function SalesPage() {
 
       {confirm && (
         <Confirm
-          title={confirm.action === 'approve' ? 'Satisi onayla' : 'Satisi iptal et'}
+          title={confirm.action === 'approve' ? 'Approve sale' : 'Void sale'}
           message={confirm.action === 'approve'
-            ? 'Onaylaninca komisyonlar agaca dagitilir. Bu islem geri alinamaz.'
-            : 'Iptal edilince ters kayitlar olusur ve bakiyeler dusurulur.'}
+            ? 'On approval, commissions are distributed across the tree. This action cannot be undone.'
+            : 'Voiding creates reversing entries and reduces balances.'}
           confirmLabel={confirm.action === 'approve' ? t('sales.approve') : t('sales.void')}
           danger={confirm.action === 'void'}
           busy={busy}
@@ -157,7 +157,7 @@ export default function SalesPage() {
         <div className="modal-backdrop" onClick={() => setShowImport(false)}>
           <div className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
             <div style={{ fontWeight: 720, fontSize: 16, marginBottom: 6 }}>{t('sales.import')}</div>
-            <p className="faint" style={{ marginTop: 0, fontSize: 12 }}>Baslik: referral_code,amount_cents,sale_date,customer_ref</p>
+            <p className="faint" style={{ marginTop: 0, fontSize: 12 }}>Header: referral_code,amount_cents,sale_date,customer_ref</p>
             <textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={8} style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }} />
             <div className="row" style={{ justifyContent: 'flex-end', marginTop: 14 }}>
               <button className="btn ghost" onClick={() => setShowImport(false)} disabled={busy}>{t('common.cancel')}</button>

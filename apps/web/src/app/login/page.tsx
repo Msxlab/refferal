@@ -21,7 +21,7 @@ export default function LoginPage() {
     try {
       const session = await login(email.trim(), password);
       if (session.memberships.length === 0) {
-        setError('Bu hesabin aktif uyeligi yok.');
+        setError('This account has no active membership.');
         setBusy(false);
         return;
       }
@@ -45,7 +45,7 @@ export default function LoginPage() {
           <h1 className="h1" style={{ marginBottom: 18 }}>{t('login.welcome')}</h1>
           <div className="field">
             <label>{t('login.email')}</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus placeholder="ornek@firma.com" />
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus placeholder="name@company.com" />
           </div>
           <div className="field">
             <label>{t('login.password')}</label>

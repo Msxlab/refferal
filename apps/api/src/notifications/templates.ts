@@ -1,5 +1,5 @@
 /**
- * Bildirim sablonlari (TR; SPEC 10 i18n — EN ileride locale ile). Hem e-posta hem push
+ * Bildirim sablonlari (EN varsayilan; SPEC 10 i18n — locale ileride). Hem e-posta hem push
  * icin baslik+govde uretir. Para tutarlari payload'da string cent gelir.
  */
 const WEB_URL = (): string => process.env.WEB_URL ?? 'http://localhost:3000';
@@ -18,35 +18,35 @@ export function render(template: string, payload: Record<string, unknown>): Rend
   switch (template) {
     case 'verify_email':
       return {
-        subject: 'Refearn — E-posta adresinizi dogrulayin',
-        body: `Hesabinizi etkinlestirmek icin dogrulama baglantisi:\n${WEB_URL()}/verify-email?token=${payload.token}\n\nBu islemi siz yapmadiysaniz gormezden gelin.`,
+        subject: 'Refearn — Verify your email address',
+        body: `To activate your account, use this verification link:\n${WEB_URL()}/verify-email?token=${payload.token}\n\nIf you didn't request this, you can safely ignore it.`,
       };
     case 'password_reset':
       return {
-        subject: 'Refearn — Sifre sifirlama',
-        body: `Sifrenizi sifirlamak icin baglanti (1 saat gecerli):\n${WEB_URL()}/reset-password?token=${payload.token}\n\nTalep etmediyseniz gormezden gelin.`,
+        subject: 'Refearn — Password reset',
+        body: `Use this link to reset your password (valid for 1 hour):\n${WEB_URL()}/reset-password?token=${payload.token}\n\nIf you didn't request this, you can safely ignore it.`,
       };
     case 'commission_earned':
       return {
-        subject: 'Yeni komisyon kazandiniz',
-        body: `Tebrikler! ${money(payload.amountCents)} komisyon hesabiniza islendi (seviye ${payload.level}).`,
+        subject: 'You earned a new commission',
+        body: `Congratulations! ${money(payload.amountCents)} in commission was credited to your account (level ${payload.level}).`,
       };
     case 'commission_reversed':
       return {
-        subject: 'Komisyon duzeltmesi',
-        body: `Bir satis iptal edildigi icin ${money(payload.amountCents)} tutarinda duzeltme yapildi (seviye ${payload.level}).`,
+        subject: 'Commission adjustment',
+        body: `A sale was voided, so a ${money(payload.amountCents)} adjustment was applied to your account (level ${payload.level}).`,
       };
     case 'payout_sent':
       return {
-        subject: 'Odemeniz gonderildi',
-        body: `${money(payload.totalCents)} tutarindaki odemeniz ${payload.period} donemi icin islendi.`,
+        subject: 'Your payout was sent',
+        body: `Your payout of ${money(payload.totalCents)} was processed for the ${payload.period} period.`,
       };
     case 'team_member_joined':
       return {
-        subject: 'Ekibinize yeni katilim',
-        body: payload.memberName ? `${payload.memberName} ekibinize katildi.` : 'Ekibinize yeni bir uye katildi.',
+        subject: 'New member joined your team',
+        body: payload.memberName ? `${payload.memberName} joined your team.` : 'A new member joined your team.',
       };
     default:
-      return { subject: 'Refearn bildirimi', body: `Bildirim: ${template}` };
+      return { subject: 'Refearn notification', body: `Notification: ${template}` };
   }
 }

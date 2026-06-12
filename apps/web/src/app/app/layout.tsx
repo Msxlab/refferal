@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { activeMembership, clearSession, getSession, type Session } from '@/lib/auth';
 import { Brand, ThemeToggle } from '@/components/ui';
+import { NotificationBell } from '@/components/NotificationBell';
 import { t } from '@/lib/i18n';
 
 const NAV: Array<{ href: string; key: Parameters<typeof t>[0]; ic: string }> = [
@@ -49,6 +50,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             ))}
           </nav>
           <span className="faint" style={{ fontSize: 12 }}>{active?.tenantName}</span>
+          <NotificationBell />
           <ThemeToggle />
           <button className="btn ghost sm" onClick={logout}>{t('nav.logout')}</button>
         </div>

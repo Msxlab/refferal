@@ -52,7 +52,7 @@ export default function WalletPage() {
     setError('');
     try {
       await api.post('/app/payout-requests');
-      showToast('Odeme talebiniz alindi ✓');
+      showToast('Your payout request has been received ✓');
       await load();
     } catch (e) {
       setError(String((e as ApiError).message));
@@ -68,13 +68,13 @@ export default function WalletPage() {
   return (
     <div>
       <div className="eyebrow fade-in">{t('anav.wallet')}</div>
-      <h1 className="h1 fade-in">Cuzdaniniz</h1>
-      <p className="sub fade-in">Odenebilir bakiyenizi takip edin ve odeme talep edin.</p>
+      <h1 className="h1 fade-in">Your Wallet</h1>
+      <p className="sub fade-in">Track your payable balance and request a payout.</p>
 
       <div className="card hero fade-in delay-1">
         <div className="spread">
           <div>
-            <div className="faint" style={{ fontSize: 12 }}>{t('me.payable')} bakiye</div>
+            <div className="faint" style={{ fontSize: 12 }}>{t('me.payable')} balance</div>
             <div className="bignum gradient-text" style={{ marginTop: 6 }}>
               <MoneyCounter cents={b.payableCents} />
             </div>
@@ -91,7 +91,7 @@ export default function WalletPage() {
       <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
         <strong style={{ display: 'block', marginBottom: 12 }}>{t('me.ledger')}</strong>
         <table>
-          <thead><tr><th>Tarih</th><th>Seviye</th><th>Tip</th><th>Durum</th><th style={{ textAlign: 'right' }}>Tutar</th></tr></thead>
+          <thead><tr><th>Date</th><th>Level</th><th>Type</th><th>Status</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
           <tbody>
             {wallet.ledger.items.map((e) => (
               <tr key={e.id}>
@@ -110,7 +110,7 @@ export default function WalletPage() {
       <div className="card fade-in delay-3" style={{ marginTop: 16 }}>
         <strong style={{ display: 'block', marginBottom: 12 }}>{t('me.payoutHistory')}</strong>
         <table>
-          <thead><tr><th>Donem</th><th>Tutar</th><th>Durum</th><th>Tarih</th></tr></thead>
+          <thead><tr><th>Period</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead>
           <tbody>
             {history.map((p) => (
               <tr key={p.id}>
