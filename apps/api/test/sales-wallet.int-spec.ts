@@ -248,4 +248,54 @@ describe('sales + wallet (entegrasyon)', () => {
       .set('Authorization', `Bearer ${tok}`)
       .expect(403);
   });
+
+  it('power-tools: filtre (q/amount) + toplu approve + detay ledger + import preview', async () => {
+    const tenant = await createTenant(prisma);
+    await createPlan(prisma, tenant.id);
+    const chain = await createChain(prisma, tenant.id, 4);
+    const owner = chain[0];
+    await setRole(owner.id, Role.tenant_owner);
+    const tok = tokenFor({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
+    const auth = (r: request.Test) => r.set('Authorization', `Bearer ${tok}`);
+
+    // iki draft satis (farkli satici/tutar)
+    const s1 = (await auth(request(app.getHttpServer()).post('/v1/admin/sales')).send({ sellerReferralCode: chain[2].referralCode, amountCents: 5_000_000 }).expect(201)).body;
+    const s2 = (await auth(request(app.getHttpServer()).post('/v1/admin/sales')).send({ sellerReferralCode: chain[3].referralCode, amountCents: 20_000_000 }).expect(201)).body;
+
+    // filtre: satici koduna gore arama → yalniz s2
+    const byCode = (await auth(request(app.getHttpServer()).get(`/v1/admin/sales?q=${chain[3].referralCode}`)).expect(200)).body;
+    expect(byCode.items).toHaveLength(1);
+    expect(byCode.items[0].id).toBe(s2.id);
+
+    // filtre: tutar araligi minCents=10m → yalniz s2
+    const byAmt = (await auth(request(app.getHttpServer()).get('/v1/admin/sales?minCents=10000000')).expect(200)).body;
+    expect(byAmt.items.map((x: { id: string }) => x.id).sort()).toEqual([s2.id].sort());
+
+    // toplu approve (ikisi de)
+    const bulk = (await auth(request(app.getHttpServer()).post('/v1/admin/sales/bulk')).send({ action: 'approve', ids: [s1.id, s2.id] }).expect(200)).body;
+    expect(bulk.succeeded).toBe(2);
+    expect(bulk.failed).toHaveLength(0);
+
+    // detay: ledger komisyon dokumu var
+    const detail = (await auth(request(app.getHttpServer()).get(`/v1/admin/sales/${s2.id}`)).expect(200)).body;
+    expect(detail.status).toBe('approved');
+    expect(detail.ledger.length).toBeGreaterThan(0);
+    expect(detail.ledger[0]).toHaveProperty('beneficiaryName');
+
+    // import preview: HICBIR sey yazilmaz
+    const before = await prisma.sale.count({ where: { tenantId: tenant.id } });
+    const csv = `seller,cents\n${chain[2].referralCode},1000000\nNOPE,abc`;
+    const prev = (await auth(request(app.getHttpServer()).post('/v1/admin/sales/import'))
+      .send({ csv, mapping: { code: 'seller', amount: 'cents' }, preview: true }).expect(200)).body;
+    expect(prev.preview).toBe(true);
+    expect(prev.okCount).toBe(1);
+    expect(prev.errorCount).toBe(1);
+    expect(await prisma.sale.count({ where: { tenantId: tenant.id } })).toBe(before);
+
+    // gercek import: 1 olusur
+    const imp = (await auth(request(app.getHttpServer()).post('/v1/admin/sales/import'))
+      .send({ csv, mapping: { code: 'seller', amount: 'cents' } }).expect(200)).body;
+    expect(imp.created).toBe(1);
+    expect(imp.errors).toHaveLength(1);
+  });
 });

@@ -6,6 +6,8 @@ import { ZodValidationPipe } from '../common/zod.pipe';
 import { ActorContext } from '../common/actor';
 import { SalesService } from './sales.service';
 import {
+  bulkSchema,
+  BulkInput,
   createSaleSchema,
   CreateSaleInput,
   deliverSchema,
@@ -46,7 +48,21 @@ export class SalesController {
   @HttpCode(200)
   @Post('import')
   import(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(importSchema)) body: ImportInput) {
-    return this.sales.importCsv(this.actor(user), body.csv);
+    return this.sales.importCsv(this.actor(user), body.csv, body.mapping, body.preview ?? false);
+  }
+
+  // para etkileyen toplu aksiyon yalnizca admin+
+  @Roles(...ADMIN)
+  @HttpCode(200)
+  @Post('bulk')
+  bulk(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(bulkSchema)) body: BulkInput) {
+    return this.sales.bulk(this.actor(user), body.action, body.ids);
+  }
+
+  @Roles(...STAFF)
+  @Get(':id')
+  detail(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.sales.detail(this.actor(user), id);
   }
 
   // para etkileyen aksiyonlar yalnizca admin+ (SPEC 4.2, audit'li)
