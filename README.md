@@ -10,7 +10,7 @@ Mimari ve iş kuralları: **[docs/SPEC.md](docs/SPEC.md)** · Karar kaydı: **[d
 ```
 apps/api          NestJS + Prisma (komisyon motoru burada)        — API :3101
 apps/web          Next.js — /admin (yonetim) + /app (uye) + /i/{code} (davetle kayit) :3000
-apps/mobile       Expo (React Native)                              [henüz yok — Faz 1 sırası 8]
+apps/mobile       Expo (React Native) — login, ozet, cuzdan, ekibim, davet+QR, push
 packages/shared   zod şemaları, sabitler, para yardımcıları, saf komisyon çekirdeği
 ```
 
@@ -24,6 +24,18 @@ pnpm dev:web                                    # Admin web → http://localhost
 
 Demo giriş (seed): `owner@oppein.test` / `Refearn-Demo-2026!`. Portlar bu makinede
 kaydırıldı (Postgres 5434, Redis 6380, API 3101) — bkz. docs/DECISIONS.md.
+
+### Mobil (Expo)
+
+```bash
+pnpm --filter @refearn/mobile dev        # Expo Go ile QR okutun
+# Android emulatoru API'ye 10.0.2.2:3101 ile ulasir (varsayilan).
+# Gercek cihazda LAN IP'nizi verin:
+#   EXPO_PUBLIC_API_URL=http://192.168.x.x:3101/v1
+#   EXPO_PUBLIC_WEB_URL=http://192.168.x.x:3000   (davet linkleri icin)
+```
+
+Davet deep-link'i: `refearn://i/{code}` (web `/i/{code}` ile aynı yol).
 
 ## Kurulum
 

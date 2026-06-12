@@ -3,6 +3,8 @@ dist/
 .turbo/
 .next/
 next-env.d.ts
+.expo/
+.expo-export/
 coverage/
 *.tsbuildinfo
 .env

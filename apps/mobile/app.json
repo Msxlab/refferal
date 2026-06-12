@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Refearn",
+    "slug": "refearn",
+    "version": "0.1.0",
+    "scheme": "refearn",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#07080f",
+    "splash": {
+      "backgroundColor": "#07080f"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.axtra.refearn"
+    },
+    "android": {
+      "package": "com.axtra.refearn",
+      "adaptiveIcon": {
+        "backgroundColor": "#07080f"
+      }
+    },
+    "plugins": ["expo-router", "expo-notifications"],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}
