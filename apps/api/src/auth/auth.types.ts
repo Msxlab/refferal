@@ -10,6 +10,8 @@ export interface AccessTokenPayload {
   tid: string | null;
   role: Role | null;
   perms?: string[];
+  // platform sahibi (kiracci-ustu) — yalnizca true iken gomulur.
+  plat?: boolean;
 }
 
 export interface RequestUser extends AccessTokenPayload {
@@ -30,7 +32,7 @@ export interface MembershipSummary {
 export interface AuthSession {
   accessToken: string;
   refreshToken: string;
-  user: { id: string; email: string; fullName: string; locale: string; emailVerified: boolean };
+  user: { id: string; email: string; fullName: string; locale: string; emailVerified: boolean; isPlatformAdmin: boolean };
   activeMembershipId: string | null;
   memberships: MembershipSummary[];
 }

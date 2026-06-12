@@ -11,6 +11,7 @@ import { MembersAdminModule } from './members/members.admin.module';
 import { MembershipsModule } from './memberships/memberships.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PayoutsModule } from './payouts/payouts.module';
+import { PlatformModule } from './platform/platform.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RbacModule } from './rbac/rbac.module';
 import { ReportsModule } from './reports/reports.module';
@@ -48,6 +49,7 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
     NotificationsModule,
     SettingsModule,
     RbacModule,
+    PlatformModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

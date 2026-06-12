@@ -27,6 +27,10 @@ export const PERMISSION_KEY = 'permission';
 export const RequirePermission = (permission: string): CustomDecorator =>
   SetMetadata(PERMISSION_KEY, permission);
 
+/** Kiracci-ustu platform yuzeyi: yalnizca isPlatformAdmin (plat claim) erisebilir. */
+export const PLATFORM_KEY = 'platformOnly';
+export const PlatformAdmin = (): CustomDecorator => SetMetadata(PLATFORM_KEY, true);
+
 // enum katmani → guard'da tum-izinli sayilan roller (perms claim'i gomulmez)
 const GOD_TIERS: ReadonlySet<Role> = new Set([Role.platform_admin, Role.tenant_owner]);
 
@@ -87,6 +91,11 @@ export class AccessTokenGuard implements CanActivate {
         );
         throw new ForbiddenException('bu islem icin yetkiniz yok');
       }
+    }
+
+    if (this.reflector.getAllAndOverride<boolean>(PLATFORM_KEY, targets) && !payload.plat) {
+      this.logger.warn(`[security] platform_denied user=${payload.sub} ${req.method} ${req.url}`);
+      throw new ForbiddenException('platform yetkisi gerekli');
     }
 
     const permission = this.reflector.getAllAndOverride<string>(PERMISSION_KEY, targets);

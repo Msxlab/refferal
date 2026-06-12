@@ -1,0 +1,59 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { clearSession, getSession, type Session } from '@/lib/auth';
+import { ThemeToggle } from '@/components/ui';
+
+const NAV = [{ href: '/platform', label: 'Companies', ic: '◳' }];
+
+export default function PlatformLayout({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [session, setSession] = useState<Session | null>(null);
+
+  useEffect(() => {
+    const s = getSession();
+    if (!s || !s.user.isPlatformAdmin) {
+      router.replace('/login');
+      return;
+    }
+    setSession(s);
+  }, [router]);
+
+  if (!session) return <div className="center muted">Loading…</div>;
+
+  function logout() {
+    clearSession();
+    router.replace('/login');
+  }
+
+  return (
+    <div className="shell">
+      <aside className="side">
+        <div className="brand"><span className="dot">R</span> Refearn</div>
+        <div className="faint" style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', margin: '0 0 10px 4px' }}>Platform</div>
+        <nav>
+          {NAV.map((n) => (
+            <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
+              <span className="ic">{n.ic}</span>{n.label}
+            </Link>
+          ))}
+        </nav>
+        <div className="foot">
+          <div className="faint" style={{ fontSize: 11 }}>Platform owner</div>
+          <div style={{ fontSize: 13, fontWeight: 600, margin: '2px 0 4px' }}>{session.user.fullName}</div>
+          <div className="row spread">
+            <span className="badge active" style={{ fontSize: 10 }}>platform</span>
+            <div className="row" style={{ gap: 6 }}>
+              <ThemeToggle />
+              <button className="btn ghost sm" onClick={logout}>Log out</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+      <main className="main">{children}</main>
+    </div>
+  );
+}

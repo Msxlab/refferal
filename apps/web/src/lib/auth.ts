@@ -14,7 +14,7 @@ export interface MembershipSummary {
 export interface Session {
   accessToken: string;
   refreshToken: string;
-  user: { id: string; email: string; fullName: string; locale: string; emailVerified: boolean };
+  user: { id: string; email: string; fullName: string; locale: string; emailVerified: boolean; isPlatformAdmin?: boolean };
   activeMembershipId: string | null;
   memberships: MembershipSummary[];
 }
@@ -76,4 +76,10 @@ export function can(s: Session | null, permission: string): boolean {
 /** Rol bazli varsayilan inis: admin roller /admin, uye /app (SPEC 4.3). */
 export function landingPath(role: string | undefined): string {
   return isAdminRole(role) ? '/admin' : '/app';
+}
+
+/** Oturum bazli inis: platform admin /platform, aksi halde role gore. */
+export function landingForSession(s: Session): string {
+  if (s.user.isPlatformAdmin) return '/platform';
+  return landingPath(activeMembership(s)?.role);
 }

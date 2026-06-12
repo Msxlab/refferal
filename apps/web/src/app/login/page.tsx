@@ -3,7 +3,7 @@
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { login } from '@/lib/api';
-import { activeMembership, landingPath, setSession } from '@/lib/auth';
+import { landingForSession, setSession } from '@/lib/auth';
 import { Brand } from '@/components/ui';
 import { t } from '@/lib/i18n';
 
@@ -20,13 +20,13 @@ export default function LoginPage() {
     setBusy(true);
     try {
       const session = await login(email.trim(), password);
-      if (session.memberships.length === 0) {
+      if (!session.user.isPlatformAdmin && session.memberships.length === 0) {
         setError('This account has no active membership.');
         setBusy(false);
         return;
       }
       setSession(session);
-      router.replace(landingPath(activeMembership(session)?.role));
+      router.replace(landingForSession(session));
     } catch {
       setError(t('login.error'));
       setBusy(false);

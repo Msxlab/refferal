@@ -417,19 +417,21 @@ export class AuthService {
         fullName: user.fullName,
         locale: user.locale,
         emailVerified: user.emailVerifiedAt !== null,
+        isPlatformAdmin: user.isPlatformAdmin,
       },
       activeMembershipId: active?.id ?? null,
       memberships,
     };
   }
 
-  private signAccess(user: Pick<User, 'id'>, membership: ActiveMembership | null): Promise<string> {
+  private signAccess(user: Pick<User, 'id' | 'isPlatformAdmin'>, membership: ActiveMembership | null): Promise<string> {
     const payload: AccessTokenPayload = {
       sub: user.id,
       mid: membership?.id ?? null,
       tid: membership?.tenant.id ?? null,
       role: membership?.role ?? null,
     };
+    if (user.isPlatformAdmin) payload.plat = true;
     // owner/platform → perms gomulmez (guard tum-izinli sayar). Diger katmanlarda
     // ozel rolun izinleri, yoksa enum katmaninin varsayilanlari token'a yazilir.
     const tier = membership?.role;

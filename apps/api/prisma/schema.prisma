@@ -156,6 +156,8 @@ model User {
   avatarPath      String?   @map("avatar_path")
   locale          String    @default("en")
   emailVerifiedAt DateTime? @map("email_verified_at")
+  // Platform sahibi (Axtra): kiracci-ustu; sirketleri yonetir, uyelik gerektirmez.
+  isPlatformAdmin Boolean   @default(false) @map("is_platform_admin")
   // 2FA: TOTP gizli anahtari (kayit asamasinda yazilir, enable'da dogrulanir).
   totpSecret      String?   @map("totp_secret")
   totpEnabledAt   DateTime? @map("totp_enabled_at")
