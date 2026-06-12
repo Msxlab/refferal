@@ -83,6 +83,7 @@ enum PayoutStatus {
 enum NotificationChannel {
   push
   email
+  in_app
 }
 
 enum NotificationStatus {
@@ -119,8 +120,32 @@ model Tenant {
   summaries   MonthlySummary[]
   teamStats   TeamStat[]
   payouts     Payout[]
+  roles       TenantRole[]
 
   @@map("tenants")
+}
+
+// RBAC: kiracci-kapsamli roller. Sistem rolleri (isSystem) silinemez/yeniden adlandirilamaz;
+// ozel roller serbestce duzenlenir. permissions = izin-anahtari dizisi (kod katalogu, common/permissions.ts).
+// tenant_owner enum katmani her zaman tum izinleri tasir (god-mode), roleId'den bagimsiz.
+model TenantRole {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  key         String
+  name        String
+  description String?
+  color       String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  permissions String[] @default([])
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberships Membership[]
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@map("roles")
 }
 
 model User {
@@ -131,7 +156,11 @@ model User {
   avatarPath      String?   @map("avatar_path")
   locale          String    @default("en")
   emailVerifiedAt DateTime? @map("email_verified_at")
+  // 2FA: TOTP gizli anahtari (kayit asamasinda yazilir, enable'da dogrulanir).
   totpSecret      String?   @map("totp_secret")
+  totpEnabledAt   DateTime? @map("totp_enabled_at")
+  // Tek kullanimlik kurtarma kodlari — yalniz sha256 hash dizisi saklanir.
+  mfaRecoveryCodes Json?    @map("mfa_recovery_codes")
   // "son secim hatirlanir" (SPEC 4.1): coklu uyelikte aktif tenant secimi
   lastMembershipId String?  @map("last_membership_id") @db.Uuid
   createdAt       DateTime  @default(now()) @map("created_at")
@@ -168,6 +197,7 @@ model RefreshToken {
 enum UserTokenPurpose {
   email_verify
   password_reset
+  login_otp
 }
 
 // E-posta dogrulama / sifre sifirlama token'lari (tek kullanimlik, hash'li)
@@ -191,19 +221,25 @@ model Membership {
   id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId            String           @map("tenant_id") @db.Uuid
   userId              String           @map("user_id") @db.Uuid
+  // Kaba yetki katmani (auth/scope): platform/tenant ayrimi + owner god-mode bu enum'a bagli.
   role                Role             @default(member)
+  // Ince yetki: atanmis ozel rol (izin matrisi). Yoksa enum katmaninin varsayilan izinleri uygulanir.
+  roleId              String?          @map("role_id") @db.Uuid
   sponsorMembershipId String?          @map("sponsor_membership_id") @db.Uuid
   referralCode        String           @map("referral_code")
   // ltree-uyumlu materialized path: parent.path || own_id (uuid'ler _ ile). DEGISTIRILEMEZ.
   path                String
   depth               Int
   status              MembershipStatus @default(active)
+  // Kanal bazli bildirim tercihleri: { "<event>": { in_app, email, push } } — bos = varsayilanlar.
+  notificationPrefs   Json             @default("{}") @map("notification_prefs")
   joinedAt            DateTime         @default(now()) @map("joined_at")
   createdAt           DateTime         @default(now()) @map("created_at")
   updatedAt           DateTime         @updatedAt @map("updated_at")
 
   tenant   Tenant       @relation(fields: [tenantId], references: [id])
   user     User         @relation(fields: [userId], references: [id])
+  roleRef  TenantRole?  @relation(fields: [roleId], references: [id])
   sponsor  Membership?  @relation("SponsorTree", fields: [sponsorMembershipId], references: [id])
   children Membership[] @relation("SponsorTree")
 
@@ -418,10 +454,13 @@ model Notification {
   attempts              Int                 @default(0)
   lastError             String?             @map("last_error")
   sentAt                DateTime?           @map("sent_at")
+  // in_app kanali: gelen kutusunda okundu durumu (diger kanallarda null kalir).
+  readAt                DateTime?           @map("read_at")
   createdAt             DateTime            @default(now()) @map("created_at")
   updatedAt             DateTime            @updatedAt @map("updated_at")
 
   @@index([status, createdAt])
+  @@index([recipientMembershipId, channel, readAt])
   @@map("notifications")
 }
 

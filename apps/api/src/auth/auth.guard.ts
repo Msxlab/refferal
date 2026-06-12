@@ -22,6 +22,14 @@ export const Public = (): CustomDecorator => SetMetadata(IS_PUBLIC_KEY, true);
 export const ROLES_KEY = 'roles';
 export const Roles = (...roles: Role[]): CustomDecorator => SetMetadata(ROLES_KEY, roles);
 
+/** Ince yetki: gereken izin anahtari (common/permissions.ts). owner/platform otomatik gecer. */
+export const PERMISSION_KEY = 'permission';
+export const RequirePermission = (permission: string): CustomDecorator =>
+  SetMetadata(PERMISSION_KEY, permission);
+
+// enum katmani → guard'da tum-izinli sayilan roller (perms claim'i gomulmez)
+const GOD_TIERS: ReadonlySet<Role> = new Set([Role.platform_admin, Role.tenant_owner]);
+
 /** Aktif uyelik (mid claim) gerektiren rotalar icin — /app ve /admin yuzeyleri. */
 export const REQUIRE_MEMBERSHIP_KEY = 'requireMembership';
 export const RequireMembership = (): CustomDecorator => SetMetadata(REQUIRE_MEMBERSHIP_KEY, true);
@@ -76,6 +84,17 @@ export class AccessTokenGuard implements CanActivate {
         // yetki ihlali: tespit/forensics icin logla (DB yazimi guard'da agir, structured log yeterli)
         this.logger.warn(
           `[security] authz_denied user=${payload.sub} role=${payload.role} need=${roles.join('|')} ${req.method} ${req.url}`,
+        );
+        throw new ForbiddenException('bu islem icin yetkiniz yok');
+      }
+    }
+
+    const permission = this.reflector.getAllAndOverride<string>(PERMISSION_KEY, targets);
+    if (permission) {
+      const granted = !!payload.role && GOD_TIERS.has(payload.role);
+      if (!granted && !payload.perms?.includes(permission)) {
+        this.logger.warn(
+          `[security] perm_denied user=${payload.sub} role=${payload.role} need=${permission} ${req.method} ${req.url}`,
         );
         throw new ForbiddenException('bu islem icin yetkiniz yok');
       }

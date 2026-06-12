@@ -9,6 +9,7 @@ export interface EmailMessage {
   to: string;
   subject: string;
   text: string;
+  html?: string;
 }
 
 export interface EmailAdapter {
@@ -54,8 +55,67 @@ export class SmtpEmailAdapter implements EmailAdapter {
       this.logger.log(`[DEV e-posta] → ${msg.to} | ${msg.subject}\n${msg.text}`);
       return;
     }
-    await this.transport.sendMail({ from: this.from, to: msg.to, subject: msg.subject, text: msg.text });
+    await this.transport.sendMail({
+      from: this.from,
+      to: msg.to,
+      subject: msg.subject,
+      text: msg.text,
+      html: msg.html,
+    });
   }
+}
+
+/**
+ * Transactional saglayici (HTTP API) — Resend uyumlu. Inbox teslimati icin SMTP'ye alternatif.
+ * Self-hosted ilke korunur: yalniz e-posta gonderimi, kimlik/oturum dis serviste DEGIL (SPEC kilitli karar).
+ */
+export class ResendEmailAdapter implements EmailAdapter {
+  private readonly logger = new Logger('EmailAdapter');
+  private readonly from: string;
+  private readonly apiKey: string;
+  private readonly endpoint: string;
+
+  constructor() {
+    this.from = process.env.MAIL_FROM ?? process.env.SMTP_FROM ?? 'Refearn <no-reply@refearn.local>';
+    this.apiKey = process.env.RESEND_API_KEY ?? '';
+    this.endpoint = process.env.MAIL_API_URL ?? 'https://api.resend.com/emails';
+  }
+
+  async send(msg: EmailMessage): Promise<void> {
+    if (!this.apiKey) {
+      this.logger.warn(`[DEV e-posta/provider key yok] → ${msg.to} | ${msg.subject}`);
+      return;
+    }
+    const res = await fetch(this.endpoint, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: this.from,
+        to: [msg.to],
+        subject: msg.subject,
+        text: msg.text,
+        html: msg.html,
+      }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`mail provider ${res.status}: ${detail.slice(0, 200)}`);
+    }
+  }
+}
+
+/**
+ * Esnek email adaptor secimi (DECISIONS — luxury tur 1):
+ *   MAIL_PROVIDER=resend → ResendEmailAdapter (HTTP)
+ *   MAIL_PROVIDER=smtp (veya SMTP_HOST tanimli) → SmtpEmailAdapter
+ *   aksi halde → SmtpEmailAdapter (dev console fallback)
+ */
+export function createEmailAdapter(): EmailAdapter {
+  const provider = (process.env.MAIL_PROVIDER ?? '').toLowerCase();
+  if (provider === 'resend' || (!provider && process.env.RESEND_API_KEY)) {
+    return new ResendEmailAdapter();
+  }
+  return new SmtpEmailAdapter();
 }
 
 /** Expo Push; token yoksa no-op. Gecersiz token'lari yutar (best-effort). */

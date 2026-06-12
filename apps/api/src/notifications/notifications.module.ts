@@ -3,14 +3,14 @@ import {
   EMAIL_ADAPTER,
   ExpoPushAdapter,
   PUSH_ADAPTER,
-  SmtpEmailAdapter,
+  createEmailAdapter,
 } from './adapters';
 import { NotificationRelayService } from './notification-relay.service';
 
 @Module({
   providers: [
     NotificationRelayService,
-    { provide: EMAIL_ADAPTER, useClass: SmtpEmailAdapter },
+    { provide: EMAIL_ADAPTER, useFactory: createEmailAdapter },
     { provide: PUSH_ADAPTER, useClass: ExpoPushAdapter },
   ],
   exports: [NotificationRelayService],

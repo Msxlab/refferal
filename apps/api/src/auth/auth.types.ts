@@ -1,12 +1,15 @@
 import { Role } from '@prisma/client';
 import { z } from 'zod';
 
-/** JWT claim'leri (SPEC 4.1): user_id, active_membership_id, tenant_id, role */
+/** JWT claim'leri (SPEC 4.1): user_id, active_membership_id, tenant_id, role + ince izinler.
+ * perms: ozel rol/katmandan turetilen izin anahtarlari. owner/platform tokeninde GOMULMEZ —
+ * guard bu katmanlari otomatik tum-izinli sayar (token boyutu kucuk kalir). */
 export interface AccessTokenPayload {
   sub: string;
   mid: string | null;
   tid: string | null;
   role: Role | null;
+  perms?: string[];
 }
 
 export interface RequestUser extends AccessTokenPayload {

@@ -14,11 +14,13 @@ import {
   MembershipStatus,
   NotificationChannel,
   Prisma,
+  Role,
   TenantStatus,
   User,
   UserTokenPurpose,
 } from '@prisma/client';
 import { randomToken, sha256 } from '../common/crypto';
+import { defaultPermissionsForTier } from '../common/permissions';
 import { MembershipsService } from '../memberships/memberships.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { authConfig } from './auth.config';
@@ -56,6 +58,7 @@ export interface RequestMeta {
 
 type ActiveMembership = Membership & {
   tenant: { id: string; slug: string; name: string };
+  roleRef?: { permissions: string[] } | null;
 };
 
 @Injectable()
@@ -267,7 +270,10 @@ export class AuthService {
         status: MembershipStatus.active,
         tenant: { status: TenantStatus.active },
       },
-      include: { tenant: { select: { id: true, slug: true, name: true } } },
+      include: {
+        tenant: { select: { id: true, slug: true, name: true } },
+        roleRef: { select: { permissions: true } },
+      },
     });
     if (!membership) {
       throw new NotFoundException('uyelik bulunamadi veya aktif degil');
@@ -375,7 +381,10 @@ export class AuthService {
       include: {
         memberships: {
           where: { status: MembershipStatus.active, tenant: { status: TenantStatus.active } },
-          include: { tenant: { select: { id: true, slug: true, name: true } } },
+          include: {
+            tenant: { select: { id: true, slug: true, name: true } },
+            roleRef: { select: { permissions: true } },
+          },
           orderBy: { joinedAt: 'asc' },
         },
       },
@@ -421,6 +430,12 @@ export class AuthService {
       tid: membership?.tenant.id ?? null,
       role: membership?.role ?? null,
     };
+    // owner/platform → perms gomulmez (guard tum-izinli sayar). Diger katmanlarda
+    // ozel rolun izinleri, yoksa enum katmaninin varsayilanlari token'a yazilir.
+    const tier = membership?.role;
+    if (membership && tier && tier !== Role.tenant_owner && tier !== Role.platform_admin) {
+      payload.perms = membership.roleRef?.permissions ?? defaultPermissionsForTier(tier);
+    }
     return this.jwt.signAsync(payload, {
       secret: authConfig.accessSecret(),
       expiresIn: authConfig.accessTtlSeconds,
