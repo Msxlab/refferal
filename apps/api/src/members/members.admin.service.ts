@@ -101,6 +101,10 @@ export class MembersAdminService {
 
   async setStatus(actor: ActorContext, membershipId: string, status: MembershipStatus) {
     const m = await this.requireInTenant(actor.tenantId, membershipId);
+    // owner pasife alinamaz: tenant'i aktif owner'siz birakmayi onler (setRole owner-guard'i ile simetrik)
+    if (m.role === Role.tenant_owner && status === MembershipStatus.inactive) {
+      throw new BadRequestException('owner uyeligi pasife alinamaz');
+    }
     if (m.status === status) return { id: m.id, status };
     const updated = await this.prisma.membership.update({ where: { id: m.id }, data: { status } });
     await this.audit(actor, status === MembershipStatus.inactive ? 'membership.deactivate' : 'membership.activate', m.id, {

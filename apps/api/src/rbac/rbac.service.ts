@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -100,7 +101,19 @@ export class RbacService implements OnModuleInit {
     }));
   }
 
-  async createRole(actor: ActorContext, input: CreateRoleInput) {
+  /** Yukseltme onleme: bir aktor SAHIP OLMADIGI izni role yazamaz/atayamaz (owner/platform haric). */
+  private assertGrantable(actorPerms: string[], requested: string[]): void {
+    const held = new Set(actorPerms);
+    const escalating = requested.filter((p) => !held.has(p));
+    if (escalating.length > 0) {
+      throw new ForbiddenException(
+        `kendinizde olmayan izinleri veremezsiniz: ${escalating.join(', ')}`,
+      );
+    }
+  }
+
+  async createRole(actor: ActorContext, input: CreateRoleInput, actorPerms: string[]) {
+    this.assertGrantable(actorPerms, input.permissions);
     const key = await this.uniqueKey(actor.tenantId, input.name);
     const role = await this.prisma.tenantRole.create({
       data: {
@@ -120,7 +133,8 @@ export class RbacService implements OnModuleInit {
     return this.listRoles(actor.tenantId);
   }
 
-  async updateRole(actor: ActorContext, roleId: string, input: UpdateRoleInput) {
+  async updateRole(actor: ActorContext, roleId: string, input: UpdateRoleInput, actorPerms: string[]) {
+    if (input.permissions) this.assertGrantable(actorPerms, input.permissions);
     const role = await this.prisma.tenantRole.findFirst({
       where: { id: roleId, tenantId: actor.tenantId },
     });
@@ -189,7 +203,17 @@ export class RbacService implements OnModuleInit {
     }));
   }
 
-  async assignRole(actor: ActorContext, membershipId: string, input: AssignRoleInput) {
+  async assignRole(
+    actor: ActorContext,
+    membershipId: string,
+    input: AssignRoleInput,
+    actorPerms: string[],
+    actorMembershipId: string | null,
+  ) {
+    // gorevler ayrimi: kendi rolunu/iznini bu ekrandan degistiremezsin (self-escalation onleme)
+    if (actorMembershipId && membershipId === actorMembershipId) {
+      throw new ForbiddenException('kendi rolunuzu bu ekrandan degistiremezsiniz');
+    }
     const m = await this.prisma.membership.findFirst({
       where: { id: membershipId, tenantId: actor.tenantId },
     });
@@ -202,6 +226,8 @@ export class RbacService implements OnModuleInit {
         where: { id: input.roleId, tenantId: actor.tenantId },
       });
       if (!role) throw new BadRequestException('rol bu isletmeye ait degil');
+      // tavan: sahip olmadigin izinleri tasiyan bir rolu baskasina da atayamazsin
+      this.assertGrantable(actorPerms, role.permissions);
     }
     const before = { tier: m.role, roleId: m.roleId };
     const updated = await this.prisma.membership.update({

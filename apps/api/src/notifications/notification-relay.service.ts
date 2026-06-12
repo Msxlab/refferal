@@ -9,7 +9,12 @@ const MAX_ATTEMPTS = 5;
 const BATCH = 20;
 
 const esc = (s: string): string =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 
 /** Duz metin govdeyi sade, markali bir HTML e-postaya sarar (inbox teslimati + okunabilirlik). */
 function toHtml(subject: string, body: string): string {

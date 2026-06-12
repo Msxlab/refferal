@@ -5,11 +5,11 @@ export function money(cents: string | number | bigint, currency = 'USD'): string
 }
 
 export function bps(value: number): string {
-  return `%${(value / 100).toFixed(2)}`;
+  return `${(value / 100).toFixed(2)}%`;
 }
 
 export function dateShort(value: string | Date | null): string {
   if (!value) return '—';
   const d = typeof value === 'string' ? new Date(value) : value;
-  return d.toLocaleDateString('tr-TR', { year: 'numeric', month: '2-digit', day: '2-digit' });
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }

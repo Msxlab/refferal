@@ -111,10 +111,13 @@ export class MeController {
   ) {
     if (!user.mid) return { items: [], unreadCount: 0 };
     const take = Math.min(50, Math.max(1, Number(limit) || 20));
+    // gecersiz cursor Prisma'ya Invalid Date dusurmesin — sessizce yok say
+    const beforeDate = before ? new Date(before) : null;
+    const validBefore = beforeDate && !Number.isNaN(beforeDate.getTime()) ? beforeDate : null;
     const where: Prisma.NotificationWhereInput = {
       recipientMembershipId: user.mid,
       channel: { in: INBOX_CHANNELS },
-      ...(before ? { createdAt: { lt: new Date(before) } } : {}),
+      ...(validBefore ? { createdAt: { lt: validBefore } } : {}),
     };
     const [rows, unreadCount] = await Promise.all([
       this.prisma.notification.findMany({ where, orderBy: { createdAt: 'desc' }, take }),

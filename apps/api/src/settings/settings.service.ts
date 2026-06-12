@@ -51,7 +51,11 @@ export class SettingsService {
         compressionEnabled: input.compressionEnabled,
         inactiveMembersEarn: input.inactiveMembersEarn,
         requireSeparateApprover: input.requireSeparateApprover,
-        branding: input.branding,
+        // kismi guncelleme tum kolonu ezmesin: mevcut branding ile birlestir
+        branding:
+          input.branding === undefined
+            ? undefined
+            : ({ ...((before.branding as Record<string, unknown>) ?? {}), ...(input.branding as Record<string, unknown>) } as Prisma.InputJsonValue),
       },
     });
 

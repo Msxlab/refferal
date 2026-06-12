@@ -1,7 +1,9 @@
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Role } from '@prisma/client';
 import { CurrentUser, RequireMembership, RequirePermission } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
 import { ActorContext } from '../common/actor';
+import { ALL_PERMISSIONS } from '../common/permissions';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { RbacService } from './rbac.service';
 import {
@@ -22,6 +24,14 @@ export class RbacController {
     return { userId: user.sub, tenantId: user.tid as string };
   }
 
+  /** Aktorun KENDI etkin izin kumesi — bir kullanici sahip olmadigi izni baskasina veremez. */
+  private actorPerms(user: RequestUser): string[] {
+    if (user.role === Role.tenant_owner || user.role === Role.platform_admin) {
+      return [...ALL_PERMISSIONS];
+    }
+    return user.perms ?? [];
+  }
+
   @RequirePermission('settings.roles')
   @Get('permissions')
   permissions() {
@@ -40,7 +50,7 @@ export class RbacController {
     @CurrentUser() user: RequestUser,
     @Body(new ZodValidationPipe(createRoleSchema)) body: CreateRoleInput,
   ) {
-    return this.rbac.createRole(this.actor(user), body);
+    return this.rbac.createRole(this.actor(user), body, this.actorPerms(user));
   }
 
   @RequirePermission('settings.roles')
@@ -50,7 +60,7 @@ export class RbacController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(updateRoleSchema)) body: UpdateRoleInput,
   ) {
-    return this.rbac.updateRole(this.actor(user), id, body);
+    return this.rbac.updateRole(this.actor(user), id, body, this.actorPerms(user));
   }
 
   @RequirePermission('settings.roles')
@@ -72,6 +82,6 @@ export class RbacController {
     @Param('membershipId', ParseUUIDPipe) membershipId: string,
     @Body(new ZodValidationPipe(assignRoleSchema)) body: AssignRoleInput,
   ) {
-    return this.rbac.assignRole(this.actor(user), membershipId, body);
+    return this.rbac.assignRole(this.actor(user), membershipId, body, this.actorPerms(user), user.mid);
   }
 }

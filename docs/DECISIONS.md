@@ -162,3 +162,26 @@ Mustafa onayiyla (12 Haz 2026), "her modulu ayri ayri sor" talebi geregi:
 - **Settings Center** sekmeli: General / Brand (canli onizleme, branding JSON) / People & Roles
   (izin matrisi editoru + atama) / Security / Notifications / Data & Backup. Tam Ingilizce.
   Branding `tenant.branding` JSON'a yazilir (settings PATCH genisletildi).
+
+## Adversarial guvenlik denetimi — RBAC + inbox (tur 1, 12 Haz 2026)
+
+Cok-ajanli review (3 mercek + dogrulayicilar) 11 bulgu onayladi. Duzeltildi:
+- **[critical] Yetki yukseltme** — create/updateRole, aktorun SAHIP OLMADIGI izinleri role yazabiliyordu
+  (zod yalniz "bilinen anahtar" kontrol ediyordu). Fix: `assertGrantable(actorPerms, requested)` —
+  owner/platform haric, istenen her izin aktorun etkin izin kumesinde olmali. (rbac.service/controller)
+- **[high] assignRole self-target + tavan** — aktor kendi uyeligine rol atayabiliyordu; roleId tavani yoktu.
+  Fix: `membershipId === actorMembershipId` (user.mid) reddedilir + atanan rolun izinleri aktorun
+  kumesinin altkumesi olmali. Regresyon testi: `test/rbac.int-spec.ts` (4 senaryo yesil).
+- **[medium] Owner pasife alinabiliyordu** → members.admin.setStatus owner-deaktivasyon guard'i (setRole ile simetrik).
+- **[medium] notifications `before` cursor** — gecersiz tarih Prisma'ya Invalid Date dusuruyordu → dogrulanip yok sayilir.
+- **[medium] branding kismi guncelleme** tum JSON'u eziyordu → mevcut branding ile birlestirilir.
+- **[low] HTML e-posta esc()** tirnak kacisi eklendi (defense-in-depth).
+
+**Bilincli erteleme/kabul** (MVP):
+- **[medium] JWT perms tazeligi** — rol degisikligi access-token TTL'i kadar gecikir (perms claim'i token'da).
+  Tasarim tradeoff'u: token-bazli yetki, istek-basi DB teyidi yok (performans). Kisa access TTL ile sinirli.
+  Ileride `pv` (permission-version) claim'i + guard teyidi ile sertlestirilebilir.
+- **[low] Bootstrap kilidi** — ensureSystemRoles/backfill her instance'ta calisir; upsert idempotent oldugu
+  icin tek-instance MVP'de guvenli. Cok-instance'ta pg advisory lock onerilir.
+- **[medium] Device upsert yeniden-iliskilendirme** — ayni cihaz token'i login'de yeni kullaniciya gecer;
+  push semantigi geregi KASITLI (cihaz devri). Sunucu token sahipligini dogrulayamaz.
