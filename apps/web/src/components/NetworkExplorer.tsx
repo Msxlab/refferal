@@ -154,8 +154,10 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
   /* ---- liste = koleps-edilebilir klasor agaci. Kapali baslar (yalniz kokler = ilk kisiler).
          Arama: eslesen + atalari acik gosterilir. ---- */
   const sortKids = (n: ApiNode) => (childrenOf.get(n.id) ?? []).slice().sort((a, b) => a.fullName.localeCompare(b.fullName));
+  // her satir: lasts[] = kokten kendisine kadar her dugumun "son cocuk mu" bayragi (klavuz cizgileri icin)
   const listRows = useMemo(() => {
-    const out: Array<{ n: ApiNode; rel: number; hasChildren: boolean }> = [];
+    const out: Array<{ n: ApiNode; lasts: boolean[]; hasChildren: boolean }> = [];
+    const has = (n: ApiNode) => (childrenOf.get(n.id) ?? []).length > 0;
     if (q) {
       const matchIds = new Set(subtree.filter((n) => n.fullName.toLowerCase().includes(q) || n.referralCode.toLowerCase().includes(q)).map((n) => n.id));
       if (matchIds.size === 0) return out;
@@ -164,20 +166,20 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
         let cur: ApiNode | undefined = byId.get(id);
         while (cur) { keep.add(cur.id); cur = cur.parentId ? byId.get(cur.parentId) : undefined; }
       }
-      const walk = (n: ApiNode, rel: number) => {
-        if (!keep.has(n.id)) return;
-        const kids = sortKids(n);
-        out.push({ n, rel, hasChildren: kids.length > 0 });
-        kids.forEach((c) => walk(c, rel + 1));
+      const walk = (n: ApiNode, lasts: boolean[]) => {
+        const kids = sortKids(n).filter((c) => keep.has(c.id));
+        out.push({ n, lasts, hasChildren: has(n) });
+        kids.forEach((c, idx) => walk(c, [...lasts, idx === kids.length - 1]));
       };
-      roots.forEach((r) => walk(r, 0));
+      const vis = roots.filter((r) => keep.has(r.id));
+      vis.forEach((r, idx) => walk(r, [idx === vis.length - 1]));
     } else {
-      const walk = (n: ApiNode, rel: number) => {
+      const walk = (n: ApiNode, lasts: boolean[]) => {
         const kids = sortKids(n);
-        out.push({ n, rel, hasChildren: kids.length > 0 });
-        if (expanded.has(n.id)) kids.forEach((c) => walk(c, rel + 1));
+        out.push({ n, lasts, hasChildren: kids.length > 0 });
+        if (expanded.has(n.id)) kids.forEach((c, idx) => walk(c, [...lasts, idx === kids.length - 1]));
       };
-      roots.forEach((r) => walk(r, 0));
+      roots.forEach((r, idx) => walk(r, [idx === roots.length - 1]));
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -234,23 +236,26 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
           <table>
             <thead><tr><th>Member</th><th>Role</th><th style={{ textAlign: 'right' }}>Level</th><th style={{ textAlign: 'right' }}>Team</th><th>Status</th><th></th></tr></thead>
             <tbody>
-              {listRows.map(({ n, rel, hasChildren }) => {
+              {listRows.map(({ n, lasts, hasChildren }) => {
                 const open = !!q || expanded.has(n.id);
                 return (
                   <tr key={n.id} style={{ cursor: 'pointer' }} onClick={() => setSelected(n)}>
                     <td>
-                      <div className="row" style={{ gap: 6, paddingLeft: rel * 22 }}>
-                        {hasChildren ? (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); toggleExpand(n.id); }}
-                            aria-label={open ? 'Collapse' : 'Expand'}
-                            style={{ width: 18, height: 18, display: 'grid', placeItems: 'center', background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 10, flexShrink: 0, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s ease' }}
-                          >▶</button>
-                        ) : <span style={{ width: 18, flexShrink: 0, textAlign: 'center', color: 'var(--faint)' }}>·</span>}
-                        <span style={{ flexShrink: 0 }}>{hasChildren ? '🗂' : '👤'}</span>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, fontSize: 13 }}>{n.fullName}</div>
-                          <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{n.referralCode}</div>
+                      <div style={{ display: 'flex', alignItems: 'stretch', minHeight: 40 }}>
+                        <GuideCells lasts={lasts} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {hasChildren ? (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); toggleExpand(n.id); }}
+                              aria-label={open ? 'Collapse' : 'Expand'}
+                              style={{ width: 20, height: 20, display: 'grid', placeItems: 'center', background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 10, flexShrink: 0, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s ease' }}
+                            >▶</button>
+                          ) : <span style={{ width: 20, flexShrink: 0 }} />}
+                          <span style={{ flexShrink: 0, fontSize: 15 }}>{hasChildren ? '🗂' : '👤'}</span>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, fontSize: 13 }}>{n.fullName}</div>
+                            <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{n.referralCode}</div>
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -309,6 +314,28 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
         </Drawer>
       )}
     </div>
+  );
+}
+
+/** Dosya-gezgini klavuz cizgileri: her seviye icin dikey cizgi + konnektor (├/└). */
+function GuideCells({ lasts }: { lasts: boolean[] }) {
+  const depth = lasts.length - 1;
+  if (depth <= 0) return <span style={{ width: 6, flexShrink: 0 }} />;
+  return (
+    <>
+      {Array.from({ length: depth }).map((_, j) => {
+        const idx = j + 1;
+        const isConn = idx === depth;
+        const last = lasts[idx];
+        const drawV = isConn ? true : !last;
+        return (
+          <span key={j} aria-hidden style={{ position: 'relative', width: 22, flexShrink: 0, alignSelf: 'stretch' }}>
+            {drawV && <i style={{ position: 'absolute', left: '50%', top: 0, bottom: isConn && last ? '50%' : 0, borderLeft: '1.5px solid var(--border-strong)' }} />}
+            {isConn && <i style={{ position: 'absolute', left: '50%', right: 2, top: '50%', borderTop: '1.5px solid var(--border-strong)' }} />}
+          </span>
+        );
+      })}
+    </>
   );
 }
 
