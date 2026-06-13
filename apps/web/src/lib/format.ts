@@ -8,6 +8,30 @@ export function bps(value: number): string {
   return `${(value / 100).toFixed(2)}%`;
 }
 
+/**
+ * Komisyon seviyesi → okunur etiket. Sentetik seviyeler (engine):
+ * 1000 fast-start, 1001 matching, 1002 rütbe override; 0 = saticinin kendi (direkt); n = unilevel.
+ */
+export function levelLabel(level: number, short = false): string {
+  switch (level) {
+    case 1000: return short ? 'Fast' : 'Fast-start';
+    case 1001: return short ? 'Match' : 'Matching';
+    case 1002: return short ? 'Rütbe' : 'Rütbe override';
+    case 0: return short ? 'L0' : 'Direkt (L0)';
+    default: return short ? `L${level}` : `Seviye ${level}`;
+  }
+}
+
+/** Ledger satir tipi → okunur etiket. */
+export function ledgerTypeLabel(type: string): string {
+  switch (type) {
+    case 'commission': return 'Komisyon';
+    case 'reversal': return 'Ters kayıt';
+    case 'adjustment': return 'Düzeltme';
+    default: return type;
+  }
+}
+
 export function dateShort(value: string | Date | null): string {
   if (!value) return '—';
   // Yalniz-tarih (YYYY-MM-DD) string'i UTC gece-yarisi olarak parse edilir; US tz'leri

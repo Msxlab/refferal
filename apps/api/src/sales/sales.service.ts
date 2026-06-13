@@ -102,6 +102,19 @@ export class SalesService {
         include: { seller: { select: { referralCode: true, userId: true, user: { select: { fullName: true } } } } },
       }),
     ]);
+
+    // Satis basina DAGITILAN net komisyon (commission - reversal): sayfadaki id'ler icin tek groupBy.
+    // "Sattigi" (amountCents) ile "kazandirdigi" (commissionCents) yan yana gosterilebilsin (sold-vs-earned).
+    const saleIds = rows.map((s) => s.id);
+    const ledgerSums = saleIds.length
+      ? await this.prisma.ledgerEntry.groupBy({
+          by: ['saleId'],
+          where: { tenantId: actor.tenantId, saleId: { in: saleIds } },
+          _sum: { amountCents: true },
+        })
+      : [];
+    const commBySale = new Map(ledgerSums.map((g) => [g.saleId, g._sum.amountCents ?? 0n]));
+
     return {
       total,
       page: q.page,
@@ -110,6 +123,8 @@ export class SalesService {
         ...this.serialize(s),
         sellerReferralCode: s.seller.referralCode,
         sellerName: s.seller.user.fullName,
+        // bu satistan dagitilan toplam komisyon (tum kademeler, ters kayitlar dusulmus)
+        commissionCents: (commBySale.get(s.id) ?? 0n).toString(),
         // uyenin kendi girdigi satis mi? (self-servis isareti)
         selfSubmitted: s.createdBy !== null && s.createdBy === s.seller.userId,
       })),

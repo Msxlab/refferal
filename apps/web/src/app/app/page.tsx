@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Bars, Donut, Loading, MoneyCounter } from '@/components/ui';
-import { dateShort, money } from '@/lib/format';
+import { dateShort, money, levelLabel } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
 interface LevelRow {
@@ -82,7 +82,7 @@ export default function MemberDashboard() {
   ];
 
   const levelBars = data.levels.map((l) => ({
-    label: `Level ${l.level}`,
+    label: levelLabel(l.level),
     value: Number(l.payableCents) + Number(l.pendingCents) + Number(l.paidCents),
     color: 'var(--grad-primary)',
   }));

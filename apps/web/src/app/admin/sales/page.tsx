@@ -10,7 +10,7 @@ import { ImportWizard } from '@/components/ImportWizard';
 import { useLiveRefresh } from '@/components/LiveIndicator';
 import { PrintSheet, PrintHeader, PrintSignatures } from '@/components/PrintSheet';
 import { activeMembership, getSession } from '@/lib/auth';
-import { dateShort, money } from '@/lib/format';
+import { dateShort, money, levelLabel, ledgerTypeLabel } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
 interface SaleItem {
@@ -23,6 +23,7 @@ interface SaleItem {
   customerRef: string | null;
   sellerReferralCode: string;
   sellerName: string;
+  commissionCents: string;
   selfSubmitted: boolean;
 }
 interface SalesList { total: number; page: number; pageSize: number; items: SaleItem[] }
@@ -47,6 +48,7 @@ interface SavedView { id: string; name: string; shared: boolean; config: ViewCon
 const SALE_COLUMNS: TableColumn[] = [
   { key: 'seller', label: 'Seller', locked: true },
   { key: 'amount', label: 'Amount' },
+  { key: 'commission', label: 'Commission' },
   { key: 'customer', label: 'Customer' },
   { key: 'status', label: 'Status' },
   { key: 'date', label: 'Date' },
@@ -82,6 +84,9 @@ export default function SalesPage() {
   const [toast, showToast] = useToast();
   const [code, setCode] = useState('');
   const [amount, setAmount] = useState('');
+  const [newDate, setNewDate] = useState('');
+  const [newCustomer, setNewCustomer] = useState('');
+  const [newExternalRef, setNewExternalRef] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<Pending | null>(null);
   const [showImport, setShowImport] = useState(false);
@@ -158,10 +163,17 @@ export default function SalesPage() {
     e.preventDefault();
     setBusy(true); setError('');
     try {
-      const cents = Number(amount);
-      if (!Number.isInteger(cents) || cents < 1) { setError('Tutar pozitif tam sayı (cent) olmalı'); setBusy(false); return; }
-      await api.post('/admin/sales', { sellerReferralCode: code.trim(), amountCents: cents });
-      setCode(''); setAmount(''); setShowNew(false);
+      const dollars = parseFloat(amount);
+      if (!Number.isFinite(dollars) || dollars <= 0) { setError('Geçerli bir tutar girin ($, 0\'dan büyük).'); setBusy(false); return; }
+      const cents = Math.round(dollars * 100);
+      await api.post('/admin/sales', {
+        sellerReferralCode: code.trim(),
+        amountCents: cents,
+        ...(newDate ? { saleDate: newDate } : {}),
+        ...(newCustomer.trim() ? { customerRef: newCustomer.trim() } : {}),
+        ...(newExternalRef.trim() ? { externalRef: newExternalRef.trim() } : {}),
+      });
+      setCode(''); setAmount(''); setNewCustomer(''); setNewExternalRef(''); setShowNew(false);
       showToast('Sale created (draft)');
       await load();
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
@@ -243,7 +255,7 @@ export default function SalesPage() {
           <button className="btn ghost" onClick={exportCsv}>⇩ Export CSV</button>
           <button className="btn ghost" onClick={() => window.print()}>🖶 Print</button>
           <button className="btn ghost" onClick={() => setShowImport(true)}>⇪ Import</button>
-          <button className="btn" onClick={() => setShowNew(true)}>＋ New sale</button>
+          <button className="btn" onClick={() => { setError(''); setNewDate(new Date().toLocaleDateString('en-CA')); setShowNew(true); }}>＋ New sale</button>
         </div>
       </div>
 
@@ -288,8 +300,8 @@ export default function SalesPage() {
               <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div className="field" style={{ margin: 0 }}><label>From</label><input type="date" value={filters.from} onChange={(e) => patchFilters({ ...filters, from: e.target.value })} /></div>
                 <div className="field" style={{ margin: 0 }}><label>To</label><input type="date" value={filters.to} onChange={(e) => patchFilters({ ...filters, to: e.target.value })} /></div>
-                <div className="field" style={{ margin: 0 }}><label>Min (cents)</label><input type="number" min={0} step={1} value={filters.minCents} onChange={(e) => patchFilters({ ...filters, minCents: e.target.value })} placeholder="cents" /></div>
-                <div className="field" style={{ margin: 0 }}><label>Max (cents)</label><input type="number" min={0} step={1} value={filters.maxCents} onChange={(e) => patchFilters({ ...filters, maxCents: e.target.value })} placeholder="cents" /></div>
+                <div className="field" style={{ margin: 0 }}><label>Min ($)</label><input type="number" min={0} step="0.01" value={filters.minCents ? String(Number(filters.minCents) / 100) : ''} onChange={(e) => patchFilters({ ...filters, minCents: e.target.value ? String(Math.round(parseFloat(e.target.value) * 100)) : '' })} placeholder="0.00" /></div>
+                <div className="field" style={{ margin: 0 }}><label>Max ($)</label><input type="number" min={0} step="0.01" value={filters.maxCents ? String(Number(filters.maxCents) / 100) : ''} onChange={(e) => patchFilters({ ...filters, maxCents: e.target.value ? String(Math.round(parseFloat(e.target.value) * 100)) : '' })} placeholder="0.00" /></div>
               </div>
               <div className="row" style={{ justifyContent: 'space-between' }}>
                 <button className="btn ghost sm" onClick={() => patchFilters({ ...EMPTY, q: filters.q })}>Reset</button>
@@ -331,6 +343,7 @@ export default function SalesPage() {
                 <th className="no-print" style={{ width: 30 }}><input type="checkbox" checked={selected.size > 0 && selected.size === list.items.length} onChange={toggleAll} aria-label="Select all" /></th>
                 {cols.isVisible('seller') && <th>Seller</th>}
                 {cols.isVisible('amount') && <SortableTh label="Amount" field="amountCents" sort={sort} dir={dir} onSort={onSort} />}
+                {cols.isVisible('commission') && <th style={{ textAlign: 'right' }}>Commission</th>}
                 {cols.isVisible('customer') && <th>Customer</th>}
                 {cols.isVisible('status') && <SortableTh label={t('sales.status')} field="status" sort={sort} dir={dir} onSort={onSort} />}
                 {cols.isVisible('date') && <SortableTh label="Date" field="saleDate" sort={sort} dir={dir} onSort={onSort} />}
@@ -353,6 +366,16 @@ export default function SalesPage() {
                     </td>
                   )}
                   {cols.isVisible('amount') && <td className="tnum" style={{ fontWeight: 650 }}>{money(s.amountCents, s.currency)}</td>}
+                  {cols.isVisible('commission') && (
+                    <td className="tnum" style={{ textAlign: 'right' }}>
+                      {Number(s.commissionCents) > 0
+                        ? <>
+                            <span style={{ color: 'var(--gold-500)', fontWeight: 650 }}>{money(s.commissionCents, s.currency)}</span>
+                            <div className="faint" style={{ fontSize: 11 }}>{Number(s.amountCents) > 0 ? `%${((Number(s.commissionCents) / Number(s.amountCents)) * 100).toFixed(1)}` : '—'}</div>
+                          </>
+                        : <span className="faint">{s.status === 'draft' ? 'taslak' : '—'}</span>}
+                    </td>
+                  )}
                   {cols.isVisible('customer') && <td className="muted" style={{ fontSize: 12.5 }}>{s.customerRef || '—'}</td>}
                   {cols.isVisible('status') && (
                     <td>
@@ -424,10 +447,18 @@ export default function SalesPage() {
 
       {showNew && (
         <Modal title="Record a sale" onClose={() => setShowNew(false)}>
-          <form onSubmit={createSale} style={{ width: 'min(420px, 88vw)' }}>
+          <form onSubmit={createSale} style={{ width: 'min(460px, 90vw)' }}>
             <div className="field"><label>{t('sales.seller')}</label><input value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. ALICE1" required autoFocus /></div>
-            <div className="field"><label>{t('sales.amount')} (cents)</label><input type="number" min={1} step={1} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="10000000" required /></div>
-            <div className="faint" style={{ fontSize: 12 }}>e.g. $100,000 = 10000000</div>
+            <div className="field">
+              <label>{t('sales.amount')} ($)</label>
+              <input type="number" min={0} step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="100000.00" required />
+              {Number(amount) > 0 && <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>= {money(Math.round(parseFloat(amount) * 100), cur)}</div>}
+            </div>
+            <div className="row" style={{ gap: 12 }}>
+              <div className="field" style={{ flex: 1, margin: 0 }}><label>Sale date</label><input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} /></div>
+              <div className="field" style={{ flex: 1, margin: 0 }}><label>Customer (optional)</label><input value={newCustomer} onChange={(e) => setNewCustomer(e.target.value)} placeholder="e.g. Smith kitchen" /></div>
+            </div>
+            <div className="field" style={{ marginTop: 12 }}><label>External ref (optional)</label><input value={newExternalRef} onChange={(e) => setNewExternalRef(e.target.value)} placeholder="e.g. INV-2026-014" /></div>
             {error && <div className="error">{error}</div>}
             <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
               <button type="button" className="btn ghost" onClick={() => setShowNew(false)} disabled={busy}>Cancel</button>
@@ -547,11 +578,11 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
               <div className="muted" style={{ fontSize: 13 }}>No commissions yet — approve to distribute.</div>
             ) : (
               <table>
-                <thead><tr><th>Lvl</th><th>Beneficiary</th><th style={{ textAlign: 'right' }}>Rate</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
+                <thead><tr><th>Katman</th><th>Beneficiary</th><th style={{ textAlign: 'right' }}>Rate</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
                 <tbody>
                   {d.ledger.map((l) => (
                     <tr key={l.id}>
-                      <td className="tnum">{l.level}</td>
+                      <td title={ledgerTypeLabel(l.type)}>{levelLabel(l.level)}</td>
                       <td>{l.beneficiaryName}<div className="faint" style={{ fontSize: 11 }}>{l.beneficiaryCode}</div></td>
                       <td className="tnum" style={{ textAlign: 'right' }}>{(l.rateBpsUsed / 100).toFixed(2)}%</td>
                       <td className="tnum" style={{ textAlign: 'right', color: l.type === 'reversal' ? 'var(--rose)' : undefined }}>{money(l.amountCents, d.currency)}</td>
@@ -592,11 +623,11 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
             <>
               <div style={{ fontWeight: 700, margin: '8px 0' }}>Commission distribution</div>
               <table>
-                <thead><tr><th>Lvl</th><th>Beneficiary</th><th style={{ textAlign: 'right' }}>Rate</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
+                <thead><tr><th>Katman</th><th>Beneficiary</th><th style={{ textAlign: 'right' }}>Rate</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
                 <tbody>
                   {d.ledger.map((l) => (
                     <tr key={l.id}>
-                      <td>{l.level}</td>
+                      <td>{levelLabel(l.level)}</td>
                       <td>{l.beneficiaryName} ({l.beneficiaryCode})</td>
                       <td style={{ textAlign: 'right' }}>{(l.rateBpsUsed / 100).toFixed(2)}%</td>
                       <td style={{ textAlign: 'right' }}>{money(l.amountCents, d.currency)}</td>

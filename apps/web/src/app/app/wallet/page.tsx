@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, Modal, MoneyCounter, Pagination, useToast } from '@/components/ui';
-import { dateShort, money } from '@/lib/format';
+import { dateShort, money, levelLabel, ledgerTypeLabel } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
 interface LedgerItem {
@@ -126,8 +126,8 @@ export default function WalletPage() {
             {wallet.ledger.items.map((e) => (
               <tr key={e.id}>
                 <td className="muted">{dateShort(e.createdAt)}</td>
-                <td>L{e.level}</td>
-                <td className="faint">{e.type}</td>
+                <td>{levelLabel(e.level, true)}</td>
+                <td className="faint">{ledgerTypeLabel(e.type)}</td>
                 <td><span className={`badge ${e.status}`}>{e.status}</span></td>
                 <td className="tnum" style={{ textAlign: 'right', fontWeight: 650, color: Number(e.amountCents) < 0 ? 'var(--rose)' : undefined }}>{money(e.amountCents, c)}</td>
               </tr>
