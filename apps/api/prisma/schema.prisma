@@ -623,6 +623,8 @@ model PayoutProfile {
   accountLast4     String              @map("account_last4")
   status           PayoutProfileStatus @default(pending_review)
   rejectionReason  String?             @map("rejection_reason")
+  // OFAC/AML (#10): legalName yaptirim listesiyle eslesti mi (payout'u bloklar, compliance inceleme)
+  sanctionsHit     Boolean             @default(false) @map("sanctions_hit")
   // banka/kimlik degisikligi zamani — soguma suresi (anti-account-takeover) buradan olcuelur
   lastChangedAt    DateTime            @map("last_changed_at")
   reviewedByUserId String?             @map("reviewed_by_user_id") @db.Uuid
@@ -673,4 +675,19 @@ model SurveyResponse {
   @@index([tenantId, createdAt])
   @@index([membershipId, createdAt])
   @@map("survey_responses")
+}
+
+// OFAC/AML yaptirim listesi (#10): gece cron OFAC SDN + AB/BM listelerini normalize eder.
+// Self-hosted: liste acik veri (dis bagimlilik yok). normalizedName lower+trim, fuzzy-match icin.
+model SanctionsEntry {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String
+  normalizedName String   @map("normalized_name")
+  source         String   @default("OFAC")
+  country        String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([source, normalizedName])
+  @@index([normalizedName])
+  @@map("sanctions_entries")
 }

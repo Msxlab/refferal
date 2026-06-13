@@ -101,17 +101,19 @@ export class PayoutsService {
     const paid: Array<{ membershipId: string; payoutId: string; totalCents: string }> = [];
     const skipped: Array<{ membershipId: string; reason: string; netCents: string }> = [];
 
-    // Payout engelleri: KYC kapisi (tenant bayragi) + fraud bayragi (her zaman acik).
+    // Payout engelleri: sanctions (her zaman) + KYC kapisi (tenant bayragi) + fraud (her zaman).
     const tenantCfg = await this.prisma.tenant.findUniqueOrThrow({ where: { id: actor.tenantId } });
     const block = new Map<string, string>();
-    if (tenantCfg.requireKycForPayout) {
-      const profiles = await this.prisma.payoutProfile.findMany({
-        where: { tenantId: actor.tenantId, membershipId: { in: targets } },
-        select: { membershipId: true, status: true, lastChangedAt: true },
-      });
-      const byMember = new Map(profiles.map((p) => [p.membershipId, p]));
-      for (const id of targets) {
-        const b = kycPayoutBlock(byMember.get(id) ?? null);
+    const profiles = await this.prisma.payoutProfile.findMany({
+      where: { tenantId: actor.tenantId, membershipId: { in: targets } },
+      select: { membershipId: true, status: true, lastChangedAt: true, sanctionsHit: true },
+    });
+    const profileByMember = new Map(profiles.map((p) => [p.membershipId, p]));
+    for (const id of targets) {
+      const p = profileByMember.get(id) ?? null;
+      if (p?.sanctionsHit) { block.set(id, 'sanctions match — compliance review'); continue; }
+      if (tenantCfg.requireKycForPayout) {
+        const b = kycPayoutBlock(p);
         if (b) block.set(id, b);
       }
     }
@@ -412,12 +414,13 @@ export class PayoutsService {
 
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
 
-    // KYC kapisi: acikken yalniz verified + soguma gecmis profille talep acilir
+    // sanctions (her zaman) + KYC kapisi (tenant bayragi)
+    const profile = await this.prisma.payoutProfile.findUnique({
+      where: { membershipId },
+      select: { status: true, lastChangedAt: true, sanctionsHit: true },
+    });
+    if (profile?.sanctionsHit) throw new BadRequestException('sanctions match — compliance review');
     if (tenant.requireKycForPayout) {
-      const profile = await this.prisma.payoutProfile.findUnique({
-        where: { membershipId },
-        select: { status: true, lastChangedAt: true },
-      });
       const block = kycPayoutBlock(profile);
       if (block) throw new BadRequestException(block);
     }

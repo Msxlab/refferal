@@ -18,7 +18,7 @@ interface RunResult { paidCount: number; skippedCount: number; paid: { totalCent
 interface KycProfile {
   membershipId: string; fullName: string; referralCode: string; email: string;
   legalName: string; taxIdType: string; taxIdLast4: string; bankName: string | null;
-  routingNumber: string; accountType: string; accountLast4: string; lastChangedAt: string;
+  routingNumber: string; accountType: string; accountLast4: string; lastChangedAt: string; sanctionsHit: boolean;
 }
 interface FraudFlag {
   membershipId: string; fullName: string; referralCode: string; email: string;
@@ -227,7 +227,7 @@ export default function PayoutsPage() {
               {kyc.map((k) => (
                 <tr key={k.membershipId}>
                   <td>{k.fullName}<div className="faint" style={{ fontSize: 12 }}>{k.referralCode}</div></td>
-                  <td>{k.legalName}</td>
+                  <td>{k.legalName}{k.sanctionsHit && <span className="badge failed" style={{ marginLeft: 6 }}>⚠ sanctions</span>}</td>
                   <td className="tnum">{k.taxIdType.toUpperCase()} ••••{k.taxIdLast4}</td>
                   <td className="faint" style={{ fontSize: 12 }}>{k.bankName ? `${k.bankName} · ` : ''}{k.accountType} ••••{k.accountLast4} · {k.routingNumber}</td>
                   <td className="no-print" style={{ textAlign: 'right' }}>

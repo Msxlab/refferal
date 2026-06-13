@@ -18,6 +18,7 @@ import { PlatformModule } from './platform/platform.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RbacModule } from './rbac/rbac.module';
 import { ReportsModule } from './reports/reports.module';
+import { SanctionsModule } from './sanctions/sanctions.module';
 import { SearchModule } from './search/search.module';
 import { SalesModule } from './sales/sales.module';
 import { SettingsModule } from './settings/settings.module';
@@ -62,6 +63,7 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
     FraudModule,
     SearchModule,
     SurveyModule,
+    SanctionsModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

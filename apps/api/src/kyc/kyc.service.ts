@@ -2,11 +2,15 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PayoutProfileStatus, Prisma } from '@prisma/client';
 import { ActorContext } from '../common/actor';
 import { PrismaService } from '../prisma/prisma.service';
+import { SanctionsService } from '../sanctions/sanctions.service';
 import { UpsertProfileInput } from './kyc.types';
 
 @Injectable()
 export class KycService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sanctions: SanctionsService,
+  ) {}
 
   /** Uye kendi profili (maskeli). Yoksa null. */
   async mine(membershipId: string) {
@@ -22,6 +26,7 @@ export class KycService {
     const taxIdLast4 = input.taxId.slice(-4);
     const accountLast4 = input.accountNumber.slice(-4);
     const now = new Date();
+    const sanctionsHit = await this.sanctions.isHit(input.legalName); // OFAC/AML taramasi (#10)
     const data = {
       legalName: input.legalName,
       country: input.country,
@@ -35,6 +40,7 @@ export class KycService {
       rejectionReason: null,
       reviewedByUserId: null,
       reviewedAt: null,
+      sanctionsHit,
       lastChangedAt: now,
     };
     const p = await this.prisma.payoutProfile.upsert({
@@ -84,6 +90,7 @@ export class KycService {
     legalName: string; country: string; taxIdType: string; taxIdLast4: string;
     bankName: string | null; routingNumber: string; accountType: string; accountLast4: string;
     status: string; rejectionReason: string | null; lastChangedAt: Date; reviewedAt: Date | null;
+    sanctionsHit?: boolean;
   }) {
     return {
       legalName: p.legalName,
@@ -96,6 +103,7 @@ export class KycService {
       accountLast4: p.accountLast4,
       status: p.status,
       rejectionReason: p.rejectionReason,
+      sanctionsHit: p.sanctionsHit ?? false,
       lastChangedAt: p.lastChangedAt,
       reviewedAt: p.reviewedAt,
     };
