@@ -13,14 +13,16 @@ import Ranks from './sections/Ranks';
 import Reports from './sections/Reports';
 import Integrations from './sections/Integrations';
 import Announcements from './sections/Announcements';
+import Plan from './sections/Plan';
 
-type TabKey = 'general' | 'brand' | 'people' | 'ranks' | 'security' | 'notifications' | 'reports' | 'integrations' | 'announcements' | 'data';
+type TabKey = 'general' | 'brand' | 'plan' | 'people' | 'ranks' | 'security' | 'notifications' | 'reports' | 'integrations' | 'announcements' | 'data';
 
 interface Tab { key: TabKey; label: string; icon: string; perm?: string; render: () => ReactNode }
 
 const TABS: Tab[] = [
   { key: 'general', label: 'General', icon: '⚙', render: () => <General /> },
   { key: 'brand', label: 'Brand', icon: '◆', perm: 'settings.branding', render: () => <Brand /> },
+  { key: 'plan', label: 'Plan bonuses', icon: '⚡', render: () => <Plan /> },
   { key: 'people', label: 'People & Roles', icon: '⬡', perm: 'settings.roles', render: () => <PeopleRoles /> },
   { key: 'ranks', label: 'Ranks', icon: '🏅', render: () => <Ranks /> },
   { key: 'security', label: 'Security', icon: '⛉', render: () => <Security /> },

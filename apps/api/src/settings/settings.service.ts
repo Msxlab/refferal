@@ -41,6 +41,27 @@ export class SettingsService {
     };
   }
 
+  /** Aktif komisyon planinin bonus katmanlari (MLM unilevel+). */
+  async getPlanBonus(tenantId: string) {
+    const plan = await this.prisma.commissionPlan.findFirst({
+      where: { tenantId, effectiveFrom: { lte: new Date() } },
+      orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
+    });
+    if (!plan) return { planName: null, fastStartBps: 0, fastStartDays: 0, matchingBps: 0 };
+    return { planId: plan.id, planName: plan.name, fastStartBps: plan.fastStartBps, fastStartDays: plan.fastStartDays, matchingBps: plan.matchingBps };
+  }
+
+  async updatePlanBonus(actor: ActorContext, input: { fastStartBps: number; fastStartDays: number; matchingBps: number }) {
+    const plan = await this.prisma.commissionPlan.findFirst({
+      where: { tenantId: actor.tenantId, effectiveFrom: { lte: new Date() } },
+      orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
+    });
+    if (!plan) throw new Error('aktif plan yok');
+    await this.prisma.commissionPlan.update({ where: { id: plan.id }, data: { fastStartBps: input.fastStartBps, fastStartDays: input.fastStartDays, matchingBps: input.matchingBps } });
+    await this.prisma.auditLog.create({ data: { tenantId: actor.tenantId, actorUserId: actor.userId, action: 'plan.update_bonus', entity: 'tenant', entityId: plan.id, after: input } });
+    return this.getPlanBonus(actor.tenantId);
+  }
+
   async update(actor: ActorContext, input: UpdateSettingsInput) {
     const before = await this.prisma.tenant.findUniqueOrThrow({ where: { id: actor.tenantId } });
 

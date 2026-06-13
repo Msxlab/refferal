@@ -370,6 +370,12 @@ model CommissionPlan {
   name          String
   poolRateBps   Int      @map("pool_rate_bps")
   depth         Int
+  // Bonus katmanlari (MLM unilevel+). 0 = kapali (varsayilan; mevcut davranis korunur).
+  // Fast-start: satici joinedAt + fastStartDays icindeyse, direkt sponsora amount*fastStartBps.
+  // Matching: direkt sponsora, saticinin level-0 komisyonunun matchingBps'i.
+  fastStartBps  Int      @default(0) @map("fast_start_bps")
+  fastStartDays Int      @default(0) @map("fast_start_days")
+  matchingBps   Int      @default(0) @map("matching_bps")
   effectiveFrom DateTime @map("effective_from")
   createdBy     String?  @map("created_by") @db.Uuid
   createdAt     DateTime @default(now()) @map("created_at")

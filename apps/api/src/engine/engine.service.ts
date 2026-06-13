@@ -496,7 +496,39 @@ export class EngineService {
       });
     }
 
-    return { applied: true, entryCount: lines.length };
+    // ---- MLM bonus katmanlari (unilevel+): direkt sponsora fast-start + matching ----
+    // Sentetik seviye numaralari (1000/1001) base seviyelerle cakismaz; type=commission
+    // oldugu icin void/payout/summary/maturation akisindan dogal gecer.
+    let bonusCount = 0;
+    const sponsorId = chain[1]; // saticinin direkt sponsoru (varsa)
+    if (sponsorId && (plan.fastStartBps > 0 || plan.matchingBps > 0)) {
+      const addBonus = async (level: number, rateBps: number, amountCents: bigint, template: string) => {
+        if (amountCents <= 0n) return;
+        await tx.ledgerEntry.create({
+          data: { tenantId: sale.tenantId, saleId: sale.id, beneficiaryMembershipId: sponsorId, level, rateBpsUsed: rateBps, amountCents, type: LedgerType.commission, status, maturesAt },
+        });
+        const delta: SummaryDelta = status === LedgerStatus.payable ? { payable: amountCents } : { pending: amountCents };
+        await this.bumpSummary(tx, sale.tenantId, sponsorId, month, level, delta);
+        await tx.notification.create({
+          data: { tenantId: sale.tenantId, recipientMembershipId: sponsorId, channel: NotificationChannel.push, template, payload: { saleId: sale.id, amountCents: amountCents.toString() } },
+        });
+        bonusCount++;
+      };
+
+      // fast-start: satici fastStartDays icinde katildiysa, amount * fastStartBps
+      if (plan.fastStartBps > 0 && plan.fastStartDays > 0) {
+        const seller = await tx.membership.findUnique({ where: { id: sale.sellerMembershipId }, select: { joinedAt: true } });
+        if (seller && sale.saleDate.getTime() - seller.joinedAt.getTime() <= plan.fastStartDays * 86_400_000) {
+          await addBonus(1000, plan.fastStartBps, (sale.amountCents * BigInt(plan.fastStartBps)) / 10000n, 'commission_earned');
+        }
+      }
+      // matching: saticinin level-0 komisyonunun matchingBps'i (sponsor eslestirme)
+      if (plan.matchingBps > 0 && lines.length > 0) {
+        await addBonus(1001, plan.matchingBps, (lines[0].amountCents * BigInt(plan.matchingBps)) / 10000n, 'commission_earned');
+      }
+    }
+
+    return { applied: true, entryCount: lines.length + bonusCount };
   }
 
   private async lockSale(tx: Tx, saleId: string): Promise<LockedSale> {
@@ -531,7 +563,7 @@ export class EngineService {
     tx: Tx,
     tenantId: string,
     saleDate: Date,
-  ): Promise<{ depth: number; levels: PlanLevelRate[] }> {
+  ): Promise<{ depth: number; levels: PlanLevelRate[]; fastStartBps: number; fastStartDays: number; matchingBps: number }> {
     const plan = await tx.commissionPlan.findFirst({
       where: { tenantId, effectiveFrom: { lte: saleDate } },
       orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
@@ -543,6 +575,9 @@ export class EngineService {
     return {
       depth: plan.depth,
       levels: plan.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })),
+      fastStartBps: plan.fastStartBps,
+      fastStartDays: plan.fastStartDays,
+      matchingBps: plan.matchingBps,
     };
   }
 
