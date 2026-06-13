@@ -30,7 +30,7 @@ export default function PeriodsPage() {
   const load = useCallback(async () => {
     try {
       const r = await api.get<{ rows: PeriodRow[] }>('/admin/periods');
-      setRows(r.rows);
+      setRows(r.rows); setError(''); // basarida onceki hatayi temizle (kurtarma)
     } catch (e) { setError(String((e as ApiError).message)); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -52,7 +52,7 @@ export default function PeriodsPage() {
       showToast(res.warning ? `Kilitlendi — uyarı: ${res.warning}` : `${lockTarget} kilitlendi`);
       setLockTarget(null); setNote('');
       await load();
-    } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
+    } catch (e) { showToast(`Kilitleme hatası: ${(e as ApiError).message}`); } finally { setBusy(false); }
   }
 
   async function doUnlock() {
@@ -63,10 +63,11 @@ export default function PeriodsPage() {
       showToast(`${unlockTarget} kilidi açıldı`);
       setUnlockTarget(null);
       await load();
-    } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
+    } catch (e) { showToast(`Kilit açma hatası: ${(e as ApiError).message}`); } finally { setBusy(false); }
   }
 
-  if (error) return <div className="error">{error}</div>;
+  // Yalniz ilk yukleme hatasinda tam-sayfa hata (kurtarma butonuyla); aksi halde inline banner.
+  if (error && !rows) return <div className="error" style={{ margin: 24 }}>{error} <button className="btn ghost sm" onClick={() => void load()} style={{ marginLeft: 8 }}>Tekrar dene</button></div>;
   if (!rows) return <Loading />;
 
   return (
@@ -79,6 +80,8 @@ export default function PeriodsPage() {
         </div>
         <button className="btn ghost no-print" onClick={() => window.print()}>🖶 Yazdır</button>
       </div>
+
+      {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
 
       <div className="stat-grid" style={{ marginTop: 16 }}>
         <StatCard label="Kilitli dönem" value={String(stats.lockedCount)} icon="▥" />

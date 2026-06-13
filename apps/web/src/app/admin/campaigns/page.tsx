@@ -245,7 +245,7 @@ function CampaignDrawer({ id, isAdmin, onClose, onChanged, onEdit, onToast }: {
           {d.status === 'draft' && <button className="btn ghost" disabled={busy} onClick={() => onEdit(d)}>Edit</button>}
           {d.status === 'draft' && <button className="btn ghost danger" disabled={busy} onClick={() => setConfirmDelete(true)}>Delete</button>}
           {d.status === 'draft' && <button className="btn" disabled={busy} onClick={activate}>Activate</button>}
-          {d.status !== 'ended' && <button className="btn success" disabled={busy} onClick={() => setConfirmFinalize(true)}>Finalize &amp; pay bonuses</button>}
+          {d.status === 'active' && <button className="btn success" disabled={busy} onClick={() => setConfirmFinalize(true)}>Finalize &amp; pay bonuses</button>}
         </>
       )}
     >

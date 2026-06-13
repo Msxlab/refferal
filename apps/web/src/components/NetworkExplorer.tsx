@@ -147,14 +147,19 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [] }: { node
 
   // client-side rutbe: tenant tier'lari + (team, yasam-boyu kazanc) ile kosulan en yuksek tier
   const earningsById = useMemo(() => new Map(nodes.map((n) => [n.id, Number(n.earningsCents ?? 0)])), [nodes]);
+  // tier'lari ARTAN sirala (esik->yuksek): en yuksek kosulan tier kazanir, API sirasindan bagimsiz
+  const sortedTiers = useMemo(
+    () => [...tiers].sort((a, b) => (Number(a.minEarningsCents) - Number(b.minEarningsCents)) || (a.minTeam - b.minTeam)),
+    [tiers],
+  );
   const rankOf = useCallback((id: string): string | null => {
-    if (tiers.length === 0) return null;
+    if (sortedTiers.length === 0) return null;
     const team = teamOf(id);
     const earn = earningsById.get(id) ?? 0;
     let name: string | null = null;
-    for (const t of tiers) { if (team >= t.minTeam && earn >= Number(t.minEarningsCents)) name = t.name; }
+    for (const t of sortedTiers) { if (team >= t.minTeam && earn >= Number(t.minEarningsCents)) name = t.name; }
     return name;
-  }, [tiers, teamOf, earningsById]);
+  }, [sortedTiers, teamOf, earningsById]);
 
   // alt-agac cirosu (bu ay): dugum + tum torunlarinin revenueCents toplami (memoize)
   const subtreeRevById = useMemo(() => {

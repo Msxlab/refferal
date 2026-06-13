@@ -158,7 +158,9 @@ export default function SalesPage() {
     e.preventDefault();
     setBusy(true); setError('');
     try {
-      await api.post('/admin/sales', { sellerReferralCode: code.trim(), amountCents: Number(amount) });
+      const cents = Number(amount);
+      if (!Number.isInteger(cents) || cents < 1) { setError('Tutar pozitif tam sayı (cent) olmalı'); setBusy(false); return; }
+      await api.post('/admin/sales', { sellerReferralCode: code.trim(), amountCents: cents });
       setCode(''); setAmount(''); setShowNew(false);
       showToast('Sale created (draft)');
       await load();
@@ -286,8 +288,8 @@ export default function SalesPage() {
               <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div className="field" style={{ margin: 0 }}><label>From</label><input type="date" value={filters.from} onChange={(e) => patchFilters({ ...filters, from: e.target.value })} /></div>
                 <div className="field" style={{ margin: 0 }}><label>To</label><input type="date" value={filters.to} onChange={(e) => patchFilters({ ...filters, to: e.target.value })} /></div>
-                <div className="field" style={{ margin: 0 }}><label>Min ($)</label><input type="number" min={0} value={filters.minCents} onChange={(e) => patchFilters({ ...filters, minCents: e.target.value })} placeholder="cents" /></div>
-                <div className="field" style={{ margin: 0 }}><label>Max ($)</label><input type="number" min={0} value={filters.maxCents} onChange={(e) => patchFilters({ ...filters, maxCents: e.target.value })} placeholder="cents" /></div>
+                <div className="field" style={{ margin: 0 }}><label>Min (cents)</label><input type="number" min={0} step={1} value={filters.minCents} onChange={(e) => patchFilters({ ...filters, minCents: e.target.value })} placeholder="cents" /></div>
+                <div className="field" style={{ margin: 0 }}><label>Max (cents)</label><input type="number" min={0} step={1} value={filters.maxCents} onChange={(e) => patchFilters({ ...filters, maxCents: e.target.value })} placeholder="cents" /></div>
               </div>
               <div className="row" style={{ justifyContent: 'space-between' }}>
                 <button className="btn ghost sm" onClick={() => patchFilters({ ...EMPTY, q: filters.q })}>Reset</button>
@@ -424,7 +426,7 @@ export default function SalesPage() {
         <Modal title="Record a sale" onClose={() => setShowNew(false)}>
           <form onSubmit={createSale} style={{ width: 'min(420px, 88vw)' }}>
             <div className="field"><label>{t('sales.seller')}</label><input value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. ALICE1" required autoFocus /></div>
-            <div className="field"><label>{t('sales.amount')} (cents)</label><input type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="10000000" required /></div>
+            <div className="field"><label>{t('sales.amount')} (cents)</label><input type="number" min={1} step={1} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="10000000" required /></div>
             <div className="faint" style={{ fontSize: 12 }}>e.g. $100,000 = 10000000</div>
             {error && <div className="error">{error}</div>}
             <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>

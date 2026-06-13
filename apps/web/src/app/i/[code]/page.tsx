@@ -91,22 +91,24 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
                   <span className="badge active">Active invitation</span>
                 </div>
               </div>
-              <div className="field">
-                <label>{t('reg.fullName')}</label>
-                <input value={fullName} onChange={(e) => setFullName(e.target.value)} required minLength={2} autoFocus placeholder="Full name" />
-              </div>
-              <div className="field">
-                <label>{t('login.email')}</label>
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@company.com" />
-              </div>
-              <div className="field">
-                <label>{t('login.password')} <span className="faint">(min 10)</span></label>
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={10} placeholder="••••••••••" />
-              </div>
-              {error && <div className="error">{error}</div>}
-              <button className="btn block" style={{ marginTop: 6 }} disabled={busy}>
-                {busy ? t('common.loading') : t('reg.submit')} {!busy && <span>→</span>}
-              </button>
+              <form onSubmit={onSubmit}>
+                <div className="field">
+                  <label>{t('reg.fullName')}</label>
+                  <input value={fullName} onChange={(e) => setFullName(e.target.value)} required minLength={2} autoFocus placeholder="Full name" />
+                </div>
+                <div className="field">
+                  <label>{t('login.email')}</label>
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@company.com" />
+                </div>
+                <div className="field">
+                  <label>{t('login.password')} <span className="faint">(min 10)</span></label>
+                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={10} placeholder="••••••••••" />
+                </div>
+                {error && <div className="error">{error}</div>}
+                <button type="submit" className="btn block" style={{ marginTop: 6 }} disabled={busy}>
+                  {busy ? t('common.loading') : t('reg.submit')} {!busy && <span>→</span>}
+                </button>
+              </form>
             </>
           )}
           <div className="faint" style={{ fontSize: 11, marginTop: 16, lineHeight: 1.5 }}>{t('me.incomeNote')}</div>

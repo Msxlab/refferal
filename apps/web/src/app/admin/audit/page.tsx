@@ -63,6 +63,7 @@ export default function AuditPage() {
       const p = new URLSearchParams(filterQuery);
       p.set('page', String(page)); p.set('pageSize', '50');
       setList(await api.get<AuditList>(`/admin/audit?${p.toString()}`));
+      setError(''); // basarida onceki hatayi temizle (kurtarma)
     } catch (e) { setError(String((e as ApiError).message)); }
   }, [filterQuery, page]);
 
@@ -73,7 +74,8 @@ export default function AuditPage() {
     catch (e) { setError(String((e as ApiError).message)); }
   }
 
-  if (error) return <div className="error">{error}</div>;
+  // Fatal yalniz ilk yukleme basarisizsa (tekrar-dene ile); aksi halde inline banner (sayfa korunur).
+  if (error && !list) return <div className="error" style={{ margin: 24 }}>{error} <button className="btn ghost sm" onClick={() => void load()} style={{ marginLeft: 8 }}>Tekrar dene</button></div>;
   const items = list?.items ?? [];
 
   return (
@@ -94,6 +96,8 @@ export default function AuditPage() {
           <button className="btn ghost" onClick={exportCsv}>⇩ Export CSV</button>
         </div>
       </div>
+
+      {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
 
       <div className="row fade-in delay-1 no-print" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '14px 0' }}>
         <input placeholder="🔍  Search action or entity…" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} style={{ flex: 1, minWidth: 180, maxWidth: 280 }} />
