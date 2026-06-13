@@ -57,7 +57,11 @@ export default function MembersPage() {
   const cols = useTablePrefs('members', MEMBER_COLUMNS);
   const colCount = 1 + MEMBER_COLUMNS.filter((c) => cols.isVisible(c.key)).length + 1;
   const [nps, setNps] = useState<{ nps: number | null; total: number } | null>(null);
-  useEffect(() => { api.get<{ nps: number | null; total: number }>('/admin/surveys').then(setNps).catch(() => {}); }, []);
+  const [funnel, setFunnel] = useState<{ views: number; signups: number; conversionPct: number | null } | null>(null);
+  useEffect(() => {
+    api.get<{ nps: number | null; total: number }>('/admin/surveys').then(setNps).catch(() => {});
+    api.get<{ views: number; signups: number; conversionPct: number | null }>('/admin/invite-funnel').then(setFunnel).catch(() => {});
+  }, []);
 
   const filterQuery = useMemo(() => {
     const p = new URLSearchParams();
@@ -155,6 +159,7 @@ export default function MembersPage() {
           <h1 className="h1 fade-in">Member Management</h1>
           <p className="sub fade-in">Invite members, assign roles, deactivate. Placement is permanent.
             {nps && nps.total > 0 && nps.nps != null && <span className="badge active" style={{ marginLeft: 8 }}>NPS {nps.nps} · {nps.total} responses</span>}
+            {funnel && funnel.views > 0 && <span className="badge payable" style={{ marginLeft: 8 }}>Invite funnel: {funnel.views} views → {funnel.signups} signups{funnel.conversionPct != null ? ` (${funnel.conversionPct}%)` : ''}</span>}
           </p>
         </div>
         <div className="row fade-in no-print" style={{ gap: 8 }}>

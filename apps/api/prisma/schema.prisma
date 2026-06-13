@@ -166,6 +166,7 @@ model Tenant {
   payoutProfiles PayoutProfile[]
   fraudFlags  FraudFlag[]
   surveys     SurveyResponse[]
+  inviteEvents InviteEvent[]
 
   @@map("tenants")
 }
@@ -320,9 +321,26 @@ model Invite {
 
   tenant  Tenant     @relation(fields: [tenantId], references: [id])
   inviter Membership @relation("Inviter", fields: [inviterMembershipId], references: [id])
+  events  InviteEvent[]
 
   @@index([tenantId, status])
   @@map("invites")
+}
+
+// Davet funnel (#14): tiklama/goruntuleme event'i + UTM kanal kaynagi. signup = Invite.used'tan turetilir.
+model InviteEvent {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  inviteId  String   @map("invite_id") @db.Uuid
+  event     String   // 'view'
+  utmSource String?  @map("utm_source")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invite Invite @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@map("invite_events")
 }
 
 model CommissionPlan {

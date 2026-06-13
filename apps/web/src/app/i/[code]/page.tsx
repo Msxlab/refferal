@@ -32,6 +32,9 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
       .get<InviteResolve>(`/invites/${encodeURIComponent(code)}`)
       .then(setInvite)
       .catch((e) => setLoadError(String((e as ApiError).message)));
+    // funnel tracking (#14): goruntuleme + UTM kaynak
+    const utm = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('utm_source') ?? undefined : undefined;
+    api.post(`/invites/${encodeURIComponent(code)}/event`, { event: 'view', ...(utm ? { utmSource: utm } : {}) }).catch(() => { /* sessiz */ });
   }, [code]);
 
   async function onSubmit(e: FormEvent) {
