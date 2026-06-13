@@ -518,6 +518,11 @@ model Payout {
   period       String
   paidAt       DateTime?    @map("paid_at")
   ref          String?
+  // Banka mutabakati (Dalga 3): banka ACH dosyasini isleyip parayi gonderince admin
+  // ekstreyi import eder; eslesen payout 'cleared' isaretlenir. clearedAt=null → henuz mutabik degil.
+  clearedAt          DateTime? @map("cleared_at")
+  bankRef            String?   @map("bank_ref")
+  reconciledByUserId String?   @map("reconciled_by_user_id") @db.Uuid
   createdAt    DateTime     @default(now()) @map("created_at")
   updatedAt    DateTime     @updatedAt @map("updated_at")
 

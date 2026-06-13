@@ -239,6 +239,8 @@ export class PayoutsService {
         period: p.period,
         paidAt: p.paidAt,
         ref: p.ref,
+        clearedAt: p.clearedAt,
+        bankRef: p.bankRef,
       })),
     };
   }
@@ -272,6 +274,8 @@ export class PayoutsService {
       period: p.period,
       paidAt: p.paidAt,
       ref: p.ref,
+      clearedAt: p.clearedAt,
+      bankRef: p.bankRef,
       createdAt: p.createdAt,
       lines: p.entries.map((e) => ({
         id: e.id,
@@ -458,6 +462,69 @@ export class PayoutsService {
       ].join(',');
     });
     return [header, ...lines].join('\n') + '\n';
+  }
+
+  /**
+   * Banka mutabakati (Dalga 3): banka ACH'i isleyip parayi gonderdikten sonra admin ekstreyi
+   * import eder. Her satir, henuz mutabik olmayan 'paid' bir payout ile TUTARA gore eslenir
+   * (her payout en fazla bir kez). Eslesenler 'cleared' isaretlenir; eslesmeyenler raporlanir.
+   */
+  async reconcile(
+    actor: ActorContext,
+    rows: Array<{ amountCents: number; ref?: string }>,
+  ): Promise<{
+    clearedCount: number;
+    matched: Array<{ payoutId: string; membershipId: string; amountCents: string; bankRef: string | null }>;
+    unmatched: Array<{ amountCents: number; ref?: string }>;
+    remainingUncleared: number;
+  }> {
+    // mutabik olmayan odenmis payout'lar — tutara gore kova (FIFO eslestirme icin eski once)
+    const open = await this.prisma.payout.findMany({
+      where: { tenantId: actor.tenantId, status: PayoutStatus.paid, clearedAt: null },
+      orderBy: { paidAt: 'asc' },
+      select: { id: true, membershipId: true, totalCents: true },
+    });
+    const byAmount = new Map<string, Array<{ id: string; membershipId: string }>>();
+    for (const p of open) {
+      const key = p.totalCents.toString();
+      const arr = byAmount.get(key) ?? [];
+      arr.push({ id: p.id, membershipId: p.membershipId });
+      byAmount.set(key, arr);
+    }
+
+    const matched: Array<{ payoutId: string; membershipId: string; amountCents: string; bankRef: string | null }> = [];
+    const unmatched: Array<{ amountCents: number; ref?: string }> = [];
+    const now = new Date();
+
+    for (const row of rows) {
+      const key = BigInt(Math.round(row.amountCents)).toString();
+      const bucket = byAmount.get(key);
+      const hit = bucket?.shift(); // ayni tutarda birden cok varsa FIFO
+      if (!hit) {
+        unmatched.push(row);
+        continue;
+      }
+      await this.prisma.payout.update({
+        where: { id: hit.id },
+        data: { clearedAt: now, bankRef: row.ref ?? null, reconciledByUserId: actor.userId },
+      });
+      matched.push({ payoutId: hit.id, membershipId: hit.membershipId, amountCents: key, bankRef: row.ref ?? null });
+    }
+
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId: actor.tenantId,
+        actorUserId: actor.userId,
+        action: 'payout.reconcile',
+        entity: 'payout',
+        after: { clearedCount: matched.length, unmatchedCount: unmatched.length } as Prisma.InputJsonValue,
+      },
+    });
+
+    const remainingUncleared = await this.prisma.payout.count({
+      where: { tenantId: actor.tenantId, status: PayoutStatus.paid, clearedAt: null },
+    });
+    return { clearedCount: matched.length, matched, unmatched, remainingUncleared };
   }
 
   /**

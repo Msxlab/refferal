@@ -11,6 +11,8 @@ import {
   DecidePayoutInput,
   exportPayoutsSchema,
   ExportPayoutsInput,
+  reconcilePayoutsSchema,
+  ReconcilePayoutsInput,
   listPayoutsSchema,
   ListPayoutsInput,
   runPayoutSchema,
@@ -68,6 +70,16 @@ export class AdminPayoutsController {
     @Res() res: Response,
   ) {
     res.send(await this.payouts.achFile(user.tid as string, q.period));
+  }
+
+  // banka mutabakati: ekstre satirlarini odenmis payout'larla esle, 'cleared' isaretle
+  @HttpCode(200)
+  @Post('reconcile')
+  reconcile(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(reconcilePayoutsSchema)) body: ReconcilePayoutsInput,
+  ) {
+    return this.payouts.reconcile(this.actor(user), body.rows);
   }
 
   // maker-checker: bekleyen oneriler + onay/red (statik route'lar ':id'den ONCE)

@@ -25,6 +25,15 @@ export const exportPayoutsSchema = z.object({
 });
 export type ExportPayoutsInput = z.infer<typeof exportPayoutsSchema>;
 
+export const reconcilePayoutsSchema = z.object({
+  // banka ekstresi satirlari: tutar (cent) + opsiyonel banka referansi
+  rows: z
+    .array(z.object({ amountCents: z.number().int().positive(), ref: z.string().trim().max(140).optional() }))
+    .min(1)
+    .max(5000),
+});
+export type ReconcilePayoutsInput = z.infer<typeof reconcilePayoutsSchema>;
+
 export const decidePayoutSchema = z.object({
   action: z.enum(['approve', 'reject']),
   // approve: banka/havale referansi; reject: red sebebi
