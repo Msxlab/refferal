@@ -42,6 +42,17 @@ export class SchedulerService {
     }
   }
 
+  /** Gece: finansal invariant denetimi (Dalga 3) — sapmayi alarmla. */
+  @Cron(CronExpression.EVERY_DAY_AT_2AM, { name: 'verify-financials' })
+  async verifyFinancials(): Promise<void> {
+    try {
+      const { tenants, unhealthy } = await this.reports.verifyAllFinancials();
+      this.logger.log(`finansal denetim: ${tenants} tenant, ${unhealthy} sapma`);
+    } catch (err) {
+      this.logger.error('verifyFinancials job hatasi', err instanceof Error ? err.stack : String(err));
+    }
+  }
+
   /** Gunluk: zamani gelen rapor aboneliklerini gonder (#18). */
   @Cron(CronExpression.EVERY_DAY_AT_8AM, { name: 'report-digests' })
   async reportDigests(): Promise<void> {

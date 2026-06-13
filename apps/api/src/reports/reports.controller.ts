@@ -76,6 +76,13 @@ export class ReportsController {
     return this.reports.sendDigest(user.tid as string, sub.recipients);
   }
 
+  // finansal invariant denetimi (admin)
+  @Roles(...ADMIN)
+  @Get('financials/verify')
+  verifyFinancials(@CurrentUser() user: RequestUser) {
+    return this.reports.verifyFinancials(user.tid as string);
+  }
+
   // audit zincir butunlugu: seal + verify (admin)
   @Roles(...ADMIN)
   @HttpCode(200)

@@ -276,6 +276,75 @@ export class ReportsService {
     return out;
   }
 
+  // ---------------------------------------------------- finansal invariant dogrulama (Dalga 3)
+
+  /**
+   * Para tutarliligi denetimi (gece + admin). Iki degismez:
+   * A) her 'paid' payout.totalCents == bagli ledger satirlari toplami
+   * B) uye basina monthly_summaries (pending/payable/paid) == ledger toplami (status bazinda)
+   * Sapma bulgulari doner; bos = saglikli.
+   */
+  async verifyFinancials(tenantId: string) {
+    // A: payout ↔ ledger
+    const payoutMismatches = await this.prisma.$queryRaw<Array<{ payoutId: string; totalCents: bigint; lineSum: bigint }>>`
+      SELECT p.id AS "payoutId", p.total_cents AS "totalCents", COALESCE(SUM(le.amount_cents), 0)::bigint AS "lineSum"
+      FROM payouts p
+      LEFT JOIN ledger_entries le ON le.payout_id = p.id
+      WHERE p.tenant_id = ${tenantId}::uuid AND p.status = 'paid'
+      GROUP BY p.id, p.total_cents
+      HAVING p.total_cents <> COALESCE(SUM(le.amount_cents), 0)::bigint`;
+
+    // B: summary ↔ ledger (uye basina, status bazinda)
+    const [summaries, ledger] = await Promise.all([
+      this.prisma.monthlySummary.groupBy({ by: ['membershipId'], where: { tenantId }, _sum: { pendingCents: true, payableCents: true, paidCents: true } }),
+      this.prisma.ledgerEntry.groupBy({ by: ['beneficiaryMembershipId', 'status'], where: { tenantId }, _sum: { amountCents: true } }),
+    ]);
+    const sBy = new Map(summaries.map((s) => [s.membershipId, s._sum]));
+    const lBy = new Map<string, { pending: bigint; payable: bigint; paid: bigint }>();
+    for (const r of ledger) {
+      const cur = lBy.get(r.beneficiaryMembershipId) ?? { pending: 0n, payable: 0n, paid: 0n };
+      if (r.status === 'pending') cur.pending += r._sum.amountCents ?? 0n;
+      else if (r.status === 'payable') cur.payable += r._sum.amountCents ?? 0n;
+      else if (r.status === 'paid') cur.paid += r._sum.amountCents ?? 0n;
+      lBy.set(r.beneficiaryMembershipId, cur);
+    }
+    const ids = new Set([...sBy.keys(), ...lBy.keys()]);
+    const summaryMismatches: Array<{ membershipId: string; field: string; summary: string; ledger: string }> = [];
+    for (const id of ids) {
+      const s = sBy.get(id) ?? { pendingCents: 0n, payableCents: 0n, paidCents: 0n };
+      const l = lBy.get(id) ?? { pending: 0n, payable: 0n, paid: 0n };
+      const checks: Array<[string, bigint, bigint]> = [
+        ['pending', s.pendingCents ?? 0n, l.pending],
+        ['payable', s.payableCents ?? 0n, l.payable],
+        ['paid', s.paidCents ?? 0n, l.paid],
+      ];
+      for (const [field, sv, lv] of checks) {
+        if (sv !== lv) summaryMismatches.push({ membershipId: id, field, summary: sv.toString(), ledger: lv.toString() });
+      }
+    }
+
+    const ok = payoutMismatches.length === 0 && summaryMismatches.length === 0;
+    return {
+      ok,
+      payoutMismatches: payoutMismatches.map((p) => ({ payoutId: p.payoutId, totalCents: p.totalCents.toString(), lineSum: p.lineSum.toString() })),
+      summaryMismatches: summaryMismatches.slice(0, 50),
+    };
+  }
+
+  /** Gece job'i: tum tenant'lari denetle; sapmayi alarmla. */
+  async verifyAllFinancials(): Promise<{ tenants: number; unhealthy: number }> {
+    const tenants = await this.prisma.tenant.findMany({ select: { id: true } });
+    let unhealthy = 0;
+    for (const t of tenants) {
+      const r = await this.verifyFinancials(t.id);
+      if (!r.ok) {
+        unhealthy++;
+        this.logger.error(`[security] financial_invariant_violation tenant=${t.id} payouts=${r.payoutMismatches.length} summaries=${r.summaryMismatches.length}`);
+      }
+    }
+    return { tenants: tenants.length, unhealthy };
+  }
+
   // ---------------------------------------------------- zamanlanmis e-posta raporu (#18)
 
   async getSubscription(tenantId: string) {

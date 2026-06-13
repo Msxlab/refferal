@@ -34,6 +34,14 @@ export default function DashboardPage() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [months, setMonths] = useState(6);
   const [error, setError] = useState('');
+  const [fin, setFin] = useState<{ ok: boolean; payoutMismatches: unknown[]; summaryMismatches: unknown[] } | null>(null);
+  const [finBusy, setFinBusy] = useState(false);
+
+  async function verifyFinancials() {
+    setFinBusy(true);
+    try { setFin(await api.get('/admin/financials/verify')); }
+    catch (e) { setError(String((e as ApiError).message)); } finally { setFinBusy(false); }
+  }
 
   useEffect(() => {
     api.get<Dashboard>('/admin/dashboard').then(setData).catch((e) => setError(String((e as ApiError).message)));
@@ -60,7 +68,11 @@ export default function DashboardPage() {
           <h1 className="h1 fade-in">{t('dash.title')}</h1>
           <p className="sub fade-in">{t('dash.sub')}</p>
         </div>
-        <button className="btn ghost fade-in no-print" onClick={() => window.print()}>🖶 Print report</button>
+        <div className="row fade-in no-print" style={{ gap: 8 }}>
+          {fin && <span className={`badge ${fin.ok ? 'active' : 'failed'}`}>{fin.ok ? '✓ Books balanced' : `✗ ${fin.payoutMismatches.length + fin.summaryMismatches.length} issue(s)`}</span>}
+          <button className="btn ghost" onClick={verifyFinancials} disabled={finBusy}>{finBusy ? 'Checking…' : '⚖ Verify financials'}</button>
+          <button className="btn ghost" onClick={() => window.print()}>🖶 Print report</button>
+        </div>
       </div>
 
       <div className="grid fade-in delay-1" style={{ gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)' }}>
