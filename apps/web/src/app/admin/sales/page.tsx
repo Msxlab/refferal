@@ -38,9 +38,10 @@ type Pending = { ids: string[]; action: 'approve' | 'void' | 'delete' | 'deliver
 interface Filters { status: string; q: string; from: string; to: string; minCents: string; maxCents: string }
 const EMPTY: Filters = { status: '', q: '', from: '', to: '', minCents: '', maxCents: '' };
 const STATUSES = ['', 'draft', 'approved', 'void'] as const;
-const VIEWS_KEY = 'refearn.sales.views';
 
-interface SavedView { name: string; filters: Filters }
+// Kayitli gorunum (API): config = filtreler + siralama. shared=ekip gorur.
+interface ViewConfig extends Filters { sort?: string; dir?: SortDir }
+interface SavedView { id: string; name: string; shared: boolean; config: ViewConfig; mine: boolean; ownerName: string | null }
 
 const SALE_COLUMNS: TableColumn[] = [
   { key: 'seller', label: 'Seller', locked: true },
@@ -87,12 +88,16 @@ export default function SalesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailId, setDetailId] = useState<string | null>(null);
   const [views, setViews] = useState<SavedView[]>([]);
+  const [showSaveView, setShowSaveView] = useState(false);
+  const [viewName, setViewName] = useState('');
+  const [viewShared, setViewShared] = useState(false);
   const cols = useTablePrefs('sales', SALE_COLUMNS);
   const colCount = 1 + SALE_COLUMNS.filter((c) => cols.isVisible(c.key)).length + 1; // checkbox + gorunur + actions
 
-  useEffect(() => {
-    try { setViews(JSON.parse(localStorage.getItem(VIEWS_KEY) ?? '[]')); } catch { /* yok say */ }
+  const loadViews = useCallback(async () => {
+    try { setViews(await api.get<SavedView[]>('/admin/views?target=sales')); } catch { /* yok say */ }
   }, []);
+  useEffect(() => { void loadViews(); }, [loadViews]);
 
   // filtreler (page'siz) — summary + export ile paylasilan param seti
   const filterQuery = useMemo(() => {
@@ -192,18 +197,26 @@ export default function SalesPage() {
     setSelected((prev) => prev.size === list.items.length ? new Set() : new Set(list.items.map((s) => s.id)));
   }
 
-  function saveView() {
-    const name = prompt('Save this view as:');
-    if (!name?.trim()) return;
-    const next = [...views.filter((v) => v.name !== name.trim()), { name: name.trim(), filters }];
-    setViews(next);
-    try { localStorage.setItem(VIEWS_KEY, JSON.stringify(next)); } catch { /* yok say */ }
-    showToast('View saved');
+  function applyView(v: SavedView) {
+    const { sort: s, dir: d, ...f } = v.config;
+    setFilters({ status: f.status ?? '', q: f.q ?? '', from: f.from ?? '', to: f.to ?? '', minCents: f.minCents ?? '', maxCents: f.maxCents ?? '' });
+    if (s) setSort(s);
+    if (d) setDir(d);
+    setPage(1);
   }
-  function deleteView(name: string) {
-    const next = views.filter((v) => v.name !== name);
-    setViews(next);
-    try { localStorage.setItem(VIEWS_KEY, JSON.stringify(next)); } catch { /* yok say */ }
+  async function saveView(e: FormEvent) {
+    e.preventDefault();
+    if (!viewName.trim()) return;
+    try {
+      await api.post('/admin/views', { target: 'sales', name: viewName.trim(), shared: viewShared, config: { ...filters, sort, dir } });
+      setShowSaveView(false); setViewName(''); setViewShared(false);
+      showToast(viewShared ? 'View shared with the team' : 'View saved');
+      await loadViews();
+    } catch (e) { setError(String((e as ApiError).message)); }
+  }
+  async function deleteView(id: string) {
+    try { await api.del(`/admin/views/${id}`); await loadViews(); }
+    catch (e) { setError(String((e as ApiError).message)); }
   }
 
   const selDrafts = useMemo(() => list?.items.filter((s) => selected.has(s.id) && s.status === 'draft').map((s) => s.id) ?? [], [list, selected]);
@@ -281,16 +294,18 @@ export default function SalesPage() {
         </Popover>
 
         {views.map((v) => (
-          <span key={v.name} className="row" style={{ gap: 3 }}>
-            <button className="btn ghost sm" onClick={() => patchFilters(v.filters)}>{v.name}</button>
-            <button className="faint" onClick={() => deleteView(v.name)} aria-label={`Delete ${v.name}`} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>✕</button>
+          <span key={v.id} className="row" style={{ gap: 3 }}>
+            <button className="btn ghost sm" onClick={() => applyView(v)} title={v.mine ? undefined : `Shared by ${v.ownerName ?? 'team'}`}>
+              {v.shared && <span style={{ marginRight: 3 }}>👥</span>}{v.name}
+            </button>
+            {v.mine && <button className="faint" onClick={() => deleteView(v.id)} aria-label={`Delete ${v.name}`} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>✕</button>}
           </span>
         ))}
 
         <span style={{ flex: 1 }} />
         <ColumnsMenu prefs={cols} />
         {activeFilters && <button className="btn ghost sm" onClick={() => patchFilters(EMPTY)}>Clear</button>}
-        <button className="btn ghost sm" onClick={saveView}>＋ Save view</button>
+        <button className="btn ghost sm" onClick={() => { setViewName(''); setViewShared(false); setShowSaveView(true); }}>＋ Save view</button>
       </div>
 
       {/* ---- tablo ---- */}
@@ -411,6 +426,23 @@ export default function SalesPage() {
             <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
               <button type="button" className="btn ghost" onClick={() => setShowNew(false)} disabled={busy}>Cancel</button>
               <button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Create draft'}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {showSaveView && (
+        <Modal title="Save view" onClose={() => setShowSaveView(false)}>
+          <form onSubmit={saveView} style={{ width: 'min(380px, 88vw)' }}>
+            <div className="field"><label>View name</label><input value={viewName} onChange={(e) => setViewName(e.target.value)} placeholder="e.g. Awaiting approval" required autoFocus /></div>
+            <label className="row" style={{ gap: 8, cursor: 'pointer', fontSize: 13 }}>
+              <input type="checkbox" checked={viewShared} onChange={(e) => setViewShared(e.target.checked)} style={{ width: 'auto' }} />
+              Share with the whole team
+            </label>
+            <div className="faint" style={{ fontSize: 11, marginTop: 4 }}>Saves the current filters and sorting. {viewShared ? 'Everyone on your team will see this view.' : 'Only you will see this view.'}</div>
+            <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+              <button type="button" className="btn ghost" onClick={() => setShowSaveView(false)}>Cancel</button>
+              <button className="btn">Save</button>
             </div>
           </form>
         </Modal>

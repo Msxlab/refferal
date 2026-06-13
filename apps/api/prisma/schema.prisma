@@ -135,6 +135,7 @@ model Tenant {
   payouts     Payout[]
   roles       TenantRole[]
   campaigns   Campaign[]
+  savedViews  SavedView[]
 
   @@map("tenants")
 }
@@ -528,4 +529,23 @@ model Campaign {
 
   @@index([tenantId, status])
   @@map("campaigns")
+}
+
+// Kayitli gorunum: filtre+siralama setinin isimli kaydi. shared=true ise tum ekip gorur
+// (kisisel = yalniz sahibi). config jsonb: hedefe gore { status, q, from, to, sort, dir, ... }.
+model SavedView {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  ownerUserId String   @map("owner_user_id") @db.Uuid
+  target      String   // 'sales' | 'members' | ...
+  name        String
+  shared      Boolean  @default(false)
+  config      Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, target])
+  @@map("saved_views")
 }
