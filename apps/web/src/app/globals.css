@@ -244,6 +244,11 @@ tr:last-child td { border-bottom: none; }
 .badge.payable { color: var(--sky); background: color-mix(in srgb, var(--sky) 14%, transparent); }
 .badge.pending, .badge.requested, .badge.processing { color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); }
 
+/* ag analitigi seridi (network KPI) */
+.net-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.net-kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+.net-kpi-ic { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font-size: 11px; background: color-mix(in srgb, var(--gold-500) 16%, transparent); color: var(--gold-500); flex: none; }
+
 /* canli SSE gostergesi */
 .live { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }

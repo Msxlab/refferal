@@ -402,7 +402,7 @@ export class MembersAdminService {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const month = monthKey(new Date(), tenant.timezone);
 
-    const [nodes, salesAgg] = await Promise.all([
+    const [nodes, salesAgg, earnAgg] = await Promise.all([
       this.prisma.membership.findMany({
         where: { tenantId },
         orderBy: [{ depth: 'asc' }, { joinedAt: 'asc' }],
@@ -414,8 +414,15 @@ export class MembersAdminService {
         _count: { _all: true },
         _sum: { amountCents: true },
       }),
+      // yasam-boyu kazanc (payable + paid) — isi haritasi + KPI + uye detayi icin
+      this.prisma.ledgerEntry.groupBy({
+        by: ['beneficiaryMembershipId'],
+        where: { tenantId, status: { in: [LedgerStatus.payable, LedgerStatus.paid] } },
+        _sum: { amountCents: true },
+      }),
     ]);
     const bySeller = new Map(salesAgg.map((s) => [s.sellerMembershipId, s]));
+    const byBenef = new Map(earnAgg.map((e) => [e.beneficiaryMembershipId, e._sum.amountCents ?? 0n]));
 
     return nodes.map((m) => {
       const agg = bySeller.get(m.id);
@@ -427,8 +434,10 @@ export class MembersAdminService {
         role: m.role,
         status: m.status,
         depth: m.depth,
+        joinedAt: m.joinedAt.toISOString(),
         salesCount: agg?._count._all ?? 0,
         revenueCents: (agg?._sum.amountCents ?? 0n).toString(),
+        earningsCents: (byBenef.get(m.id) ?? 0n).toString(),
       };
     });
   }

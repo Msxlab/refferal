@@ -18,6 +18,8 @@ export interface ApiNode {
   // tree() ucundan gelir (bu ay); platform ag verisinde olmayabilir
   salesCount?: number;
   revenueCents?: string;
+  joinedAt?: string;
+  earningsCents?: string; // yasam-boyu (payable+paid)
 }
 
 type NodeData = {
@@ -164,6 +166,25 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
 
   const maxRevenue = useMemo(() => Math.max(0, ...subtree.map((n) => Number(n.revenueCents ?? 0))), [subtree]);
 
+  // ---- ag analitigi (odaklanilan kapsama gore) ----
+  const analytics = useMemo(() => {
+    const startOfMonth = new Date(); startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0);
+    let active = 0, newThisMonth = 0, revenue = 0, earnings = 0, maxDepth = 0;
+    let top: { name: string; cents: number } | null = null;
+    const minDepth = Math.min(...subtree.map((n) => n.depth));
+    for (const n of subtree) {
+      if (n.status === 'active') active++;
+      if (n.joinedAt && new Date(n.joinedAt) >= startOfMonth) newThisMonth++;
+      revenue += Number(n.revenueCents ?? 0);
+      const e = Number(n.earningsCents ?? 0);
+      earnings += e;
+      if (!top || e > top.cents) top = { name: n.fullName, cents: e };
+      maxDepth = Math.max(maxDepth, n.depth - minDepth);
+    }
+    return { people: subtree.length, active, newThisMonth, revenue, earnings, maxDepth, top };
+  }, [subtree]);
+  const hasEarnings = useMemo(() => subtree.some((n) => Number(n.earningsCents ?? 0) > 0), [subtree]);
+
   /* ---- agac layout ---- */
   const { rfNodes, rfEdges } = useMemo<{ rfNodes: Node<NodeData>[]; rfEdges: Edge[] }>(() => {
     if (subtree.length === 0) return { rfNodes: [], rfEdges: [] };
@@ -233,6 +254,17 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
 
   return (
     <div>
+      {/* ---- ag analitigi seridi ---- */}
+      <div className="net-kpis" style={{ marginBottom: 14 }}>
+        <Kpi label={focusId ? 'Bu kolda' : 'Toplam kişi'} value={String(analytics.people)} icon="⬡" />
+        <Kpi label="Aktif" value={`${analytics.active}`} sub={analytics.people ? `%${Math.round((analytics.active / analytics.people) * 100)}` : undefined} icon="●" />
+        <Kpi label="Derinlik" value={String(analytics.maxDepth)} icon="⤳" />
+        <Kpi label="Bu ay katılan" value={String(analytics.newThisMonth)} icon="✦" />
+        <Kpi label="Ciro (bu ay)" value={compactMoney(analytics.revenue)} icon="◆" />
+        {hasEarnings && <Kpi label="Yaşam-boyu kazanç" value={compactMoney(analytics.earnings)} icon="$" />}
+        {analytics.top && analytics.top.cents > 0 && <Kpi label="En çok kazanan" value={analytics.top.name} sub={compactMoney(analytics.top.cents)} icon="★" />}
+      </div>
+
       {/* ---- temiz arac cubugu ---- */}
       <div className="row" style={{ gap: 10, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
         <div className="seg-tabs" role="tablist" style={{ padding: 4 }}>
@@ -342,6 +374,9 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
               <Stat label="Direct recruits" value={String((childrenOf.get(selected.id) ?? []).length)} />
               <Stat label="Total team" value={String(teamOf(selected.id))} />
               <Stat label="Sponsor" value={selected.parentId ? byId.get(selected.parentId)?.fullName ?? '—' : '— (top)'} />
+              {Number(selected.earningsCents ?? 0) > 0 && <Stat label="Lifetime earnings" value={compactMoney(Number(selected.earningsCents))} />}
+              {Number(selected.revenueCents ?? 0) > 0 && <Stat label="Revenue (this mo)" value={compactMoney(Number(selected.revenueCents))} />}
+              {selected.joinedAt && <Stat label="Joined" value={new Date(selected.joinedAt).toLocaleDateString()} />}
             </div>
             {(childrenOf.get(selected.id) ?? []).length > 0 && (
               <div>
@@ -390,6 +425,18 @@ function GuideCells({ lasts }: { lasts: boolean[] }) {
 
 function crumbStyle(active: boolean): React.CSSProperties {
   return { background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: active ? 700 : 500, color: active ? 'var(--gold-500)' : 'var(--muted)' };
+}
+function Kpi({ label, value, sub, icon }: { label: string; value: string; sub?: string; icon?: string }) {
+  return (
+    <div className="net-kpi">
+      <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+        {icon && <span className="net-kpi-ic" aria-hidden>{icon}</span>}
+        <span className="faint" style={{ fontSize: 11 }}>{label}</span>
+      </div>
+      <div style={{ fontWeight: 750, fontSize: 17, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+      {sub && <div className="faint" style={{ fontSize: 11 }}>{sub}</div>}
+    </div>
+  );
 }
 function Stat({ label, value }: { label: string; value: string }) {
   return (
