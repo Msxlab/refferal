@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { activeMembership, clearSession, getSession, type Session } from '@/lib/auth';
+import { activeMembership, clearSession, getSession, isImpersonating, setSession, stopImpersonation, type Session } from '@/lib/auth';
+import { api } from '@/lib/api';
 import { Brand, ThemeToggle } from '@/components/ui';
 import { NotificationBell } from '@/components/NotificationBell';
 import { t } from '@/lib/i18n';
@@ -20,6 +21,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [session, setSessionState] = useState<Session | null>(null);
+  const [imp, setImp] = useState(false);
 
   useEffect(() => {
     const s = getSession();
@@ -28,6 +30,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       return;
     }
     setSessionState(s);
+    setImp(isImpersonating());
   }, [router]);
 
   if (!session) return <div className="center muted">{t('common.loading')}</div>;
@@ -38,8 +41,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     router.replace('/login');
   }
 
+  async function exitImpersonation() {
+    const mid = getSession()?.activeMembershipId;
+    const admin = stopImpersonation();
+    if (!admin) { router.replace('/login'); return; }
+    setSession(admin);
+    if (mid) { try { await api.post(`/admin/members/${mid}/impersonate/end`); } catch { /* yok say */ } }
+    window.location.href = '/admin';
+  }
+
   return (
     <div>
+      {imp && (
+        <div className="no-print" style={{ background: 'var(--amber)', color: '#1a1404', padding: '8px 18px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, fontSize: 13, fontWeight: 600 }}>
+          <span>👁 Viewing as <b>{session.user.fullName}</b> — read only</span>
+          <button className="btn sm" style={{ background: '#1a1404', color: 'var(--amber)' }} onClick={exitImpersonation}>Exit impersonation</button>
+        </div>
+      )}
       <header className="topbar">
         <div className="inner">
           <Brand />

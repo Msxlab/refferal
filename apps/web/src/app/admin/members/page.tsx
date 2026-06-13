@@ -6,7 +6,7 @@ import { downloadCsv } from '@/lib/download';
 import { ColumnsMenu, Confirm, Loading, Modal, Pagination, SortableTh, SortDir, TableColumn, useTablePrefs, useToast } from '@/components/ui';
 import { Drawer } from '@/components/Drawer';
 import { PrintSheet, PrintHeader } from '@/components/PrintSheet';
-import { activeMembership, getSession } from '@/lib/auth';
+import { activeMembership, getSession, isAdminRole, startImpersonation, type Session } from '@/lib/auth';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -314,6 +314,24 @@ function MemberDrawer({ id, onClose, onNavigate, onChanged, onToast }: {
   const [busy, setBusy] = useState(false);
   const [printing, setPrinting] = useState(false);
   const tenantName = (() => { const s = getSession(); return (s ? activeMembership(s)?.tenantName : null) ?? 'Refearn'; })();
+  const meIsAdmin = (() => { const s = getSession(); return s ? isAdminRole(activeMembership(s)?.role) : false; })();
+
+  async function viewAsMember() {
+    if (!d) return;
+    try {
+      const res = await api.post<{ accessToken: string; member: { membershipId: string; userId: string; fullName: string; email: string; referralCode: string; role: string; tenantId: string; tenantName: string } }>(`/admin/members/${id}/impersonate`);
+      const m = res.member;
+      const impSession: Session = {
+        accessToken: res.accessToken,
+        refreshToken: '',
+        user: { id: m.userId, email: m.email, fullName: m.fullName, locale: 'en', emailVerified: true },
+        activeMembershipId: m.membershipId,
+        memberships: [{ id: m.membershipId, tenantId: m.tenantId, tenantSlug: '', tenantName: m.tenantName, role: m.role, referralCode: m.referralCode, depth: 0 }],
+      };
+      startImpersonation(impSession);
+      window.location.href = '/app';
+    } catch (e) { setErr(String((e as ApiError).message)); }
+  }
 
   const load = useCallback(() => {
     setD(null);
@@ -342,6 +360,9 @@ function MemberDrawer({ id, onClose, onNavigate, onChanged, onToast }: {
       footer={p && (
         <>
           <button className="btn ghost" disabled={busy} onClick={() => setPrinting(true)}>🖶 Print summary</button>
+          {meIsAdmin && p.role !== 'tenant_owner' && p.role !== 'tenant_admin' && (
+            <button className="btn ghost" disabled={busy} onClick={viewAsMember}>👁 View as member</button>
+          )}
           {p.role !== 'tenant_owner' && (
             <select value={p.role} onChange={(e) => changeRole(e.target.value)} style={{ width: 140 }}>
               {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}

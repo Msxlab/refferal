@@ -120,4 +120,19 @@ export class MembersAdminController {
   ) {
     return this.members.setRole(this.actor(user), id, body.role as Role);
   }
+
+  // guvenli impersonation: salt-okunur kisa omurlu token (audit'li)
+  @Roles(...ADMIN)
+  @HttpCode(200)
+  @Post(':id/impersonate')
+  impersonate(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.members.impersonate(this.actor(user), id);
+  }
+
+  @Roles(...ADMIN)
+  @HttpCode(200)
+  @Post(':id/impersonate/end')
+  impersonateEnd(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.members.impersonateEnd(this.actor(user), id);
+  }
 }

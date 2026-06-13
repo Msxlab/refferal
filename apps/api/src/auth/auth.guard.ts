@@ -78,6 +78,12 @@ export class AccessTokenGuard implements CanActivate {
     }
     req.user = payload;
 
+    // impersonation salt-okunur: admin uye adina yalniz GET yapabilir (para/mutasyon yasak)
+    if (payload.imp && req.method !== 'GET') {
+      this.logger.warn(`[security] impersonation_write_blocked imp=${payload.imp} as=${payload.sub} ${req.method} ${req.url}`);
+      throw new ForbiddenException('impersonation oturumu salt-okunurdur');
+    }
+
     if (this.reflector.getAllAndOverride<boolean>(REQUIRE_MEMBERSHIP_KEY, targets) && !payload.mid) {
       throw new ForbiddenException('aktif uyelik secimi gerekli (switch-tenant)');
     }

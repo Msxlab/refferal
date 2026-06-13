@@ -1,7 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { InviteStatus, LedgerStatus, MembershipStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
 import { randomCode } from '../common/crypto';
 import { authConfig } from '../auth/auth.config';
+import { AccessTokenPayload } from '../auth/auth.types';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActorContext } from '../common/actor';
@@ -14,7 +16,57 @@ export type SortDir = 'asc' | 'desc';
 
 @Injectable()
 export class MembersAdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwt: JwtService,
+  ) {}
+
+  /**
+   * Guvenli impersonation: admin, bir uyenin /app panelini ONUN gozunden SALT-OKUNUR acar.
+   * Kisa omurlu (15 dk) access token (imp = admin userId) doner; guard GET disi her seyi bloklar.
+   * Owner/admin impersonate EDILEMEZ (yetki yukseltme onlenir). Baslangic audit'e yazilir.
+   */
+  async impersonate(actor: ActorContext, membershipId: string) {
+    const m = await this.prisma.membership.findFirst({
+      where: { id: membershipId, tenantId: actor.tenantId },
+      include: { user: { select: { id: true, fullName: true, email: true } }, tenant: { select: { id: true, name: true } } },
+    });
+    if (!m) throw new NotFoundException('uyelik bu isletmede bulunamadi');
+    if (m.role === Role.tenant_owner || m.role === Role.tenant_admin) {
+      throw new BadRequestException('admin/owner impersonate edilemez');
+    }
+    const payload: AccessTokenPayload = {
+      sub: m.user.id,
+      mid: m.id,
+      tid: actor.tenantId,
+      role: m.role,
+      imp: actor.userId,
+    };
+    const accessToken = await this.jwt.signAsync(payload, {
+      secret: authConfig.accessSecret(),
+      expiresIn: authConfig.accessTtlSeconds,
+    });
+    await this.audit(actor, 'security.impersonate_start', m.id, { targetUserId: m.user.id });
+    return {
+      accessToken,
+      member: {
+        membershipId: m.id,
+        userId: m.user.id,
+        fullName: m.user.fullName,
+        email: m.user.email,
+        referralCode: m.referralCode,
+        role: m.role,
+        tenantId: m.tenant.id,
+        tenantName: m.tenant.name,
+      },
+    };
+  }
+
+  /** Impersonation bitti — admin'in normal tokeniyle cagrilir, yalniz audit yazar. */
+  async impersonateEnd(actor: ActorContext, membershipId: string) {
+    await this.audit(actor, 'security.impersonate_end', membershipId, {});
+    return { ended: true };
+  }
 
   /** list + export.csv ortak filtre (tenant-scoped). */
   private listWhere(tenantId: string, q: { search?: string; status?: MembershipStatus }): Prisma.MembershipWhereInput {
