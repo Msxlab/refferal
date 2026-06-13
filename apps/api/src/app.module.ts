@@ -18,6 +18,7 @@ import { PlatformModule } from './platform/platform.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RbacModule } from './rbac/rbac.module';
 import { ReportsModule } from './reports/reports.module';
+import { SearchModule } from './search/search.module';
 import { SalesModule } from './sales/sales.module';
 import { SettingsModule } from './settings/settings.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
@@ -58,6 +59,7 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
     ViewsModule,
     KycModule,
     FraudModule,
+    SearchModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

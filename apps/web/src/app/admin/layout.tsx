@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { activeMembership, clearSession, getSession, isAdminRole, type Session } from '@/lib/auth';
 import { ThemeToggle } from '@/components/ui';
 import { NotificationBell } from '@/components/NotificationBell';
+import { CommandPalette } from '@/components/CommandPalette';
 import { t } from '@/lib/i18n';
 
 const NAV: Array<{ href: string; key: Parameters<typeof t>[0]; ic: string; adminOnly?: boolean }> = [
@@ -68,6 +69,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </aside>
       <main className="main">{children}</main>
+      <CommandPalette />
     </div>
   );
 }
