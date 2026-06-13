@@ -1,5 +1,6 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Header, Query, Res } from '@nestjs/common';
 import { Role } from '@prisma/client';
+import { Response } from 'express';
 import { z } from 'zod';
 import { CurrentUser, RequireMembership, Roles } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
@@ -11,7 +12,14 @@ const ADMIN = [Role.tenant_owner, Role.tenant_admin];
 
 const dashboardSchema = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/).optional() });
 const analyticsSchema = z.object({ months: z.coerce.number().int().min(3).max(12).default(6) });
-const auditSchema = z.object({
+// audit ortak filtre + sayfalama
+const auditFilterSchema = z.object({
+  q: z.string().trim().max(120).optional(),
+  entity: z.string().trim().max(40).optional(),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+});
+const auditSchema = auditFilterSchema.extend({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
 });
@@ -41,5 +49,18 @@ export class ReportsController {
   @Get('audit')
   audit(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(auditSchema)) q: z.infer<typeof auditSchema>) {
     return this.reports.audit(user.tid as string, q);
+  }
+
+  @Roles(...ADMIN)
+  @Get('audit/export.csv')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="audit.csv"')
+  async auditExport(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(auditFilterSchema)) q: z.infer<typeof auditFilterSchema>,
+    @Res() res: Response,
+  ) {
+    const csv = await this.reports.auditExportCsv(user.tid as string, q);
+    res.send(csv);
   }
 }

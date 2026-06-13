@@ -1,19 +1,24 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { MembershipStatus, Prisma, Role, TenantStatus } from '@prisma/client';
+import { InviteStatus, LedgerStatus, MembershipStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
 import { randomCode } from '../common/crypto';
 import { authConfig } from '../auth/auth.config';
+import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActorContext } from '../common/actor';
 
 // Admin'in atayabilecegi roller (owner devri ve platform_admin bu uctan YAPILMAZ)
 const ASSIGNABLE_ROLES: Role[] = [Role.tenant_admin, Role.tenant_staff, Role.member];
 
+export type MemberSort = 'joinedAt' | 'fullName' | 'depth';
+export type SortDir = 'asc' | 'desc';
+
 @Injectable()
 export class MembersAdminService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(tenantId: string, q: { search?: string; status?: MembershipStatus; page: number; pageSize: number }) {
-    const where: Prisma.MembershipWhereInput = {
+  /** list + export.csv ortak filtre (tenant-scoped). */
+  private listWhere(tenantId: string, q: { search?: string; status?: MembershipStatus }): Prisma.MembershipWhereInput {
+    return {
       tenantId,
       status: q.status,
       ...(q.search
@@ -26,11 +31,21 @@ export class MembersAdminService {
           }
         : {}),
     };
+  }
+
+  async list(
+    tenantId: string,
+    q: { search?: string; status?: MembershipStatus; sort: MemberSort; dir: SortDir; page: number; pageSize: number },
+  ) {
+    const where = this.listWhere(tenantId, q);
+    // varsayilan (joinedAt asc) onceki davranisla birebir ayni
+    const orderBy: Prisma.MembershipOrderByWithRelationInput =
+      q.sort === 'fullName' ? { user: { fullName: q.dir } } : q.sort === 'depth' ? { depth: q.dir } : { joinedAt: q.dir };
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.membership.count({ where }),
       this.prisma.membership.findMany({
         where,
-        orderBy: { joinedAt: 'asc' },
+        orderBy,
         skip: (q.page - 1) * q.pageSize,
         take: q.pageSize,
         include: {
@@ -54,6 +69,144 @@ export class MembersAdminService {
         depth: m.depth,
         sponsorReferralCode: m.sponsor?.referralCode ?? null,
         joinedAt: m.joinedAt,
+      })),
+    };
+  }
+
+  /** Uye listesi CSV exportu (STAFF): list ile ayni search/status filtreleri. */
+  async exportCsv(tenantId: string, q: { search?: string; status?: MembershipStatus }): Promise<string> {
+    const rows = await this.prisma.membership.findMany({
+      where: this.listWhere(tenantId, q),
+      orderBy: { joinedAt: 'asc' },
+      include: {
+        user: { select: { fullName: true, email: true, emailVerifiedAt: true } },
+        sponsor: { select: { referralCode: true } },
+      },
+    });
+
+    const header = 'referral_code,full_name,email,role,status,depth,sponsor_code,joined_at,email_verified';
+    const lines = rows.map((m) =>
+      [
+        m.referralCode,
+        csvCell(m.user.fullName),
+        m.user.email,
+        m.role,
+        m.status,
+        String(m.depth),
+        m.sponsor?.referralCode ?? '',
+        m.joinedAt.toISOString(),
+        m.user.emailVerifiedAt ? 'true' : 'false',
+      ].join(','),
+    );
+    return [header, ...lines].join('\n') + '\n';
+  }
+
+  /**
+   * 360 derece uye detayi (STAFF): profil + sayisal ozetler + son hareketler.
+   * Tum sorgular tenant-scoped; cent alanlari string (BigInt serialize).
+   */
+  async detail(tenantId: string, membershipId: string) {
+    const m = await this.prisma.membership.findFirst({
+      where: { id: membershipId, tenantId },
+      include: {
+        user: { select: { fullName: true, email: true, emailVerifiedAt: true } },
+        sponsor: { select: { id: true, referralCode: true, user: { select: { fullName: true } } } },
+      },
+    });
+    if (!m) throw new NotFoundException('uyelik bu isletmede bulunamadi');
+
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    const month = monthKey(new Date(), tenant.timezone);
+
+    const [directs, salesAllTime, salesThisMonth, ledgerByStatus, invitesByStatus, recentSales, recentLedger] =
+      await Promise.all([
+        this.prisma.membership.count({ where: { tenantId, sponsorMembershipId: m.id } }),
+        this.prisma.sale.aggregate({
+          where: { tenantId, sellerMembershipId: m.id, status: SaleStatus.approved },
+          _count: { _all: true },
+          _sum: { amountCents: true },
+        }),
+        // summaryMonth ilk apply'da dondurulur — "bu ay" bucket'i tenant timezone'una gore
+        this.prisma.sale.aggregate({
+          where: { tenantId, sellerMembershipId: m.id, status: SaleStatus.approved, summaryMonth: month },
+          _count: { _all: true },
+          _sum: { amountCents: true },
+        }),
+        // wallet.service.ts balance kalibi: reversed HARIC, status'e gore grupla
+        this.prisma.ledgerEntry.groupBy({
+          by: ['status'],
+          where: { tenantId, beneficiaryMembershipId: m.id, status: { not: LedgerStatus.reversed } },
+          _sum: { amountCents: true },
+        }),
+        this.prisma.invite.groupBy({
+          by: ['status'],
+          where: { tenantId, inviterMembershipId: m.id },
+          _count: { _all: true },
+        }),
+        this.prisma.sale.findMany({
+          where: { tenantId, sellerMembershipId: m.id },
+          orderBy: { saleDate: 'desc' },
+          take: 10,
+          select: { id: true, saleDate: true, amountCents: true, status: true },
+        }),
+        this.prisma.ledgerEntry.findMany({
+          where: { tenantId, beneficiaryMembershipId: m.id },
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: { id: true, saleId: true, level: true, type: true, status: true, amountCents: true, createdAt: true },
+        }),
+      ]);
+
+    const bucket = (s: LedgerStatus) => ledgerByStatus.find((g) => g.status === s)?._sum.amountCents ?? 0n;
+    const inviteCount = (s: InviteStatus) => invitesByStatus.find((g) => g.status === s)?._count._all ?? 0;
+    const invitesTotal = invitesByStatus.reduce((acc, g) => acc + g._count._all, 0);
+
+    return {
+      profile: {
+        id: m.id,
+        fullName: m.user.fullName,
+        email: m.user.email,
+        emailVerified: m.user.emailVerifiedAt !== null,
+        referralCode: m.referralCode,
+        role: m.role,
+        status: m.status,
+        depth: m.depth,
+        joinedAt: m.joinedAt,
+        sponsor: m.sponsor
+          ? { membershipId: m.sponsor.id, name: m.sponsor.user.fullName, code: m.sponsor.referralCode }
+          : null,
+      },
+      stats: {
+        directs,
+        sales: {
+          allTime: { count: salesAllTime._count._all, cents: (salesAllTime._sum.amountCents ?? 0n).toString() },
+          thisMonth: { count: salesThisMonth._count._all, cents: (salesThisMonth._sum.amountCents ?? 0n).toString() },
+        },
+        commission: {
+          pendingCents: bucket(LedgerStatus.pending).toString(),
+          payableCents: bucket(LedgerStatus.payable).toString(),
+          paidCents: bucket(LedgerStatus.paid).toString(),
+        },
+        invites: {
+          total: invitesTotal,
+          used: inviteCount(InviteStatus.used),
+          pending: inviteCount(InviteStatus.active),
+        },
+      },
+      recentSales: recentSales.map((s) => ({
+        id: s.id,
+        saleDate: s.saleDate,
+        amountCents: s.amountCents.toString(),
+        status: s.status,
+      })),
+      recentLedger: recentLedger.map((e) => ({
+        id: e.id,
+        saleId: e.saleId,
+        level: e.level,
+        type: e.type,
+        status: e.status,
+        amountCents: e.amountCents.toString(),
+        createdAt: e.createdAt,
       })),
     };
   }
@@ -114,6 +267,25 @@ export class MembersAdminService {
     return { id: updated.id, status: updated.status };
   }
 
+  /**
+   * Toplu aktive/pasiflestir (ADMIN): tekil setStatus mantigi yeniden kullanilir
+   * (owner pasife alinamaz kurali + her biri ayri audit). Kismi basari donulur.
+   */
+  async bulkSetStatus(actor: ActorContext, action: 'activate' | 'deactivate', ids: string[]) {
+    const status = action === 'activate' ? MembershipStatus.active : MembershipStatus.inactive;
+    const succeeded: string[] = [];
+    const failed: Array<{ id: string; reason: string }> = [];
+    for (const id of ids) {
+      try {
+        await this.setStatus(actor, id, status);
+        succeeded.push(id);
+      } catch (e) {
+        failed.push({ id, reason: e instanceof Error ? e.message : 'bilinmeyen hata' });
+      }
+    }
+    return { action, succeeded: succeeded.length, failed };
+  }
+
   async setRole(actor: ActorContext, membershipId: string, role: Role) {
     if (!ASSIGNABLE_ROLES.includes(role)) {
       throw new BadRequestException('bu rol bu uctan atanamaz');
@@ -127,22 +299,44 @@ export class MembersAdminService {
     return { id: updated.id, role: updated.role };
   }
 
-  /** Agac gorunumu (SPEC 9): tenant'taki tum uyeler + parent/depth (gorsellestirme icin). */
+  /**
+   * Agac gorunumu (SPEC 9): tenant'taki tum uyeler + parent/depth (gorsellestirme icin).
+   * Her dugume BU AY (tenant timezone, summaryMonth) approved satis sayisi + cirosu eklenir
+   * (tek groupBy — node basina sorgu YOK). teamSize frontend'de hesaplanir.
+   */
   async tree(tenantId: string) {
-    const nodes = await this.prisma.membership.findMany({
-      where: { tenantId },
-      orderBy: [{ depth: 'asc' }, { joinedAt: 'asc' }],
-      include: { user: { select: { fullName: true } } },
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    const month = monthKey(new Date(), tenant.timezone);
+
+    const [nodes, salesAgg] = await Promise.all([
+      this.prisma.membership.findMany({
+        where: { tenantId },
+        orderBy: [{ depth: 'asc' }, { joinedAt: 'asc' }],
+        include: { user: { select: { fullName: true } } },
+      }),
+      this.prisma.sale.groupBy({
+        by: ['sellerMembershipId'],
+        where: { tenantId, status: SaleStatus.approved, summaryMonth: month },
+        _count: { _all: true },
+        _sum: { amountCents: true },
+      }),
+    ]);
+    const bySeller = new Map(salesAgg.map((s) => [s.sellerMembershipId, s]));
+
+    return nodes.map((m) => {
+      const agg = bySeller.get(m.id);
+      return {
+        id: m.id,
+        parentId: m.sponsorMembershipId,
+        fullName: m.user.fullName,
+        referralCode: m.referralCode,
+        role: m.role,
+        status: m.status,
+        depth: m.depth,
+        salesCount: agg?._count._all ?? 0,
+        revenueCents: (agg?._sum.amountCents ?? 0n).toString(),
+      };
     });
-    return nodes.map((m) => ({
-      id: m.id,
-      parentId: m.sponsorMembershipId,
-      fullName: m.user.fullName,
-      referralCode: m.referralCode,
-      role: m.role,
-      status: m.status,
-      depth: m.depth,
-    }));
   }
 
   private async requireInTenant(tenantId: string, membershipId: string) {
@@ -159,4 +353,12 @@ export class MembersAdminService {
       data: { tenantId: actor.tenantId, actorUserId: actor.userId, action, entity: action.split('.')[0], entityId, after },
     });
   }
+}
+
+/** CSV hucresi: virgul/tirnak/yeni satir varsa tirnakla ve "" kacisla (payouts exportCsv kalibi). */
+function csvCell(value: string): string {
+  if (/[",\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
 }

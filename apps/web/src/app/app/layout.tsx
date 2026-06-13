@@ -11,6 +11,7 @@ import { t } from '@/lib/i18n';
 const NAV: Array<{ href: string; key: Parameters<typeof t>[0]; ic: string }> = [
   { href: '/app', key: 'anav.home', ic: '◈' },
   { href: '/app/wallet', key: 'anav.wallet', ic: '◇' },
+  { href: '/app/sales', key: 'anav.sales', ic: '◆' },
   { href: '/app/team', key: 'anav.team', ic: '⬡' },
   { href: '/app/invite', key: 'anav.invite', ic: '✦' },
 ];

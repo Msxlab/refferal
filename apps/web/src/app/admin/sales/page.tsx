@@ -2,10 +2,13 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import { Confirm, Loading, Modal, useToast } from '@/components/ui';
+import { downloadCsv } from '@/lib/download';
+import { Confirm, Loading, Modal, Pagination, SortableTh, SortDir, StatCard, MoneyCounter, useToast } from '@/components/ui';
 import { Drawer } from '@/components/Drawer';
 import { Popover } from '@/components/Popover';
 import { ImportWizard } from '@/components/ImportWizard';
+import { PrintSheet, PrintHeader, PrintSignatures } from '@/components/PrintSheet';
+import { activeMembership, getSession } from '@/lib/auth';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -16,11 +19,21 @@ interface SaleItem {
   status: 'draft' | 'approved' | 'void';
   saleDate: string;
   deliveredAt: string | null;
+  customerRef: string | null;
   sellerReferralCode: string;
   sellerName: string;
+  selfSubmitted: boolean;
 }
-interface SalesList { total: number; items: SaleItem[] }
-type Pending = { ids: string[]; action: 'approve' | 'void' };
+interface SalesList { total: number; page: number; pageSize: number; items: SaleItem[] }
+interface Summary {
+  currency: string;
+  count: number;
+  sumCents: string;
+  avgCents: string;
+  deliveredCount: number;
+  byStatus: Record<'draft' | 'approved' | 'void', { count: number; amountCents: string }>;
+}
+type Pending = { ids: string[]; action: 'approve' | 'void' | 'delete' | 'deliver' };
 
 interface Filters { status: string; q: string; from: string; to: string; minCents: string; maxCents: string }
 const EMPTY: Filters = { status: '', q: '', from: '', to: '', minCents: '', maxCents: '' };
@@ -29,9 +42,32 @@ const VIEWS_KEY = 'refearn.sales.views';
 
 interface SavedView { name: string; filters: Filters }
 
+/* tarih cipleri icin yerel gun anahtari (YYYY-MM-DD) */
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+type ChipKey = 'today' | '7d' | 'month' | 'lastMonth';
+function chipRange(key: ChipKey): { from: string; to: string } {
+  const now = new Date();
+  const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1); // ust sinir dahil olsun
+  if (key === 'today') return { from: ymd(now), to: ymd(tomorrow) };
+  if (key === '7d') { const f = new Date(now); f.setDate(now.getDate() - 6); return { from: ymd(f), to: ymd(tomorrow) }; }
+  if (key === 'month') return { from: ymd(new Date(now.getFullYear(), now.getMonth(), 1)), to: ymd(tomorrow) };
+  // lastMonth
+  return {
+    from: ymd(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+    to: ymd(new Date(now.getFullYear(), now.getMonth(), 1)),
+  };
+}
+
 export default function SalesPage() {
   const [list, setList] = useState<SalesList | null>(null);
+  const [summary, setSummary] = useState<Summary | null>(null);
   const [filters, setFilters] = useState<Filters>(EMPTY);
+  const [sort, setSort] = useState('saleDate');
+  const [dir, setDir] = useState<SortDir>('desc');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [error, setError] = useState('');
   const [toast, showToast] = useToast();
   const [code, setCode] = useState('');
@@ -48,8 +84,9 @@ export default function SalesPage() {
     try { setViews(JSON.parse(localStorage.getItem(VIEWS_KEY) ?? '[]')); } catch { /* yok say */ }
   }, []);
 
-  const queryString = useMemo(() => {
-    const p = new URLSearchParams({ pageSize: '50' });
+  // filtreler (page'siz) — summary + export ile paylasilan param seti
+  const filterQuery = useMemo(() => {
+    const p = new URLSearchParams();
     if (filters.status) p.set('status', filters.status);
     if (filters.q.trim()) p.set('q', filters.q.trim());
     if (filters.from) p.set('from', filters.from);
@@ -59,18 +96,44 @@ export default function SalesPage() {
     return p.toString();
   }, [filters]);
 
+  const listQuery = useMemo(() => {
+    const p = new URLSearchParams(filterQuery);
+    p.set('sort', sort); p.set('dir', dir);
+    p.set('page', String(page)); p.set('pageSize', String(pageSize));
+    return p.toString();
+  }, [filterQuery, sort, dir, page, pageSize]);
+
   const load = useCallback(async () => {
     try {
-      setList(await api.get<SalesList>(`/admin/sales?${queryString}`));
-      setSelected(new Set());
+      const [l, s] = await Promise.all([
+        api.get<SalesList>(`/admin/sales?${listQuery}`),
+        api.get<Summary>(`/admin/sales/summary${filterQuery ? `?${filterQuery}` : ''}`),
+      ]);
+      setList(l); setSummary(s); setSelected(new Set());
     } catch (e) { setError(String((e as ApiError).message)); }
-  }, [queryString]);
+  }, [listQuery, filterQuery]);
 
-  // filtre degisiminde debounce'lu yenile
+  // filtre/siralama/sayfa degisiminde debounce'lu yenile
   useEffect(() => {
-    const id = setTimeout(() => void load(), 300);
+    const id = setTimeout(() => void load(), 250);
     return () => clearTimeout(id);
   }, [load]);
+
+  // filtre degisince ilk sayfaya don
+  function patchFilters(f: Filters) { setFilters(f); setPage(1); }
+  function onSort(field: string, d: SortDir) { setSort(field); setDir(d); setPage(1); }
+
+  const activeChip = useMemo<ChipKey | null>(() => {
+    for (const k of ['today', '7d', 'month', 'lastMonth'] as ChipKey[]) {
+      const r = chipRange(k);
+      if (filters.from === r.from && filters.to === r.to) return k;
+    }
+    return null;
+  }, [filters.from, filters.to]);
+  function toggleChip(k: ChipKey) {
+    if (activeChip === k) patchFilters({ ...filters, from: '', to: '' });
+    else { const r = chipRange(k); patchFilters({ ...filters, from: r.from, to: r.to }); }
+  }
 
   async function createSale(e: FormEvent) {
     e.preventDefault();
@@ -86,12 +149,15 @@ export default function SalesPage() {
   async function act(p: Pending) {
     setBusy(true);
     try {
-      if (p.ids.length === 1) {
+      if (p.ids.length === 1 && (p.action === 'approve' || p.action === 'void')) {
         await api.post(`/admin/sales/${p.ids[0]}/${p.action}`);
         showToast(p.action === 'approve' ? 'Approved, commissions distributed ✓' : 'Voided');
+      } else if (p.ids.length === 1 && p.action === 'delete') {
+        await api.del(`/admin/sales/${p.ids[0]}`);
+        showToast('Draft deleted');
       } else {
         const res = await api.post<{ succeeded: number; failed: { id: string; reason: string }[] }>('/admin/sales/bulk', { action: p.action, ids: p.ids });
-        showToast(`${res.succeeded} ${p.action}d${res.failed.length ? `, ${res.failed.length} failed` : ''}`);
+        showToast(`${res.succeeded} ${p.action}${p.action === 'delete' ? 'd' : p.action === 'deliver' ? 'ed' : 'd'}${res.failed.length ? `, ${res.failed.length} skipped` : ''}`);
       }
       setConfirm(null);
       await load();
@@ -100,6 +166,11 @@ export default function SalesPage() {
 
   async function deliver(id: string) {
     try { await api.post(`/admin/sales/${id}/deliver`, {}); showToast('Marked as delivered'); await load(); }
+    catch (e) { setError(String((e as ApiError).message)); }
+  }
+
+  async function exportCsv() {
+    try { await downloadCsv(`/admin/sales/export.csv${filterQuery ? `?${filterQuery}` : ''}`, 'sales.csv'); }
     catch (e) { setError(String((e as ApiError).message)); }
   }
 
@@ -125,11 +196,12 @@ export default function SalesPage() {
     try { localStorage.setItem(VIEWS_KEY, JSON.stringify(next)); } catch { /* yok say */ }
   }
 
-  const selectedIds = useMemo(() => [...selected], [selected]);
   const selDrafts = useMemo(() => list?.items.filter((s) => selected.has(s.id) && s.status === 'draft').map((s) => s.id) ?? [], [list, selected]);
   const selVoidable = useMemo(() => list?.items.filter((s) => selected.has(s.id) && s.status !== 'void').map((s) => s.id) ?? [], [list, selected]);
+  const selDeliverable = useMemo(() => list?.items.filter((s) => selected.has(s.id) && s.status === 'approved' && !s.deliveredAt).map((s) => s.id) ?? [], [list, selected]);
   const activeFilters = filters.status || filters.q || filters.from || filters.to || filters.minCents || filters.maxCents;
   const advCount = [filters.status, filters.from, filters.to, filters.minCents, filters.maxCents].filter(Boolean).length;
+  const cur = summary?.currency ?? 'USD';
 
   return (
     <div>
@@ -138,7 +210,9 @@ export default function SalesPage() {
           <div className="eyebrow fade-in">{t('nav.sales')}</div>
           <h1 className="h1 fade-in">Sales Management</h1>
         </div>
-        <div className="row fade-in" style={{ gap: 8 }}>
+        <div className="row fade-in no-print" style={{ gap: 8 }}>
+          <button className="btn ghost" onClick={exportCsv}>⇩ Export CSV</button>
+          <button className="btn ghost" onClick={() => window.print()}>🖶 Print</button>
           <button className="btn ghost" onClick={() => setShowImport(true)}>⇪ Import</button>
           <button className="btn" onClick={() => setShowNew(true)}>＋ New sale</button>
         </div>
@@ -146,28 +220,50 @@ export default function SalesPage() {
 
       {error && <div className="error">{error}</div>}
 
-      {/* ---- ince arac cubugu: ara + filtreler (talep uzerine) + kayitli gorunumler ---- */}
-      <div className="row fade-in delay-1" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '14px 0' }}>
-        <input value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })}
-          placeholder="🔍  Search seller, code, customer…" style={{ flex: 1, minWidth: 200, maxWidth: 360 }} />
+      {/* ---- KPI seridi ---- */}
+      <div className="stat-grid fade-in delay-1" style={{ margin: '16px 0' }}>
+        <StatCard label="Revenue (approved)" icon="◆" grad="color-mix(in srgb, var(--emerald) 22%, transparent)"
+          value={summary ? <MoneyCounter cents={summary.byStatus.approved.amountCents} currency={cur} /> : '—'}
+          hint={summary ? `${summary.byStatus.approved.count} approved sales` : undefined} />
+        <StatCard label="Awaiting approval" icon="◷"
+          value={summary ? summary.byStatus.draft.count : '—'}
+          hint={summary ? money(summary.byStatus.draft.amountCents, cur) : undefined} />
+        <StatCard label="Average sale" icon="∑"
+          value={summary ? <MoneyCounter cents={summary.avgCents} currency={cur} /> : '—'}
+          hint={summary ? `${summary.count} sales in view` : undefined} />
+        <StatCard label="Voided" icon="⊘"
+          value={summary ? summary.byStatus.void.count : '—'}
+          hint={summary ? money(summary.byStatus.void.amountCents, cur) : undefined} />
+      </div>
+
+      {/* ---- arac cubugu: ara + hizli tarih + filtreler + kayitli gorunumler ---- */}
+      <div className="row fade-in delay-1 no-print" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '14px 0' }}>
+        <input value={filters.q} onChange={(e) => patchFilters({ ...filters, q: e.target.value })}
+          placeholder="🔍  Search seller, code, customer…" style={{ flex: 1, minWidth: 200, maxWidth: 320 }} />
+
+        <div className="seg-tabs">
+          {([['today', 'Today'], ['7d', '7 days'], ['month', 'This month'], ['lastMonth', 'Last month']] as [ChipKey, string][]).map(([k, lbl]) => (
+            <button key={k} className={`seg-tab ${activeChip === k ? 'on' : ''}`} onClick={() => toggleChip(k)}>{lbl}</button>
+          ))}
+        </div>
 
         <Popover label={<>Filters</>} badge={advCount} width={300}>
           {(close) => (
             <div className="grid" style={{ gap: 12 }}>
               <div className="field" style={{ margin: 0 }}>
                 <label>Status</label>
-                <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
+                <select value={filters.status} onChange={(e) => patchFilters({ ...filters, status: e.target.value })}>
                   {STATUSES.map((s) => <option key={s} value={s}>{s || 'All statuses'}</option>)}
                 </select>
               </div>
               <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div className="field" style={{ margin: 0 }}><label>From</label><input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} /></div>
-                <div className="field" style={{ margin: 0 }}><label>To</label><input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} /></div>
-                <div className="field" style={{ margin: 0 }}><label>Min (¢)</label><input type="number" min={0} value={filters.minCents} onChange={(e) => setFilters({ ...filters, minCents: e.target.value })} /></div>
-                <div className="field" style={{ margin: 0 }}><label>Max (¢)</label><input type="number" min={0} value={filters.maxCents} onChange={(e) => setFilters({ ...filters, maxCents: e.target.value })} /></div>
+                <div className="field" style={{ margin: 0 }}><label>From</label><input type="date" value={filters.from} onChange={(e) => patchFilters({ ...filters, from: e.target.value })} /></div>
+                <div className="field" style={{ margin: 0 }}><label>To</label><input type="date" value={filters.to} onChange={(e) => patchFilters({ ...filters, to: e.target.value })} /></div>
+                <div className="field" style={{ margin: 0 }}><label>Min ($)</label><input type="number" min={0} value={filters.minCents} onChange={(e) => patchFilters({ ...filters, minCents: e.target.value })} placeholder="cents" /></div>
+                <div className="field" style={{ margin: 0 }}><label>Max ($)</label><input type="number" min={0} value={filters.maxCents} onChange={(e) => patchFilters({ ...filters, maxCents: e.target.value })} placeholder="cents" /></div>
               </div>
               <div className="row" style={{ justifyContent: 'space-between' }}>
-                <button className="btn ghost sm" onClick={() => setFilters({ ...EMPTY, q: filters.q })}>Reset</button>
+                <button className="btn ghost sm" onClick={() => patchFilters({ ...EMPTY, q: filters.q })}>Reset</button>
                 <button className="btn sm" onClick={close}>Done</button>
               </div>
             </div>
@@ -176,13 +272,13 @@ export default function SalesPage() {
 
         {views.map((v) => (
           <span key={v.name} className="row" style={{ gap: 3 }}>
-            <button className="btn ghost sm" onClick={() => setFilters(v.filters)}>{v.name}</button>
+            <button className="btn ghost sm" onClick={() => patchFilters(v.filters)}>{v.name}</button>
             <button className="faint" onClick={() => deleteView(v.name)} aria-label={`Delete ${v.name}`} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>✕</button>
           </span>
         ))}
 
         <span style={{ flex: 1 }} />
-        {activeFilters && <button className="btn ghost sm" onClick={() => setFilters(EMPTY)}>Clear</button>}
+        {activeFilters && <button className="btn ghost sm" onClick={() => patchFilters(EMPTY)}>Clear</button>}
         <button className="btn ghost sm" onClick={saveView}>＋ Save view</button>
       </div>
 
@@ -190,45 +286,80 @@ export default function SalesPage() {
       <div className="card fade-in delay-2">
         <div className="spread" style={{ marginBottom: 12 }}>
           <strong>Sales{list ? ` · ${list.total}` : ''}</strong>
+          <select className="no-print" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }} style={{ width: 'auto' }} aria-label="Rows per page">
+            <option value={25}>25 / page</option>
+            <option value={50}>50 / page</option>
+            <option value={100}>100 / page</option>
+          </select>
         </div>
         {!list ? <Loading rows={3} /> : (
           <table>
             <thead>
               <tr>
-                <th style={{ width: 30 }}><input type="checkbox" checked={selected.size > 0 && selected.size === list.items.length} onChange={toggleAll} aria-label="Select all" /></th>
-                <th>Seller</th><th>Amount</th><th>{t('sales.status')}</th><th>Date</th><th style={{ textAlign: 'right' }}>{t('common.actions')}</th>
+                <th className="no-print" style={{ width: 30 }}><input type="checkbox" checked={selected.size > 0 && selected.size === list.items.length} onChange={toggleAll} aria-label="Select all" /></th>
+                <th>Seller</th>
+                <SortableTh label="Amount" field="amountCents" sort={sort} dir={dir} onSort={onSort} />
+                <th>Customer</th>
+                <SortableTh label={t('sales.status')} field="status" sort={sort} dir={dir} onSort={onSort} />
+                <SortableTh label="Date" field="saleDate" sort={sort} dir={dir} onSort={onSort} />
+                <th className="no-print" style={{ textAlign: 'right' }}>{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>
               {list.items.map((s) => (
                 <tr key={s.id} style={{ cursor: 'pointer', background: selected.has(s.id) ? 'var(--panel-2)' : undefined }} onClick={() => setDetailId(s.id)}>
-                  <td onClick={(e) => e.stopPropagation()}>
+                  <td className="no-print" onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" checked={selected.has(s.id)} onChange={() => toggle(s.id)} aria-label={`Select ${s.sellerName}`} />
                   </td>
-                  <td>{s.sellerName}<div className="faint" style={{ fontSize: 12 }}>{s.sellerReferralCode}</div></td>
+                  <td>
+                    <span className="row" style={{ gap: 6 }}>
+                      {s.sellerName}
+                      {s.selfSubmitted && <span className="badge pending" title="Submitted by member">self</span>}
+                    </span>
+                    <div className="faint" style={{ fontSize: 12 }}>{s.sellerReferralCode}</div>
+                  </td>
                   <td className="tnum" style={{ fontWeight: 650 }}>{money(s.amountCents, s.currency)}</td>
-                  <td><span className={`badge ${s.status}`}>{s.status}</span></td>
+                  <td className="muted" style={{ fontSize: 12.5 }}>{s.customerRef || '—'}</td>
+                  <td>
+                    <span className={`badge ${s.status}`}>{s.status}</span>
+                    {s.deliveredAt && <span className="badge active" style={{ marginLeft: 6 }}>✓ delivered</span>}
+                  </td>
                   <td className="muted">{dateShort(s.saleDate)}</td>
-                  <td onClick={(e) => e.stopPropagation()}>
+                  <td className="no-print" onClick={(e) => e.stopPropagation()}>
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
                       {s.status === 'draft' && <button className="btn sm" onClick={() => setConfirm({ ids: [s.id], action: 'approve' })}>{t('sales.approve')}</button>}
                       {s.status === 'approved' && !s.deliveredAt && <button className="btn sm ghost" onClick={() => deliver(s.id)}>{t('sales.deliver')}</button>}
+                      {s.status === 'draft' && <button className="btn sm ghost danger" onClick={() => setConfirm({ ids: [s.id], action: 'delete' })} aria-label="Delete draft">🗑</button>}
                       {s.status !== 'void' && <button className="btn sm danger" onClick={() => setConfirm({ ids: [s.id], action: 'void' })}>{t('sales.void')}</button>}
                     </div>
                   </td>
                 </tr>
               ))}
-              {list.items.length === 0 && <tr><td colSpan={6} className="muted">No sales match these filters.</td></tr>}
+              {list.items.length === 0 && <tr><td colSpan={7} className="muted">No sales match these filters.</td></tr>}
             </tbody>
+            {summary && summary.count > 0 && (
+              <tfoot>
+                <tr>
+                  <td className="no-print" />
+                  <td className="faint" style={{ fontSize: 12 }}>{summary.count} sales in view</td>
+                  <td className="tnum" style={{ fontWeight: 700 }}>{money(summary.sumCents, cur)}</td>
+                  <td colSpan={4} className="faint" style={{ fontSize: 12 }}>{summary.deliveredCount} delivered</td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         )}
 
+        {list && <Pagination page={list.page} pageSize={list.pageSize} total={list.total} onPage={setPage} />}
+
         {selected.size > 0 && (
-          <div className="bulkbar">
+          <div className="bulkbar no-print">
             <strong style={{ fontSize: 13 }}>{selected.size} selected</strong>
             <span style={{ flex: 1 }} />
             <button className="btn sm" disabled={selDrafts.length === 0} onClick={() => setConfirm({ ids: selDrafts, action: 'approve' })}>Approve {selDrafts.length || ''}</button>
+            <button className="btn sm ghost" disabled={selDeliverable.length === 0} onClick={() => setConfirm({ ids: selDeliverable, action: 'deliver' })}>Deliver {selDeliverable.length || ''}</button>
             <button className="btn sm danger" disabled={selVoidable.length === 0} onClick={() => setConfirm({ ids: selVoidable, action: 'void' })}>Void {selVoidable.length || ''}</button>
+            <button className="btn sm ghost danger" disabled={selDrafts.length === 0} onClick={() => setConfirm({ ids: selDrafts, action: 'delete' })}>Delete {selDrafts.length || ''}</button>
             <button className="btn ghost sm" onClick={() => setSelected(new Set())}>Clear</button>
           </div>
         )}
@@ -236,12 +367,20 @@ export default function SalesPage() {
 
       {confirm && (
         <Confirm
-          title={confirm.action === 'approve' ? `Approve ${confirm.ids.length} sale${confirm.ids.length > 1 ? 's' : ''}` : `Void ${confirm.ids.length} sale${confirm.ids.length > 1 ? 's' : ''}`}
-          message={confirm.action === 'approve'
-            ? 'On approval, commissions are distributed across the tree. This action cannot be undone.'
-            : 'Voiding creates reversing entries and reduces balances.'}
-          confirmLabel={confirm.action === 'approve' ? t('sales.approve') : t('sales.void')}
-          danger={confirm.action === 'void'}
+          title={
+            confirm.action === 'approve' ? `Approve ${confirm.ids.length} sale${confirm.ids.length > 1 ? 's' : ''}`
+            : confirm.action === 'void' ? `Void ${confirm.ids.length} sale${confirm.ids.length > 1 ? 's' : ''}`
+            : confirm.action === 'deliver' ? `Mark ${confirm.ids.length} as delivered`
+            : `Delete ${confirm.ids.length} draft${confirm.ids.length > 1 ? 's' : ''}`
+          }
+          message={
+            confirm.action === 'approve' ? 'On approval, commissions are distributed across the tree. This cannot be undone.'
+            : confirm.action === 'void' ? 'Voiding creates reversing entries and reduces balances.'
+            : confirm.action === 'deliver' ? 'Marks the selected approved sales as delivered.'
+            : 'Drafts are permanently deleted. Approved sales can only be voided, not deleted.'
+          }
+          confirmLabel={confirm.action === 'approve' ? t('sales.approve') : confirm.action === 'void' ? t('sales.void') : confirm.action === 'deliver' ? t('sales.deliver') : 'Delete'}
+          danger={confirm.action === 'void' || confirm.action === 'delete'}
           busy={busy}
           onConfirm={() => act(confirm)}
           onClose={() => setConfirm(null)}
@@ -277,7 +416,8 @@ interface LedgerLine { id: string; level: number; type: string; status: string; 
 interface SaleDetail extends SaleItem {
   sellerEmail: string;
   createdAt: string;
-  customerRef?: string | null;
+  createdByName?: string | null;
+  approvedByName?: string | null;
   externalRef?: string | null;
   ledger: LedgerLine[];
 }
@@ -286,6 +426,11 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
   const [d, setD] = useState<SaleDetail | null>(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [printing, setPrinting] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+
+  const session = getSession();
+  const tenantName = (session ? activeMembership(session)?.tenantName : null) ?? 'Refearn';
 
   const load = useCallback(() => {
     api.get<SaleDetail>(`/admin/sales/${id}`).then(setD).catch((e) => setErr(String((e as ApiError).message)));
@@ -300,6 +445,11 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
       load(); onChanged();
     } catch (e) { setErr(String((e as ApiError).message)); } finally { setBusy(false); }
   }
+  async function remove() {
+    setBusy(true);
+    try { await api.del(`/admin/sales/${id}`); onToast('Draft deleted'); onChanged(); onClose(); }
+    catch (e) { setErr(String((e as ApiError).message)); setBusy(false); }
+  }
 
   const totalCommission = d?.ledger.filter((l) => l.type === 'commission').reduce((a, l) => a + Number(l.amountCents), 0) ?? 0;
 
@@ -310,8 +460,10 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
       onClose={onClose}
       footer={d && (
         <>
+          <button className="btn ghost" disabled={busy} onClick={() => setPrinting(true)}>🖶 Print receipt</button>
           {d.status === 'draft' && <button className="btn" disabled={busy} onClick={() => action('approve')}>Approve</button>}
           {d.status === 'approved' && !d.deliveredAt && <button className="btn ghost" disabled={busy} onClick={() => action('deliver')}>Mark delivered</button>}
+          {d.status === 'draft' && <button className="btn ghost danger" disabled={busy} onClick={() => setConfirmDel(true)}>Delete</button>}
           {d.status !== 'void' && <button className="btn danger" disabled={busy} onClick={() => action('void')}>Void</button>}
         </>
       )}
@@ -322,11 +474,14 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
           <div>
             <span className={`badge ${d.status}`}>{d.status}</span>
             {d.deliveredAt && <span className="badge active" style={{ marginLeft: 6 }}>delivered</span>}
+            {d.selfSubmitted && <span className="badge pending" style={{ marginLeft: 6 }}>self-submitted</span>}
           </div>
           <Field label="Seller" value={`${d.sellerName} · ${d.sellerEmail}`} />
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <Field label="Sale date" value={dateShort(d.saleDate)} />
             <Field label="Recorded" value={dateShort(d.createdAt)} />
+            <Field label="Entered by" value={d.createdByName || '—'} />
+            <Field label="Approved by" value={d.approvedByName || '—'} />
             <Field label="Customer ref" value={d.customerRef || '—'} />
             <Field label="External ref" value={d.externalRef || '—'} />
           </div>
@@ -355,6 +510,53 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
             )}
           </div>
         </div>
+      )}
+
+      {confirmDel && d && (
+        <Confirm
+          title="Delete draft"
+          message="This draft sale will be permanently deleted. This cannot be undone."
+          confirmLabel="Delete"
+          danger
+          busy={busy}
+          onConfirm={remove}
+          onClose={() => setConfirmDel(false)}
+        />
+      )}
+
+      {printing && d && (
+        <PrintSheet onDone={() => setPrinting(false)}>
+          <PrintHeader tenantName={tenantName} title="Sale Receipt" subtitle={`Ref: ${d.id}`} />
+          <table style={{ marginBottom: 18 }}>
+            <tbody>
+              <tr><td style={{ fontWeight: 700, width: 160 }}>Seller</td><td>{d.sellerName} ({d.sellerReferralCode})</td></tr>
+              <tr><td style={{ fontWeight: 700 }}>Sale date</td><td>{dateShort(d.saleDate)}</td></tr>
+              <tr><td style={{ fontWeight: 700 }}>Customer</td><td>{d.customerRef || '—'}</td></tr>
+              <tr><td style={{ fontWeight: 700 }}>Status</td><td>{d.status}{d.deliveredAt ? ' · delivered' : ''}</td></tr>
+              <tr><td style={{ fontWeight: 700 }}>Amount</td><td style={{ fontWeight: 800, fontSize: 16 }}>{money(d.amountCents, d.currency)}</td></tr>
+            </tbody>
+          </table>
+          {d.ledger.length > 0 && (
+            <>
+              <div style={{ fontWeight: 700, margin: '8px 0' }}>Commission distribution</div>
+              <table>
+                <thead><tr><th>Lvl</th><th>Beneficiary</th><th style={{ textAlign: 'right' }}>Rate</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
+                <tbody>
+                  {d.ledger.map((l) => (
+                    <tr key={l.id}>
+                      <td>{l.level}</td>
+                      <td>{l.beneficiaryName} ({l.beneficiaryCode})</td>
+                      <td style={{ textAlign: 'right' }}>{(l.rateBpsUsed / 100).toFixed(2)}%</td>
+                      <td style={{ textAlign: 'right' }}>{money(l.amountCents, d.currency)}</td>
+                    </tr>
+                  ))}
+                  <tr><td colSpan={3} style={{ textAlign: 'right', fontWeight: 700 }}>Total commission</td><td style={{ textAlign: 'right', fontWeight: 800 }}>{money(totalCommission, d.currency)}</td></tr>
+                </tbody>
+              </table>
+            </>
+          )}
+          <PrintSignatures left="Prepared by" right="Approved by" />
+        </PrintSheet>
       )}
     </Drawer>
   );

@@ -11,8 +11,16 @@ import { PrismaService } from '../prisma/prisma.service';
 export class WalletService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Bakiye = payable toplam (odenebilir). pending ve paid ayri gosterilir. */
-  async wallet(membershipId: string, q: { page: number; pageSize: number }) {
+  /**
+   * Bakiye = payable toplam (odenebilir). pending ve paid ayri gosterilir.
+   * type/status filtreleri YALNIZ ledger listesine uygulanir; balance her zaman tum kayitlardan.
+   */
+  async wallet(
+    membershipId: string,
+    tenantId: string,
+    q: { page: number; pageSize: number; type?: LedgerType; status?: LedgerStatus },
+  ) {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const grouped = await this.prisma.ledgerEntry.groupBy({
       by: ['status'],
       where: { beneficiaryMembershipId: membershipId, status: { not: LedgerStatus.reversed } },
@@ -20,10 +28,15 @@ export class WalletService {
     });
     const bucket = (s: LedgerStatus) => grouped.find((g) => g.status === s)?._sum.amountCents ?? 0n;
 
+    const ledgerWhere = {
+      beneficiaryMembershipId: membershipId,
+      ...(q.type ? { type: q.type } : {}),
+      ...(q.status ? { status: q.status } : {}),
+    };
     const [total, entries] = await this.prisma.$transaction([
-      this.prisma.ledgerEntry.count({ where: { beneficiaryMembershipId: membershipId } }),
+      this.prisma.ledgerEntry.count({ where: ledgerWhere }),
       this.prisma.ledgerEntry.findMany({
-        where: { beneficiaryMembershipId: membershipId },
+        where: ledgerWhere,
         orderBy: { createdAt: 'desc' },
         skip: (q.page - 1) * q.pageSize,
         take: q.pageSize,
@@ -43,6 +56,9 @@ export class WalletService {
     ]);
 
     return {
+      currency: tenant.currency,
+      // Esik ilerleme cubugu icin: payable >= payoutMinCents olunca odeme istenebilir
+      payoutMinCents: tenant.payoutMinCents.toString(),
       balance: {
         pendingCents: bucket(LedgerStatus.pending).toString(),
         payableCents: bucket(LedgerStatus.payable).toString(),
@@ -66,6 +82,53 @@ export class WalletService {
         })),
       },
     };
+  }
+
+  /**
+   * Aylik kazanc serisi (son N ay, icinde bulunulan ay dahil, eskiden yeniye).
+   * Kaynak: monthly_summaries (membership_id iceriyor; engine her ledger mutasyonunda
+   * ayni transaction'da gunceller — reversal'lar bucket'i dusurur, yani NET degerler).
+   * Ay anahtari tenant.timezone'a gore (engine monthKey ile ayni kural).
+   */
+  async earnings(membershipId: string, tenantId: string, months: number) {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    const anchor = monthKey(new Date(), tenant.timezone);
+    const range = this.monthsBack(anchor, months);
+
+    const rows = await this.prisma.monthlySummary.groupBy({
+      by: ['month'],
+      where: { tenantId, membershipId, month: { in: range } },
+      _sum: { pendingCents: true, payableCents: true, paidCents: true },
+      orderBy: { month: 'asc' },
+    });
+    const byMonth = new Map(rows.map((r) => [r.month, r._sum]));
+
+    const series = range.map((m) => {
+      const s = byMonth.get(m);
+      const pending = s?.pendingCents ?? 0n;
+      const payable = s?.payableCents ?? 0n;
+      const paid = s?.paidCents ?? 0n;
+      return {
+        month: m,
+        pendingCents: pending.toString(),
+        payableCents: payable.toString(),
+        paidCents: paid.toString(),
+        totalCents: (pending + payable + paid).toString(),
+      };
+    });
+
+    return { months, currency: tenant.currency, series };
+  }
+
+  /** anchor ('YYYY-MM') dahil son n ayin anahtarlari, eskiden yeniye (reports.service.ts kalibi). */
+  private monthsBack(anchor: string, n: number): string[] {
+    const [y, m] = anchor.split('-').map(Number);
+    const out: string[] = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const d = new Date(Date.UTC(y, m - 1 - i, 1));
+      out.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+    }
+    return out;
   }
 
   /** Ay ozeti + seviye dokumu (pending/payable/paid). */

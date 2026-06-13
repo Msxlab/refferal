@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Background, Controls, Handle, MiniMap, Position, ReactFlow, type Edge, type Node, type NodeProps } from '@xyflow/react';
-import { hierarchy, stratify, tree } from 'd3-hierarchy';
+import { stratify, tree } from 'd3-hierarchy';
+import { toPng } from 'html-to-image';
 import '@xyflow/react/dist/style.css';
 import { Drawer } from '@/components/Drawer';
 
@@ -14,9 +15,24 @@ export interface ApiNode {
   role: string;
   status: string;
   depth: number;
+  // tree() ucundan gelir (bu ay); platform ag verisinde olmayabilir
+  salesCount?: number;
+  revenueCents?: string;
 }
 
-type NodeData = { node: ApiNode; team: number; direct: number; match: boolean; isFocus: boolean };
+type NodeData = {
+  node: ApiNode; team: number; direct: number; match: boolean; isFocus: boolean;
+  // performans (isi haritasi) modu
+  perfMode: boolean; revenue: number; sales: number; maxRevenue: number;
+};
+
+/** kompakt para: $12.3k / $1.2M (dugum rozeti icin). */
+function compactMoney(cents: number): string {
+  const d = cents / 100;
+  if (d >= 1_000_000) return `$${(d / 1_000_000).toFixed(1)}M`;
+  if (d >= 1000) return `$${(d / 1000).toFixed(1)}k`;
+  return `$${d.toFixed(0)}`;
+}
 
 const ROLE_BG: Record<string, string> = {
   tenant_owner: 'var(--foil)',
@@ -29,14 +45,19 @@ const ROLE_BG: Record<string, string> = {
 function MemberNode({ data }: NodeProps<Node<NodeData>>) {
   const n = data.node;
   const owner = n.role === 'tenant_owner';
+  // isi haritasi: revenue/max oranina gore altin tonu (0..0.7)
+  const intensity = data.perfMode && data.maxRevenue > 0 ? Math.min(0.72, data.revenue / data.maxRevenue) : 0;
+  const bg = intensity > 0
+    ? `color-mix(in srgb, var(--gold-500) ${Math.round(intensity * 100)}%, var(--panel))`
+    : 'var(--panel)';
   return (
     <div
       style={{
-        width: 196, background: 'var(--panel)', cursor: 'pointer',
+        width: 196, background: bg, cursor: 'pointer',
         border: `1px solid ${data.isFocus ? 'var(--gold-500)' : data.match ? 'var(--gold-500)' : 'var(--border)'}`,
         borderRadius: 14, padding: '10px 12px',
         boxShadow: data.match || data.isFocus ? 'var(--shadow-glow)' : 'var(--shadow-lg)',
-        color: 'var(--text)', transition: 'border-color .2s, box-shadow .2s',
+        color: 'var(--text)', transition: 'border-color .2s, box-shadow .2s, background .3s',
       }}
     >
       <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
@@ -55,7 +76,9 @@ function MemberNode({ data }: NodeProps<Node<NodeData>>) {
           {n.role !== 'member' && <span className="badge active" style={{ fontSize: 9 }}>{n.role.replace('tenant_', '')}</span>}
           {n.status !== 'active' && <span className="badge inactive" style={{ fontSize: 9 }}>{n.status}</span>}
         </div>
-        {data.team > 0 && <span style={{ fontSize: 10, color: 'var(--muted)' }}>⬡ {data.team}</span>}
+        {data.revenue > 0
+          ? <span className="tnum" style={{ fontSize: 10, fontWeight: 700, color: 'var(--gold-500)' }} title={`${data.sales} sales this month`}>◆ {compactMoney(data.revenue)}</span>
+          : data.team > 0 && <span style={{ fontSize: 10, color: 'var(--muted)' }}>⬡ {data.team}</span>}
       </div>
       <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
     </div>
@@ -70,7 +93,23 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
   const [selected, setSelected] = useState<ApiNode | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<'dark' | 'light'>('dark');
+  const [perfMode, setPerfMode] = useState(false);
+  const flowRef = useRef<HTMLDivElement>(null);
   const toggleExpand = (id: string) => setExpanded((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  // bu ay ciro var mi? (tree ucu doldurur; platform ag verisinde olmayabilir)
+  const hasRevenue = useMemo(() => nodes.some((n) => Number(n.revenueCents ?? 0) > 0), [nodes]);
+
+  // react-flow viewport'unu PNG indir
+  const exportPng = useCallback(async () => {
+    const el = flowRef.current?.querySelector('.react-flow__viewport') as HTMLElement | null;
+    if (!el) return;
+    try {
+      const dataUrl = await toPng(el, { backgroundColor: mode === 'dark' ? '#0c0e13' : '#ffffff', pixelRatio: 2, cacheBust: true });
+      const a = document.createElement('a');
+      a.href = dataUrl; a.download = `${title}-network.png`; a.click();
+    } catch { /* export basarisiz — sessiz gec */ }
+  }, [mode, title]);
 
   useEffect(() => {
     setMode((document.documentElement.getAttribute('data-theme') as 'dark' | 'light') ?? 'dark');
@@ -123,6 +162,8 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
   const q = query.trim().toLowerCase();
   const matches = useCallback((n: ApiNode) => q.length > 0 && (n.fullName.toLowerCase().includes(q) || n.referralCode.toLowerCase().includes(q)), [q]);
 
+  const maxRevenue = useMemo(() => Math.max(0, ...subtree.map((n) => Number(n.revenueCents ?? 0))), [subtree]);
+
   /* ---- agac layout ---- */
   const { rfNodes, rfEdges } = useMemo<{ rfNodes: Node<NodeData>[]; rfEdges: Edge[] }>(() => {
     if (subtree.length === 0) return { rfNodes: [], rfEdges: [] };
@@ -142,14 +183,17 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
       ns.push({
         id, type: 'member',
         position: { x: (d as unknown as { x: number }).x, y: (d as unknown as { y: number }).y },
-        data: { node: n, team: teamOf(id), direct: (childrenOf.get(id) ?? []).length, match: matches(n), isFocus: id === focusId },
+        data: {
+          node: n, team: teamOf(id), direct: (childrenOf.get(id) ?? []).length, match: matches(n), isFocus: id === focusId,
+          perfMode, revenue: Number(n.revenueCents ?? 0), sales: n.salesCount ?? 0, maxRevenue,
+        },
       });
       if (d.parent && d.parent.id !== VIRTUAL) {
         es.push({ id: `${d.parent.id}-${id}`, source: d.parent.id as string, target: id, type: 'smoothstep', style: { stroke: 'var(--border-strong)', strokeWidth: 1.5 } });
       }
     });
     return { rfNodes: ns, rfEdges: es };
-  }, [subtree, roots, focusId, teamOf, childrenOf, matches]);
+  }, [subtree, roots, focusId, teamOf, childrenOf, matches, perfMode, maxRevenue]);
 
   /* ---- liste = koleps-edilebilir klasor agaci. Kapali baslar (yalniz kokler = ilk kisiler).
          Arama: eslesen + atalari acik gosterilir. ---- */
@@ -202,6 +246,8 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
             <button className="btn ghost sm" onClick={() => setExpanded(new Set())}>Collapse all</button>
           </>
         )}
+        {hasRevenue && <button className={`btn sm ${perfMode ? '' : 'ghost'}`} onClick={() => setPerfMode((v) => !v)} title="Shade nodes by revenue this month">◉ Performance</button>}
+        {view === 'tree' && <button className="btn ghost sm" onClick={exportPng}>⇩ PNG</button>}
         <span className="faint" style={{ fontSize: 12 }}>{subtree.length} {subtree.length === 1 ? 'person' : 'people'}</span>
       </div>
 
@@ -219,7 +265,7 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
       )}
 
       {view === 'tree' ? (
-        <div className="card" style={{ padding: 0, overflow: 'hidden', height: '66vh' }}>
+        <div ref={flowRef} className="card" style={{ padding: 0, overflow: 'hidden', height: '66vh' }}>
           <ReactFlow
             nodes={rfNodes} edges={rfEdges} nodeTypes={nodeTypes} fitView colorMode={mode}
             onNodeClick={onNodeClick}
@@ -253,7 +299,10 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
                           ) : <span style={{ width: 20, flexShrink: 0 }} />}
                           <span style={{ flexShrink: 0, fontSize: 15 }}>{hasChildren ? '🗂' : '👤'}</span>
                           <div style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: 600, fontSize: 13 }}>{n.fullName}</div>
+                            <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {n.fullName}
+                              {Number(n.revenueCents ?? 0) > 0 && <span className="tnum" style={{ fontSize: 10, fontWeight: 700, color: 'var(--gold-500)' }} title={`${n.salesCount ?? 0} sales this month`}>◆ {compactMoney(Number(n.revenueCents))}</span>}
+                            </div>
                             <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{n.referralCode}</div>
                           </div>
                         </div>

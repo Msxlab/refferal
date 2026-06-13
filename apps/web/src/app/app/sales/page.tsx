@@ -1,0 +1,132 @@
+'use client';
+
+import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { api, ApiError } from '@/lib/api';
+import { Loading, Modal, Pagination, useToast } from '@/components/ui';
+import { dateShort, money } from '@/lib/format';
+import { t } from '@/lib/i18n';
+
+interface MySale {
+  id: string;
+  amountCents: string;
+  currency: string;
+  status: 'draft' | 'approved' | 'void';
+  saleDate: string;
+  customerRef: string | null;
+  deliveredAt: string | null;
+  myCommissionCents: string;
+}
+interface MySalesList { total: number; page: number; pageSize: number; items: MySale[] }
+
+function todayYmd(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export default function MySalesPage() {
+  const [list, setList] = useState<MySalesList | null>(null);
+  const [page, setPage] = useState(1);
+  const [error, setError] = useState('');
+  const [toast, showToast] = useToast();
+  const [showNew, setShowNew] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [saleDate, setSaleDate] = useState(todayYmd());
+  const [customer, setCustomer] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [formErr, setFormErr] = useState('');
+
+  const load = useCallback(async () => {
+    try { setList(await api.get<MySalesList>(`/app/sales?page=${page}&pageSize=25`)); }
+    catch (e) { setError(String((e as ApiError).message)); }
+  }, [page]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setFormErr('');
+    const dollars = parseFloat(amount);
+    if (!Number.isFinite(dollars) || dollars <= 0) { setFormErr('Enter a valid amount greater than 0.'); return; }
+    const cents = Math.round(dollars * 100);
+    setBusy(true);
+    try {
+      await api.post('/app/sales', { amountCents: cents, saleDate, ...(customer.trim() ? { customerRef: customer.trim() } : {}) });
+      setAmount(''); setCustomer(''); setSaleDate(todayYmd()); setShowNew(false);
+      showToast('Sale recorded — pending verification');
+      setPage(1);
+      await load();
+    } catch (e) { setFormErr(String((e as ApiError).message)); } finally { setBusy(false); }
+  }
+
+  return (
+    <div>
+      <div className="spread">
+        <div>
+          <div className="eyebrow fade-in">{t('anav.sales')}</div>
+          <h1 className="h1 fade-in">My Sales</h1>
+          <p className="sub fade-in">Record your sales and track their commission.</p>
+        </div>
+        <button className="btn fade-in" onClick={() => { setFormErr(''); setShowNew(true); }}>＋ Record sale</button>
+      </div>
+
+      {error && <div className="error">{error}</div>}
+
+      <div className="card fade-in delay-1" style={{ background: 'color-mix(in srgb, var(--sky) 7%, transparent)', borderColor: 'color-mix(in srgb, var(--sky) 30%, transparent)', marginBottom: 16 }}>
+        <div className="faint" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+          ◆ Sales you record are <b>drafts</b> until verified by your company. Commission is distributed across your network after approval.
+        </div>
+      </div>
+
+      <div className="card fade-in delay-2">
+        <div className="spread" style={{ marginBottom: 12 }}>
+          <strong>History{list ? ` · ${list.total}` : ''}</strong>
+        </div>
+        {!list ? <Loading rows={3} /> : list.items.length === 0 ? (
+          <div className="muted" style={{ padding: '10px 2px' }}>Record your first sale to start earning commissions.</div>
+        ) : (
+          <table>
+            <thead><tr><th>Date</th><th>Amount</th><th>Customer</th><th>Status</th><th style={{ textAlign: 'right' }}>My commission</th></tr></thead>
+            <tbody>
+              {list.items.map((s) => (
+                <tr key={s.id}>
+                  <td className="muted">{dateShort(s.saleDate)}</td>
+                  <td className="tnum" style={{ fontWeight: 650 }}>{money(s.amountCents, s.currency)}</td>
+                  <td className="faint" style={{ fontSize: 12.5 }}>{s.customerRef || '—'}</td>
+                  <td>
+                    <span className={`badge ${s.status}`}>{s.status}</span>
+                    {s.deliveredAt && <span className="badge active" style={{ marginLeft: 6 }}>✓</span>}
+                  </td>
+                  <td className="tnum" style={{ textAlign: 'right', color: Number(s.myCommissionCents) > 0 ? 'var(--emerald)' : 'var(--faint)' }}>
+                    {Number(s.myCommissionCents) > 0 ? money(s.myCommissionCents, s.currency) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {list && <Pagination page={list.page} pageSize={list.pageSize} total={list.total} onPage={setPage} />}
+      </div>
+
+      {showNew && (
+        <Modal title="Record a sale" onClose={() => setShowNew(false)}>
+          <form onSubmit={submit} style={{ width: 'min(420px, 88vw)' }}>
+            <div className="field">
+              <label>Amount</label>
+              <input type="number" step="0.01" min="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="e.g. 149.90" required autoFocus />
+              <div className="faint" style={{ fontSize: 11, marginTop: 4 }}>In dollars — e.g. 149.90</div>
+            </div>
+            <div className="field"><label>Sale date</label><input type="date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} required /></div>
+            <div className="field"><label>Customer reference (optional)</label><input value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder="e.g. order #1234" /></div>
+            {formErr && <div className="error">{formErr}</div>}
+            <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+              <button type="button" className="btn ghost" onClick={() => setShowNew(false)} disabled={busy}>Cancel</button>
+              <button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Submit sale'}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {toast && <div className="toast" role="status">{toast}</div>}
+    </div>
+  );
+}

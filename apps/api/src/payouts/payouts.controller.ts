@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, HttpCode, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Param, ParseUUIDPipe, Post, Query, Res } from '@nestjs/common';
 import { PayoutStatus, Role } from '@prisma/client';
 import { Response } from 'express';
 import { CurrentUser, RequireMembership, Roles } from '../auth/auth.guard';
@@ -7,6 +7,8 @@ import { ZodValidationPipe } from '../common/zod.pipe';
 import { ActorContext } from '../common/actor';
 import { PayoutsService } from './payouts.service';
 import {
+  decidePayoutSchema,
+  DecidePayoutInput,
   exportPayoutsSchema,
   ExportPayoutsInput,
   listPayoutsSchema,
@@ -54,6 +56,30 @@ export class AdminPayoutsController {
   ) {
     const csv = await this.payouts.exportCsv(user.tid as string, q.period);
     res.send(csv);
+  }
+
+  // DIKKAT: ':id' GET'i statik GET'lerden (payable, export.csv) SONRA tanimli.
+  @Get(':id')
+  detail(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.payouts.detail(user.tid as string, id);
+  }
+
+  // talep karari (onay/red) — para etkileyen, audit'li
+  @HttpCode(200)
+  @Post(':id/decide')
+  decide(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(decidePayoutSchema)) body: DecidePayoutInput,
+  ) {
+    return this.payouts.decide(this.actor(user), id, body);
+  }
+
+  // basarisiz odemeyi yeniden dene
+  @HttpCode(200)
+  @Post(':id/retry')
+  retry(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.payouts.retry(this.actor(user), id);
   }
 }
 

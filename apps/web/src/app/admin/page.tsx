@@ -54,9 +54,14 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <div className="eyebrow fade-in">{t('nav.dashboard')} · {data.month}</div>
-      <h1 className="h1 fade-in">{t('dash.title')}</h1>
-      <p className="sub fade-in">{t('dash.sub')}</p>
+      <div className="spread">
+        <div>
+          <div className="eyebrow fade-in">{t('nav.dashboard')} · {data.month}</div>
+          <h1 className="h1 fade-in">{t('dash.title')}</h1>
+          <p className="sub fade-in">{t('dash.sub')}</p>
+        </div>
+        <button className="btn ghost fade-in no-print" onClick={() => window.print()}>🖶 Print report</button>
+      </div>
 
       <div className="grid fade-in delay-1" style={{ gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)' }}>
         <div className="card hero">
@@ -106,7 +111,7 @@ export default function DashboardPage() {
           <h2 style={{ fontSize: 18, fontWeight: 750, margin: 0 }}>Performance</h2>
           <span className="faint" style={{ fontSize: 12 }}>Trends and comparison vs the previous period.</span>
         </div>
-        <div className="seg-tabs" role="tablist">
+        <div className="seg-tabs no-print" role="tablist">
           {RANGES.map((r) => (
             <button key={r} className={`seg-tab ${months === r ? 'on' : ''}`} onClick={() => setMonths(r)} role="tab" aria-selected={months === r}>
               {r}M

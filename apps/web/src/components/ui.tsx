@@ -291,3 +291,43 @@ export function useToast(): [string | null, (msg: string) => void] {
   };
   return [msg, show];
 }
+
+/* ----------------------------------------------------- sayfalama */
+export function Pagination({ page, pageSize, total, onPage }: { page: number; pageSize: number; total: number; onPage: (p: number) => void }) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  if (total <= 0 || pages <= 1) return null;
+  const first = (page - 1) * pageSize + 1;
+  const last = Math.min(page * pageSize, total);
+  return (
+    <div className="row no-print" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
+      <span className="faint tnum" style={{ fontSize: 12 }}>{first}–{last} / {total}</span>
+      <button className="btn ghost sm" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page">‹</button>
+      <span className="tnum" style={{ fontSize: 12 }}>{page} / {pages}</span>
+      <button className="btn ghost sm" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page">›</button>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------- siralanabilir th */
+export type SortDir = 'asc' | 'desc';
+export function SortableTh({ label, field, sort, dir, onSort, align }: {
+  label: string;
+  field: string;
+  sort: string;
+  dir: SortDir;
+  onSort: (field: string, dir: SortDir) => void;
+  align?: 'left' | 'right';
+}) {
+  const active = sort === field;
+  return (
+    <th
+      className="sortable"
+      style={align === 'right' ? { textAlign: 'right' } : undefined}
+      aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      onClick={() => onSort(field, active && dir === 'desc' ? 'asc' : 'desc')}
+    >
+      {label}
+      {active && <span className="sort-ind">{dir === 'asc' ? '▲' : '▼'}</span>}
+    </th>
+  );
+}

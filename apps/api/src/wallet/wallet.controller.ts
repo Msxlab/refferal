@@ -3,7 +3,14 @@ import { CurrentUser, RequireMembership } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { WalletService } from './wallet.service';
-import { dashboardQuerySchema, DashboardQuery, walletQuerySchema, WalletQuery } from './wallet.types';
+import {
+  dashboardQuerySchema,
+  DashboardQuery,
+  earningsQuerySchema,
+  EarningsQuery,
+  walletQuerySchema,
+  WalletQuery,
+} from './wallet.types';
 
 /** Uye yuzeyi (/app). Aktif uyelik gerekli; her zaman KENDI verisini doner. */
 @RequireMembership()
@@ -21,7 +28,16 @@ export class WalletController {
 
   @Get('wallet')
   walletView(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(walletQuerySchema)) q: WalletQuery) {
-    return this.wallet.wallet(user.mid as string, q);
+    return this.wallet.wallet(user.mid as string, user.tid as string, q);
+  }
+
+  /** Aylik kazanc serisi (grafik icin) — son N ay, eskiden yeniye. */
+  @Get('earnings')
+  earnings(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(earningsQuerySchema)) q: EarningsQuery,
+  ) {
+    return this.wallet.earnings(user.mid as string, user.tid as string, q.months);
   }
 
   @Get('team')

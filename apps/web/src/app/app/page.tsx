@@ -18,13 +18,22 @@ interface Dashboard {
   totals: { pendingCents: string; payableCents: string; paidCents: string };
   levels: LevelRow[];
 }
+interface EarningsPoint { month: string; totalCents: string }
+interface Earnings { months: number; currency: string; series: EarningsPoint[] }
+
+function monthLabel(ym: string): string {
+  const [y, m] = ym.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' });
+}
 
 export default function MemberDashboard() {
   const [data, setData] = useState<Dashboard | null>(null);
+  const [earnings, setEarnings] = useState<Earnings | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
     api.get<Dashboard>('/app/dashboard').then(setData).catch((e) => setError(String((e as ApiError).message)));
+    api.get<Earnings>('/app/earnings?months=6').then(setEarnings).catch(() => { /* grafik opsiyonel */ });
   }, []);
 
   if (error) return <div className="error">{error}</div>;
@@ -81,6 +90,20 @@ export default function MemberDashboard() {
           />
         </div>
       </div>
+
+      {/* son 6 ay kazanc trendi */}
+      {earnings && earnings.series.some((p) => Number(p.totalCents) > 0) && (
+        <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
+          <div className="spread" style={{ marginBottom: 14 }}>
+            <strong>Last 6 months</strong>
+            <span className="faint" style={{ fontSize: 12 }}>Your total commission per month</span>
+          </div>
+          <Bars
+            data={earnings.series.map((p) => ({ label: monthLabel(p.month), value: Number(p.totalCents), color: 'var(--grad-primary)' }))}
+            format={(v) => money(v, c)}
+          />
+        </div>
+      )}
 
       {/* seviye dokumu */}
       <div className="card fade-in delay-2" style={{ marginTop: 16 }}>

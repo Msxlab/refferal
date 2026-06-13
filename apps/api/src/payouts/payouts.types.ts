@@ -24,3 +24,10 @@ export const exportPayoutsSchema = z.object({
   period: month.optional(),
 });
 export type ExportPayoutsInput = z.infer<typeof exportPayoutsSchema>;
+
+export const decidePayoutSchema = z.object({
+  action: z.enum(['approve', 'reject']),
+  // approve: banka/havale referansi; reject: red sebebi
+  ref: z.string().trim().min(1).max(500).optional(),
+});
+export type DecidePayoutInput = z.infer<typeof decidePayoutSchema>;

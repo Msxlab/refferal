@@ -323,3 +323,47 @@ tr:last-child td { border-bottom: none; }
   .side { display: none; }
   .main { padding: 20px 16px; }
 }
+
+/* ------------------------------------------------- siralanabilir basliklar */
+th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+th.sortable:hover { color: var(--text); }
+th .sort-ind { margin-left: 4px; color: var(--brand); font-size: 9px; }
+
+/* ---------------------------------------------------------------- print
+   Iki mod:
+   1) Duz sayfa yazdirma (window.print): nav/butonlar gizlenir, acik palet zorlanir.
+   2) Makbuz modu (PrintSheet): body.print-mode iken yalnizca .print-sheet basilir. */
+.print-sheet { display: none; }
+
+@media print {
+  :root, [data-theme="dark"], [data-theme="light"] {
+    --bg-0: #fff; --bg-1: #fff; --panel: #fff; --panel-solid: #fff;
+    --panel-2: #f6f7f9; --panel-3: #eef0f3;
+    --border: rgba(20,22,30,.18); --border-strong: rgba(20,22,30,.3);
+    --text: #15171e; --muted: #444a58; --faint: #6b7180;
+    --brand: var(--gold-800); --shadow-lg: none; --shadow-glow: none;
+    --inset: none; --grain: 0; --on-gold: #1a1404;
+  }
+  html, body { background: #fff; }
+  body::before { display: none; }
+  .badge, .badge::before { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+
+  /* ekran arayuzu: nav, etkilesim ve animasyon gizle */
+  .side, .topbar, .bulkbar, .toast, .theme-toggle, .no-print,
+  .modal-backdrop, .drawer-backdrop, .popover-panel, .inbox-pop,
+  button, input, select, textarea { display: none !important; }
+  .shell { display: block; }
+  .main, .appmain { max-width: none; padding: 0; }
+  .card { box-shadow: none; border: 1px solid #d8dbe2; break-inside: avoid; }
+  .fade-in { animation: none; }
+  table { font-size: 11px; }
+  a { color: inherit; }
+
+  /* makbuz modu: yalnizca print-sheet gorunur */
+  body.print-mode > :not(.print-sheet) { display: none !important; }
+  body.print-mode .print-sheet { display: block; color: #15171e; }
+  body.print-mode .print-sheet table { width: 100%; border-collapse: collapse; }
+  body.print-mode .print-sheet th, body.print-mode .print-sheet td {
+    text-align: left; padding: 8px 10px; border-bottom: 1px solid #d8dbe2; font-size: 11px;
+  }
+}

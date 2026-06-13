@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { LedgerType, MembershipStatus, PayoutStatus, SaleStatus } from '@prisma/client';
+import { LedgerType, MembershipStatus, PayoutStatus, Prisma, SaleStatus } from '@prisma/client';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -211,32 +211,109 @@ export class ReportsService {
     return out;
   }
 
-  /** Tenant audit log (SPEC 9). */
-  async audit(tenantId: string, q: { page: number; pageSize: number }) {
+  /** Audit filtre seti (list + export ortak, tenant-scoped). */
+  private auditWhere(
+    tenantId: string,
+    q: { q?: string; entity?: string; from?: Date; to?: Date },
+  ): Prisma.AuditLogWhereInput {
+    const where: Prisma.AuditLogWhereInput = { tenantId };
+    if (q.entity) where.entity = q.entity;
+    if (q.from || q.to) {
+      where.createdAt = { ...(q.from ? { gte: q.from } : {}), ...(q.to ? { lte: q.to } : {}) };
+    }
+    // serbest arama: action / entity (entityId UUID — contains desteklemez)
+    if (q.q) {
+      const term = q.q;
+      where.OR = [
+        { action: { contains: term, mode: 'insensitive' } },
+        { entity: { contains: term, mode: 'insensitive' } },
+      ];
+    }
+    return where;
+  }
+
+  /** actorUserId → { name, email } (batch; null aktor = 'system'). */
+  private async resolveActors(actorIds: Array<string | null>) {
+    const ids = [...new Set(actorIds.filter((v): v is string => !!v))];
+    const users = ids.length
+      ? await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, fullName: true, email: true } })
+      : [];
+    const map = new Map(users.map((u) => [u.id, u]));
+    return (id: string | null) => {
+      if (!id) return { name: 'system', email: null as string | null };
+      const u = map.get(id);
+      return { name: u?.fullName ?? id.slice(0, 8), email: u?.email ?? null };
+    };
+  }
+
+  /** Tenant audit log (SPEC 9): filtreli + sayfali + actor adi cozumlu. */
+  async audit(
+    tenantId: string,
+    q: { q?: string; entity?: string; from?: Date; to?: Date; page: number; pageSize: number },
+  ) {
+    const where = this.auditWhere(tenantId, q);
     const [total, rows] = await this.prisma.$transaction([
-      this.prisma.auditLog.count({ where: { tenantId } }),
+      this.prisma.auditLog.count({ where }),
       this.prisma.auditLog.findMany({
-        where: { tenantId },
+        where,
         orderBy: { createdAt: 'desc' },
         skip: (q.page - 1) * q.pageSize,
         take: q.pageSize,
       }),
     ]);
+    const actorOf = await this.resolveActors(rows.map((a) => a.actorUserId));
     return {
       total,
       page: q.page,
       pageSize: q.pageSize,
-      items: rows.map((a) => ({
-        id: a.id,
-        action: a.action,
-        entity: a.entity,
-        entityId: a.entityId,
-        actorUserId: a.actorUserId,
-        before: a.before,
-        after: a.after,
-        ip: a.ip,
-        createdAt: a.createdAt,
-      })),
+      items: rows.map((a) => {
+        const actor = actorOf(a.actorUserId);
+        return {
+          id: a.id,
+          action: a.action,
+          entity: a.entity,
+          entityId: a.entityId,
+          actorUserId: a.actorUserId,
+          actorName: actor.name,
+          actorEmail: actor.email,
+          before: a.before,
+          after: a.after,
+          ip: a.ip,
+          createdAt: a.createdAt,
+        };
+      }),
     };
   }
+
+  /** Audit CSV exportu (admin): list ile ayni filtreler, max 5000, createdAt desc. */
+  async auditExportCsv(tenantId: string, q: { q?: string; entity?: string; from?: Date; to?: Date }): Promise<string> {
+    const rows = await this.prisma.auditLog.findMany({
+      where: this.auditWhere(tenantId, q),
+      orderBy: { createdAt: 'desc' },
+      take: 5000,
+    });
+    const actorOf = await this.resolveActors(rows.map((a) => a.actorUserId));
+    const header = 'created_at,action,entity,entity_id,actor_name,actor_email,ip';
+    const lines = rows.map((a) => {
+      const actor = actorOf(a.actorUserId);
+      return [
+        a.createdAt.toISOString(),
+        csvCell(a.action),
+        csvCell(a.entity),
+        a.entityId ?? '',
+        csvCell(actor.name),
+        actor.email ?? '',
+        a.ip ?? '',
+      ].join(',');
+    });
+    return [header, ...lines].join('\n') + '\n';
+  }
+}
+
+/** CSV hucresi: virgul/tirnak/yeni satir varsa tirnakla ve "" kacisla. */
+function csvCell(value: string): string {
+  if (/[",\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
 }
