@@ -47,7 +47,9 @@ export default function MembersPage() {
   const [sponsor, setSponsor] = useState('');
   const [latest, setLatest] = useState<string | null>(null);
   const [confirmM, setConfirmM] = useState<MemberItem | null>(null);
-  const [bulkConfirm, setBulkConfirm] = useState<'activate' | 'deactivate' | null>(null);
+  const [bulkRole, setBulkRole] = useState('member');
+  const [pendingBulk, setPendingBulk] = useState<{ action: 'activate' | 'deactivate' | 'set_role'; role?: string } | null>(null);
+  const [preview, setPreview] = useState<{ total: number; willChange: number; skipped: { id: string; reason: string }[]; openPayoutRequests: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -93,12 +95,24 @@ export default function MembersPage() {
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
   }
 
-  async function runBulk(action: 'activate' | 'deactivate') {
+  // dry-run: once etki ozetini al, modal'da goster
+  async function openBulk(action: 'activate' | 'deactivate' | 'set_role') {
+    const body = { action, ids: [...selected], ...(action === 'set_role' ? { role: bulkRole } : {}) };
+    try {
+      const pv = await api.post<typeof preview>('/admin/members/bulk', { ...body, preview: true });
+      setPreview(pv);
+      setPendingBulk({ action, role: action === 'set_role' ? bulkRole : undefined });
+    } catch (e) { setError(String((e as ApiError).message)); }
+  }
+  async function applyBulk() {
+    if (!pendingBulk) return;
     setBusy(true);
     try {
-      const res = await api.post<{ succeeded: number; failed: { id: string; reason: string }[] }>('/admin/members/bulk', { action, ids: [...selected] });
-      showToast(`${res.succeeded} ${action}d${res.failed.length ? `, ${res.failed.length} skipped` : ''}`);
-      setBulkConfirm(null);
+      const res = await api.post<{ succeeded: number; failed: { id: string; reason: string }[] }>('/admin/members/bulk', {
+        action: pendingBulk.action, ids: [...selected], ...(pendingBulk.role ? { role: pendingBulk.role } : {}),
+      });
+      showToast(`${res.succeeded} updated${res.failed.length ? `, ${res.failed.length} skipped` : ''}`);
+      setPendingBulk(null); setPreview(null);
       await load();
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
   }
@@ -222,8 +236,14 @@ export default function MembersPage() {
           <div className="bulkbar no-print">
             <strong style={{ fontSize: 13 }}>{selected.size} selected</strong>
             <span style={{ flex: 1 }} />
-            <button className="btn sm" disabled={selActivatable === 0} onClick={() => setBulkConfirm('activate')}>Activate {selActivatable || ''}</button>
-            <button className="btn sm danger" disabled={selDeactivatable === 0} onClick={() => setBulkConfirm('deactivate')}>Deactivate {selDeactivatable || ''}</button>
+            <button className="btn sm" disabled={selActivatable === 0} onClick={() => openBulk('activate')}>Activate {selActivatable || ''}</button>
+            <button className="btn sm danger" disabled={selDeactivatable === 0} onClick={() => openBulk('deactivate')}>Deactivate {selDeactivatable || ''}</button>
+            <span className="row" style={{ gap: 4 }}>
+              <select value={bulkRole} onChange={(e) => setBulkRole(e.target.value)} style={{ width: 'auto' }} aria-label="Bulk role">
+                {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+              <button className="btn sm ghost" onClick={() => openBulk('set_role')}>Set role</button>
+            </span>
             <button className="btn ghost sm" onClick={() => setSelected(new Set())}>Clear</button>
           </div>
         )}
@@ -268,18 +288,29 @@ export default function MembersPage() {
         />
       )}
 
-      {bulkConfirm && (
-        <Confirm
-          title={bulkConfirm === 'activate' ? `Activate ${selActivatable} member(s)` : `Deactivate ${selDeactivatable} member(s)`}
-          message={bulkConfirm === 'deactivate'
-            ? 'Selected members will be deactivated. Owners are skipped. Commission rights are preserved.'
-            : 'Selected inactive members will be reactivated. Owners are skipped.'}
-          confirmLabel={bulkConfirm === 'activate' ? t('members.activate') : t('members.deactivate')}
-          danger={bulkConfirm === 'deactivate'}
-          busy={busy}
-          onConfirm={() => runBulk(bulkConfirm)}
-          onClose={() => setBulkConfirm(null)}
-        />
+      {pendingBulk && preview && (
+        <Modal title="Review bulk change" onClose={() => { setPendingBulk(null); setPreview(null); }}>
+          <div style={{ width: 'min(420px, 88vw)' }}>
+            <p className="muted" style={{ marginTop: 0 }}>
+              {pendingBulk.action === 'set_role' ? `Set role to "${pendingBulk.role}" for selected members.`
+                : pendingBulk.action === 'activate' ? 'Activate selected members.' : 'Deactivate selected members.'}
+            </p>
+            <div className="grid" style={{ gap: 8, margin: '12px 0' }}>
+              <div className="spread"><span className="muted" style={{ fontSize: 13 }}>Selected</span><b className="tnum">{preview.total}</b></div>
+              <div className="spread"><span className="muted" style={{ fontSize: 13 }}>Will change</span><b className="tnum" style={{ color: 'var(--emerald)' }}>{preview.willChange}</b></div>
+              <div className="spread"><span className="muted" style={{ fontSize: 13 }}>Skipped (no-op / protected)</span><b className="tnum faint">{preview.skipped.length}</b></div>
+              {preview.openPayoutRequests > 0 && (
+                <div className="spread" style={{ color: 'var(--amber)' }}><span style={{ fontSize: 13 }}>⚠ In open payout request</span><b className="tnum">{preview.openPayoutRequests}</b></div>
+              )}
+            </div>
+            <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+              <button className="btn ghost" onClick={() => { setPendingBulk(null); setPreview(null); }} disabled={busy}>Cancel</button>
+              <button className={`btn ${pendingBulk.action === 'deactivate' ? 'danger' : ''}`} onClick={applyBulk} disabled={busy || preview.willChange === 0}>
+                {busy ? 'Applying…' : `Apply to ${preview.willChange}`}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {detailId && <MemberDrawer id={detailId} onClose={() => setDetailId(null)} onNavigate={setDetailId} onChanged={load} onToast={showToast} />}

@@ -24,10 +24,14 @@ const exportSchema = z.object({
   search: z.string().trim().max(120).optional(),
   status: z.enum(['active', 'inactive']).optional(),
 });
-const bulkSchema = z.object({
-  action: z.enum(['activate', 'deactivate']),
-  ids: z.array(z.string().uuid()).min(1).max(200),
-});
+const bulkSchema = z
+  .object({
+    action: z.enum(['activate', 'deactivate', 'set_role']),
+    ids: z.array(z.string().uuid()).min(1).max(200),
+    role: z.enum(['tenant_admin', 'tenant_staff', 'member']).optional(),
+    preview: z.boolean().optional(),
+  })
+  .refine((v) => v.action !== 'set_role' || !!v.role, { message: 'set_role icin rol gerekli', path: ['role'] });
 const inviteSchema = z.object({
   sponsorReferralCode: z.string().trim().min(3).max(32).optional(),
   sponsorMembershipId: z.string().uuid().optional(),
@@ -78,7 +82,7 @@ export class MembersAdminController {
   @HttpCode(200)
   @Post('bulk')
   bulk(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(bulkSchema)) body: z.infer<typeof bulkSchema>) {
-    return this.members.bulkSetStatus(this.actor(user), body.action, body.ids);
+    return this.members.bulk(this.actor(user), { ...body, role: body.role as Role | undefined });
   }
 
   // davet/pasiflestir/rol → admin+ (audit'li)

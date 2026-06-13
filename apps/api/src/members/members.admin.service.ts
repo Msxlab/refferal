@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { InviteStatus, LedgerStatus, MembershipStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
+import { InviteStatus, LedgerStatus, MembershipStatus, PayoutStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
 import { randomCode } from '../common/crypto';
 import { authConfig } from '../auth/auth.config';
 import { AccessTokenPayload } from '../auth/auth.types';
@@ -320,22 +320,64 @@ export class MembersAdminService {
   }
 
   /**
-   * Toplu aktive/pasiflestir (ADMIN): tekil setStatus mantigi yeniden kullanilir
-   * (owner pasife alinamaz kurali + her biri ayri audit). Kismi basari donulur.
+   * Toplu islem (ADMIN): activate | deactivate | set_role. preview=true ise HICBIR SEY
+   * yazilmaz — etki ozeti doner (kac uye degisecek, kac owner/no-op atlanacak, kaci acik
+   * payout talebinde). Uygulama: tekil setStatus/setRole yeniden kullanilir (her biri audit'li).
    */
-  async bulkSetStatus(actor: ActorContext, action: 'activate' | 'deactivate', ids: string[]) {
-    const status = action === 'activate' ? MembershipStatus.active : MembershipStatus.inactive;
+  async bulk(
+    actor: ActorContext,
+    input: { action: 'activate' | 'deactivate' | 'set_role'; ids: string[]; role?: Role; preview?: boolean },
+  ) {
+    const rows = await this.prisma.membership.findMany({
+      where: { id: { in: input.ids }, tenantId: actor.tenantId },
+      select: { id: true, role: true, status: true },
+    });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+
+    // dry-run: her id icin uygulanacak/atlanacak kararini hesapla (mutasyon yok)
+    if (input.preview) {
+      let willChange = 0;
+      const skipped: Array<{ id: string; reason: string }> = [];
+      for (const id of input.ids) {
+        const m = byId.get(id);
+        if (!m) { skipped.push({ id, reason: 'bulunamadi' }); continue; }
+        if (input.action === 'set_role') {
+          if (m.role === Role.tenant_owner) { skipped.push({ id, reason: 'owner rolu degismez' }); continue; }
+          if (m.role === input.role) { skipped.push({ id, reason: 'zaten bu rolde' }); continue; }
+          willChange++;
+        } else {
+          const target = input.action === 'activate' ? MembershipStatus.active : MembershipStatus.inactive;
+          if (m.role === Role.tenant_owner && target === MembershipStatus.inactive) { skipped.push({ id, reason: 'owner pasife alinamaz' }); continue; }
+          if (m.status === target) { skipped.push({ id, reason: 'zaten bu durumda' }); continue; }
+          willChange++;
+        }
+      }
+      // pasiflestirmede etkilenecek acik payout talepleri (operasyonel uyari)
+      let openPayoutRequests = 0;
+      if (input.action === 'deactivate') {
+        openPayoutRequests = await this.prisma.payout.count({
+          where: { tenantId: actor.tenantId, membershipId: { in: input.ids }, status: PayoutStatus.requested },
+        });
+      }
+      return { preview: true as const, total: input.ids.length, willChange, skipped, openPayoutRequests };
+    }
+
     const succeeded: string[] = [];
     const failed: Array<{ id: string; reason: string }> = [];
-    for (const id of ids) {
+    for (const id of input.ids) {
       try {
-        await this.setStatus(actor, id, status);
+        if (input.action === 'set_role') {
+          if (!input.role) throw new Error('rol gerekli');
+          await this.setRole(actor, id, input.role);
+        } else {
+          await this.setStatus(actor, id, input.action === 'activate' ? MembershipStatus.active : MembershipStatus.inactive);
+        }
         succeeded.push(id);
       } catch (e) {
         failed.push({ id, reason: e instanceof Error ? e.message : 'bilinmeyen hata' });
       }
     }
-    return { action, succeeded: succeeded.length, failed };
+    return { action: input.action, succeeded: succeeded.length, failed };
   }
 
   async setRole(actor: ActorContext, membershipId: string, role: Role) {
