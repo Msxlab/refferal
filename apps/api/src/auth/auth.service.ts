@@ -142,6 +142,10 @@ export class AuthService {
         userId: user.id,
         sponsor: invite.inviter,
       });
+      // sybil sinyali (#16): kayit IP'sini sakla — ayni IP'den coklu kayit fraud taramasinda yakalanir
+      if (meta.ip) {
+        await tx.membership.update({ where: { id: membership.id }, data: { signupIp: meta.ip } });
+      }
 
       await tx.invite.update({
         where: { id: invite.id },

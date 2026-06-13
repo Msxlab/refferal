@@ -52,6 +52,18 @@ export class FraudService {
       GROUP BY s.seller_membership_id`;
     for (const r of selfRows) add(r.membershipId, { score: 40, reason: `self_referral(${Number(r.c)})` });
 
+    // sinyal 4: sybil — ayni IP'den >= 3 uye kaydi (#16)
+    const ipGroups = await this.prisma.membership.groupBy({
+      by: ['signupIp'],
+      where: { tenantId, signupIp: { not: null } },
+      _count: { _all: true },
+    });
+    const sharedIps = ipGroups.filter((g) => g._count._all >= 3).map((g) => g.signupIp as string);
+    if (sharedIps.length) {
+      const shared = await this.prisma.membership.findMany({ where: { tenantId, signupIp: { in: sharedIps } }, select: { id: true } });
+      for (const m of shared) add(m.id, { score: 35, reason: 'shared_signup_ip' });
+    }
+
     // upsert: uye basina topla, mevcut bayragi koru (cleared → yeniden tetiklenirse ac)
     const existing = await this.prisma.fraudFlag.findMany({ where: { tenantId, membershipId: { in: [...byMember.keys()] } } });
     const existingById = new Map(existing.map((f) => [f.membershipId, f]));

@@ -279,6 +279,8 @@ model Membership {
   path                String
   depth               Int
   status              MembershipStatus @default(active)
+  // Sybil tespiti (#16): kayit anindaki IP. Ayni IP'den N+ uye → fraud sinyali.
+  signupIp            String?          @map("signup_ip")
   // Kanal bazli bildirim tercihleri: { "<event>": { in_app, email, push } } — bos = varsayilanlar.
   notificationPrefs   Json             @default("{}") @map("notification_prefs")
   joinedAt            DateTime         @default(now()) @map("joined_at")
