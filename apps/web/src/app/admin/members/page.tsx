@@ -52,6 +52,13 @@ export default function MembersPage() {
   const [preview, setPreview] = useState<{ total: number; willChange: number; skipped: { id: string; reason: string }[]; openPayoutRequests: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
+  // manuel uye ekleme
+  const [showAdd, setShowAdd] = useState(false);
+  const [addName, setAddName] = useState('');
+  const [addEmail, setAddEmail] = useState('');
+  const [addSponsor, setAddSponsor] = useState('');
+  const [addRole, setAddRole] = useState('member');
+  const [addResult, setAddResult] = useState<{ referralCode: string; tempPassword?: string; newUser: boolean } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailId, setDetailId] = useState<string | null>(null);
   const cols = useTablePrefs('members', MEMBER_COLUMNS);
@@ -90,6 +97,21 @@ export default function MembersPage() {
       setLatest(res.code);
       showToast('Invitation created ✓');
     } catch (e) { setError(String((e as ApiError).message)); }
+  }
+
+  async function createMember(e: FormEvent) {
+    e.preventDefault(); setError(''); setBusy(true);
+    try {
+      const res = await api.post<{ referralCode: string; tempPassword?: string; newUser: boolean }>('/admin/members', {
+        fullName: addName.trim(),
+        email: addEmail.trim(),
+        ...(addSponsor.trim() ? { sponsorReferralCode: addSponsor.trim() } : {}),
+        role: addRole,
+      });
+      setAddResult(res);
+      showToast('Üye eklendi ✓');
+      await load();
+    } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
   }
 
   async function toggleStatus(m: MemberItem) {
@@ -164,6 +186,7 @@ export default function MembersPage() {
         </div>
         <div className="row fade-in no-print" style={{ gap: 8 }}>
           <button className="btn ghost" onClick={exportCsv}>⇩ Export CSV</button>
+          <button className="btn ghost" onClick={() => { setError(''); setAddName(''); setAddEmail(''); setAddSponsor(''); setAddRole('member'); setAddResult(null); setShowAdd(true); }}>＋ Üye ekle</button>
           <button className="btn" onClick={() => { setLatest(null); setShowInvite(true); }}>✦ {t('members.invite')}</button>
         </div>
       </div>
@@ -280,6 +303,49 @@ export default function MembersPage() {
               <button className="btn">✦ {latest ? 'New invite' : t('members.invite')}</button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {showAdd && (
+        <Modal title="Üye ekle" onClose={() => setShowAdd(false)}>
+          <div style={{ width: 'min(460px, 90vw)' }}>
+            {addResult ? (
+              <div>
+                <div className="card" style={{ background: 'color-mix(in srgb, var(--emerald) 10%, transparent)', borderColor: 'color-mix(in srgb, var(--emerald) 30%, transparent)', padding: 14 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>✓ Üye eklendi</div>
+                  <div className="row spread" style={{ fontSize: 13 }}><span className="muted">Referans kodu</span><strong className="tnum">{addResult.referralCode}</strong></div>
+                  {addResult.tempPassword ? (
+                    <div style={{ marginTop: 8 }}>
+                      <div className="faint" style={{ fontSize: 11, marginBottom: 4 }}>Geçici şifre (kişiyle paylaşın — bir daha gösterilmez):</div>
+                      <div className="row spread" style={{ gap: 8 }}>
+                        <span style={{ color: 'var(--gold-500)', fontFamily: 'var(--mono, monospace)', fontWeight: 700 }}>{addResult.tempPassword}</span>
+                        <button className="btn ghost sm" onClick={() => { navigator.clipboard.writeText(addResult.tempPassword!).then(() => showToast('Kopyalandı ✓')).catch(() => {}); }}>Kopyala</button>
+                      </div>
+                    </div>
+                  ) : <div className="faint" style={{ fontSize: 12, marginTop: 8 }}>Bu e-posta zaten kayıtlı — kişi mevcut şifresiyle girer (yeni üyelik eklendi).</div>}
+                </div>
+                <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+                  <button type="button" className="btn ghost" onClick={() => { setAddResult(null); setAddName(''); setAddEmail(''); setAddSponsor(''); }}>Bir tane daha</button>
+                  <button type="button" className="btn" onClick={() => setShowAdd(false)}>Bitti</button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={createMember}>
+                <div className="field"><label>Ad soyad</label><input value={addName} onChange={(e) => setAddName(e.target.value)} required minLength={2} autoFocus placeholder="Ör. Jane Smith" /></div>
+                <div className="field"><label>E-posta</label><input type="email" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} required placeholder="name@company.com" /></div>
+                <div className="row" style={{ gap: 12 }}>
+                  <div className="field" style={{ flex: 2, margin: 0 }}><label>Sponsor kodu (boş = owner)</label><input value={addSponsor} onChange={(e) => setAddSponsor(e.target.value)} placeholder="Ör. ALICE1" /></div>
+                  <div className="field" style={{ flex: 1, margin: 0 }}><label>Rol</label><select value={addRole} onChange={(e) => setAddRole(e.target.value)}>{ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select></div>
+                </div>
+                <div className="faint" style={{ fontSize: 12 }}>Geçici şifre otomatik üretilir; kişi onunla girip değiştirir. (Yerleşim kalıcıdır.)</div>
+                {error && <div className="error">{error}</div>}
+                <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+                  <button type="button" className="btn ghost" onClick={() => setShowAdd(false)} disabled={busy}>Vazgeç</button>
+                  <button className="btn" disabled={busy}>{busy ? 'Ekleniyor…' : '＋ Üye ekle'}</button>
+                </div>
+              </form>
+            )}
+          </div>
         </Modal>
       )}
 

@@ -38,6 +38,14 @@ const inviteSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(254).optional(),
 });
 const roleSchema = z.object({ role: z.enum(['tenant_admin', 'tenant_staff', 'member']) });
+const createManualSchema = z.object({
+  fullName: z.string().trim().min(2).max(120),
+  email: z.string().trim().toLowerCase().email().max(254),
+  sponsorReferralCode: z.string().trim().min(3).max(32).optional(),
+  sponsorMembershipId: z.string().uuid().optional(),
+  role: z.enum(['tenant_admin', 'tenant_staff', 'member']).optional(),
+  tempPassword: z.string().min(10).max(128).optional(),
+});
 
 @RequireMembership()
 @Controller('admin/members')
@@ -91,6 +99,14 @@ export class MembersAdminController {
   @Post('invite')
   invite(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(inviteSchema)) body: z.infer<typeof inviteSchema>) {
     return this.members.invite(this.actor(user), user.mid as string, body);
+  }
+
+  // manuel uye olustur (davet beklemeden) → admin+ (audit'li). Statik POST, ':id'den ONCE.
+  @Roles(...ADMIN)
+  @HttpCode(200)
+  @Post()
+  createManual(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(createManualSchema)) body: z.infer<typeof createManualSchema>) {
+    return this.members.createManual(this.actor(user), user.mid as string, { ...body, role: body.role as Role | undefined });
   }
 
   // 360 derece uye detayi (STAFF) — statik GET'lerden SONRA tanimli

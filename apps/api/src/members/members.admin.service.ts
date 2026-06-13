@@ -1,11 +1,14 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { hash } from '@node-rs/argon2';
 import { InviteStatus, LedgerStatus, MembershipStatus, PayoutStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
 import { randomCode } from '../common/crypto';
 import { authConfig } from '../auth/auth.config';
+import { ARGON2_OPTS } from '../auth/auth.service';
 import { AccessTokenPayload } from '../auth/auth.types';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
+import { MembershipsService } from '../memberships/memberships.service';
 import { ActorContext } from '../common/actor';
 
 // Admin'in atayabilecegi roller (owner devri ve platform_admin bu uctan YAPILMAZ)
@@ -19,6 +22,7 @@ export class MembersAdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly memberships: MembershipsService,
   ) {}
 
   /**
@@ -302,6 +306,64 @@ export class MembersAdminService {
       }
     }
     throw new BadRequestException('davet kodu uretilemedi');
+  }
+
+  /**
+   * Manuel uye olusturma (Dalga 2): davet beklemeden, owner bilinen bir kisiyi dogrudan girer.
+   * User + Membership tek transaction'da. Sponsor bossa actor (owner) altina. E-posta zaten varsa
+   * ayni hesaba ikinci uyelik baglanir (registerByInvite mantigiyla). credential='temp_password' ise
+   * gecici sifre uretilir/alinir ve BIR KEZ donulur (admin paylasir); yoksa kullanici mevcut sifresini korur.
+   */
+  async createManual(
+    actor: ActorContext,
+    actorMembershipId: string,
+    input: { fullName: string; email: string; sponsorReferralCode?: string; sponsorMembershipId?: string; role?: Role; tempPassword?: string },
+  ) {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: actor.tenantId } });
+    if (tenant.status !== TenantStatus.active) throw new BadRequestException('isletme aktif degil');
+
+    // sponsor: belirtilmezse actor (owner) altina yerlesir
+    let sponsorId = actorMembershipId;
+    if (input.sponsorMembershipId || input.sponsorReferralCode) {
+      const s = await this.prisma.membership.findFirst({
+        where: { tenantId: actor.tenantId, ...(input.sponsorMembershipId ? { id: input.sponsorMembershipId } : { referralCode: input.sponsorReferralCode }) },
+        select: { id: true, status: true },
+      });
+      if (!s) throw new NotFoundException('sponsor uyeligi bu isletmede bulunamadi');
+      if (s.status !== MembershipStatus.active) throw new BadRequestException('sponsor aktif degil');
+      sponsorId = s.id;
+    }
+    const sponsor = await this.prisma.membership.findUniqueOrThrow({
+      where: { id: sponsorId }, select: { id: true, path: true, depth: true, tenantId: true },
+    });
+
+    const email = input.email.trim().toLowerCase();
+    const role = input.role && ASSIGNABLE_ROLES.includes(input.role) ? input.role : Role.member;
+
+    const out = await this.prisma.$transaction(async (tx) => {
+      let user = await tx.user.findUnique({ where: { email } });
+      let tempPassword: string | null = null;
+      if (!user) {
+        tempPassword = input.tempPassword?.trim() || randomCode(12);
+        user = await tx.user.create({
+          data: { email, fullName: input.fullName.trim(), passwordHash: await hash(tempPassword, ARGON2_OPTS), emailVerifiedAt: new Date() },
+        });
+      } else {
+        const dup = await tx.membership.findFirst({ where: { tenantId: actor.tenantId, userId: user.id }, select: { id: true } });
+        if (dup) throw new ConflictException('bu e-postali kullanici zaten bu isletmede uye');
+      }
+      const membership = await this.memberships.createUnder(tx, { tenantId: actor.tenantId, userId: user.id, sponsor, role });
+      return { membership, tempPassword, newUser: tempPassword !== null };
+    }, { timeout: 15_000 });
+
+    await this.audit(actor, 'membership.create_manual', out.membership.id, { email, sponsorId, role, newUser: out.newUser });
+    return {
+      id: out.membership.id,
+      referralCode: out.membership.referralCode,
+      role: out.membership.role,
+      newUser: out.newUser,
+      ...(out.tempPassword ? { tempPassword: out.tempPassword } : {}),
+    };
   }
 
   async setStatus(actor: ActorContext, membershipId: string, status: MembershipStatus) {

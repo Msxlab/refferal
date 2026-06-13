@@ -33,7 +33,7 @@ import {
 } from './auth.types';
 
 // argon2id parametreleri (OWASP onerisi)
-const ARGON2_OPTS = { memoryCost: 19_456, timeCost: 2, parallelism: 1 };
+export const ARGON2_OPTS = { memoryCost: 19_456, timeCost: 2, parallelism: 1 };
 
 // Kullanici yokken de sifre dogrulamasi kosulur (timing esitligi icin)
 let dummyHashPromise: Promise<string> | null = null;
