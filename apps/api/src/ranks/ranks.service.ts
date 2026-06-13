@@ -1,16 +1,18 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { LedgerStatus } from '@prisma/client';
+import { LedgerStatus, Prisma } from '@prisma/client';
 import { ActorContext } from '../common/actor';
 import { PrismaService } from '../prisma/prisma.service';
 
-interface Tier { name: string; sortOrder: number; minTeam: number; minEarningsCents: number }
+interface Tier { name: string; sortOrder: number; minTeam: number; minEarningsCents: number; overrideBps: number }
 
-// Tenant tier tanimlamadiysa yerlesik varsayilan merdiven.
+type Client = PrismaService | Prisma.TransactionClient;
+
+// Tenant tier tanimlamadiysa yerlesik varsayilan merdiven (override yerlesikte kapali: 0).
 const DEFAULT_TIERS: Tier[] = [
-  { name: 'Bronze', sortOrder: 0, minTeam: 0, minEarningsCents: 0 },
-  { name: 'Silver', sortOrder: 1, minTeam: 3, minEarningsCents: 100_000 }, // $1,000
-  { name: 'Gold', sortOrder: 2, minTeam: 10, minEarningsCents: 1_000_000 }, // $10,000
-  { name: 'Platinum', sortOrder: 3, minTeam: 25, minEarningsCents: 5_000_000 }, // $50,000
+  { name: 'Bronze', sortOrder: 0, minTeam: 0, minEarningsCents: 0, overrideBps: 0 },
+  { name: 'Silver', sortOrder: 1, minTeam: 3, minEarningsCents: 100_000, overrideBps: 0 }, // $1,000
+  { name: 'Gold', sortOrder: 2, minTeam: 10, minEarningsCents: 1_000_000, overrideBps: 0 }, // $10,000
+  { name: 'Platinum', sortOrder: 3, minTeam: 25, minEarningsCents: 5_000_000, overrideBps: 0 }, // $50,000
 ];
 
 @Injectable()
@@ -18,10 +20,42 @@ export class RanksService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Etkin merdiven: tenant ozel tier'lari varsa onlar, yoksa varsayilanlar (sortOrder asc). */
-  async effectiveTiers(tenantId: string): Promise<Tier[]> {
-    const custom = await this.prisma.rankTier.findMany({ where: { tenantId }, orderBy: { sortOrder: 'asc' } });
+  async effectiveTiers(tenantId: string, client: Client = this.prisma): Promise<Tier[]> {
+    const custom = await client.rankTier.findMany({ where: { tenantId }, orderBy: { sortOrder: 'asc' } });
     if (custom.length === 0) return DEFAULT_TIERS;
-    return custom.map((t) => ({ name: t.name, sortOrder: t.sortOrder, minTeam: t.minTeam, minEarningsCents: Number(t.minEarningsCents) }));
+    return custom.map((t) => ({ name: t.name, sortOrder: t.sortOrder, minTeam: t.minTeam, minEarningsCents: Number(t.minEarningsCents), overrideBps: t.overrideBps }));
+  }
+
+  /**
+   * Uyenin ulastigi rutbe tier'i (team + kazanc esiklerini gecen en yuksek tier).
+   * client verilirse ayni transaction'da okur (engine apply akisi icin).
+   */
+  async resolveTier(client: Client, tenantId: string, membershipId: string): Promise<Tier | null> {
+    const me = await client.membership.findFirst({ where: { id: membershipId, tenantId }, select: { path: true } });
+    if (!me) return null;
+    const [teamRows, earnAgg] = await Promise.all([
+      client.$queryRaw<Array<{ c: bigint }>>`
+        SELECT count(*)::bigint AS c FROM memberships
+        WHERE tenant_id = ${tenantId}::uuid AND path::ltree <@ ${me.path}::ltree AND id <> ${membershipId}::uuid`,
+      client.ledgerEntry.aggregate({
+        where: { tenantId, beneficiaryMembershipId: membershipId, status: { in: [LedgerStatus.payable, LedgerStatus.paid] } },
+        _sum: { amountCents: true },
+      }),
+    ]);
+    const teamSize = Number(teamRows[0]?.c ?? 0n);
+    const earnings = Number(earnAgg._sum.amountCents ?? 0n);
+    const tiers = await this.effectiveTiers(tenantId, client);
+    let current: Tier | null = null;
+    for (const t of tiers) {
+      if (teamSize >= t.minTeam && earnings >= t.minEarningsCents) current = t;
+    }
+    return current;
+  }
+
+  /** Uyenin guncel rutbe override bps'i (kendi satislarinda ek bonus orani). 0 = yok. */
+  async overrideBpsFor(client: Client, tenantId: string, membershipId: string): Promise<number> {
+    const tier = await this.resolveTier(client, tenantId, membershipId);
+    return tier?.overrideBps ?? 0;
   }
 
   // ---- admin CRUD ----
@@ -30,17 +64,17 @@ export class RanksService {
     if (custom.length === 0) {
       return { isDefault: true, tiers: DEFAULT_TIERS.map((t) => ({ id: null, ...t, minEarningsCents: t.minEarningsCents.toString() })) };
     }
-    return { isDefault: false, tiers: custom.map((t) => ({ id: t.id, name: t.name, sortOrder: t.sortOrder, minTeam: t.minTeam, minEarningsCents: t.minEarningsCents.toString() })) };
+    return { isDefault: false, tiers: custom.map((t) => ({ id: t.id, name: t.name, sortOrder: t.sortOrder, minTeam: t.minTeam, minEarningsCents: t.minEarningsCents.toString(), overrideBps: t.overrideBps })) };
   }
 
-  async create(actor: ActorContext, input: { name: string; sortOrder: number; minTeam: number; minEarningsCents: number }) {
+  async create(actor: ActorContext, input: { name: string; sortOrder: number; minTeam: number; minEarningsCents: number; overrideBps?: number }) {
     const t = await this.prisma.rankTier.create({
-      data: { tenantId: actor.tenantId, name: input.name, sortOrder: input.sortOrder, minTeam: input.minTeam, minEarningsCents: BigInt(input.minEarningsCents) },
+      data: { tenantId: actor.tenantId, name: input.name, sortOrder: input.sortOrder, minTeam: input.minTeam, minEarningsCents: BigInt(input.minEarningsCents), overrideBps: input.overrideBps ?? 0 },
     });
     return { id: t.id };
   }
 
-  async update(actor: ActorContext, id: string, input: { name?: string; sortOrder?: number; minTeam?: number; minEarningsCents?: number }) {
+  async update(actor: ActorContext, id: string, input: { name?: string; sortOrder?: number; minTeam?: number; minEarningsCents?: number; overrideBps?: number }) {
     const t = await this.prisma.rankTier.findFirst({ where: { id, tenantId: actor.tenantId } });
     if (!t) throw new NotFoundException('rutbe bulunamadi');
     await this.prisma.rankTier.update({
@@ -48,6 +82,7 @@ export class RanksService {
       data: {
         name: input.name, sortOrder: input.sortOrder, minTeam: input.minTeam,
         minEarningsCents: input.minEarningsCents === undefined ? undefined : BigInt(input.minEarningsCents),
+        overrideBps: input.overrideBps,
       },
     });
     return { id };
@@ -101,6 +136,7 @@ export class RanksService {
     return {
       current: current?.name ?? null,
       next: next?.name ?? null,
+      overrideBps: current?.overrideBps ?? 0, // bu rutbede kendi satislarinda ek bonus orani
       teamSize,
       earningsCents: String(earnings),
       progress,

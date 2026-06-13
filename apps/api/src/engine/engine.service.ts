@@ -12,6 +12,7 @@ import {
 } from '@prisma/client';
 import { computeCommissionLines, PlanLevelRate } from '@refearn/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { RanksService } from '../ranks/ranks.service';
 import { monthKey } from './month';
 
 type Tx = Prisma.TransactionClient;
@@ -85,7 +86,10 @@ async function withTxRetry<T>(fn: () => Promise<T>): Promise<T> {
  */
 @Injectable()
 export class EngineService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ranks: RanksService,
+  ) {}
 
   /** Tum motor mutasyonlari icin ortak sarmalayici: tek transaction + deadlock retry. */
   private tx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
@@ -530,6 +534,25 @@ export class EngineService {
       // matching: saticinin level-0 komisyonunun matchingBps'i (sponsor eslestirme)
       if (plan.matchingBps > 0 && lines.length > 0) {
         await addBonus(1001, plan.matchingBps, (lines[0].amountCents * BigInt(plan.matchingBps)) / 10000n, 'commission_earned');
+      }
+    }
+
+    // ---- rutbe override (sentetik seviye 1002): satici, ulastigi rutbenin overrideBps'i
+    // kadar KENDI satisinda ek bonus alir. Rutbe = team + kazanc esikleri (RanksService). ----
+    const overrideBps = await this.ranks.overrideBpsFor(tx, sale.tenantId, sale.sellerMembershipId);
+    if (overrideBps > 0) {
+      const overrideAmount = (sale.amountCents * BigInt(overrideBps)) / 10000n;
+      if (overrideAmount > 0n) {
+        const seller = sale.sellerMembershipId;
+        await tx.ledgerEntry.create({
+          data: { tenantId: sale.tenantId, saleId: sale.id, beneficiaryMembershipId: seller, level: 1002, rateBpsUsed: overrideBps, amountCents: overrideAmount, type: LedgerType.commission, status, maturesAt },
+        });
+        const delta: SummaryDelta = status === LedgerStatus.payable ? { payable: overrideAmount } : { pending: overrideAmount };
+        await this.bumpSummary(tx, sale.tenantId, seller, month, 1002, delta);
+        await tx.notification.create({
+          data: { tenantId: sale.tenantId, recipientMembershipId: seller, channel: NotificationChannel.push, template: 'rank_override_earned', payload: { saleId: sale.id, amountCents: overrideAmount.toString(), overrideBps } },
+        });
+        bonusCount++;
       }
     }
 

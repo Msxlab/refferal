@@ -1,5 +1,6 @@
 import { LedgerStatus, MaturationRule } from '@prisma/client';
 import { EngineService } from '../src/engine/engine.service';
+import { RanksService } from '../src/ranks/ranks.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createChain, createPlan, createSale, createTenant, truncateAll } from './helpers';
 
@@ -11,7 +12,7 @@ describe('iade penceresi (days_after_delivery)', () => {
   beforeAll(async () => {
     prisma = new PrismaService();
     await prisma.$connect();
-    engine = new EngineService(prisma);
+    engine = new EngineService(prisma, new RanksService(prisma));
   });
   afterAll(async () => { await prisma.$disconnect(); });
   beforeEach(async () => { await truncateAll(prisma); });

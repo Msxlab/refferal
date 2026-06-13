@@ -1,5 +1,6 @@
 import { LedgerStatus, LedgerType } from '@prisma/client';
 import { EngineService } from '../src/engine/engine.service';
+import { RanksService } from '../src/ranks/ranks.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createChain, createPlan, createSale, createTenant, netLedger, truncateAll } from './helpers';
 
@@ -8,7 +9,7 @@ describe('plan bonus layers (entegrasyon)', () => {
   let prisma: PrismaService;
   let engine: EngineService;
 
-  beforeAll(async () => { prisma = new PrismaService(); await prisma.$connect(); engine = new EngineService(prisma); });
+  beforeAll(async () => { prisma = new PrismaService(); await prisma.$connect(); engine = new EngineService(prisma, new RanksService(prisma)); });
   afterAll(async () => { await prisma.$disconnect(); });
   beforeEach(async () => { await truncateAll(prisma); });
 

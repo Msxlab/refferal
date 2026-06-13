@@ -13,6 +13,7 @@ const tierSchema = z.object({
   sortOrder: z.number().int().min(0).max(100),
   minTeam: z.number().int().min(0).max(1_000_000),
   minEarningsCents: z.number().int().min(0),
+  overrideBps: z.number().int().min(0).max(10_000).optional(),
 });
 const tierUpdateSchema = tierSchema.partial();
 

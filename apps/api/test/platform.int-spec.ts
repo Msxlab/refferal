@@ -7,6 +7,7 @@ import { AppModule } from '../src/app.module';
 import { authConfig } from '../src/auth/auth.config';
 import { AccessTokenPayload } from '../src/auth/auth.types';
 import { EngineService } from '../src/engine/engine.service';
+import { RanksService } from '../src/ranks/ranks.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createChain, createPlan, createSale, createTenant, truncateAll } from './helpers';
 
@@ -38,7 +39,7 @@ describe('platform companies (entegrasyon)', () => {
     await createPlan(prisma, tenant.id);
     const chain = await createChain(prisma, tenant.id, 4);
     await prisma.membership.update({ where: { id: chain[0].id }, data: { role: Role.tenant_owner } });
-    const engine = new EngineService(prisma);
+    const engine = new EngineService(prisma, new RanksService(prisma));
     const sale = await createSale(prisma, tenant.id, chain[3].id, 10_000_000n);
     await engine.approveSale(sale.id);
 

@@ -1,5 +1,6 @@
 import { Role } from '@prisma/client';
 import { EngineService } from '../src/engine/engine.service';
+import { RanksService } from '../src/ranks/ranks.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { ReportsService } from '../src/reports/reports.service';
 import { createChain, createPlan, createSale, createTenant, truncateAll } from './helpers';
@@ -10,7 +11,7 @@ describe('financial invariants (entegrasyon)', () => {
   let engine: EngineService;
   let reports: ReportsService;
 
-  beforeAll(async () => { prisma = new PrismaService(); await prisma.$connect(); engine = new EngineService(prisma); reports = new ReportsService(prisma); });
+  beforeAll(async () => { prisma = new PrismaService(); await prisma.$connect(); engine = new EngineService(prisma, new RanksService(prisma)); reports = new ReportsService(prisma); });
   afterAll(async () => { await prisma.$disconnect(); });
   beforeEach(async () => { await truncateAll(prisma); });
 

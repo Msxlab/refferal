@@ -37,7 +37,7 @@ export default function MemberDashboard() {
   const [campaigns, setCampaigns] = useState<MyCampaign[]>([]);
   const [rankInfo, setRankInfo] = useState<{ rank: number | null; total: number; topPercent: number | null } | null>(null);
   const [onboarding, setOnboarding] = useState<{ steps: { key: string; label: string; done: boolean }[]; percent: number } | null>(null);
-  const [rank, setRank] = useState<{ current: string | null; next: string | null; overallPct: number; badges: { key: string; label: string; earned: boolean }[] } | null>(null);
+  const [rank, setRank] = useState<{ current: string | null; next: string | null; overallPct: number; overrideBps?: number; badges: { key: string; label: string; earned: boolean }[] } | null>(null);
   const [announcements, setAnnouncements] = useState<{ id: string; title: string; body: string; createdAt: string; read: boolean }[]>([]);
   const [npsPrompt, setNpsPrompt] = useState(false);
   const [npsScore, setNpsScore] = useState<number | null>(null);
@@ -52,7 +52,7 @@ export default function MemberDashboard() {
     api.get<{ rank: number | null; total: number; topPercent: number | null }>('/app/leaderboard').then(setRankInfo).catch(() => { /* opsiyonel */ });
     api.get<{ shouldPrompt: boolean }>('/app/survey').then((s) => setNpsPrompt(s.shouldPrompt)).catch(() => { /* opsiyonel */ });
     api.get<{ steps: { key: string; label: string; done: boolean }[]; percent: number }>('/app/onboarding').then(setOnboarding).catch(() => { /* opsiyonel */ });
-    api.get<{ current: string | null; next: string | null; overallPct: number; badges: { key: string; label: string; earned: boolean }[] }>('/app/rank').then(setRank).catch(() => { /* opsiyonel */ });
+    api.get<{ current: string | null; next: string | null; overallPct: number; overrideBps?: number; badges: { key: string; label: string; earned: boolean }[] }>('/app/rank').then(setRank).catch(() => { /* opsiyonel */ });
     api.get<{ id: string; title: string; body: string; createdAt: string; read: boolean }[]>('/app/announcements').then(setAnnouncements).catch(() => { /* opsiyonel */ });
   }, []);
 
@@ -184,7 +184,7 @@ export default function MemberDashboard() {
       {rank && (rank.current || rank.badges.some((b) => b.earned)) && (
         <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
           <div className="spread" style={{ marginBottom: 10 }}>
-            <strong style={{ fontSize: 14 }}>🏅 {rank.current ?? 'Unranked'}{rank.next && <span className="faint" style={{ fontWeight: 400 }}> → {rank.next}</span>}</strong>
+            <strong style={{ fontSize: 14 }}>🏅 {rank.current ?? 'Unranked'}{rank.next && <span className="faint" style={{ fontWeight: 400 }}> → {rank.next}</span>}{rank.overrideBps ? <span className="badge active" style={{ fontSize: 10, marginLeft: 8 }}>+{(rank.overrideBps / 100).toFixed(rank.overrideBps % 100 ? 1 : 0)}% on your sales</span> : null}</strong>
             {rank.next && <span className="faint" style={{ fontSize: 12 }}>{rank.overallPct}% to {rank.next}</span>}
           </div>
           {rank.next && (

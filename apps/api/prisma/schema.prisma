@@ -730,6 +730,9 @@ model RankTier {
   sortOrder       Int      @map("sort_order")
   minTeam         Int      @default(0) @map("min_team")
   minEarningsCents BigInt  @default(0) @map("min_earnings_cents")
+  // Rutbe override: bu rutbeye ulasan uye KENDI satislarinda bu bps kadar ek bonus kazanir
+  // (sentetik seviye 1002, type=commission). Rutbe sistemi boylece gercek para surer.
+  overrideBps     Int      @default(0) @map("override_bps")
   createdAt       DateTime @default(now()) @map("created_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
