@@ -15,12 +15,18 @@ interface PayableList { payoutMinCents: string; currency: string; members: Payab
 interface PayoutItem { id: string; membershipId: string; referralCode: string; fullName: string; totalCents: string; method: string; status: string; period: string; paidAt: string | null; ref: string | null }
 interface PayoutListResp { total: number; page: number; pageSize: number; items: PayoutItem[] }
 interface RunResult { paidCount: number; skippedCount: number; paid: { totalCents: string }[] }
+interface KycProfile {
+  membershipId: string; fullName: string; referralCode: string; email: string;
+  legalName: string; taxIdType: string; taxIdLast4: string; bankName: string | null;
+  routingNumber: string; accountType: string; accountLast4: string; lastChangedAt: string;
+}
 
 const HISTORY_STATUS = ['', 'requested', 'processing', 'paid', 'failed'] as const;
 
 export default function PayoutsPage() {
   const [payable, setPayable] = useState<PayableList | null>(null);
   const [requests, setRequests] = useState<PayoutItem[] | null>(null);
+  const [kyc, setKyc] = useState<KycProfile[]>([]);
   const [history, setHistory] = useState<PayoutListResp | null>(null);
   const [error, setError] = useState('');
   const [toast, showToast] = useToast();
@@ -44,13 +50,26 @@ export default function PayoutsPage() {
 
   const loadCore = useCallback(async () => {
     try {
-      const [p, r] = await Promise.all([
+      const [p, r, k] = await Promise.all([
         api.get<PayableList>('/admin/payouts/payable'),
         api.get<PayoutListResp>('/admin/payouts?status=requested&pageSize=100'),
+        api.get<KycProfile[]>('/admin/payout-profiles?status=pending_review'),
       ]);
-      setPayable(p); setRequests(r.items); setSelected(new Set());
+      setPayable(p); setRequests(r.items); setKyc(k); setSelected(new Set());
     } catch (e) { setError(String((e as ApiError).message)); }
   }, []);
+
+  async function decideKyc(membershipId: string, action: 'verify' | 'reject') {
+    let reason: string | undefined;
+    if (action === 'reject') {
+      reason = window.prompt('Reason for rejection (optional):') ?? undefined;
+    }
+    try {
+      await api.post(`/admin/payout-profiles/${membershipId}/decide`, { action, ...(reason ? { reason } : {}) });
+      showToast(action === 'verify' ? 'Payout profile verified ✓' : 'Payout profile rejected');
+      await loadCore();
+    } catch (e) { setError(String((e as ApiError).message)); }
+  }
 
   const loadHistory = useCallback(async () => {
     try { setHistory(await api.get<PayoutListResp>(`/admin/payouts?${historyQuery}`)); }
@@ -140,6 +159,34 @@ export default function PayoutsPage() {
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
                       <button className="btn success sm" onClick={() => { setDecideRef(''); setDecide({ p: r, action: 'approve' }); }}>Approve</button>
                       <button className="btn danger sm" onClick={() => { setDecideRef(''); setDecide({ p: r, action: 'reject' }); }}>Reject</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ---- KYC inceleme kuyrugu ---- */}
+      {kyc.length > 0 && (
+        <div className="card fade-in delay-1" style={{ marginBottom: 16, borderColor: 'var(--sky)' }}>
+          <div className="spread" style={{ marginBottom: 12 }}>
+            <strong>Payout profiles to review <span className="badge payable" style={{ marginLeft: 6 }}>{kyc.length}</span></strong>
+          </div>
+          <table>
+            <thead><tr><th>Member</th><th>Legal name</th><th>Tax ID</th><th>Bank</th><th className="no-print" style={{ textAlign: 'right' }}>Decision</th></tr></thead>
+            <tbody>
+              {kyc.map((k) => (
+                <tr key={k.membershipId}>
+                  <td>{k.fullName}<div className="faint" style={{ fontSize: 12 }}>{k.referralCode}</div></td>
+                  <td>{k.legalName}</td>
+                  <td className="tnum">{k.taxIdType.toUpperCase()} ••••{k.taxIdLast4}</td>
+                  <td className="faint" style={{ fontSize: 12 }}>{k.bankName ? `${k.bankName} · ` : ''}{k.accountType} ••••{k.accountLast4} · {k.routingNumber}</td>
+                  <td className="no-print" style={{ textAlign: 'right' }}>
+                    <div className="row" style={{ justifyContent: 'flex-end' }}>
+                      <button className="btn success sm" onClick={() => decideKyc(k.membershipId, 'verify')}>Verify</button>
+                      <button className="btn danger sm" onClick={() => decideKyc(k.membershipId, 'reject')}>Reject</button>
                     </div>
                   </td>
                 </tr>

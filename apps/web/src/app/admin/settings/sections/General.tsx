@@ -16,6 +16,7 @@ interface Settings {
   compressionEnabled: boolean;
   inactiveMembersEarn: boolean;
   requireSeparateApprover: boolean;
+  requireKycForPayout: boolean;
 }
 
 const MATURATION = [
@@ -55,6 +56,7 @@ export default function General() {
         compressionEnabled: s.compressionEnabled,
         inactiveMembersEarn: s.inactiveMembersEarn,
         requireSeparateApprover: s.requireSeparateApprover,
+        requireKycForPayout: s.requireKycForPayout,
       });
       setS(res);
       showToast('Settings saved ✓');
@@ -106,6 +108,7 @@ export default function General() {
       <div className="card">
         <strong style={{ fontSize: 14 }}>Policy & privacy</strong>
         <div style={{ marginTop: 4 }}>
+          <Toggle label="Require a verified payout profile (KYC) before paying members" checked={s.requireKycForPayout} onChange={(v) => setS({ ...s, requireKycForPayout: v })} />
           <Toggle label="Separation of duties — the seller can't approve their own sale (maker-checker)" checked={s.requireSeparateApprover} onChange={(v) => setS({ ...s, requireSeparateApprover: v })} />
           <Toggle label="Show member name in join notifications" checked={s.notifyNewMemberName} onChange={(v) => setS({ ...s, notifyNewMemberName: v })} />
           <Toggle label="Inactive members keep earning commissions" checked={s.inactiveMembersEarn} onChange={(v) => setS({ ...s, inactiveMembersEarn: v })} />

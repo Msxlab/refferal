@@ -75,6 +75,23 @@ enum CampaignStatus {
   ended
 }
 
+enum PayoutProfileStatus {
+  unverified
+  pending_review
+  verified
+  rejected
+}
+
+enum TaxIdType {
+  ssn // bireysel (W-9)
+  ein // isletme
+}
+
+enum BankAccountType {
+  checking
+  savings
+}
+
 enum LedgerStatus {
   pending
   payable
@@ -122,6 +139,8 @@ model Tenant {
   // Gorevler ayrimi (maker-checker): satisi giren onaylayamaz. Varsayilan kapali
   // (tek-admin tenant'lari kirmasin); kapali iken self-onay audit'te isaretlenir.
   requireSeparateApprover Boolean    @default(false) @map("require_separate_approver")
+  // KYC kapisi: acikken payout yalniz 'verified' odeme profili + soguma suresi gecmisse acilir.
+  requireKycForPayout Boolean        @default(false) @map("require_kyc_for_payout")
   branding            Json           @default("{}")
   status              TenantStatus   @default(active)
   createdAt           DateTime       @default(now()) @map("created_at")
@@ -138,6 +157,7 @@ model Tenant {
   roles       TenantRole[]
   campaigns   Campaign[]
   savedViews  SavedView[]
+  payoutProfiles PayoutProfile[]
 
   @@map("tenants")
 }
@@ -268,6 +288,7 @@ model Membership {
   summaries   MonthlySummary[]
   teamStats   TeamStat[]
   payouts     Payout[]
+  payoutProfile PayoutProfile?
 
   @@unique([tenantId, userId])
   @@unique([tenantId, referralCode])
@@ -550,4 +571,35 @@ model SavedView {
 
   @@index([tenantId, target])
   @@map("saved_views")
+}
+
+// KYC / odeme profili (ABD). GIZLILIK: tam SSN/hesap no SAKLANMAZ — yalniz son-4 + routing
+// (public banka kimligi) + durum makinesi tutulur. Tam veri Dalga 3'te odeme saglayici
+// (Stripe Connect) kasasinda olacak. Payout yalniz 'verified' + soguma suresi gecmis profille acilir.
+model PayoutProfile {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String              @map("tenant_id") @db.Uuid
+  membershipId     String              @unique @map("membership_id") @db.Uuid
+  legalName        String              @map("legal_name")
+  country          String              @default("US")
+  taxIdType        TaxIdType           @map("tax_id_type")
+  taxIdLast4       String              @map("tax_id_last4")
+  bankName         String?             @map("bank_name")
+  routingNumber    String              @map("routing_number")
+  accountType      BankAccountType     @map("account_type")
+  accountLast4     String              @map("account_last4")
+  status           PayoutProfileStatus @default(pending_review)
+  rejectionReason  String?             @map("rejection_reason")
+  // banka/kimlik degisikligi zamani — soguma suresi (anti-account-takeover) buradan olcuelur
+  lastChangedAt    DateTime            @map("last_changed_at")
+  reviewedByUserId String?             @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt       DateTime?           @map("reviewed_at")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@map("payout_profiles")
 }

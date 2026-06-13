@@ -12,6 +12,7 @@ export interface UpdateSettingsInput {
   compressionEnabled?: boolean;
   inactiveMembersEarn?: boolean;
   requireSeparateApprover?: boolean;
+  requireKycForPayout?: boolean;
   branding?: Prisma.InputJsonValue;
 }
 
@@ -33,6 +34,7 @@ export class SettingsService {
       compressionEnabled: t.compressionEnabled,
       inactiveMembersEarn: t.inactiveMembersEarn,
       requireSeparateApprover: t.requireSeparateApprover,
+      requireKycForPayout: t.requireKycForPayout,
       branding: t.branding,
     };
   }
@@ -51,6 +53,7 @@ export class SettingsService {
         compressionEnabled: input.compressionEnabled,
         inactiveMembersEarn: input.inactiveMembersEarn,
         requireSeparateApprover: input.requireSeparateApprover,
+        requireKycForPayout: input.requireKycForPayout,
         // kismi guncelleme tum kolonu ezmesin: mevcut branding ile birlestir
         branding:
           input.branding === undefined

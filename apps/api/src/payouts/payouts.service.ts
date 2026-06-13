@@ -4,6 +4,7 @@ import { EngineService } from '../engine/engine.service';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActorContext } from '../common/actor';
+import { kycPayoutBlock } from '../kyc/kyc.types';
 
 type Tx = Prisma.TransactionClient;
 
@@ -99,7 +100,27 @@ export class PayoutsService {
     const paid: Array<{ membershipId: string; payoutId: string; totalCents: string }> = [];
     const skipped: Array<{ membershipId: string; reason: string; netCents: string }> = [];
 
+    // KYC kapisi acikken: verified + soguma gecmis olmayan profiller atlanir (audit'siz, run sonucunda gorunur)
+    const tenantCfg = await this.prisma.tenant.findUniqueOrThrow({ where: { id: actor.tenantId } });
+    const kycBlock = new Map<string, string>();
+    if (tenantCfg.requireKycForPayout) {
+      const profiles = await this.prisma.payoutProfile.findMany({
+        where: { tenantId: actor.tenantId, membershipId: { in: targets } },
+        select: { membershipId: true, status: true, lastChangedAt: true },
+      });
+      const byMember = new Map(profiles.map((p) => [p.membershipId, p]));
+      for (const id of targets) {
+        const block = kycPayoutBlock(byMember.get(id) ?? null);
+        if (block) kycBlock.set(id, block);
+      }
+    }
+
     for (const membershipId of targets) {
+      const block = kycBlock.get(membershipId);
+      if (block) {
+        skipped.push({ membershipId, reason: block, netCents: '0' });
+        continue;
+      }
       const result = await this.engine.payoutMember({
         tenantId: actor.tenantId,
         membershipId,
@@ -380,6 +401,16 @@ export class PayoutsService {
     }
 
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+
+    // KYC kapisi: acikken yalniz verified + soguma gecmis profille talep acilir
+    if (tenant.requireKycForPayout) {
+      const profile = await this.prisma.payoutProfile.findUnique({
+        where: { membershipId },
+        select: { status: true, lastChangedAt: true },
+      });
+      const block = kycPayoutBlock(profile);
+      if (block) throw new BadRequestException(block);
+    }
     const agg = await this.prisma.ledgerEntry.aggregate({
       where: { tenantId, beneficiaryMembershipId: membershipId, status: LedgerStatus.payable },
       _sum: { amountCents: true },
