@@ -2,6 +2,9 @@ import { clearSession, getSession, setSession, type Session } from './auth';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1';
 
+/** SSE/EventSource gibi fetch disi tuketiciler icin API kok adresi. */
+export const API_BASE = BASE;
+
 export class ApiError extends Error {
   constructor(
     public status: number,

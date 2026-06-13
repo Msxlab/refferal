@@ -244,6 +244,15 @@ tr:last-child td { border-bottom: none; }
 .badge.payable { color: var(--sky); background: color-mix(in srgb, var(--sky) 14%, transparent); }
 .badge.pending, .badge.requested, .badge.processing { color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); }
 
+/* canli SSE gostergesi */
+.live { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.live-dot.on { background: var(--emerald); box-shadow: 0 0 0 0 color-mix(in srgb, var(--emerald) 60%, transparent); animation: live-pulse 2s ease-out infinite; }
+.live-dot.off { background: var(--rose); opacity: 0.6; }
+.live-msg { color: var(--emerald); font-weight: 700; white-space: nowrap; animation: live-fade 0.3s ease; }
+@keyframes live-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--emerald) 55%, transparent); } 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+@keyframes live-fade { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
+
 /* ---------------------------------------------------------------- helpers */
 .muted { color: var(--muted); }
 .faint { color: var(--faint); }

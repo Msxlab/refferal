@@ -7,6 +7,7 @@ import { activeMembership, clearSession, getSession, isAdminRole, type Session }
 import { ThemeToggle } from '@/components/ui';
 import { NotificationBell } from '@/components/NotificationBell';
 import { CommandPalette } from '@/components/CommandPalette';
+import { LiveIndicator } from '@/components/LiveIndicator';
 import { t } from '@/lib/i18n';
 
 const NAV: Array<{ href: string; key: Parameters<typeof t>[0]; ic: string; adminOnly?: boolean }> = [
@@ -61,6 +62,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <div className="row spread">
             <span className="badge active" style={{ fontSize: 10 }}>{active?.role}</span>
             <div className="row" style={{ gap: 6 }}>
+              <LiveIndicator />
               <NotificationBell placement="up" />
               <ThemeToggle />
               <button className="btn ghost sm" onClick={logout}>{t('nav.logout')}</button>

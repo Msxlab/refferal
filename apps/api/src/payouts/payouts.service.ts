@@ -7,6 +7,7 @@ import { ActorContext } from '../common/actor';
 import { kycPayoutBlock } from '../kyc/kyc.types';
 import { fraudPayoutBlock } from '../fraud/fraud.types';
 import { WebhooksService } from '../webhooks/webhooks.service';
+import { EventsService } from '../events/events.service';
 import { decryptSecret } from '../common/crypto';
 import { achConfigFromEnv, AchEntry, buildNachaFile } from './nacha';
 
@@ -39,6 +40,7 @@ export class PayoutsService {
     private readonly prisma: PrismaService,
     private readonly engine: EngineService,
     private readonly webhooks: WebhooksService,
+    private readonly events: EventsService,
   ) {}
 
   private async currentPeriod(tenantId: string): Promise<string> {
@@ -167,6 +169,10 @@ export class PayoutsService {
     // giden webhook: odenen her uye icin 'payout.paid' (best-effort, teslimat worker'i gonderir)
     for (const p of paid) {
       await this.webhooks.emit(actor.tenantId, 'payout.paid', { membershipId: p.membershipId, payoutId: p.payoutId, totalCents: p.totalCents, period }).catch(() => undefined);
+    }
+    // canli SSE: panel toplam odemeyi aninda gostersin
+    if (paid.length) {
+      this.events.publish(actor.tenantId, 'payout.paid', { count: paid.length, period });
     }
 
     return { period, method, paidCount: paid.length, skippedCount: skipped.length, paid, skipped };

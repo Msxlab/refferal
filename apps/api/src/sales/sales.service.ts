@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { MembershipStatus, Prisma, SaleStatus } from '@prisma/client';
 import { ActorContext } from '../common/actor';
 import { EngineService } from '../engine/engine.service';
+import { EventsService } from '../events/events.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { parseCsv } from './csv';
 import {
@@ -18,6 +19,7 @@ export class SalesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly engine: EngineService,
+    private readonly events: EventsService,
   ) {}
 
   /** Satici uyeligini tenant icinde cozer (id veya referral kod). */
@@ -183,7 +185,10 @@ export class SalesService {
   /** Tenant'a ait oldugunu dogrula, sonra motoru tetikle (idempotent). */
   async approve(actor: ActorContext, saleId: string) {
     await this.assertInTenant(actor.tenantId, saleId);
-    return this.engine.approveSale(saleId, actor.userId);
+    const result = await this.engine.approveSale(saleId, actor.userId);
+    // canli SSE: onaylanan satis tum panellere aninda yansisin
+    this.events.publish(actor.tenantId, 'sale.approved', { saleId });
+    return result;
   }
 
   async void(actor: ActorContext, saleId: string) {
@@ -420,6 +425,8 @@ export class SalesService {
       },
     });
     await this.audit(actor, 'sale.self_create', sale.id, { amountCents: sale.amountCents.toString() });
+    // canli SSE: admin onay kuyrugu yeni satisi aninda gorsun
+    this.events.publish(actor.tenantId, 'sale.created', { saleId: sale.id, sellerMembershipId: seller.id });
     return this.serialize(sale);
   }
 

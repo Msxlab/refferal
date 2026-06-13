@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Donut, Loading, MoneyCounter, StatCard } from '@/components/ui';
 import { TrendChart } from '@/components/TrendChart';
+import { useLiveRefresh } from '@/components/LiveIndicator';
 import { bps, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -43,9 +44,13 @@ export default function DashboardPage() {
     catch (e) { setError(String((e as ApiError).message)); } finally { setFinBusy(false); }
   }
 
-  useEffect(() => {
+  const loadDashboard = useCallback(() => {
     api.get<Dashboard>('/admin/dashboard').then(setData).catch((e) => setError(String((e as ApiError).message)));
   }, []);
+  useEffect(() => { loadDashboard(); }, [loadDashboard]);
+
+  // canli: satis onayi/odeme oldukca ozet kartlari kendiliginden gunceller
+  useLiveRefresh(loadDashboard);
 
   useEffect(() => {
     setAnalytics(null);

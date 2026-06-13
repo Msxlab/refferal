@@ -7,6 +7,7 @@ import { ColumnsMenu, Confirm, Loading, Modal, Pagination, SortableTh, SortDir, 
 import { Drawer } from '@/components/Drawer';
 import { Popover } from '@/components/Popover';
 import { ImportWizard } from '@/components/ImportWizard';
+import { useLiveRefresh } from '@/components/LiveIndicator';
 import { PrintSheet, PrintHeader, PrintSignatures } from '@/components/PrintSheet';
 import { activeMembership, getSession } from '@/lib/auth';
 import { dateShort, money } from '@/lib/format';
@@ -133,6 +134,9 @@ export default function SalesPage() {
     const id = setTimeout(() => void load(), 250);
     return () => clearTimeout(id);
   }, [load]);
+
+  // canli: baska bir uye/admin satis girdiginde/onayladiginda liste kendiliginden tazelenir
+  useLiveRefresh(() => void load(), ['sale.created', 'sale.approved']);
 
   // filtre degisince ilk sayfaya don
   function patchFilters(f: Filters) { setFilters(f); setPage(1); }
