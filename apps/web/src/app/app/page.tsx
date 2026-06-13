@@ -36,6 +36,10 @@ export default function MemberDashboard() {
   const [earnings, setEarnings] = useState<Earnings | null>(null);
   const [campaigns, setCampaigns] = useState<MyCampaign[]>([]);
   const [rankInfo, setRankInfo] = useState<{ rank: number | null; total: number; topPercent: number | null } | null>(null);
+  const [npsPrompt, setNpsPrompt] = useState(false);
+  const [npsScore, setNpsScore] = useState<number | null>(null);
+  const [npsComment, setNpsComment] = useState('');
+  const [npsDone, setNpsDone] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -43,7 +47,14 @@ export default function MemberDashboard() {
     api.get<Earnings>('/app/earnings?months=6').then(setEarnings).catch(() => { /* grafik opsiyonel */ });
     api.get<MyCampaign[]>('/app/campaigns').then(setCampaigns).catch(() => { /* opsiyonel */ });
     api.get<{ rank: number | null; total: number; topPercent: number | null }>('/app/leaderboard').then(setRankInfo).catch(() => { /* opsiyonel */ });
+    api.get<{ shouldPrompt: boolean }>('/app/survey').then((s) => setNpsPrompt(s.shouldPrompt)).catch(() => { /* opsiyonel */ });
   }, []);
+
+  async function submitNps() {
+    if (npsScore == null) return;
+    try { await api.post('/app/survey', { score: npsScore, ...(npsComment.trim() ? { comment: npsComment.trim() } : {}) }); setNpsDone(true); }
+    catch { /* sessiz */ }
+  }
 
   if (error) return <div className="error">{error}</div>;
   if (!data) return <Loading />;
@@ -71,6 +82,25 @@ export default function MemberDashboard() {
       <div className="eyebrow fade-in">{t('anav.home')} · {data.month}</div>
       <h1 className="h1 fade-in">{t('me.title')}</h1>
       <p className="sub fade-in">{t('me.sub')}</p>
+
+      {npsPrompt && !npsDone && (
+        <div className="card fade-in" style={{ marginBottom: 16, borderColor: 'color-mix(in srgb, var(--sky) 30%, transparent)' }}>
+          <div className="spread" style={{ marginBottom: 10 }}>
+            <strong style={{ fontSize: 14 }}>How likely are you to recommend us? (0–10)</strong>
+            <button className="faint" onClick={() => setNpsPrompt(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13 }}>✕</button>
+          </div>
+          <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
+            {Array.from({ length: 11 }).map((_, n) => (
+              <button key={n} onClick={() => setNpsScore(n)} className={`btn sm ${npsScore === n ? '' : 'ghost'}`} style={{ minWidth: 34, padding: '6px 0' }}>{n}</button>
+            ))}
+          </div>
+          <input value={npsComment} onChange={(e) => setNpsComment(e.target.value)} placeholder="Any feedback? (optional)" style={{ marginTop: 10 }} />
+          <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
+            <button className="btn" disabled={npsScore == null} onClick={submitNps}>Submit</button>
+          </div>
+        </div>
+      )}
+      {npsDone && <div className="card fade-in" style={{ marginBottom: 16 }}><span className="muted">Thanks for your feedback! 🙏</span></div>}
 
       {/* hero + donut */}
       <div className="grid fade-in delay-1" style={{ gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', alignItems: 'stretch' }}>

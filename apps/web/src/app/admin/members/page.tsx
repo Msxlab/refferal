@@ -56,6 +56,8 @@ export default function MembersPage() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const cols = useTablePrefs('members', MEMBER_COLUMNS);
   const colCount = 1 + MEMBER_COLUMNS.filter((c) => cols.isVisible(c.key)).length + 1;
+  const [nps, setNps] = useState<{ nps: number | null; total: number } | null>(null);
+  useEffect(() => { api.get<{ nps: number | null; total: number }>('/admin/surveys').then(setNps).catch(() => {}); }, []);
 
   const filterQuery = useMemo(() => {
     const p = new URLSearchParams();
@@ -151,7 +153,9 @@ export default function MembersPage() {
         <div>
           <div className="eyebrow fade-in">{t('nav.members')}</div>
           <h1 className="h1 fade-in">Member Management</h1>
-          <p className="sub fade-in">Invite members, assign roles, deactivate. Placement is permanent.</p>
+          <p className="sub fade-in">Invite members, assign roles, deactivate. Placement is permanent.
+            {nps && nps.total > 0 && nps.nps != null && <span className="badge active" style={{ marginLeft: 8 }}>NPS {nps.nps} · {nps.total} responses</span>}
+          </p>
         </div>
         <div className="row fade-in no-print" style={{ gap: 8 }}>
           <button className="btn ghost" onClick={exportCsv}>⇩ Export CSV</button>

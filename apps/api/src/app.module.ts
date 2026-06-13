@@ -22,6 +22,7 @@ import { SearchModule } from './search/search.module';
 import { SalesModule } from './sales/sales.module';
 import { SettingsModule } from './settings/settings.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
+import { SurveyModule } from './survey/survey.module';
 import { ViewsModule } from './views/views.module';
 import { WalletModule } from './wallet/wallet.module';
 
@@ -60,6 +61,7 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
     KycModule,
     FraudModule,
     SearchModule,
+    SurveyModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
