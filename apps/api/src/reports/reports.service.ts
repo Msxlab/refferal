@@ -1,11 +1,75 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { LedgerType, MembershipStatus, PayoutStatus, Prisma, SaleStatus } from '@prisma/client';
+import { sha256 } from '../common/crypto';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class ReportsService {
+  private readonly logger = new Logger(ReportsService.name);
   constructor(private readonly prisma: PrismaService) {}
+
+  // ---------------------------------------------------- audit hash-zinciri (#12)
+
+  /** Hash'lenecek kanonik icerik (sabit alan sirasi; hash/prevHash haric). */
+  private auditContent(a: {
+    id: string; action: string; entity: string; entityId: string | null; actorUserId: string | null;
+    before: unknown; after: unknown; ip: string | null; createdAt: Date;
+  }): string {
+    return JSON.stringify({
+      id: a.id, action: a.action, entity: a.entity, entityId: a.entityId, actorUserId: a.actorUserId,
+      before: a.before ?? null, after: a.after ?? null, ip: a.ip ?? null, createdAt: a.createdAt.toISOString(),
+    });
+  }
+
+  /** Henuz hash'lenmemis kayitlari createdAt sirasiyla zincire ekle (idempotent). */
+  async sealAuditChain(tenantId: string): Promise<{ sealed: number }> {
+    const last = await this.prisma.auditLog.findFirst({ where: { tenantId, hash: { not: null } }, orderBy: { createdAt: 'desc' } });
+    let prev: string | null = last?.hash ?? null;
+    const unsealed = await this.prisma.auditLog.findMany({ where: { tenantId, hash: null }, orderBy: { createdAt: 'asc' } });
+    for (const a of unsealed) {
+      const hash = sha256((prev ?? '') + this.auditContent(a));
+      await this.prisma.auditLog.update({ where: { id: a.id }, data: { prevHash: prev, hash } });
+      prev = hash;
+    }
+    return { sealed: unsealed.length };
+  }
+
+  /** Zincir butunlugunu dogrula: sealed kayitlari yeniden hash'le, ilk kirilmayi bildir. */
+  async verifyAuditChain(tenantId: string): Promise<{ ok: boolean; checked: number; brokenAt: string | null }> {
+    const rows = await this.prisma.auditLog.findMany({ where: { tenantId, hash: { not: null } }, orderBy: { createdAt: 'asc' } });
+    let prev: string | null = null;
+    for (const a of rows) {
+      const expect = sha256((prev ?? '') + this.auditContent(a));
+      if (a.prevHash !== prev || a.hash !== expect) {
+        return { ok: false, checked: rows.length, brokenAt: a.id };
+      }
+      prev = a.hash;
+    }
+    return { ok: true, checked: rows.length, brokenAt: null };
+  }
+
+  /** Tek tenant: once seal sonra verify (UI butonu). */
+  async sealAndVerify(tenantId: string) {
+    const { sealed } = await this.sealAuditChain(tenantId);
+    const v = await this.verifyAuditChain(tenantId);
+    return { sealed, ...v };
+  }
+
+  /** Gece job'i: tum tenant'lari seal+verify; kirilan zinciri uyari olarak logla. */
+  async sealAllTenants(): Promise<{ tenants: number; broken: number }> {
+    const tenants = await this.prisma.tenant.findMany({ select: { id: true } });
+    let broken = 0;
+    for (const t of tenants) {
+      await this.sealAuditChain(t.id);
+      const v = await this.verifyAuditChain(t.id);
+      if (!v.ok) {
+        broken++;
+        this.logger.error(`[security] audit_chain_broken tenant=${t.id} brokenAt=${v.brokenAt}`);
+      }
+    }
+    return { tenants: tenants.length, broken };
+  }
 
   /** Admin dashboard (SPEC 9): ciro, komisyon, uye, payable — secili ay (varsayilan bu ay). */
   async dashboard(tenantId: string, month?: string) {

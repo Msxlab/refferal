@@ -520,6 +520,10 @@ model AuditLog {
   before      Json?
   after       Json?
   ip          String?
+  // Kurcalamaya-dayanikli zincir: seal job'i kayitlari createdAt sirasiyla hash'ler
+  // (hash = sha256(prevHash + kanonik icerik)). Tek satir oynanirsa zincir kirilir.
+  prevHash    String?  @map("prev_hash")
+  hash        String?
   createdAt   DateTime @default(now()) @map("created_at")
 
   @@index([tenantId, createdAt])

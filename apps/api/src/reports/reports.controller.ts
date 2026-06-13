@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Query, Res } from '@nestjs/common';
+import { Controller, Get, Header, HttpCode, Post, Query, Res } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Response } from 'express';
 import { z } from 'zod';
@@ -49,6 +49,14 @@ export class ReportsController {
   @Get('audit')
   audit(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(auditSchema)) q: z.infer<typeof auditSchema>) {
     return this.reports.audit(user.tid as string, q);
+  }
+
+  // audit zincir butunlugu: seal + verify (admin)
+  @Roles(...ADMIN)
+  @HttpCode(200)
+  @Post('audit/verify')
+  verifyAudit(@CurrentUser() user: RequestUser) {
+    return this.reports.sealAndVerify(user.tid as string);
   }
 
   @Roles(...ADMIN)

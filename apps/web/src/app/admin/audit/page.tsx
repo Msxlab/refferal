@@ -40,6 +40,14 @@ export default function AuditPage() {
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
   const [detail, setDetail] = useState<AuditItem | null>(null);
+  const [integrity, setIntegrity] = useState<{ ok: boolean; checked: number; brokenAt: string | null } | null>(null);
+  const [verifying, setVerifying] = useState(false);
+
+  async function verifyIntegrity() {
+    setVerifying(true);
+    try { setIntegrity(await api.post('/admin/audit/verify')); }
+    catch (e) { setError(String((e as ApiError).message)); } finally { setVerifying(false); }
+  }
 
   const filterQuery = useMemo(() => {
     const p = new URLSearchParams();
@@ -76,7 +84,15 @@ export default function AuditPage() {
           <h1 className="h1 fade-in">Audit Log</h1>
           <p className="sub fade-in">Every action affecting money, roles, and plans is recorded here.</p>
         </div>
-        <button className="btn ghost fade-in no-print" onClick={exportCsv}>⇩ Export CSV</button>
+        <div className="row fade-in no-print" style={{ gap: 8 }}>
+          {integrity && (
+            <span className={`badge ${integrity.ok ? 'active' : 'failed'}`} title={integrity.brokenAt ? `Broken at ${integrity.brokenAt}` : undefined}>
+              {integrity.ok ? `✓ Chain intact (${integrity.checked})` : '✗ Chain tampered'}
+            </span>
+          )}
+          <button className="btn ghost" onClick={verifyIntegrity} disabled={verifying}>{verifying ? 'Verifying…' : '🔒 Verify integrity'}</button>
+          <button className="btn ghost" onClick={exportCsv}>⇩ Export CSV</button>
+        </div>
       </div>
 
       <div className="row fade-in delay-1 no-print" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '14px 0' }}>
@@ -127,8 +143,14 @@ export default function AuditPage() {
               <Field label="IP" value={detail.ip ?? '—'} />
               <Field label="Entity ID" value={detail.entityId ?? '—'} />
             </div>
-            <Diff label="Before" data={detail.before} />
-            <Diff label="After" data={detail.after} />
+            <FieldDiff before={detail.before} after={detail.after} />
+            <details>
+              <summary className="faint" style={{ fontSize: 12, cursor: 'pointer' }}>Raw JSON</summary>
+              <div style={{ marginTop: 8 }}>
+                <Diff label="Before" data={detail.before} />
+                <Diff label="After" data={detail.after} />
+              </div>
+            </details>
           </div>
         </Drawer>
       )}
@@ -142,6 +164,32 @@ function Field({ label, value }: { label: string; value: string }) {
       <div className="faint" style={{ fontSize: 11 }}>{label}</div>
       <div style={{ fontSize: 13.5, marginTop: 2, fontFamily: 'ui-monospace, monospace', wordBreak: 'break-all' }}>{value}</div>
     </div>
+  );
+}
+
+/** Alan-bazli once/sonra diff (#13): degisen alanlar vurgulu. */
+function FieldDiff({ before, after }: { before: unknown; after: unknown }) {
+  const b = (before && typeof before === 'object' ? before : {}) as Record<string, unknown>;
+  const a = (after && typeof after === 'object' ? after : {}) as Record<string, unknown>;
+  const keys = [...new Set([...Object.keys(b), ...Object.keys(a)])].sort();
+  const fmt = (v: unknown) => v === undefined ? '—' : v === null ? 'null' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+  if (keys.length === 0) return <div className="muted" style={{ fontSize: 13 }}>No field-level detail.</div>;
+  return (
+    <table>
+      <thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead>
+      <tbody>
+        {keys.map((k) => {
+          const changed = JSON.stringify(b[k]) !== JSON.stringify(a[k]);
+          return (
+            <tr key={k} style={{ background: changed ? 'color-mix(in srgb, var(--amber) 9%, transparent)' : undefined }}>
+              <td className="faint" style={{ fontSize: 12 }}>{k}</td>
+              <td className="tnum" style={{ fontSize: 12, color: changed ? 'var(--rose)' : 'var(--muted)' }}>{fmt(b[k])}</td>
+              <td className="tnum" style={{ fontSize: 12, color: changed ? 'var(--emerald)' : 'var(--muted)' }}>{fmt(a[k])}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 
