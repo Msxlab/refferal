@@ -1,4 +1,4 @@
-import { Controller, Get, Header, HttpCode, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Post, Put, Query, Res } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Response } from 'express';
 import { z } from 'zod';
@@ -22,6 +22,10 @@ const auditFilterSchema = z.object({
 const auditSchema = auditFilterSchema.extend({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
+});
+const reportSubSchema = z.object({
+  frequency: z.enum(['weekly', 'monthly']),
+  recipients: z.array(z.string().trim().toLowerCase().email().max(254)).max(20),
 });
 
 @RequireMembership()
@@ -49,6 +53,27 @@ export class ReportsController {
   @Get('audit')
   audit(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(auditSchema)) q: z.infer<typeof auditSchema>) {
     return this.reports.audit(user.tid as string, q);
+  }
+
+  // zamanlanmis rapor abonelikleri (#18)
+  @Roles(...ADMIN)
+  @Get('report-subscription')
+  getReportSub(@CurrentUser() user: RequestUser) {
+    return this.reports.getSubscription(user.tid as string);
+  }
+
+  @Roles(...ADMIN)
+  @Put('report-subscription')
+  setReportSub(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(reportSubSchema)) body: z.infer<typeof reportSubSchema>) {
+    return this.reports.setSubscription(user.tid as string, body.frequency, body.recipients);
+  }
+
+  @Roles(...ADMIN)
+  @HttpCode(200)
+  @Post('report-subscription/test')
+  async sendTestReport(@CurrentUser() user: RequestUser) {
+    const sub = await this.reports.getSubscription(user.tid as string);
+    return this.reports.sendDigest(user.tid as string, sub.recipients);
   }
 
   // audit zincir butunlugu: seal + verify (admin)

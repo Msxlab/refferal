@@ -42,6 +42,17 @@ export class SchedulerService {
     }
   }
 
+  /** Gunluk: zamani gelen rapor aboneliklerini gonder (#18). */
+  @Cron(CronExpression.EVERY_DAY_AT_8AM, { name: 'report-digests' })
+  async reportDigests(): Promise<void> {
+    try {
+      const { sent } = await this.reports.runDueDigests();
+      if (sent > 0) this.logger.log(`rapor digest gonderildi: ${sent} tenant`);
+    } catch (err) {
+      this.logger.error('reportDigests job hatasi', err instanceof Error ? err.stack : String(err));
+    }
+  }
+
   @Cron(CronExpression.EVERY_5_MINUTES, { name: 'mature-commissions' })
   async matureCommissions(): Promise<void> {
     if (this.running) {

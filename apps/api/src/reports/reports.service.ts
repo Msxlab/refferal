@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { LedgerType, MembershipStatus, PayoutStatus, Prisma, SaleStatus } from '@prisma/client';
 import { sha256 } from '../common/crypto';
 import { monthKey } from '../engine/month';
+import { createEmailAdapter } from '../notifications/adapters';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -273,6 +274,70 @@ export class ReportsService {
       out.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
     }
     return out;
+  }
+
+  // ---------------------------------------------------- zamanlanmis e-posta raporu (#18)
+
+  async getSubscription(tenantId: string) {
+    const s = await this.prisma.reportSubscription.findUnique({ where: { tenantId } });
+    return { frequency: s?.frequency ?? 'weekly', recipients: s?.recipients ?? [], lastSentAt: s?.lastSentAt ?? null };
+  }
+
+  async setSubscription(tenantId: string, frequency: string, recipients: string[]) {
+    await this.prisma.reportSubscription.upsert({
+      where: { tenantId },
+      create: { tenantId, frequency, recipients },
+      update: { frequency, recipients },
+    });
+    return this.getSubscription(tenantId);
+  }
+
+  /** Donem ozeti digest (HTML+text) — dashboard verisinden. */
+  private async buildDigest(tenantId: string): Promise<{ subject: string; text: string; html: string }> {
+    const d = await this.dashboard(tenantId);
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { name: true, currency: true } });
+    const m = (c: string | number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: tenant.currency }).format(Number(c) / 100);
+    const rows: Array<[string, string]> = [
+      ['Revenue this month', m(d.thisMonth.revenueCents)],
+      ['Commission', m(d.thisMonth.commissionCents)],
+      ['Approved sales', String(d.thisMonth.approvedSalesCount)],
+      ['Active members', `${d.members.active} / ${d.members.total}`],
+      ['Outstanding payable', m(d.outstandingPayableCents)],
+      ['Pending payout requests', String(d.pendingPayoutRequests)],
+    ];
+    const subject = `${tenant.name} — ${d.month} summary`;
+    const text = rows.map(([k, v]) => `${k}: ${v}`).join('\n');
+    const html = `<h2>${tenant.name} — ${d.month}</h2><table>${rows.map(([k, v]) => `<tr><td style="padding:4px 12px 4px 0;color:#555">${k}</td><td style="font-weight:700">${v}</td></tr>`).join('')}</table>`;
+    return { subject, text, html };
+  }
+
+  async sendDigest(tenantId: string, recipients: string[]): Promise<{ sent: number }> {
+    if (recipients.length === 0) return { sent: 0 };
+    const { subject, text, html } = await this.buildDigest(tenantId);
+    const adapter = createEmailAdapter();
+    for (const to of recipients) {
+      try { await adapter.send({ to, subject, text, html }); } catch (e) { this.logger.warn(`rapor e-postasi gonderilemedi → ${to}: ${e instanceof Error ? e.message : e}`); }
+    }
+    return { sent: recipients.length };
+  }
+
+  private isDue(frequency: string, lastSentAt: Date | null, now = new Date()): boolean {
+    if (!lastSentAt) return true;
+    const days = (now.getTime() - lastSentAt.getTime()) / 86_400_000;
+    return frequency === 'monthly' ? days >= 28 : days >= 7;
+  }
+
+  /** Gece job'i: zamani gelen abonelikleri gonder. */
+  async runDueDigests(now = new Date()): Promise<{ sent: number }> {
+    const subs = await this.prisma.reportSubscription.findMany();
+    let sent = 0;
+    for (const s of subs) {
+      if (s.recipients.length === 0 || !this.isDue(s.frequency, s.lastSentAt, now)) continue;
+      await this.sendDigest(s.tenantId, s.recipients);
+      await this.prisma.reportSubscription.update({ where: { id: s.id }, data: { lastSentAt: now } });
+      sent++;
+    }
+    return { sent };
   }
 
   /** Audit filtre seti (list + export ortak, tenant-scoped). */

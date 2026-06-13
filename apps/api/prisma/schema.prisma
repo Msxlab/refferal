@@ -168,6 +168,7 @@ model Tenant {
   surveys     SurveyResponse[]
   inviteEvents InviteEvent[]
   rankTiers   RankTier[]
+  reportSub   ReportSubscription?
 
   @@map("tenants")
 }
@@ -710,4 +711,19 @@ model RankTier {
 
   @@index([tenantId, sortOrder])
   @@map("rank_tiers")
+}
+
+// Zamanlanmis e-posta raporu (#18): donemsel ozet digest (HTML), secili alicilara.
+model ReportSubscription {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @unique @map("tenant_id") @db.Uuid
+  frequency  String   @default("weekly") // 'weekly' | 'monthly'
+  recipients String[] @default([])
+  lastSentAt DateTime? @map("last_sent_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("report_subscriptions")
 }
