@@ -46,6 +46,11 @@ export function render(template: string, payload: Record<string, unknown>): Rend
         subject: 'New member joined your team',
         body: payload.memberName ? `${payload.memberName} joined your team.` : 'A new member joined your team.',
       };
+    case 'bonus_awarded':
+      return {
+        subject: 'You won a campaign bonus! 🎉',
+        body: `Congratulations! A ${money(payload.amountCents)} bonus${payload.reason ? ` (${payload.reason})` : ''} was added to your payable balance.`,
+      };
     default:
       return { subject: 'Refearn notification', body: `Notification: ${template}` };
   }

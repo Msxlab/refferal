@@ -23,9 +23,9 @@ interface AuditItem {
 interface AuditList { total: number; page: number; pageSize: number; items: AuditItem[] }
 
 const ICON: Record<string, string> = {
-  sale: '◇', payout: '◆', membership: '⬡', invite: '✦', tenant: '⚙', rbac: '⛉', role: '⛉', security: '⚠',
+  sale: '◇', payout: '◆', membership: '⬡', invite: '✦', tenant: '⚙', rbac: '⛉', role: '⛉', security: '⚠', campaign: '⚑',
 };
-const ENTITIES = ['sale', 'payout', 'membership', 'invite', 'tenant', 'role', 'security'];
+const ENTITIES = ['sale', 'payout', 'membership', 'invite', 'campaign', 'tenant', 'role', 'security'];
 
 function when(iso: string): string {
   return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Bars, Donut, Loading, MoneyCounter } from '@/components/ui';
-import { money } from '@/lib/format';
+import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
 interface LevelRow {
@@ -20,6 +20,11 @@ interface Dashboard {
 }
 interface EarningsPoint { month: string; totalCents: string }
 interface Earnings { months: number; currency: string; series: EarningsPoint[] }
+interface CampaignStanding { rank: number; membershipId: string; name: string; code: string; score: number; bonusCents: number }
+interface MyCampaign {
+  id: string; name: string; metric: string; endsAt: string;
+  myRank: number | null; myScore: number; prizes: { rank: number; bonusCents: number }[]; leaderboard: CampaignStanding[];
+}
 
 function monthLabel(ym: string): string {
   const [y, m] = ym.split('-').map(Number);
@@ -29,11 +34,13 @@ function monthLabel(ym: string): string {
 export default function MemberDashboard() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [earnings, setEarnings] = useState<Earnings | null>(null);
+  const [campaigns, setCampaigns] = useState<MyCampaign[]>([]);
   const [error, setError] = useState('');
 
   useEffect(() => {
     api.get<Dashboard>('/app/dashboard').then(setData).catch((e) => setError(String((e as ApiError).message)));
     api.get<Earnings>('/app/earnings?months=6').then(setEarnings).catch(() => { /* grafik opsiyonel */ });
+    api.get<MyCampaign[]>('/app/campaigns').then(setCampaigns).catch(() => { /* opsiyonel */ });
   }, []);
 
   if (error) return <div className="error">{error}</div>;
@@ -90,6 +97,50 @@ export default function MemberDashboard() {
           />
         </div>
       </div>
+
+      {/* aktif kampanyalar — kendi siram */}
+      {campaigns.length > 0 && (
+        <div className="grid fade-in delay-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginTop: 16 }}>
+          {campaigns.map((cp) => {
+            const topPrize = cp.prizes.reduce((a, p) => Math.max(a, p.bonusCents), 0);
+            return (
+              <div key={cp.id} className="card" style={{ borderColor: 'color-mix(in srgb, var(--gold-500) 35%, transparent)' }}>
+                <div className="spread">
+                  <strong style={{ fontSize: 14 }}>⚑ {cp.name}</strong>
+                  <span className="faint" style={{ fontSize: 11 }}>ends {dateShort(cp.endsAt)}</span>
+                </div>
+                <div className="row" style={{ gap: 16, margin: '12px 0' }}>
+                  <div>
+                    <div className="faint" style={{ fontSize: 11 }}>Your rank</div>
+                    <div className="tnum" style={{ fontWeight: 800, fontSize: 22, color: cp.myRank === 1 ? 'var(--gold-500)' : undefined }}>
+                      {cp.myRank ? `#${cp.myRank}` : '—'}
+                    </div>
+                  </div>
+                  {topPrize > 0 && (
+                    <div>
+                      <div className="faint" style={{ fontSize: 11 }}>Top prize</div>
+                      <div className="tnum" style={{ fontWeight: 700, fontSize: 15, marginTop: 4 }}>{money(topPrize)}</div>
+                    </div>
+                  )}
+                </div>
+                {cp.leaderboard.length > 0 && (
+                  <div className="grid" style={{ gap: 4 }}>
+                    {cp.leaderboard.slice(0, 3).map((s) => (
+                      <div key={s.membershipId} className="spread" style={{ fontSize: 12 }}>
+                        <span className="row" style={{ gap: 6 }}>
+                          <span style={{ width: 18, height: 18, borderRadius: 5, display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 800, background: s.rank === 1 ? 'var(--foil)' : 'var(--panel-2)', color: s.rank === 1 ? 'var(--on-gold)' : 'var(--muted)' }}>{s.rank}</span>
+                          {s.name}
+                        </span>
+                        <span className="tnum faint">{cp.metric === 'revenue' ? money(s.score) : s.score.toLocaleString('en-US')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* son 6 ay kazanc trendi */}
       {earnings && earnings.series.some((p) => Number(p.totalCents) > 0) && (

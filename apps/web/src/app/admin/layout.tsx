@@ -13,6 +13,7 @@ const NAV: Array<{ href: string; key: Parameters<typeof t>[0]; ic: string; admin
   { href: '/admin/sales', key: 'nav.sales', ic: '◇' },
   { href: '/admin/members', key: 'nav.members', ic: '⬡' },
   { href: '/admin/tree', key: 'nav.tree', ic: '⤳' },
+  { href: '/admin/campaigns', key: 'nav.campaigns', ic: '⚑' },
   { href: '/admin/payouts', key: 'nav.payouts', ic: '◆', adminOnly: true },
   { href: '/admin/audit', key: 'nav.audit', ic: '☰', adminOnly: true },
   { href: '/admin/settings', key: 'nav.settings', ic: '⚙', adminOnly: true },

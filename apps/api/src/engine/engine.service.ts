@@ -298,6 +298,8 @@ export class EngineService {
     return this.tx(async (tx) => {
       const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: params.tenantId } });
 
+      // LEFT JOIN: satisa bagli olmayan satirlar (kampanya bonusu vb.) da dahil; ay
+      // bucket'i once le.summary_month'tan (bonus), sonra sale'den turetilir.
       const rows = await tx.$queryRaw<
         Array<{ id: string; level: number; amountCents: bigint; month: string }>
       >`
@@ -305,11 +307,12 @@ export class EngineService {
                le.level,
                le.amount_cents AS "amountCents",
                COALESCE(
+                 le.summary_month,
                  s.summary_month,
                  to_char(s.sale_date AT TIME ZONE ${tenant.timezone}, 'YYYY-MM')
                ) AS "month"
         FROM ledger_entries le
-        JOIN sales s ON s.id = le.sale_id
+        LEFT JOIN sales s ON s.id = le.sale_id
         WHERE le.tenant_id = ${params.tenantId}::uuid
           AND le.beneficiary_membership_id = ${params.membershipId}::uuid
           AND le.status = 'payable'
@@ -371,6 +374,57 @@ export class EngineService {
       });
 
       return { paid: true as const, payoutId: payout.id, totalCents: net, entryCount: rows.length };
+    });
+  }
+
+  /**
+   * Satisa bagli OLMAYAN bonus/ayarlama satiri (kampanya odulu vb.): tek transaction'da
+   * ledger 'adjustment' (payable) satiri + summary (level 0) + bildirim + audit. Satir
+   * summaryMonth'u kendisi tasir; mevcut payout akisi (payoutMember/decide/retry) LEFT JOIN
+   * ile bunu da oder. Negatif amountCents = clawback/ceza (ileride).
+   */
+  async awardBonus(params: {
+    tenantId: string;
+    membershipId: string;
+    amountCents: bigint;
+    month: string;
+    reason: string;
+    actorUserId?: string;
+    meta?: Record<string, unknown>;
+  }): Promise<{ ledgerId: string }> {
+    return this.tx(async (tx) => {
+      const entry = await tx.ledgerEntry.create({
+        data: {
+          tenantId: params.tenantId,
+          saleId: null,
+          beneficiaryMembershipId: params.membershipId,
+          level: 0,
+          rateBpsUsed: 0,
+          amountCents: params.amountCents,
+          type: LedgerType.adjustment,
+          status: LedgerStatus.payable,
+          summaryMonth: params.month,
+        },
+      });
+      await this.bumpSummary(tx, params.tenantId, params.membershipId, params.month, 0, {
+        payable: params.amountCents,
+      });
+      await tx.notification.create({
+        data: {
+          tenantId: params.tenantId,
+          recipientMembershipId: params.membershipId,
+          channel: NotificationChannel.push,
+          template: 'bonus_awarded',
+          payload: { amountCents: params.amountCents.toString(), reason: params.reason },
+        },
+      });
+      await this.audit(tx, params.tenantId, params.actorUserId, 'campaign.bonus', entry.id, {}, {
+        membershipId: params.membershipId,
+        amountCents: params.amountCents.toString(),
+        reason: params.reason,
+        ...(params.meta ?? {}),
+      });
+      return { ledgerId: entry.id };
     });
   }
 

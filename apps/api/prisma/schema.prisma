@@ -60,6 +60,19 @@ enum LedgerType {
   adjustment
 }
 
+enum CampaignMetric {
+  revenue       // pencere icindeki onayli satis cirosu (satici bazinda)
+  sales_count   // onayli satis adedi
+  new_recruits  // pencere icinde katilan, bu uyenin sponsorlugundaki uyeler
+  invites       // pencere icinde olusturulan davetler
+}
+
+enum CampaignStatus {
+  draft
+  active
+  ended
+}
+
 enum LedgerStatus {
   pending
   payable
@@ -121,6 +134,7 @@ model Tenant {
   teamStats   TeamStat[]
   payouts     Payout[]
   roles       TenantRole[]
+  campaigns   Campaign[]
 
   @@map("tenants")
 }
@@ -344,26 +358,32 @@ model Sale {
 model LedgerEntry {
   id                      String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId                String       @map("tenant_id") @db.Uuid
-  saleId                  String       @map("sale_id") @db.Uuid
+  // Satisa bagli komisyon/reversal'da dolu; kampanya bonusu/manuel ayarlama gibi
+  // satisa bagli OLMAYAN satirlarda NULL (o satirlar summaryMonth'u kendileri tasir).
+  saleId                  String?      @map("sale_id") @db.Uuid
   beneficiaryMembershipId String       @map("beneficiary_membership_id") @db.Uuid
   level                   Int
   rateBpsUsed             Int          @map("rate_bps_used")
   amountCents             BigInt       @map("amount_cents")
   type                    LedgerType
   status                  LedgerStatus
+  // Satisa bagli olmayan satirin ay bucket'i (payout/summary icin). Komisyonda NULL
+  // kalir, ay sale.summary_month'tan turetilir (geriye donuk uyumlu).
+  summaryMonth            String?      @map("summary_month")
   maturesAt               DateTime?    @map("matures_at")
   payoutId                String?      @map("payout_id") @db.Uuid
   createdAt               DateTime     @default(now()) @map("created_at")
   updatedAt               DateTime     @updatedAt @map("updated_at")
 
   tenant      Tenant     @relation(fields: [tenantId], references: [id])
-  sale        Sale       @relation(fields: [saleId], references: [id])
+  sale        Sale?      @relation(fields: [saleId], references: [id])
   beneficiary Membership @relation("Beneficiary", fields: [beneficiaryMembershipId], references: [id])
   // Restrict: payout silinince 'paid' satirin payout_id'si sessizce NULL olmasin
   // (ledger degismezligi — bkz. DECISIONS "Inceleme bulgulari").
   payout      Payout?    @relation(fields: [payoutId], references: [id], onDelete: Restrict)
 
-  // Cift odeme imkansiz: motor kac kez cagrilirsa cagrilsin ayni sonuc
+  // Cift odeme imkansiz: motor kac kez cagrilirsa cagrilsin ayni sonuc.
+  // (saleId NULL satirlar Postgres'te bu kisitta birbirinden ayri sayilir — bonuslar etkilenmez.)
   @@unique([saleId, level, type])
   @@index([tenantId, beneficiaryMembershipId, status])
   @@index([status, maturesAt])
@@ -480,4 +500,32 @@ model AuditLog {
 
   @@index([tenantId, createdAt])
   @@map("audit_logs")
+}
+
+// Referans yarismasi / kampanya: zaman sinirli yaris, donem sonu bonus odulu.
+// Siralama CANLI hesaplanir (sales/memberships/invites'tan); finalize aninda kazananlar
+// 'results' jsonb'sine donderilir ve oduller ledger'a 'adjustment' (payable) satiri olarak
+// yazilir (engine.awardBonus) — normal payout akisindan odenir.
+model Campaign {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String         @map("tenant_id") @db.Uuid
+  name        String
+  description String?
+  metric      CampaignMetric
+  startsAt    DateTime       @map("starts_at")
+  endsAt      DateTime       @map("ends_at")
+  status      CampaignStatus @default(draft)
+  // prizes: [{ rank: 1, bonusCents: 50000 }, ...] (integer cent)
+  prizes      Json           @default("[]")
+  // finalize sonrasi kazanan anlik goruntusu: [{ rank, membershipId, name, code, score, bonusCents }]
+  results     Json?
+  createdBy   String?        @map("created_by") @db.Uuid
+  finalizedAt DateTime?      @map("finalized_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@map("campaigns")
 }

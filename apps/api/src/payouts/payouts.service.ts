@@ -449,7 +449,8 @@ export class PayoutsService {
     return rows[0];
   }
 
-  /** Bu payout'a bagli ledger satirlarini kilitle (ay anahtari engine ile ayni COALESCE kuralindan). */
+  /** Bu payout'a bagli ledger satirlarini kilitle (ay anahtari engine ile ayni COALESCE kuralindan).
+      LEFT JOIN: satisa bagli olmayan bonus/ayarlama satirlari da dahil (ay le.summary_month'tan). */
   private lockBoundLines(tx: Tx, timezone: string, payoutId: string): Promise<PayoutLineRow[]> {
     return tx.$queryRaw<PayoutLineRow[]>`
       SELECT le.id,
@@ -457,11 +458,12 @@ export class PayoutsService {
              le.amount_cents AS "amountCents",
              le.status,
              COALESCE(
+               le.summary_month,
                s.summary_month,
                to_char(s.sale_date AT TIME ZONE ${timezone}, 'YYYY-MM')
              ) AS "month"
       FROM ledger_entries le
-      JOIN sales s ON s.id = le.sale_id
+      LEFT JOIN sales s ON s.id = le.sale_id
       WHERE le.payout_id = ${payoutId}::uuid
       FOR UPDATE OF le`;
   }
@@ -474,11 +476,12 @@ export class PayoutsService {
              le.amount_cents AS "amountCents",
              le.status,
              COALESCE(
+               le.summary_month,
                s.summary_month,
                to_char(s.sale_date AT TIME ZONE ${timezone}, 'YYYY-MM')
              ) AS "month"
       FROM ledger_entries le
-      JOIN sales s ON s.id = le.sale_id
+      LEFT JOIN sales s ON s.id = le.sale_id
       WHERE le.tenant_id = ${tenantId}::uuid
         AND le.beneficiary_membership_id = ${membershipId}::uuid
         AND le.status = 'payable'
