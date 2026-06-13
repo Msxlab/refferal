@@ -225,9 +225,16 @@ export class EngineService {
         return { delivered: false };
       }
       await tx.sale.update({ where: { id: saleId }, data: { deliveredAt } });
+      // teslime bagli olgunlasma: on_delivery → hemen; days_after_delivery → teslim + N gun
+      // (iade penceresi). Diger kurallarda teslim-bekleyen pending satir yok (no-op).
+      const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: sale.tenantId } });
+      const maturesAt =
+        tenant.maturationRule === MaturationRule.days_after_delivery
+          ? new Date(deliveredAt.getTime() + (tenant.maturationDays ?? 0) * 86_400_000)
+          : deliveredAt;
       await tx.ledgerEntry.updateMany({
         where: { saleId, type: LedgerType.commission, status: LedgerStatus.pending, maturesAt: null },
-        data: { maturesAt: deliveredAt },
+        data: { maturesAt },
       });
       return { delivered: true };
     });
@@ -576,6 +583,14 @@ export class EngineService {
         const base = sale.approvedAt ?? new Date();
         const days = tenant.maturationDays ?? 0;
         return { status: LedgerStatus.pending, maturesAt: new Date(base.getTime() + days * 86_400_000) };
+      }
+      case MaturationRule.days_after_delivery: {
+        // iade penceresi: teslime kadar matures_at bos; markDelivered teslim+N ile doldurur
+        const days = tenant.maturationDays ?? 0;
+        return {
+          status: LedgerStatus.pending,
+          maturesAt: sale.deliveredAt ? new Date(sale.deliveredAt.getTime() + days * 86_400_000) : null,
+        };
       }
     }
   }

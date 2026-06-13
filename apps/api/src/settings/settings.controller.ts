@@ -11,7 +11,7 @@ const STAFF = [Role.tenant_owner, Role.tenant_admin, Role.tenant_staff];
 const ADMIN = [Role.tenant_owner, Role.tenant_admin];
 
 const updateSchema = z.object({
-  maturationRule: z.enum(['on_approval', 'on_delivery', 'days_after_approval']).optional(),
+  maturationRule: z.enum(['on_approval', 'on_delivery', 'days_after_approval', 'days_after_delivery']).optional(),
   maturationDays: z.number().int().min(0).max(365).nullable().optional(),
   payoutMinCents: z.number().int().min(0).optional(),
   timezone: z.string().min(3).max(64).optional(),

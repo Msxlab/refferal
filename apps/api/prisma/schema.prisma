@@ -46,6 +46,8 @@ enum MaturationRule {
   on_approval
   on_delivery
   days_after_approval
+  // teslimden N gun sonra olgunlasir (iade penceresi): pencere kapanana dek pending kalir
+  days_after_delivery
 }
 
 enum SaleStatus {

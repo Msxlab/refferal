@@ -9,7 +9,7 @@ interface Settings {
   slug: string;
   currency: string;
   timezone: string;
-  maturationRule: 'on_approval' | 'on_delivery' | 'days_after_approval';
+  maturationRule: 'on_approval' | 'on_delivery' | 'days_after_approval' | 'days_after_delivery';
   maturationDays: number | null;
   payoutMinCents: string;
   notifyNewMemberName: boolean;
@@ -22,7 +22,9 @@ const MATURATION = [
   { v: 'on_approval', l: 'On approval — payable immediately' },
   { v: 'on_delivery', l: 'On delivery — matures after delivery' },
   { v: 'days_after_approval', l: 'N days after approval' },
+  { v: 'days_after_delivery', l: 'N days after delivery (return window)' },
 ];
+const USES_DAYS = (r: string) => r === 'days_after_approval' || r === 'days_after_delivery';
 
 const TIMEZONES = [
   'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
@@ -46,7 +48,7 @@ export default function General() {
     try {
       const res = await api.patch<Settings>('/admin/settings', {
         maturationRule: s.maturationRule,
-        maturationDays: s.maturationRule === 'days_after_approval' ? Number(s.maturationDays ?? 0) : null,
+        maturationDays: USES_DAYS(s.maturationRule) ? Number(s.maturationDays ?? 0) : null,
         payoutMinCents: Number(s.payoutMinCents),
         timezone: s.timezone,
         notifyNewMemberName: s.notifyNewMemberName,
@@ -89,9 +91,9 @@ export default function General() {
             {MATURATION.map((m) => <option key={m.v} value={m.v}>{m.l}</option>)}
           </select>
         </div>
-        {s.maturationRule === 'days_after_approval' && (
+        {USES_DAYS(s.maturationRule) && (
           <div className="field">
-            <label>Days (N)</label>
+            <label>Days (N){s.maturationRule === 'days_after_delivery' ? ' — return window' : ''}</label>
             <input type="number" min={0} max={365} value={s.maturationDays ?? 0} onChange={(e) => setS({ ...s, maturationDays: Number(e.target.value) })} />
           </div>
         )}
