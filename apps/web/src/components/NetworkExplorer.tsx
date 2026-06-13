@@ -20,6 +20,7 @@ export interface ApiNode {
   revenueCents?: string;
   joinedAt?: string;
   earningsCents?: string; // yasam-boyu (payable+paid)
+  monthlyCommissionCents?: string; // BU AY komisyon (pending+payable+paid)
 }
 
 export interface RankTierLite { name: string; minTeam: number; minEarningsCents: string }
@@ -82,9 +83,12 @@ function MemberNode({ data }: NodeProps<Node<NodeData>>) {
           {data.rank && <span className="badge payable" style={{ fontSize: 9 }}>🏅 {data.rank}</span>}
           {n.status !== 'active' && <span className="badge inactive" style={{ fontSize: 9 }}>{n.status}</span>}
         </div>
-        {data.revenue > 0
-          ? <span className="tnum" style={{ fontSize: 10, fontWeight: 700, color: 'var(--gold-500)' }} title={`${data.sales} sales this month`}>◆ {compactMoney(data.revenue)}</span>
-          : data.team > 0 && <span style={{ fontSize: 10, color: 'var(--muted)' }}>⬡ {data.team}</span>}
+        <span className="row" style={{ gap: 6 }}>
+          {data.revenue > 0 && <span className="tnum" style={{ fontSize: 10, color: 'var(--muted)' }} title={`${data.sales} satış (bu ay)`}>◇ {compactMoney(data.revenue)}</span>}
+          {Number(n.monthlyCommissionCents ?? 0) > 0
+            ? <span className="tnum" style={{ fontSize: 10, fontWeight: 700, color: 'var(--gold-500)' }} title="Bu ay komisyon (kazanç)">◆ {compactMoney(Number(n.monthlyCommissionCents))}</span>
+            : (data.revenue === 0 && data.team > 0 && <span style={{ fontSize: 10, color: 'var(--muted)' }}>⬡ {data.team}</span>)}
+        </span>
       </div>
       <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
     </div>
@@ -206,26 +210,27 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [] }: { node
   // ---- ag analitigi (odaklanilan kapsama gore) ----
   const analytics = useMemo(() => {
     const startOfMonth = new Date(); startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0);
-    let active = 0, newThisMonth = 0, revenue = 0, earnings = 0, maxDepth = 0;
+    let active = 0, newThisMonth = 0, revenue = 0, earnings = 0, monthlyComm = 0, maxDepth = 0;
     let top: { name: string; cents: number } | null = null;
     const minDepth = Math.min(...subtree.map((n) => n.depth));
     for (const n of subtree) {
       if (n.status === 'active') active++;
       if (n.joinedAt && new Date(n.joinedAt) >= startOfMonth) newThisMonth++;
       revenue += Number(n.revenueCents ?? 0);
+      monthlyComm += Number(n.monthlyCommissionCents ?? 0);
       const e = Number(n.earningsCents ?? 0);
       earnings += e;
       if (!top || e > top.cents) top = { name: n.fullName, cents: e };
       maxDepth = Math.max(maxDepth, n.depth - minDepth);
     }
-    return { people: subtree.length, active, newThisMonth, revenue, earnings, maxDepth, top };
+    return { people: subtree.length, active, newThisMonth, revenue, earnings, monthlyComm, maxDepth, top };
   }, [subtree]);
   const hasEarnings = useMemo(() => subtree.some((n) => Number(n.earningsCents ?? 0) > 0), [subtree]);
 
   // ag CSV disa aktarim (odaklanilan kapsam + hesaplanan metrikler)
   const exportCsv = useCallback(() => {
     const esc = (v: string | number) => { const s = String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-    const header = ['Name', 'Code', 'Role', 'Status', 'Level', 'Sponsor', 'Direct', 'Team', 'Joined', 'Revenue(mo)', 'LifetimeEarnings', 'Rank', 'SubtreeRevenue(mo)'];
+    const header = ['Name', 'Code', 'Role', 'Status', 'Level', 'Sponsor', 'Direct', 'Team', 'Joined', 'Revenue(mo)', 'Commission(mo)', 'LifetimeEarnings', 'Rank', 'SubtreeRevenue(mo)'];
     const lines = [header.join(',')];
     for (const n of subtree) {
       lines.push([
@@ -234,6 +239,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [] }: { node
         (childrenOf.get(n.id) ?? []).length, teamOf(n.id),
         esc(n.joinedAt ? new Date(n.joinedAt).toISOString().slice(0, 10) : ''),
         (Number(n.revenueCents ?? 0) / 100).toFixed(2),
+        (Number(n.monthlyCommissionCents ?? 0) / 100).toFixed(2),
         (Number(n.earningsCents ?? 0) / 100).toFixed(2),
         esc(rankOf(n.id) ?? ''),
         ((subtreeRevById.get(n.id) ?? 0) / 100).toFixed(2),
@@ -321,7 +327,8 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [] }: { node
         <Kpi label="Aktif" value={`${analytics.active}`} sub={analytics.people ? `%${Math.round((analytics.active / analytics.people) * 100)}` : undefined} icon="●" />
         <Kpi label="Derinlik" value={String(analytics.maxDepth)} icon="⤳" />
         <Kpi label="Bu ay katılan" value={String(analytics.newThisMonth)} icon="✦" />
-        <Kpi label="Ciro (bu ay)" value={compactMoney(analytics.revenue)} icon="◆" />
+        <Kpi label="Ciro (bu ay)" value={compactMoney(analytics.revenue)} icon="◇" />
+        <Kpi label="Komisyon (bu ay)" value={compactMoney(analytics.monthlyComm)} icon="◆" />
         {hasEarnings && <Kpi label="Yaşam-boyu kazanç" value={compactMoney(analytics.earnings)} icon="$" />}
         {analytics.top && analytics.top.cents > 0 && <Kpi label="En çok kazanan" value={analytics.top.name} sub={compactMoney(analytics.top.cents)} icon="★" />}
       </div>
@@ -443,6 +450,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [] }: { node
               <Stat label="Direct recruits" value={String((childrenOf.get(selected.id) ?? []).length)} />
               <Stat label="Total team" value={String(teamOf(selected.id))} />
               <Stat label="Sponsor" value={selected.parentId ? byId.get(selected.parentId)?.fullName ?? '—' : '— (top)'} />
+              {Number(selected.monthlyCommissionCents ?? 0) > 0 && <Stat label="Komisyon (bu ay)" value={compactMoney(Number(selected.monthlyCommissionCents))} />}
               {Number(selected.earningsCents ?? 0) > 0 && <Stat label="Lifetime earnings" value={compactMoney(Number(selected.earningsCents))} />}
               {Number(selected.revenueCents ?? 0) > 0 && <Stat label="Revenue (this mo)" value={compactMoney(Number(selected.revenueCents))} />}
               {(subtreeRevById.get(selected.id) ?? 0) > 0 && <Stat label="Subtree revenue (mo)" value={compactMoney(subtreeRevById.get(selected.id) ?? 0)} />}
