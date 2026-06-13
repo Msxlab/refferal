@@ -167,6 +167,7 @@ model Tenant {
   fraudFlags  FraudFlag[]
   surveys     SurveyResponse[]
   inviteEvents InviteEvent[]
+  rankTiers   RankTier[]
 
   @@map("tenants")
 }
@@ -692,4 +693,21 @@ model SanctionsEntry {
   @@unique([source, normalizedName])
   @@index([normalizedName])
   @@map("sanctions_entries")
+}
+
+// Kariyer rutbesi (#20): tenant-tanimli kademe (ekip boyutu + kumulatif kazanc esigi).
+// Tenant tier tanimlamadiysa yerlesik varsayilanlar kullanilir (ranks.service).
+model RankTier {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  name            String
+  sortOrder       Int      @map("sort_order")
+  minTeam         Int      @default(0) @map("min_team")
+  minEarningsCents BigInt  @default(0) @map("min_earnings_cents")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, sortOrder])
+  @@map("rank_tiers")
 }

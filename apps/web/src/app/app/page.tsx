@@ -37,6 +37,7 @@ export default function MemberDashboard() {
   const [campaigns, setCampaigns] = useState<MyCampaign[]>([]);
   const [rankInfo, setRankInfo] = useState<{ rank: number | null; total: number; topPercent: number | null } | null>(null);
   const [onboarding, setOnboarding] = useState<{ steps: { key: string; label: string; done: boolean }[]; percent: number } | null>(null);
+  const [rank, setRank] = useState<{ current: string | null; next: string | null; overallPct: number; badges: { key: string; label: string; earned: boolean }[] } | null>(null);
   const [npsPrompt, setNpsPrompt] = useState(false);
   const [npsScore, setNpsScore] = useState<number | null>(null);
   const [npsComment, setNpsComment] = useState('');
@@ -50,6 +51,7 @@ export default function MemberDashboard() {
     api.get<{ rank: number | null; total: number; topPercent: number | null }>('/app/leaderboard').then(setRankInfo).catch(() => { /* opsiyonel */ });
     api.get<{ shouldPrompt: boolean }>('/app/survey').then((s) => setNpsPrompt(s.shouldPrompt)).catch(() => { /* opsiyonel */ });
     api.get<{ steps: { key: string; label: string; done: boolean }[]; percent: number }>('/app/onboarding').then(setOnboarding).catch(() => { /* opsiyonel */ });
+    api.get<{ current: string | null; next: string | null; overallPct: number; badges: { key: string; label: string; earned: boolean }[] }>('/app/rank').then(setRank).catch(() => { /* opsiyonel */ });
   }, []);
 
   async function submitNps() {
@@ -157,6 +159,26 @@ export default function MemberDashboard() {
           />
         </div>
       </div>
+
+      {/* kariyer rutbesi + rozetler (#20) */}
+      {rank && (rank.current || rank.badges.some((b) => b.earned)) && (
+        <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
+          <div className="spread" style={{ marginBottom: 10 }}>
+            <strong style={{ fontSize: 14 }}>🏅 {rank.current ?? 'Unranked'}{rank.next && <span className="faint" style={{ fontWeight: 400 }}> → {rank.next}</span>}</strong>
+            {rank.next && <span className="faint" style={{ fontSize: 12 }}>{rank.overallPct}% to {rank.next}</span>}
+          </div>
+          {rank.next && (
+            <div style={{ height: 8, borderRadius: 6, background: 'rgba(255,255,255,.06)', overflow: 'hidden', marginBottom: 12 }}>
+              <div style={{ height: '100%', width: `${rank.overallPct}%`, borderRadius: 6, background: 'var(--foil)', transition: 'width .7s' }} />
+            </div>
+          )}
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            {rank.badges.map((b) => (
+              <span key={b.key} className={`badge ${b.earned ? 'active' : 'draft'}`} style={{ fontSize: 11, opacity: b.earned ? 1 : 0.5 }}>{b.earned ? '✓ ' : ''}{b.label}</span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* aktif kampanyalar — kendi siram */}
       {campaigns.length > 0 && (

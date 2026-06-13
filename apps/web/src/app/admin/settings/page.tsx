@@ -9,8 +9,9 @@ import PeopleRoles from './sections/PeopleRoles';
 import Security from './sections/Security';
 import Notifications from './sections/Notifications';
 import Data from './sections/Data';
+import Ranks from './sections/Ranks';
 
-type TabKey = 'general' | 'brand' | 'people' | 'security' | 'notifications' | 'data';
+type TabKey = 'general' | 'brand' | 'people' | 'ranks' | 'security' | 'notifications' | 'data';
 
 interface Tab { key: TabKey; label: string; icon: string; perm?: string; render: () => ReactNode }
 
@@ -18,6 +19,7 @@ const TABS: Tab[] = [
   { key: 'general', label: 'General', icon: '⚙', render: () => <General /> },
   { key: 'brand', label: 'Brand', icon: '◆', perm: 'settings.branding', render: () => <Brand /> },
   { key: 'people', label: 'People & Roles', icon: '⬡', perm: 'settings.roles', render: () => <PeopleRoles /> },
+  { key: 'ranks', label: 'Ranks', icon: '🏅', render: () => <Ranks /> },
   { key: 'security', label: 'Security', icon: '⛉', render: () => <Security /> },
   { key: 'notifications', label: 'Notifications', icon: '◔', render: () => <Notifications /> },
   { key: 'data', label: 'Data & Backup', icon: '☷', render: () => <Data /> },
