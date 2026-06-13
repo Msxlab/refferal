@@ -22,10 +22,13 @@ export interface ApiNode {
   earningsCents?: string; // yasam-boyu (payable+paid)
 }
 
+export interface RankTierLite { name: string; minTeam: number; minEarningsCents: string }
+
 type NodeData = {
   node: ApiNode; team: number; direct: number; match: boolean; isFocus: boolean;
-  // performans (isi haritasi) modu
-  perfMode: boolean; revenue: number; sales: number; maxRevenue: number;
+  rank: string | null;
+  // isi haritasi: secilen metrige gore tonlama
+  revenue: number; sales: number; heatValue: number; heatMax: number;
 };
 
 /** kompakt para: $12.3k / $1.2M (dugum rozeti icin). */
@@ -47,8 +50,8 @@ const ROLE_BG: Record<string, string> = {
 function MemberNode({ data }: NodeProps<Node<NodeData>>) {
   const n = data.node;
   const owner = n.role === 'tenant_owner';
-  // isi haritasi: revenue/max oranina gore altin tonu (0..0.7)
-  const intensity = data.perfMode && data.maxRevenue > 0 ? Math.min(0.72, data.revenue / data.maxRevenue) : 0;
+  // isi haritasi: secilen metrik/max oranina gore altin tonu (0..0.7)
+  const intensity = data.heatMax > 0 ? Math.min(0.72, data.heatValue / data.heatMax) : 0;
   const bg = intensity > 0
     ? `color-mix(in srgb, var(--gold-500) ${Math.round(intensity * 100)}%, var(--panel))`
     : 'var(--panel)';
@@ -76,6 +79,7 @@ function MemberNode({ data }: NodeProps<Node<NodeData>>) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
         <div style={{ display: 'flex', gap: 6 }}>
           {n.role !== 'member' && <span className="badge active" style={{ fontSize: 9 }}>{n.role.replace('tenant_', '')}</span>}
+          {data.rank && <span className="badge payable" style={{ fontSize: 9 }}>🏅 {data.rank}</span>}
           {n.status !== 'active' && <span className="badge inactive" style={{ fontSize: 9 }}>{n.status}</span>}
         </div>
         {data.revenue > 0
@@ -88,14 +92,14 @@ function MemberNode({ data }: NodeProps<Node<NodeData>>) {
 }
 const nodeTypes = { member: MemberNode };
 
-export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]; title?: string }) {
+export function NetworkExplorer({ nodes, title = 'network', tiers = [] }: { nodes: ApiNode[]; title?: string; tiers?: RankTierLite[] }) {
   const [view, setView] = useState<'tree' | 'list'>('list');
   const [focusId, setFocusId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<ApiNode | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<'dark' | 'light'>('dark');
-  const [perfMode, setPerfMode] = useState(false);
+  const [heat, setHeat] = useState<'none' | 'revenue' | 'earnings'>('none');
   const flowRef = useRef<HTMLDivElement>(null);
   const toggleExpand = (id: string) => setExpanded((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -141,6 +145,32 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
     return count;
   }, [childrenOf]);
 
+  // client-side rutbe: tenant tier'lari + (team, yasam-boyu kazanc) ile kosulan en yuksek tier
+  const earningsById = useMemo(() => new Map(nodes.map((n) => [n.id, Number(n.earningsCents ?? 0)])), [nodes]);
+  const rankOf = useCallback((id: string): string | null => {
+    if (tiers.length === 0) return null;
+    const team = teamOf(id);
+    const earn = earningsById.get(id) ?? 0;
+    let name: string | null = null;
+    for (const t of tiers) { if (team >= t.minTeam && earn >= Number(t.minEarningsCents)) name = t.name; }
+    return name;
+  }, [tiers, teamOf, earningsById]);
+
+  // alt-agac cirosu (bu ay): dugum + tum torunlarinin revenueCents toplami (memoize)
+  const subtreeRevById = useMemo(() => {
+    const memo = new Map<string, number>();
+    const calc = (id: string): number => {
+      const cached = memo.get(id);
+      if (cached !== undefined) return cached;
+      let sum = Number(byId.get(id)?.revenueCents ?? 0);
+      for (const c of childrenOf.get(id) ?? []) sum += calc(c.id);
+      memo.set(id, sum);
+      return sum;
+    };
+    for (const n of nodes) calc(n.id);
+    return memo;
+  }, [nodes, byId, childrenOf]);
+
   // odak alt-agaci: focusId + tum torunlari
   const subtree = useMemo(() => {
     if (!focusId) return nodes;
@@ -164,7 +194,9 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
   const q = query.trim().toLowerCase();
   const matches = useCallback((n: ApiNode) => q.length > 0 && (n.fullName.toLowerCase().includes(q) || n.referralCode.toLowerCase().includes(q)), [q]);
 
-  const maxRevenue = useMemo(() => Math.max(0, ...subtree.map((n) => Number(n.revenueCents ?? 0))), [subtree]);
+  // isi haritasi degeri: secilen metrik (none → 0); max ile normalize edilir
+  const heatVal = useCallback((n: ApiNode) => heat === 'revenue' ? Number(n.revenueCents ?? 0) : heat === 'earnings' ? Number(n.earningsCents ?? 0) : 0, [heat]);
+  const heatMax = useMemo(() => heat === 'none' ? 0 : Math.max(0, ...subtree.map(heatVal)), [heat, subtree, heatVal]);
 
   // ---- ag analitigi (odaklanilan kapsama gore) ----
   const analytics = useMemo(() => {
@@ -184,6 +216,30 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
     return { people: subtree.length, active, newThisMonth, revenue, earnings, maxDepth, top };
   }, [subtree]);
   const hasEarnings = useMemo(() => subtree.some((n) => Number(n.earningsCents ?? 0) > 0), [subtree]);
+
+  // ag CSV disa aktarim (odaklanilan kapsam + hesaplanan metrikler)
+  const exportCsv = useCallback(() => {
+    const esc = (v: string | number) => { const s = String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const header = ['Name', 'Code', 'Role', 'Status', 'Level', 'Sponsor', 'Direct', 'Team', 'Joined', 'Revenue(mo)', 'LifetimeEarnings', 'Rank', 'SubtreeRevenue(mo)'];
+    const lines = [header.join(',')];
+    for (const n of subtree) {
+      lines.push([
+        esc(n.fullName), esc(n.referralCode), esc(n.role), esc(n.status), n.depth,
+        esc(n.parentId ? byId.get(n.parentId)?.fullName ?? '' : ''),
+        (childrenOf.get(n.id) ?? []).length, teamOf(n.id),
+        esc(n.joinedAt ? new Date(n.joinedAt).toISOString().slice(0, 10) : ''),
+        (Number(n.revenueCents ?? 0) / 100).toFixed(2),
+        (Number(n.earningsCents ?? 0) / 100).toFixed(2),
+        esc(rankOf(n.id) ?? ''),
+        ((subtreeRevById.get(n.id) ?? 0) / 100).toFixed(2),
+      ].join(','));
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${title}-network.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }, [subtree, byId, childrenOf, teamOf, rankOf, subtreeRevById, title]);
 
   /* ---- agac layout ---- */
   const { rfNodes, rfEdges } = useMemo<{ rfNodes: Node<NodeData>[]; rfEdges: Edge[] }>(() => {
@@ -206,7 +262,7 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
         position: { x: (d as unknown as { x: number }).x, y: (d as unknown as { y: number }).y },
         data: {
           node: n, team: teamOf(id), direct: (childrenOf.get(id) ?? []).length, match: matches(n), isFocus: id === focusId,
-          perfMode, revenue: Number(n.revenueCents ?? 0), sales: n.salesCount ?? 0, maxRevenue,
+          rank: rankOf(id), revenue: Number(n.revenueCents ?? 0), sales: n.salesCount ?? 0, heatValue: heatVal(n), heatMax,
         },
       });
       if (d.parent && d.parent.id !== VIRTUAL) {
@@ -214,7 +270,7 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
       }
     });
     return { rfNodes: ns, rfEdges: es };
-  }, [subtree, roots, focusId, teamOf, childrenOf, matches, perfMode, maxRevenue]);
+  }, [subtree, roots, focusId, teamOf, childrenOf, matches, rankOf, heatVal, heatMax]);
 
   /* ---- liste = koleps-edilebilir klasor agaci. Kapali baslar (yalniz kokler = ilk kisiler).
          Arama: eslesen + atalari acik gosterilir. ---- */
@@ -278,7 +334,14 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
             <button className="btn ghost sm" onClick={() => setExpanded(new Set())}>Collapse all</button>
           </>
         )}
-        {hasRevenue && <button className={`btn sm ${perfMode ? '' : 'ghost'}`} onClick={() => setPerfMode((v) => !v)} title="Shade nodes by revenue this month">◉ Performance</button>}
+        {(hasRevenue || hasEarnings) && (
+          <button
+            className={`btn sm ${heat === 'none' ? 'ghost' : ''}`}
+            onClick={() => setHeat((h) => h === 'none' ? 'revenue' : h === 'revenue' ? 'earnings' : 'none')}
+            title="Düğümleri metriğe göre ısı-haritasıyla tonla"
+          >◉ Isı: {heat === 'none' ? 'kapalı' : heat === 'revenue' ? 'ciro' : 'kazanç'}</button>
+        )}
+        <button className="btn ghost sm" onClick={exportCsv}>⇩ CSV</button>
         {view === 'tree' && <button className="btn ghost sm" onClick={exportPng}>⇩ PNG</button>}
         <span className="faint" style={{ fontSize: 12 }}>{subtree.length} {subtree.length === 1 ? 'person' : 'people'}</span>
       </div>
@@ -367,6 +430,7 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
           <div className="grid" style={{ gap: 16 }}>
             <div className="row" style={{ gap: 8 }}>
               {selected.role !== 'member' && <span className="badge active" style={{ fontSize: 10 }}>{selected.role.replace('tenant_', '')}</span>}
+              {rankOf(selected.id) && <span className="badge payable" style={{ fontSize: 10 }}>🏅 {rankOf(selected.id)}</span>}
               <span className={`badge ${selected.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 10 }}>{selected.status}</span>
             </div>
             <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 14 }}>
@@ -376,6 +440,7 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
               <Stat label="Sponsor" value={selected.parentId ? byId.get(selected.parentId)?.fullName ?? '—' : '— (top)'} />
               {Number(selected.earningsCents ?? 0) > 0 && <Stat label="Lifetime earnings" value={compactMoney(Number(selected.earningsCents))} />}
               {Number(selected.revenueCents ?? 0) > 0 && <Stat label="Revenue (this mo)" value={compactMoney(Number(selected.revenueCents))} />}
+              {(subtreeRevById.get(selected.id) ?? 0) > 0 && <Stat label="Subtree revenue (mo)" value={compactMoney(subtreeRevById.get(selected.id) ?? 0)} />}
               {selected.joinedAt && <Stat label="Joined" value={new Date(selected.joinedAt).toLocaleDateString()} />}
             </div>
             {(childrenOf.get(selected.id) ?? []).length > 0 && (
