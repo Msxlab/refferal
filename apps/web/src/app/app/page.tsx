@@ -38,6 +38,7 @@ export default function MemberDashboard() {
   const [rankInfo, setRankInfo] = useState<{ rank: number | null; total: number; topPercent: number | null } | null>(null);
   const [onboarding, setOnboarding] = useState<{ steps: { key: string; label: string; done: boolean }[]; percent: number } | null>(null);
   const [rank, setRank] = useState<{ current: string | null; next: string | null; overallPct: number; badges: { key: string; label: string; earned: boolean }[] } | null>(null);
+  const [announcements, setAnnouncements] = useState<{ id: string; title: string; body: string; createdAt: string; read: boolean }[]>([]);
   const [npsPrompt, setNpsPrompt] = useState(false);
   const [npsScore, setNpsScore] = useState<number | null>(null);
   const [npsComment, setNpsComment] = useState('');
@@ -52,7 +53,12 @@ export default function MemberDashboard() {
     api.get<{ shouldPrompt: boolean }>('/app/survey').then((s) => setNpsPrompt(s.shouldPrompt)).catch(() => { /* opsiyonel */ });
     api.get<{ steps: { key: string; label: string; done: boolean }[]; percent: number }>('/app/onboarding').then(setOnboarding).catch(() => { /* opsiyonel */ });
     api.get<{ current: string | null; next: string | null; overallPct: number; badges: { key: string; label: string; earned: boolean }[] }>('/app/rank').then(setRank).catch(() => { /* opsiyonel */ });
+    api.get<{ id: string; title: string; body: string; createdAt: string; read: boolean }[]>('/app/announcements').then(setAnnouncements).catch(() => { /* opsiyonel */ });
   }, []);
+
+  async function dismissAnnouncement(id: string) {
+    try { await api.post(`/app/announcements/${id}/read`); setAnnouncements((a) => a.map((x) => x.id === id ? { ...x, read: true } : x)); } catch { /* sessiz */ }
+  }
 
   async function submitNps() {
     if (npsScore == null) return;
@@ -86,6 +92,20 @@ export default function MemberDashboard() {
       <div className="eyebrow fade-in">{t('anav.home')} · {data.month}</div>
       <h1 className="h1 fade-in">{t('me.title')}</h1>
       <p className="sub fade-in">{t('me.sub')}</p>
+
+      {announcements.filter((a) => !a.read).length > 0 && (
+        <div className="grid fade-in" style={{ gap: 10, marginBottom: 16 }}>
+          {announcements.filter((a) => !a.read).map((a) => (
+            <div key={a.id} className="card" style={{ borderColor: 'color-mix(in srgb, var(--gold-500) 35%, transparent)' }}>
+              <div className="spread" style={{ marginBottom: 4 }}>
+                <strong style={{ fontSize: 14 }}>📣 {a.title}</strong>
+                <button className="faint" onClick={() => dismissAnnouncement(a.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>Mark read ✕</button>
+              </div>
+              <div className="muted" style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{a.body}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {onboarding && onboarding.percent < 100 && (
         <div className="card fade-in" style={{ marginBottom: 16 }}>

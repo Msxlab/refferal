@@ -183,6 +183,7 @@ model Tenant {
   payoutBatches PayoutBatch[]
   apiKeys     ApiKey[]
   webhooks    WebhookEndpoint[]
+  announcements Announcement[]
 
   @@map("tenants")
 }
@@ -745,6 +746,34 @@ model PayoutBatch {
 
   @@index([tenantId, status])
   @@map("payout_batches")
+}
+
+// Duyuru akisi (Dalga 3): tenant admini duyuru yayinlar; uye okur + okundu isaretler.
+model Announcement {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  title           String
+  body            String
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  tenant Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reads  AnnouncementRead[]
+
+  @@index([tenantId, createdAt])
+  @@map("announcements")
+}
+
+model AnnouncementRead {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  announcementId String   @map("announcement_id") @db.Uuid
+  membershipId   String   @map("membership_id") @db.Uuid
+  readAt         DateTime @default(now()) @map("read_at")
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, membershipId])
+  @@map("announcement_reads")
 }
 
 // API anahtari (Dalga 3): X-Api-Key ile entegrasyon erisimi. Yalniz hash saklanir;

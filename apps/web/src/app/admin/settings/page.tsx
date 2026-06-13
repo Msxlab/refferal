@@ -12,8 +12,9 @@ import Data from './sections/Data';
 import Ranks from './sections/Ranks';
 import Reports from './sections/Reports';
 import Integrations from './sections/Integrations';
+import Announcements from './sections/Announcements';
 
-type TabKey = 'general' | 'brand' | 'people' | 'ranks' | 'security' | 'notifications' | 'reports' | 'integrations' | 'data';
+type TabKey = 'general' | 'brand' | 'people' | 'ranks' | 'security' | 'notifications' | 'reports' | 'integrations' | 'announcements' | 'data';
 
 interface Tab { key: TabKey; label: string; icon: string; perm?: string; render: () => ReactNode }
 
@@ -26,6 +27,7 @@ const TABS: Tab[] = [
   { key: 'notifications', label: 'Notifications', icon: '◔', render: () => <Notifications /> },
   { key: 'reports', label: 'Reports', icon: '✉', render: () => <Reports /> },
   { key: 'integrations', label: 'Integrations', icon: '⚯', render: () => <Integrations /> },
+  { key: 'announcements', label: 'Announcements', icon: '📣', render: () => <Announcements /> },
   { key: 'data', label: 'Data & Backup', icon: '☷', render: () => <Data /> },
 ];
 
