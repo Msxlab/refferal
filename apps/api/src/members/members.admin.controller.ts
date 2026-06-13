@@ -100,6 +100,13 @@ export class MembersAdminController {
     return this.members.detail(user.tid as string, id);
   }
 
+  // GDPR/KVKK DSAR: uyenin tum kisisel verisi (admin)
+  @Roles(...ADMIN)
+  @Get(':id/export')
+  exportData(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.members.exportData(user.tid as string, id);
+  }
+
   @Roles(...ADMIN)
   @HttpCode(200)
   @Post(':id/deactivate')

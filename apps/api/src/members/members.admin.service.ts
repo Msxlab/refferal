@@ -433,6 +433,36 @@ export class MembersAdminService {
     });
   }
 
+  /** GDPR/KVKK DSAR (Dalga 3): uyenin tum kisisel verisini tek JSON'da derler (admin). */
+  async exportData(tenantId: string, membershipId: string) {
+    const m = await this.prisma.membership.findFirst({
+      where: { id: membershipId, tenantId },
+      include: { user: { select: { id: true, email: true, fullName: true, locale: true, emailVerifiedAt: true, createdAt: true } }, sponsor: { select: { referralCode: true } } },
+    });
+    if (!m) throw new NotFoundException('uyelik bu isletmede bulunamadi');
+
+    const [sales, ledger, invites, payouts, profile, surveys] = await Promise.all([
+      this.prisma.sale.findMany({ where: { tenantId, sellerMembershipId: membershipId } }),
+      this.prisma.ledgerEntry.findMany({ where: { tenantId, beneficiaryMembershipId: membershipId } }),
+      this.prisma.invite.findMany({ where: { tenantId, inviterMembershipId: membershipId } }),
+      this.prisma.payout.findMany({ where: { tenantId, membershipId } }),
+      this.prisma.payoutProfile.findUnique({ where: { membershipId } }),
+      this.prisma.surveyResponse.findMany({ where: { membershipId } }),
+    ]);
+
+    return deBig({
+      exportedAt: new Date().toISOString(),
+      profile: {
+        membershipId: m.id, referralCode: m.referralCode, role: m.role, status: m.status, depth: m.depth,
+        joinedAt: m.joinedAt, sponsorReferralCode: m.sponsor?.referralCode ?? null,
+        user: m.user,
+      },
+      // payout profili: yalniz son-4 saklanir (tam veri zaten yok)
+      payoutProfile: profile ? { legalName: profile.legalName, taxIdType: profile.taxIdType, taxIdLast4: profile.taxIdLast4, routingNumber: profile.routingNumber, accountLast4: profile.accountLast4, status: profile.status } : null,
+      sales, ledger, invites, payouts, surveys,
+    });
+  }
+
   private async requireInTenant(tenantId: string, membershipId: string) {
     const m = await this.prisma.membership.findFirst({
       where: { id: membershipId, tenantId },
@@ -447,6 +477,19 @@ export class MembersAdminService {
       data: { tenantId: actor.tenantId, actorUserId: actor.userId, action, entity: action.split('.')[0], entityId, after },
     });
   }
+}
+
+/** Derin BigInt → string (JSON serialize icin; DSAR export'unda cent alanlari BigInt). */
+function deBig(v: unknown): unknown {
+  if (typeof v === 'bigint') return v.toString();
+  if (v instanceof Date) return v.toISOString();
+  if (Array.isArray(v)) return v.map(deBig);
+  if (v && typeof v === 'object') {
+    const o: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v)) o[k] = deBig(val);
+    return o;
+  }
+  return v;
 }
 
 /** CSV hucresi: virgul/tirnak/yeni satir varsa tirnakla ve "" kacisla (payouts exportCsv kalibi). */

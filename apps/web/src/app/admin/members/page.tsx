@@ -356,6 +356,15 @@ function MemberDrawer({ id, onClose, onNavigate, onChanged, onToast }: {
   const tenantName = (() => { const s = getSession(); return (s ? activeMembership(s)?.tenantName : null) ?? 'Refearn'; })();
   const meIsAdmin = (() => { const s = getSession(); return s ? isAdminRole(activeMembership(s)?.role) : false; })();
 
+  async function exportData() {
+    try {
+      const data = await api.get<unknown>(`/admin/members/${id}/export`);
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+      const a = document.createElement('a'); a.href = url; a.download = `member-${id}.json`; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { setErr(String((e as ApiError).message)); }
+  }
+
   async function viewAsMember() {
     if (!d) return;
     try {
@@ -400,6 +409,7 @@ function MemberDrawer({ id, onClose, onNavigate, onChanged, onToast }: {
       footer={p && (
         <>
           <button className="btn ghost" disabled={busy} onClick={() => setPrinting(true)}>🖶 Print summary</button>
+          {meIsAdmin && <button className="btn ghost" disabled={busy} onClick={exportData}>⇩ Export data</button>}
           {meIsAdmin && p.role !== 'tenant_owner' && p.role !== 'tenant_admin' && (
             <button className="btn ghost" disabled={busy} onClick={viewAsMember}>👁 View as member</button>
           )}

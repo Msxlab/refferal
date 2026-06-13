@@ -157,6 +157,7 @@ export default function PayoutsPage() {
             <button className="btn success" onClick={() => setConfirmRun('all')} disabled={busy || !payable?.members.length}>{t('payouts.run')}</button>
             <button className="btn ghost" onClick={downloadExport}>⇩ {t('payouts.export')}</button>
             <button className="btn ghost" onClick={runFraudScan} disabled={scanning}>{scanning ? 'Scanning…' : '⚠ Fraud scan'}</button>
+            <button className="btn ghost" onClick={() => { const y = new Date().getFullYear(); downloadCsv(`/admin/tax/1099.csv?year=${y}`, `1099-nec-${y}.csv`).catch((e) => setError(String((e as ApiError).message))); }}>⇩ 1099-NEC</button>
           </div>
         </div>
       </div>

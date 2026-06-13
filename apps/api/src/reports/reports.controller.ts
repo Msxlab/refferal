@@ -23,6 +23,7 @@ const auditSchema = auditFilterSchema.extend({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
 });
+const yearSchema = z.object({ year: z.coerce.number().int().min(2020).max(2100) });
 const reportSubSchema = z.object({
   frequency: z.enum(['weekly', 'monthly']),
   recipients: z.array(z.string().trim().toLowerCase().email().max(254)).max(20),
@@ -74,6 +75,21 @@ export class ReportsController {
   async sendTestReport(@CurrentUser() user: RequestUser) {
     const sub = await this.reports.getSubscription(user.tid as string);
     return this.reports.sendDigest(user.tid as string, sub.recipients);
+  }
+
+  // 1099-NEC vergi raporu (admin)
+  @Roles(...ADMIN)
+  @Get('tax/1099')
+  tax1099(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(yearSchema)) q: z.infer<typeof yearSchema>) {
+    return this.reports.tax1099(user.tid as string, q.year);
+  }
+
+  @Roles(...ADMIN)
+  @Get('tax/1099.csv')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="1099-nec.csv"')
+  async tax1099Csv(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(yearSchema)) q: z.infer<typeof yearSchema>, @Res() res: Response) {
+    res.send(await this.reports.tax1099Csv(user.tid as string, q.year));
   }
 
   // finansal invariant denetimi (admin)

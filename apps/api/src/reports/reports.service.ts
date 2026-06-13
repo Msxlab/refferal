@@ -276,6 +276,70 @@ export class ReportsService {
     return out;
   }
 
+  // ---------------------------------------------------- 1099-NEC vergi raporu (Dalga 3, ABD)
+
+  /** Takvim yili icinde uyeye ODENEN komisyon toplami; >= $600 1099-NEC raporlanabilir. */
+  async tax1099(tenantId: string, year: number) {
+    const start = new Date(`${year}-01-01T00:00:00.000Z`);
+    const end = new Date(`${year + 1}-01-01T00:00:00.000Z`);
+    const THRESHOLD = 60_000; // $600
+
+    const rows = await this.prisma.payout.groupBy({
+      by: ['membershipId'],
+      where: { tenantId, status: 'paid', paidAt: { gte: start, lt: end } },
+      _sum: { totalCents: true },
+    });
+    const ids = rows.map((r) => r.membershipId);
+    const [members, profiles] = await Promise.all([
+      this.prisma.membership.findMany({ where: { id: { in: ids } }, select: { id: true, referralCode: true, user: { select: { fullName: true } } } }),
+      this.prisma.payoutProfile.findMany({ where: { membershipId: { in: ids } }, select: { membershipId: true, legalName: true, taxIdType: true, taxIdLast4: true } }),
+    ]);
+    const mBy = new Map(members.map((m) => [m.id, m]));
+    const pBy = new Map(profiles.map((p) => [p.membershipId, p]));
+
+    const list = rows.map((r) => {
+      const paid = Number(r._sum.totalCents ?? 0n);
+      const m = mBy.get(r.membershipId);
+      const p = pBy.get(r.membershipId);
+      return {
+        membershipId: r.membershipId,
+        name: m?.user.fullName ?? '—',
+        referralCode: m?.referralCode ?? '',
+        legalName: p?.legalName ?? null,
+        taxIdType: p?.taxIdType ?? null,
+        taxIdLast4: p?.taxIdLast4 ?? null,
+        hasTaxId: !!p,
+        paidCents: paid.toString(),
+        reportable: paid >= THRESHOLD,
+      };
+    }).sort((a, b) => Number(b.paidCents) - Number(a.paidCents));
+
+    return {
+      year,
+      thresholdCents: THRESHOLD.toString(),
+      reportableCount: list.filter((x) => x.reportable).length,
+      missingTaxId: list.filter((x) => x.reportable && !x.hasTaxId).length,
+      members: list,
+    };
+  }
+
+  async tax1099Csv(tenantId: string, year: number): Promise<string> {
+    const { members } = await this.tax1099(tenantId, year);
+    const header = 'legal_name,full_name,referral_code,tax_id_type,tax_id_last4,paid_amount,reportable';
+    const lines = members.map((m) =>
+      [
+        csvCell(m.legalName ?? ''),
+        csvCell(m.name),
+        m.referralCode,
+        m.taxIdType ?? '',
+        m.taxIdLast4 ?? '',
+        (Number(m.paidCents) / 100).toFixed(2),
+        m.reportable ? 'yes' : 'no',
+      ].join(','),
+    );
+    return [header, ...lines].join('\n') + '\n';
+  }
+
   // ---------------------------------------------------- finansal invariant dogrulama (Dalga 3)
 
   /**
