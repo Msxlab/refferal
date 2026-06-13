@@ -324,6 +324,9 @@ tr:last-child td { border-bottom: none; }
   .main { padding: 20px 16px; }
 }
 
+/* ------------------------------------------------- yogunluk (compact tablo) */
+table.dense th, table.dense td { padding: 6px 10px; font-size: 12px; }
+
 /* ------------------------------------------------- siralanabilir basliklar */
 th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
 th.sortable:hover { color: var(--text); }

@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
-import { Confirm, Loading, Modal, Pagination, SortableTh, SortDir, useToast } from '@/components/ui';
+import { ColumnsMenu, Confirm, Loading, Modal, Pagination, SortableTh, SortDir, TableColumn, useTablePrefs, useToast } from '@/components/ui';
 import { Drawer } from '@/components/Drawer';
 import { PrintSheet, PrintHeader } from '@/components/PrintSheet';
 import { activeMembership, getSession } from '@/lib/auth';
@@ -25,6 +25,15 @@ interface MemberItem {
 interface MembersList { total: number; page: number; pageSize: number; items: MemberItem[] }
 const ROLES = ['member', 'tenant_staff', 'tenant_admin'];
 const STATUS_TABS = [['', 'All'], ['active', 'Active'], ['inactive', 'Inactive']] as const;
+const MEMBER_COLUMNS: TableColumn[] = [
+  { key: 'member', label: 'Member', locked: true },
+  { key: 'code', label: 'Code' },
+  { key: 'sponsor', label: 'Sponsor' },
+  { key: 'level', label: 'Level' },
+  { key: 'role', label: 'Role' },
+  { key: 'status', label: 'Status' },
+  { key: 'joined', label: 'Joined' },
+];
 
 export default function MembersPage() {
   const [list, setList] = useState<MembersList | null>(null);
@@ -43,6 +52,8 @@ export default function MembersPage() {
   const [showInvite, setShowInvite] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailId, setDetailId] = useState<string | null>(null);
+  const cols = useTablePrefs('members', MEMBER_COLUMNS);
+  const colCount = 1 + MEMBER_COLUMNS.filter((c) => cols.isVisible(c.key)).length + 1;
 
   const filterQuery = useMemo(() => {
     const p = new URLSearchParams();
@@ -143,6 +154,8 @@ export default function MembersPage() {
             <button key={v} className={`seg-tab ${status === v ? 'on' : ''}`} onClick={() => { setStatus(v); setPage(1); }}>{lbl}</button>
           ))}
         </div>
+        <span style={{ flex: 1 }} />
+        <ColumnsMenu prefs={cols} />
       </div>
 
       <div className="card fade-in delay-2">
@@ -150,14 +163,16 @@ export default function MembersPage() {
           <strong>Members {list && <span className="faint">({list.total})</span>}</strong>
         </div>
         {!list ? <Loading rows={4} /> : (
-          <table>
+          <table className={cols.density === 'compact' ? 'dense' : undefined}>
             <thead><tr>
               <th className="no-print" style={{ width: 30 }}><input type="checkbox" checked={selected.size > 0 && selected.size === list.items.length} onChange={toggleAll} aria-label="Select all" /></th>
-              <SortableTh label="Member" field="fullName" sort={sort} dir={dir} onSort={onSort} />
-              <th>Code</th><th>Sponsor</th>
-              <SortableTh label="Lvl." field="depth" sort={sort} dir={dir} onSort={onSort} />
-              <th>{t('members.role')}</th><th>Status</th>
-              <SortableTh label="Joined" field="joinedAt" sort={sort} dir={dir} onSort={onSort} />
+              {cols.isVisible('member') && <SortableTh label="Member" field="fullName" sort={sort} dir={dir} onSort={onSort} />}
+              {cols.isVisible('code') && <th>Code</th>}
+              {cols.isVisible('sponsor') && <th>Sponsor</th>}
+              {cols.isVisible('level') && <SortableTh label="Lvl." field="depth" sort={sort} dir={dir} onSort={onSort} />}
+              {cols.isVisible('role') && <th>{t('members.role')}</th>}
+              {cols.isVisible('status') && <th>Status</th>}
+              {cols.isVisible('joined') && <SortableTh label="Joined" field="joinedAt" sort={sort} dir={dir} onSort={onSort} />}
               <th className="no-print" style={{ textAlign: 'right' }}>{t('common.actions')}</th>
             </tr></thead>
             <tbody>
@@ -166,23 +181,27 @@ export default function MembersPage() {
                   <td className="no-print" onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" checked={selected.has(m.id)} onChange={() => toggle(m.id)} aria-label={`Select ${m.fullName}`} />
                   </td>
-                  <td>{m.fullName}<div className="faint" style={{ fontSize: 12 }}>{m.email}</div></td>
-                  <td style={{ fontFamily: 'ui-monospace, monospace' }}>{m.referralCode}</td>
-                  <td onClick={(e) => e.stopPropagation()}>
-                    {m.sponsorReferralCode
-                      ? <button className="btn ghost sm" style={{ fontFamily: 'ui-monospace, monospace', padding: '3px 8px' }} onClick={() => openSponsor(m.sponsorReferralCode!)}>{m.sponsorReferralCode}</button>
-                      : <span className="faint">—</span>}
-                  </td>
-                  <td>{m.depth}</td>
-                  <td onClick={(e) => e.stopPropagation()}>
-                    {m.role === 'tenant_owner' ? <span className="faint">owner</span> : (
-                      <select value={m.role} onChange={(e) => changeRole(m, e.target.value)} style={{ width: 134 }}>
-                        {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                      </select>
-                    )}
-                  </td>
-                  <td><span className={`badge ${m.status}`}>{m.status}</span></td>
-                  <td className="muted">{dateShort(m.joinedAt)}</td>
+                  {cols.isVisible('member') && <td>{m.fullName}<div className="faint" style={{ fontSize: 12 }}>{m.email}</div></td>}
+                  {cols.isVisible('code') && <td style={{ fontFamily: 'ui-monospace, monospace' }}>{m.referralCode}</td>}
+                  {cols.isVisible('sponsor') && (
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {m.sponsorReferralCode
+                        ? <button className="btn ghost sm" style={{ fontFamily: 'ui-monospace, monospace', padding: '3px 8px' }} onClick={() => openSponsor(m.sponsorReferralCode!)}>{m.sponsorReferralCode}</button>
+                        : <span className="faint">—</span>}
+                    </td>
+                  )}
+                  {cols.isVisible('level') && <td>{m.depth}</td>}
+                  {cols.isVisible('role') && (
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {m.role === 'tenant_owner' ? <span className="faint">owner</span> : (
+                        <select value={m.role} onChange={(e) => changeRole(m, e.target.value)} style={{ width: 134 }}>
+                          {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      )}
+                    </td>
+                  )}
+                  {cols.isVisible('status') && <td><span className={`badge ${m.status}`}>{m.status}</span></td>}
+                  {cols.isVisible('joined') && <td className="muted">{dateShort(m.joinedAt)}</td>}
                   <td className="no-print" style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                     {m.role !== 'tenant_owner' && (
                       <button className="btn ghost sm" onClick={() => setConfirmM(m)}>
@@ -192,7 +211,7 @@ export default function MembersPage() {
                   </td>
                 </tr>
               ))}
-              {list.items.length === 0 && <tr><td colSpan={9} className="muted">No members found.</td></tr>}
+              {list.items.length === 0 && <tr><td colSpan={colCount} className="muted">No members found.</td></tr>}
             </tbody>
           </table>
         )}

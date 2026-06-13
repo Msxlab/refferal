@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode, useEffect, useRef, useState } from 'react';
+import { Popover } from './Popover';
 
 /* ----------------------------------------------------- animasyonlu sayac */
 function easeOut(t: number): number {
@@ -305,6 +306,80 @@ export function Pagination({ page, pageSize, total, onPage }: { page: number; pa
       <span className="tnum" style={{ fontSize: 12 }}>{page} / {pages}</span>
       <button className="btn ghost sm" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page">›</button>
     </div>
+  );
+}
+
+/* ----------------------------------------------------- gelismis tablo: kolon tercihleri */
+export interface TableColumn { key: string; label: string; locked?: boolean }
+export type Density = 'comfortable' | 'compact';
+
+interface TablePrefs {
+  isVisible: (key: string) => boolean;
+  toggle: (key: string) => void;
+  density: Density;
+  setDensity: (d: Density) => void;
+  reset: () => void;
+  columns: TableColumn[];
+  hiddenCount: number;
+}
+
+/** Kolon goster/gizle + yogunluk; kullanici basina localStorage'da kalici (tableId anahtari). */
+export function useTablePrefs(tableId: string, columns: TableColumn[]): TablePrefs {
+  const storeKey = `refearn.table.${tableId}`;
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [density, setDensityState] = useState<Density>('comfortable');
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storeKey);
+      if (raw) {
+        const p = JSON.parse(raw) as { hidden?: string[]; density?: Density };
+        setHidden(new Set(p.hidden ?? []));
+        if (p.density) setDensityState(p.density);
+      }
+    } catch { /* yok say */ }
+  }, [storeKey]);
+
+  const persist = (h: Set<string>, d: Density) => {
+    try { localStorage.setItem(storeKey, JSON.stringify({ hidden: [...h], density: d })); } catch { /* yok say */ }
+  };
+  const toggle = (key: string) => {
+    setHidden((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); persist(n, density); return n; });
+  };
+  const setDensity = (d: Density) => { setDensityState(d); persist(hidden, d); };
+  const reset = () => { setHidden(new Set()); setDensityState('comfortable'); persist(new Set(), 'comfortable'); };
+
+  return {
+    isVisible: (key) => !hidden.has(key),
+    toggle, density, setDensity, reset, columns,
+    hiddenCount: [...hidden].filter((k) => columns.some((c) => c.key === k && !c.locked)).length,
+  };
+}
+
+/** Kolon/yogunluk menusu (Popover). Kilitli kolonlar her zaman acik. */
+export function ColumnsMenu({ prefs }: { prefs: TablePrefs }) {
+  return (
+    <Popover label={<>⚙ Columns</>} badge={prefs.hiddenCount} width={240}>
+      <div className="grid" style={{ gap: 4 }}>
+        {prefs.columns.map((c) => {
+          const on = c.locked || prefs.isVisible(c.key);
+          return (
+            <label key={c.key} onClick={(e) => { e.preventDefault(); if (!c.locked) prefs.toggle(c.key); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', borderRadius: 8, cursor: c.locked ? 'default' : 'pointer', fontSize: 13, opacity: c.locked ? 0.6 : 1 }}>
+              <span style={{ width: 14, height: 14, borderRadius: 4, display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 900, background: on ? 'var(--gold-500)' : 'transparent', border: on ? 'none' : '1.5px solid var(--border-strong)', color: 'var(--on-gold)' }}>{on ? '✓' : ''}</span>
+              {c.label}{c.locked && <span className="faint" style={{ fontSize: 10 }}>(fixed)</span>}
+            </label>
+          );
+        })}
+        <div className="row" style={{ justifyContent: 'space-between', borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 8 }}>
+          <div className="seg-tabs" style={{ padding: 3 }}>
+            <button className={`seg-tab ${prefs.density === 'comfortable' ? 'on' : ''}`} style={{ padding: '5px 9px', fontSize: 12 }} onClick={() => prefs.setDensity('comfortable')}>Comfortable</button>
+            <button className={`seg-tab ${prefs.density === 'compact' ? 'on' : ''}`} style={{ padding: '5px 9px', fontSize: 12 }} onClick={() => prefs.setDensity('compact')}>Compact</button>
+          </div>
+          <button className="btn ghost sm" onClick={prefs.reset}>Reset</button>
+        </div>
+      </div>
+    </Popover>
   );
 }
 

@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
-import { Confirm, Loading, Modal, Pagination, SortableTh, SortDir, StatCard, MoneyCounter, useToast } from '@/components/ui';
+import { ColumnsMenu, Confirm, Loading, Modal, Pagination, SortableTh, SortDir, StatCard, MoneyCounter, TableColumn, useTablePrefs, useToast } from '@/components/ui';
 import { Drawer } from '@/components/Drawer';
 import { Popover } from '@/components/Popover';
 import { ImportWizard } from '@/components/ImportWizard';
@@ -42,6 +42,14 @@ const VIEWS_KEY = 'refearn.sales.views';
 
 interface SavedView { name: string; filters: Filters }
 
+const SALE_COLUMNS: TableColumn[] = [
+  { key: 'seller', label: 'Seller', locked: true },
+  { key: 'amount', label: 'Amount' },
+  { key: 'customer', label: 'Customer' },
+  { key: 'status', label: 'Status' },
+  { key: 'date', label: 'Date' },
+];
+
 /* tarih cipleri icin yerel gun anahtari (YYYY-MM-DD) */
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -79,6 +87,8 @@ export default function SalesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailId, setDetailId] = useState<string | null>(null);
   const [views, setViews] = useState<SavedView[]>([]);
+  const cols = useTablePrefs('sales', SALE_COLUMNS);
+  const colCount = 1 + SALE_COLUMNS.filter((c) => cols.isVisible(c.key)).length + 1; // checkbox + gorunur + actions
 
   useEffect(() => {
     try { setViews(JSON.parse(localStorage.getItem(VIEWS_KEY) ?? '[]')); } catch { /* yok say */ }
@@ -278,6 +288,7 @@ export default function SalesPage() {
         ))}
 
         <span style={{ flex: 1 }} />
+        <ColumnsMenu prefs={cols} />
         {activeFilters && <button className="btn ghost sm" onClick={() => patchFilters(EMPTY)}>Clear</button>}
         <button className="btn ghost sm" onClick={saveView}>＋ Save view</button>
       </div>
@@ -293,15 +304,15 @@ export default function SalesPage() {
           </select>
         </div>
         {!list ? <Loading rows={3} /> : (
-          <table>
+          <table className={cols.density === 'compact' ? 'dense' : undefined}>
             <thead>
               <tr>
                 <th className="no-print" style={{ width: 30 }}><input type="checkbox" checked={selected.size > 0 && selected.size === list.items.length} onChange={toggleAll} aria-label="Select all" /></th>
-                <th>Seller</th>
-                <SortableTh label="Amount" field="amountCents" sort={sort} dir={dir} onSort={onSort} />
-                <th>Customer</th>
-                <SortableTh label={t('sales.status')} field="status" sort={sort} dir={dir} onSort={onSort} />
-                <SortableTh label="Date" field="saleDate" sort={sort} dir={dir} onSort={onSort} />
+                {cols.isVisible('seller') && <th>Seller</th>}
+                {cols.isVisible('amount') && <SortableTh label="Amount" field="amountCents" sort={sort} dir={dir} onSort={onSort} />}
+                {cols.isVisible('customer') && <th>Customer</th>}
+                {cols.isVisible('status') && <SortableTh label={t('sales.status')} field="status" sort={sort} dir={dir} onSort={onSort} />}
+                {cols.isVisible('date') && <SortableTh label="Date" field="saleDate" sort={sort} dir={dir} onSort={onSort} />}
                 <th className="no-print" style={{ textAlign: 'right' }}>{t('common.actions')}</th>
               </tr>
             </thead>
@@ -311,20 +322,24 @@ export default function SalesPage() {
                   <td className="no-print" onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" checked={selected.has(s.id)} onChange={() => toggle(s.id)} aria-label={`Select ${s.sellerName}`} />
                   </td>
-                  <td>
-                    <span className="row" style={{ gap: 6 }}>
-                      {s.sellerName}
-                      {s.selfSubmitted && <span className="badge pending" title="Submitted by member">self</span>}
-                    </span>
-                    <div className="faint" style={{ fontSize: 12 }}>{s.sellerReferralCode}</div>
-                  </td>
-                  <td className="tnum" style={{ fontWeight: 650 }}>{money(s.amountCents, s.currency)}</td>
-                  <td className="muted" style={{ fontSize: 12.5 }}>{s.customerRef || '—'}</td>
-                  <td>
-                    <span className={`badge ${s.status}`}>{s.status}</span>
-                    {s.deliveredAt && <span className="badge active" style={{ marginLeft: 6 }}>✓ delivered</span>}
-                  </td>
-                  <td className="muted">{dateShort(s.saleDate)}</td>
+                  {cols.isVisible('seller') && (
+                    <td>
+                      <span className="row" style={{ gap: 6 }}>
+                        {s.sellerName}
+                        {s.selfSubmitted && <span className="badge pending" title="Submitted by member">self</span>}
+                      </span>
+                      <div className="faint" style={{ fontSize: 12 }}>{s.sellerReferralCode}</div>
+                    </td>
+                  )}
+                  {cols.isVisible('amount') && <td className="tnum" style={{ fontWeight: 650 }}>{money(s.amountCents, s.currency)}</td>}
+                  {cols.isVisible('customer') && <td className="muted" style={{ fontSize: 12.5 }}>{s.customerRef || '—'}</td>}
+                  {cols.isVisible('status') && (
+                    <td>
+                      <span className={`badge ${s.status}`}>{s.status}</span>
+                      {s.deliveredAt && <span className="badge active" style={{ marginLeft: 6 }}>✓ delivered</span>}
+                    </td>
+                  )}
+                  {cols.isVisible('date') && <td className="muted">{dateShort(s.saleDate)}</td>}
                   <td className="no-print" onClick={(e) => e.stopPropagation()}>
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
                       {s.status === 'draft' && <button className="btn sm" onClick={() => setConfirm({ ids: [s.id], action: 'approve' })}>{t('sales.approve')}</button>}
@@ -335,15 +350,14 @@ export default function SalesPage() {
                   </td>
                 </tr>
               ))}
-              {list.items.length === 0 && <tr><td colSpan={7} className="muted">No sales match these filters.</td></tr>}
+              {list.items.length === 0 && <tr><td colSpan={colCount} className="muted">No sales match these filters.</td></tr>}
             </tbody>
             {summary && summary.count > 0 && (
               <tfoot>
                 <tr>
-                  <td className="no-print" />
-                  <td className="faint" style={{ fontSize: 12 }}>{summary.count} sales in view</td>
-                  <td className="tnum" style={{ fontWeight: 700 }}>{money(summary.sumCents, cur)}</td>
-                  <td colSpan={4} className="faint" style={{ fontSize: 12 }}>{summary.deliveredCount} delivered</td>
+                  <td colSpan={colCount} className="faint" style={{ fontSize: 12 }}>
+                    {summary.count} sales in view · <b className="tnum">{money(summary.sumCents, cur)}</b> · {summary.deliveredCount} delivered
+                  </td>
                 </tr>
               </tfoot>
             )}
