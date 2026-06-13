@@ -36,6 +36,7 @@ export default function MemberDashboard() {
   const [earnings, setEarnings] = useState<Earnings | null>(null);
   const [campaigns, setCampaigns] = useState<MyCampaign[]>([]);
   const [rankInfo, setRankInfo] = useState<{ rank: number | null; total: number; topPercent: number | null } | null>(null);
+  const [onboarding, setOnboarding] = useState<{ steps: { key: string; label: string; done: boolean }[]; percent: number } | null>(null);
   const [npsPrompt, setNpsPrompt] = useState(false);
   const [npsScore, setNpsScore] = useState<number | null>(null);
   const [npsComment, setNpsComment] = useState('');
@@ -48,6 +49,7 @@ export default function MemberDashboard() {
     api.get<MyCampaign[]>('/app/campaigns').then(setCampaigns).catch(() => { /* opsiyonel */ });
     api.get<{ rank: number | null; total: number; topPercent: number | null }>('/app/leaderboard').then(setRankInfo).catch(() => { /* opsiyonel */ });
     api.get<{ shouldPrompt: boolean }>('/app/survey').then((s) => setNpsPrompt(s.shouldPrompt)).catch(() => { /* opsiyonel */ });
+    api.get<{ steps: { key: string; label: string; done: boolean }[]; percent: number }>('/app/onboarding').then(setOnboarding).catch(() => { /* opsiyonel */ });
   }, []);
 
   async function submitNps() {
@@ -82,6 +84,26 @@ export default function MemberDashboard() {
       <div className="eyebrow fade-in">{t('anav.home')} · {data.month}</div>
       <h1 className="h1 fade-in">{t('me.title')}</h1>
       <p className="sub fade-in">{t('me.sub')}</p>
+
+      {onboarding && onboarding.percent < 100 && (
+        <div className="card fade-in" style={{ marginBottom: 16 }}>
+          <div className="spread" style={{ marginBottom: 10 }}>
+            <strong style={{ fontSize: 14 }}>Get started</strong>
+            <span className="faint" style={{ fontSize: 12 }}>{onboarding.percent}% complete</span>
+          </div>
+          <div style={{ height: 8, borderRadius: 6, background: 'rgba(255,255,255,.06)', overflow: 'hidden', marginBottom: 12 }}>
+            <div style={{ height: '100%', width: `${onboarding.percent}%`, borderRadius: 6, background: 'var(--grad-primary)', transition: 'width .7s' }} />
+          </div>
+          <div className="grid" style={{ gap: 6 }}>
+            {onboarding.steps.map((s) => (
+              <div key={s.key} className="row" style={{ gap: 8, fontSize: 13 }}>
+                <span style={{ width: 18, height: 18, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 11, background: s.done ? 'var(--grad-emerald, var(--emerald))' : 'var(--panel-2)', color: s.done ? '#03130d' : 'var(--faint)' }}>{s.done ? '✓' : ''}</span>
+                <span style={{ color: s.done ? 'var(--muted)' : 'var(--text)', textDecoration: s.done ? 'line-through' : undefined }}>{s.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {npsPrompt && !npsDone && (
         <div className="card fade-in" style={{ marginBottom: 16, borderColor: 'color-mix(in srgb, var(--sky) 30%, transparent)' }}>

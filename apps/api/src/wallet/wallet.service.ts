@@ -131,6 +131,26 @@ export class WalletService {
     return out;
   }
 
+  /** Aktivasyon checklist'i (#22): mevcut veriden turetilir, yeni tablo yok. */
+  async onboarding(membershipId: string, userId: string, tenantId: string) {
+    const [user, profile, invites, sales, devices] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: userId }, select: { emailVerifiedAt: true } }),
+      this.prisma.payoutProfile.findUnique({ where: { membershipId }, select: { id: true } }),
+      this.prisma.invite.count({ where: { tenantId, inviterMembershipId: membershipId } }),
+      this.prisma.sale.count({ where: { tenantId, sellerMembershipId: membershipId } }),
+      this.prisma.device.count({ where: { userId } }),
+    ]);
+    const steps = [
+      { key: 'verify_email', label: 'Verify your email', done: !!user?.emailVerifiedAt },
+      { key: 'payout_profile', label: 'Add your payout details', done: !!profile },
+      { key: 'first_invite', label: 'Send your first invite', done: invites > 0 },
+      { key: 'first_sale', label: 'Record your first sale', done: sales > 0 },
+      { key: 'enable_push', label: 'Enable push notifications', done: devices > 0 },
+    ];
+    const done = steps.filter((s) => s.done).length;
+    return { steps, done, total: steps.length, percent: Math.round((done / steps.length) * 100) };
+  }
+
   /**
    * Gizlilik-uyumlu liderlik: uyeye YALNIZ kendi sirasi + yuzdelik dilim doner.
    * Baska uyenin adi/tutari ASLA donmez (mevcut gizlilik modeli). Bu ay toplam kazanca gore.

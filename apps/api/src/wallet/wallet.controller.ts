@@ -50,4 +50,10 @@ export class WalletController {
   leaderboard(@CurrentUser() user: RequestUser) {
     return this.wallet.leaderboard(user.mid as string, user.tid as string);
   }
+
+  /** Aktivasyon checklist'i. */
+  @Get('onboarding')
+  onboarding(@CurrentUser() user: RequestUser) {
+    return this.wallet.onboarding(user.mid as string, user.sub, user.tid as string);
+  }
 }
