@@ -35,12 +35,14 @@ export default function MemberDashboard() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [earnings, setEarnings] = useState<Earnings | null>(null);
   const [campaigns, setCampaigns] = useState<MyCampaign[]>([]);
+  const [rankInfo, setRankInfo] = useState<{ rank: number | null; total: number; topPercent: number | null } | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
     api.get<Dashboard>('/app/dashboard').then(setData).catch((e) => setError(String((e as ApiError).message)));
     api.get<Earnings>('/app/earnings?months=6').then(setEarnings).catch(() => { /* grafik opsiyonel */ });
     api.get<MyCampaign[]>('/app/campaigns').then(setCampaigns).catch(() => { /* opsiyonel */ });
+    api.get<{ rank: number | null; total: number; topPercent: number | null }>('/app/leaderboard').then(setRankInfo).catch(() => { /* opsiyonel */ });
   }, []);
 
   if (error) return <div className="error">{error}</div>;
@@ -82,6 +84,12 @@ export default function MemberDashboard() {
             <Chip color="var(--sky)" label={t('me.payable')} value={money(payable, c)} />
             <Chip color="var(--emerald)" label={t('me.paid')} value={money(paid, c)} />
           </div>
+          {rankInfo?.rank && (
+            <div className="row" style={{ marginTop: 14, gap: 8 }}>
+              <span className="badge active" style={{ fontSize: 11, background: 'var(--foil)', color: 'var(--on-gold)' }}>🏆 Rank #{rankInfo.rank} of {rankInfo.total}</span>
+              {rankInfo.topPercent != null && <span className="faint" style={{ fontSize: 11 }}>top {rankInfo.topPercent}% this month</span>}
+            </div>
+          )}
         </div>
 
         <div className="card" style={{ display: 'grid', placeItems: 'center' }}>

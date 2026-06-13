@@ -44,4 +44,10 @@ export class WalletController {
   team(@CurrentUser() user: RequestUser) {
     return this.wallet.team(user.mid as string, user.tid as string);
   }
+
+  /** Gizlilik-uyumlu liderlik: yalniz kendi sirasi + yuzdelik dilim. */
+  @Get('leaderboard')
+  leaderboard(@CurrentUser() user: RequestUser) {
+    return this.wallet.leaderboard(user.mid as string, user.tid as string);
+  }
 }

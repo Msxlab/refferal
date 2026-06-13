@@ -131,6 +131,30 @@ export class WalletService {
     return out;
   }
 
+  /**
+   * Gizlilik-uyumlu liderlik: uyeye YALNIZ kendi sirasi + yuzdelik dilim doner.
+   * Baska uyenin adi/tutari ASLA donmez (mevcut gizlilik modeli). Bu ay toplam kazanca gore.
+   */
+  async leaderboard(membershipId: string, tenantId: string) {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    const month = monthKey(new Date(), tenant.timezone);
+    const rows = await this.prisma.monthlySummary.groupBy({
+      by: ['membershipId'],
+      where: { tenantId, month },
+      _sum: { pendingCents: true, payableCents: true, paidCents: true },
+    });
+    const totals = rows
+      .map((r) => ({ id: r.membershipId, total: (r._sum.pendingCents ?? 0n) + (r._sum.payableCents ?? 0n) + (r._sum.paidCents ?? 0n) }))
+      .filter((t) => t.total > 0n)
+      .sort((a, b) => (b.total > a.total ? 1 : b.total < a.total ? -1 : 0));
+    const total = totals.length;
+    const idx = totals.findIndex((t) => t.id === membershipId);
+    if (idx < 0) return { month, rank: null, total, topPercent: null };
+    const rank = idx + 1;
+    const topPercent = total > 0 ? Math.max(1, Math.round((rank / total) * 100)) : null;
+    return { month, rank, total, topPercent };
+  }
+
   /** Ay ozeti + seviye dokumu (pending/payable/paid). */
   async dashboard(membershipId: string, tenantId: string, month?: string) {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
