@@ -110,6 +110,17 @@ export class InvitesService {
     };
   }
 
+  /** Uyenin kisisel davet karsilama mesaji (#23). */
+  async getMessage(membershipId: string) {
+    const m = await this.prisma.membership.findUnique({ where: { id: membershipId }, select: { inviteMessage: true } });
+    return { message: m?.inviteMessage ?? null };
+  }
+
+  async setMessage(membershipId: string, message: string | null) {
+    await this.prisma.membership.update({ where: { id: membershipId }, data: { inviteMessage: message?.trim() || null } });
+    return { message: message?.trim() || null };
+  }
+
   /** Public cozumleme: /i/{code} kayit sayfasinin ihtiyaci kadar veri. */
   async resolve(code: string) {
     const invite = await this.prisma.invite.findUnique({
@@ -133,6 +144,7 @@ export class InvitesService {
       tenantName: invite.tenant.name,
       tenantSlug: invite.tenant.slug,
       inviterName: invite.inviter.user.fullName,
+      inviterMessage: invite.inviter.inviteMessage ?? null,
       expiresAt: invite.expiresAt,
       emailLocked: invite.email !== null,
     };

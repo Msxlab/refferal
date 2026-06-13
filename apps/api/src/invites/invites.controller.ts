@@ -15,6 +15,7 @@ type CreateInviteInput = z.infer<typeof createInviteSchema>;
 
 const codeSchema = z.string().trim().min(4).max(64);
 const trackSchema = z.object({ event: z.literal('view'), utmSource: z.string().trim().max(80).optional() });
+const messageSchema = z.object({ message: z.string().trim().max(280).nullable() });
 
 /** Public: /i/{code} sayfasinin davet cozumlemesi + funnel tracking. */
 @Controller('invites')
@@ -68,5 +69,17 @@ export class AppInvitesController {
   @Get()
   list(@CurrentUser() user: RequestUser) {
     return this.invites.listMine(user.mid as string);
+  }
+
+  // kisisel davet karsilama mesaji (#23)
+  @Get('message')
+  getMessage(@CurrentUser() user: RequestUser) {
+    return this.invites.getMessage(user.mid as string);
+  }
+
+  @Post('message')
+  @HttpCode(200)
+  setMessage(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(messageSchema)) body: z.infer<typeof messageSchema>) {
+    return this.invites.setMessage(user.mid as string, body.message);
   }
 }

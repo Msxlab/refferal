@@ -22,6 +22,8 @@ export default function InvitePage() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [latest, setLatest] = useState<string | null>(null);
+  const [message, setMessage] = useState('');
+  const [savingMsg, setSavingMsg] = useState(false);
   const [toast, showToast] = useToast();
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -37,7 +39,14 @@ export default function InvitePage() {
 
   useEffect(() => {
     void load();
+    api.get<{ message: string | null }>('/app/invites/message').then((r) => setMessage(r.message ?? '')).catch(() => {});
   }, [load]);
+
+  async function saveMessage() {
+    setSavingMsg(true);
+    try { await api.post('/app/invites/message', { message: message.trim() || null }); showToast('Welcome message saved ✓'); }
+    catch (e) { setError(String((e as ApiError).message)); } finally { setSavingMsg(false); }
+  }
 
   async function create() {
     setBusy(true);
@@ -63,6 +72,15 @@ export default function InvitePage() {
       <div className="eyebrow fade-in">{t('anav.invite')}</div>
       <h1 className="h1 fade-in">Grow Your Team</h1>
       <p className="sub fade-in">Share your invite link; everyone who joins becomes part of your tree.</p>
+
+      <div className="card fade-in" style={{ marginBottom: 16 }}>
+        <label style={{ fontSize: 12, color: 'var(--muted)' }}>Personal welcome message (shown on your invite page)</label>
+        <textarea value={message} onChange={(e) => setMessage(e.target.value)} maxLength={280} rows={2} placeholder="e.g. Hey! Join my team and let's grow together." style={{ marginTop: 6, resize: 'vertical' }} />
+        <div className="row" style={{ justifyContent: 'space-between', marginTop: 8 }}>
+          <span className="faint" style={{ fontSize: 11 }}>{message.length}/280</span>
+          <button className="btn ghost sm" onClick={saveMessage} disabled={savingMsg}>{savingMsg ? 'Saving…' : 'Save message'}</button>
+        </div>
+      </div>
 
       <div className="card card-glow fade-in delay-1" style={{ textAlign: 'center' }}>
         {!latest ? (
