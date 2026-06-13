@@ -169,6 +169,7 @@ export class EngineService {
       }
 
       const month = sale.summaryMonth ?? (await this.fallbackMonth(tx, sale));
+      await this.assertPeriodsOpen(tx, sale.tenantId, [month]); // kilitli aya ters kayit yazilamaz
 
       for (const entry of entries) {
         // paid satirin reversal'i payable kalir (eksiye duser, sonraki kazanclardan
@@ -333,6 +334,9 @@ export class EngineService {
         return { paid: false as const, reason: 'below_min' as const, netCents: net };
       }
 
+      // kilitli aya ait payable payout edilemez (o ayin summary'sini degistirir)
+      await this.assertPeriodsOpen(tx, params.tenantId, rows.map((r) => r.month));
+
       const payout = await tx.payout.create({
         data: {
           tenantId: params.tenantId,
@@ -461,6 +465,7 @@ export class EngineService {
     // Ay anahtarini DONDUR: ilk apply'da hesapla ve satista sakla; void/mature ayni
     // degeri kullanir (tenant.timezone sonradan degisse bile tutarli bucket).
     const month = sale.summaryMonth ?? monthKey(sale.saleDate, tenant.timezone);
+    await this.assertPeriodsOpen(tx, sale.tenantId, [month]); // kilitli aya komisyon yazilamaz
     if (!sale.summaryMonth) {
       await tx.sale.update({ where: { id: sale.id }, data: { summaryMonth: month } });
       sale.summaryMonth = month;
@@ -556,6 +561,19 @@ export class EngineService {
   private async fallbackMonth(tx: Tx, sale: LockedSale): Promise<string> {
     const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: sale.tenantId } });
     return monthKey(sale.saleDate, tenant.timezone);
+  }
+
+  /**
+   * Donem kilidi (muhasebe kapanisi): verilen ay(lar) kilitliyse para etkileyen yazimi reddet.
+   * Ledger yazimi / void reversal / payout, kilitli bir ayin summary'sine dokunamaz.
+   */
+  private async assertPeriodsOpen(tx: Tx, tenantId: string, periods: string[]): Promise<void> {
+    const unique = [...new Set(periods)];
+    if (unique.length === 0) return;
+    const lock = await tx.periodLock.findFirst({ where: { tenantId, period: { in: unique } } });
+    if (lock) {
+      throw new ConflictException(`donem kilitli (${lock.period}) — once muhasebe kilidini acin`);
+    }
   }
 
   /** Satis tarihinde gecerli plan: effective_from <= sale_date, en yeni (SPEC 3.2 / T6). */

@@ -184,6 +184,7 @@ model Tenant {
   apiKeys     ApiKey[]
   webhooks    WebhookEndpoint[]
   announcements Announcement[]
+  periodLocks PeriodLock[]
 
   @@map("tenants")
 }
@@ -783,6 +784,22 @@ model AnnouncementRead {
 
   @@unique([announcementId, membershipId])
   @@map("announcement_reads")
+}
+
+// Donem kilidi (Dalga 3): muhasebe kapanisi. Satir varsa o ay (YYYY-MM) KILITLI —
+// yeni komisyon yazimi / void reversal / payout o doneme dokunamaz. Acmak = satiri sil (audit'li).
+model PeriodLock {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  period         String   // 'YYYY-MM'
+  lockedByUserId String?  @map("locked_by_user_id") @db.Uuid
+  note           String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, period])
+  @@map("period_locks")
 }
 
 // API anahtari (Dalga 3): X-Api-Key ile entegrasyon erisimi. Yalniz hash saklanir;
