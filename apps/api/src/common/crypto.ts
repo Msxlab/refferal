@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 
 /** Opak token'lar (refresh, e-posta dogrulama) — DB'de yalnizca hash saklanir. */
 export function randomToken(bytes = 48): string {
@@ -7,6 +7,30 @@ export function randomToken(bytes = 48): string {
 
 export function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+/** Simetrik sifreleme anahtari (32 bayt) — REFEARN_ENC_KEY'den turetilir (yoksa dev fallback). */
+function encKey(): Buffer {
+  return createHash('sha256').update(process.env.REFEARN_ENC_KEY ?? 'refearn-dev-encryption-key-change-in-prod').digest();
+}
+
+/**
+ * AES-256-GCM ile hassas veri sifreleme (self-hosted: banka hesap no gibi).
+ * Cikti: iv.tag.ciphertext (base64), tek string. At-rest sifreli; dis servis YOK.
+ */
+export function encryptSecret(plain: string): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', encKey(), iv);
+  const enc = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${iv.toString('base64')}.${tag.toString('base64')}.${enc.toString('base64')}`;
+}
+
+export function decryptSecret(blob: string): string {
+  const [ivB, tagB, encB] = blob.split('.');
+  const decipher = createDecipheriv('aes-256-gcm', encKey(), Buffer.from(ivB, 'base64'));
+  decipher.setAuthTag(Buffer.from(tagB, 'base64'));
+  return Buffer.concat([decipher.update(Buffer.from(encB, 'base64')), decipher.final()]).toString('utf8');
 }
 
 /** Okunakli kod alfabesi: 0/O/1/I karisikligi yok (davet + referral kodlari). */

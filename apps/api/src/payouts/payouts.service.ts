@@ -7,6 +7,8 @@ import { ActorContext } from '../common/actor';
 import { kycPayoutBlock } from '../kyc/kyc.types';
 import { fraudPayoutBlock } from '../fraud/fraud.types';
 import { WebhooksService } from '../webhooks/webhooks.service';
+import { decryptSecret } from '../common/crypto';
+import { achConfigFromEnv, AchEntry, buildNachaFile } from './nacha';
 
 type Tx = Prisma.TransactionClient;
 
@@ -450,6 +452,33 @@ export class PayoutsService {
       ].join(',');
     });
     return [header, ...lines].join('\n') + '\n';
+  }
+
+  /**
+   * Self-hosted ACH/NACHA dosyasi (Dalga 3): donemin odenmis payout'lari icin banka dosyasi.
+   * Dis servis YOK — admin bunu kendi bankasina yukler. Banka bilgisi (sifreli) decrypt edilir.
+   */
+  async achFile(tenantId: string, period?: string): Promise<string> {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    const payouts = await this.prisma.payout.findMany({
+      where: { tenantId, status: PayoutStatus.paid, period },
+      orderBy: { paidAt: 'asc' },
+      include: { membership: { select: { id: true, user: { select: { fullName: true } }, payoutProfile: true } } },
+    });
+    const entries: AchEntry[] = [];
+    for (const p of payouts) {
+      const prof = p.membership.payoutProfile;
+      if (!prof || !prof.accountEnc) continue; // banka bilgisi yoksa atla
+      entries.push({
+        routingNumber: prof.routingNumber,
+        accountNumber: decryptSecret(prof.accountEnc),
+        accountType: prof.accountType === 'savings' ? 'savings' : 'checking',
+        amountCents: Number(p.totalCents),
+        name: prof.legalName ?? p.membership.user.fullName,
+        id: p.membership.id,
+      });
+    }
+    return buildNachaFile(entries, achConfigFromEnv(tenant.name), new Date());
   }
 
   /** Uye payout talebi (SPEC 8): net payable >= esik ise 'requested' kayit. */

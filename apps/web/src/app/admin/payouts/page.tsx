@@ -173,6 +173,7 @@ export default function PayoutsPage() {
             <button className="btn ghost" onClick={downloadExport}>⇩ {t('payouts.export')}</button>
             <button className="btn ghost" onClick={runFraudScan} disabled={scanning}>{scanning ? 'Scanning…' : '⚠ Fraud scan'}</button>
             <button className="btn ghost" onClick={() => { const y = new Date().getFullYear(); downloadCsv(`/admin/tax/1099.csv?year=${y}`, `1099-nec-${y}.csv`).catch((e) => setError(String((e as ApiError).message))); }}>⇩ 1099-NEC</button>
+            <button className="btn ghost" onClick={() => { downloadCsv('/admin/payouts/ach.txt', 'payouts-ach.txt').catch((e) => setError(String((e as ApiError).message))); }} title="Self-hosted bank file (NACHA) — upload to your bank">⇩ ACH file</button>
           </div>
         </div>
       </div>

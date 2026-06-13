@@ -58,6 +58,18 @@ export class AdminPayoutsController {
     res.send(csv);
   }
 
+  // self-hosted ACH/NACHA banka dosyasi (statik route ':id'den ONCE)
+  @Get('ach.txt')
+  @Header('Content-Type', 'text/plain; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="payouts-ach.txt"')
+  async ach(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(exportPayoutsSchema)) q: ExportPayoutsInput,
+    @Res() res: Response,
+  ) {
+    res.send(await this.payouts.achFile(user.tid as string, q.period));
+  }
+
   // maker-checker: bekleyen oneriler + onay/red (statik route'lar ':id'den ONCE)
   @Get('batches')
   batches(@CurrentUser() user: RequestUser) {

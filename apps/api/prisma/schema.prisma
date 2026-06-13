@@ -646,6 +646,9 @@ model PayoutProfile {
   routingNumber    String              @map("routing_number")
   accountType      BankAccountType     @map("account_type")
   accountLast4     String              @map("account_last4")
+  // Self-hosted ACH/NACHA dosyasi icin tam hesap no AES-256-GCM ile sifreli (at-rest).
+  // Dis odeme saglayici YOK; banka dosyasi uretiminde decrypt edilir.
+  accountEnc       String?             @map("account_enc")
   status           PayoutProfileStatus @default(pending_review)
   rejectionReason  String?             @map("rejection_reason")
   // OFAC/AML (#10): legalName yaptirim listesiyle eslesti mi (payout'u bloklar, compliance inceleme)

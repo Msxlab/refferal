@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PayoutProfileStatus, Prisma } from '@prisma/client';
 import { ActorContext } from '../common/actor';
+import { encryptSecret } from '../common/crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { SanctionsService } from '../sanctions/sanctions.service';
 import { UpsertProfileInput } from './kyc.types';
@@ -36,6 +37,7 @@ export class KycService {
       routingNumber: input.routingNumber,
       accountType: input.accountType,
       accountLast4,
+      accountEnc: encryptSecret(input.accountNumber), // self-hosted ACH dosyasi icin sifreli tam no
       status: PayoutProfileStatus.pending_review,
       rejectionReason: null,
       reviewedByUserId: null,
