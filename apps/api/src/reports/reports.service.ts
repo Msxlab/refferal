@@ -276,6 +276,41 @@ export class ReportsService {
     return out;
   }
 
+  // ---------------------------------------------------- clawback / negatif bakiye (Dalga 3)
+
+  /**
+   * Clawback raporu: net bakiyesi NEGATIF olan uyeler (paid sonrasi iade reversal'i).
+   * Mevcut mekanizma: negatif payable sonraki kazanclardan otomatik mahsup edilir.
+   * Bu rapor borcu (owed) gorunur kilar + yaslandirma (en eski negatif satir).
+   */
+  async clawbacks(tenantId: string) {
+    const rows = await this.prisma.$queryRaw<Array<{ membershipId: string; net: bigint; since: Date }>>`
+      SELECT le.beneficiary_membership_id AS "membershipId",
+             SUM(le.amount_cents)::bigint  AS "net",
+             MIN(le.created_at)            AS "since"
+      FROM ledger_entries le
+      WHERE le.tenant_id = ${tenantId}::uuid
+        AND le.status IN ('payable', 'pending')
+      GROUP BY le.beneficiary_membership_id
+      HAVING SUM(le.amount_cents) < 0
+      ORDER BY SUM(le.amount_cents) ASC`;
+    if (rows.length === 0) return { totalOwedCents: '0', members: [] };
+
+    const members = await this.prisma.membership.findMany({
+      where: { id: { in: rows.map((r) => r.membershipId) } },
+      select: { id: true, referralCode: true, user: { select: { fullName: true } } },
+    });
+    const mBy = new Map(members.map((m) => [m.id, m]));
+    let totalOwed = 0n;
+    const list = rows.map((r) => {
+      const owed = -r.net; // pozitif borc
+      totalOwed += owed;
+      const m = mBy.get(r.membershipId);
+      return { membershipId: r.membershipId, name: m?.user.fullName ?? '—', referralCode: m?.referralCode ?? '', owedCents: owed.toString(), since: r.since };
+    });
+    return { totalOwedCents: totalOwed.toString(), members: list };
+  }
+
   // ---------------------------------------------------- 1099-NEC vergi raporu (Dalga 3, ABD)
 
   /** Takvim yili icinde uyeye ODENEN komisyon toplami; >= $600 1099-NEC raporlanabilir. */

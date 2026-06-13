@@ -32,6 +32,7 @@ export default function PayoutsPage() {
   const [requests, setRequests] = useState<PayoutItem[] | null>(null);
   const [kyc, setKyc] = useState<KycProfile[]>([]);
   const [fraud, setFraud] = useState<FraudFlag[]>([]);
+  const [clawbacks, setClawbacks] = useState<{ totalOwedCents: string; members: { membershipId: string; name: string; referralCode: string; owedCents: string }[] } | null>(null);
   const [scanning, setScanning] = useState(false);
   const [history, setHistory] = useState<PayoutListResp | null>(null);
   const [error, setError] = useState('');
@@ -63,6 +64,7 @@ export default function PayoutsPage() {
         api.get<FraudFlag[]>('/admin/fraud?status=open'),
       ]);
       setPayable(p); setRequests(r.items); setKyc(k); setFraud(f); setSelected(new Set());
+      api.get<{ totalOwedCents: string; members: { membershipId: string; name: string; referralCode: string; owedCents: string }[] }>('/admin/clawbacks').then(setClawbacks).catch(() => {});
     } catch (e) { setError(String((e as ApiError).message)); }
   }, []);
 
@@ -183,6 +185,25 @@ export default function PayoutsPage() {
                     </div>
                   </td>
                 </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ---- clawback / negatif bakiye ---- */}
+      {clawbacks && clawbacks.members.length > 0 && (
+        <div className="card fade-in delay-1" style={{ marginBottom: 16, borderColor: 'var(--rose)' }}>
+          <div className="spread" style={{ marginBottom: 12 }}>
+            <strong>Clawbacks — negative balances <span className="badge failed" style={{ marginLeft: 6 }}>{clawbacks.members.length}</span></strong>
+            <span className="faint" style={{ fontSize: 12 }}>Total owed: {money(clawbacks.totalOwedCents, c)}</span>
+          </div>
+          <div className="faint" style={{ fontSize: 12, marginBottom: 8 }}>Auto-offset from future earnings. These members owe a balance after a post-payout reversal.</div>
+          <table>
+            <thead><tr><th>Member</th><th style={{ textAlign: 'right' }}>Owed</th></tr></thead>
+            <tbody>
+              {clawbacks.members.map((m) => (
+                <tr key={m.membershipId}><td>{m.name}<div className="faint" style={{ fontSize: 12 }}>{m.referralCode}</div></td><td className="tnum" style={{ textAlign: 'right', color: 'var(--rose)' }}>{money(m.owedCents, c)}</td></tr>
               ))}
             </tbody>
           </table>

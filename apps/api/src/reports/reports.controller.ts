@@ -77,6 +77,13 @@ export class ReportsController {
     return this.reports.sendDigest(user.tid as string, sub.recipients);
   }
 
+  // clawback / negatif bakiye raporu (admin)
+  @Roles(...ADMIN)
+  @Get('clawbacks')
+  clawbacks(@CurrentUser() user: RequestUser) {
+    return this.reports.clawbacks(user.tid as string);
+  }
+
   // 1099-NEC vergi raporu (admin)
   @Roles(...ADMIN)
   @Get('tax/1099')
