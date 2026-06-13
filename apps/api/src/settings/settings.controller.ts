@@ -20,6 +20,7 @@ const updateSchema = z.object({
   inactiveMembersEarn: z.boolean().optional(),
   requireSeparateApprover: z.boolean().optional(),
   requireKycForPayout: z.boolean().optional(),
+  requirePayoutApproval: z.boolean().optional(),
   branding: z
     .object({
       logoText: z.string().trim().max(40).optional(),

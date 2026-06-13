@@ -58,7 +58,25 @@ export class AdminPayoutsController {
     res.send(csv);
   }
 
-  // DIKKAT: ':id' GET'i statik GET'lerden (payable, export.csv) SONRA tanimli.
+  // maker-checker: bekleyen oneriler + onay/red (statik route'lar ':id'den ONCE)
+  @Get('batches')
+  batches(@CurrentUser() user: RequestUser) {
+    return this.payouts.listBatches(user.tid as string);
+  }
+
+  @HttpCode(200)
+  @Post('batches/:id/approve')
+  approveBatch(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.payouts.approveBatch(this.actor(user), id);
+  }
+
+  @HttpCode(200)
+  @Post('batches/:id/reject')
+  rejectBatch(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.payouts.rejectBatch(this.actor(user), id);
+  }
+
+  // DIKKAT: ':id' GET'i statik GET'lerden (payable, export.csv, batches) SONRA tanimli.
   @Get(':id')
   detail(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.payouts.detail(user.tid as string, id);

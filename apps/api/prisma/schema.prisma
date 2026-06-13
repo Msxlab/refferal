@@ -118,6 +118,12 @@ enum PayoutStatus {
   failed
 }
 
+enum PayoutBatchStatus {
+  proposed
+  executed
+  rejected
+}
+
 enum NotificationChannel {
   push
   email
@@ -147,6 +153,11 @@ model Tenant {
   requireSeparateApprover Boolean    @default(false) @map("require_separate_approver")
   // KYC kapisi: acikken payout yalniz 'verified' odeme profili + soguma suresi gecmisse acilir.
   requireKycForPayout Boolean        @default(false) @map("require_kyc_for_payout")
+  // Maker-checker (4-goz): acikken payout run'i ONERI olusturur; farkli bir admin onaylar.
+  requirePayoutApproval Boolean      @default(false) @map("require_payout_approval")
+  // Rolling reserve: payable komisyonun %X'i N gun 'reserved' tutulur (iade riskine karsi).
+  reservePercent      Int            @default(0) @map("reserve_percent")
+  reserveDays         Int            @default(0) @map("reserve_days")
   branding            Json           @default("{}")
   status              TenantStatus   @default(active)
   createdAt           DateTime       @default(now()) @map("created_at")
@@ -169,6 +180,7 @@ model Tenant {
   inviteEvents InviteEvent[]
   rankTiers   RankTier[]
   reportSub   ReportSubscription?
+  payoutBatches PayoutBatch[]
 
   @@map("tenants")
 }
@@ -711,6 +723,26 @@ model RankTier {
 
   @@index([tenantId, sortOrder])
   @@map("rank_tiers")
+}
+
+// Maker-checker payout onay kuyrugu (Dalga 3): run ONERI olusturur, farkli admin onaylar/yurutur.
+model PayoutBatch {
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String            @map("tenant_id") @db.Uuid
+  status           PayoutBatchStatus @default(proposed)
+  period           String
+  method           PayoutMethod      @default(manual)
+  membershipIds    String[]          @map("membership_ids")
+  estimateCents    BigInt            @default(0) @map("estimate_cents")
+  proposedByUserId String            @map("proposed_by_user_id") @db.Uuid
+  approvedByUserId String?           @map("approved_by_user_id") @db.Uuid
+  createdAt        DateTime          @default(now()) @map("created_at")
+  executedAt       DateTime?         @map("executed_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@map("payout_batches")
 }
 
 // Zamanlanmis e-posta raporu (#18): donemsel ozet digest (HTML), secili alicilara.

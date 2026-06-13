@@ -13,6 +13,7 @@ export interface UpdateSettingsInput {
   inactiveMembersEarn?: boolean;
   requireSeparateApprover?: boolean;
   requireKycForPayout?: boolean;
+  requirePayoutApproval?: boolean;
   branding?: Prisma.InputJsonValue;
 }
 
@@ -35,6 +36,7 @@ export class SettingsService {
       inactiveMembersEarn: t.inactiveMembersEarn,
       requireSeparateApprover: t.requireSeparateApprover,
       requireKycForPayout: t.requireKycForPayout,
+      requirePayoutApproval: t.requirePayoutApproval,
       branding: t.branding,
     };
   }
@@ -54,6 +56,7 @@ export class SettingsService {
         inactiveMembersEarn: input.inactiveMembersEarn,
         requireSeparateApprover: input.requireSeparateApprover,
         requireKycForPayout: input.requireKycForPayout,
+        requirePayoutApproval: input.requirePayoutApproval,
         // kismi guncelleme tum kolonu ezmesin: mevcut branding ile birlestir
         branding:
           input.branding === undefined

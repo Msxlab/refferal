@@ -14,7 +14,8 @@ interface PayableMember { membershipId: string; referralCode: string; fullName: 
 interface PayableList { payoutMinCents: string; currency: string; members: PayableMember[] }
 interface PayoutItem { id: string; membershipId: string; referralCode: string; fullName: string; totalCents: string; method: string; status: string; period: string; paidAt: string | null; ref: string | null }
 interface PayoutListResp { total: number; page: number; pageSize: number; items: PayoutItem[] }
-interface RunResult { paidCount: number; skippedCount: number; paid: { totalCents: string }[] }
+interface RunResult { proposed?: boolean; paidCount?: number; skippedCount?: number; count?: number; estimateCents?: string }
+interface Batch { id: string; period: string; method: string; count: number; estimateCents: string; createdAt: string }
 interface KycProfile {
   membershipId: string; fullName: string; referralCode: string; email: string;
   legalName: string; taxIdType: string; taxIdLast4: string; bankName: string | null;
@@ -33,6 +34,7 @@ export default function PayoutsPage() {
   const [kyc, setKyc] = useState<KycProfile[]>([]);
   const [fraud, setFraud] = useState<FraudFlag[]>([]);
   const [clawbacks, setClawbacks] = useState<{ totalOwedCents: string; members: { membershipId: string; name: string; referralCode: string; owedCents: string }[] } | null>(null);
+  const [batches, setBatches] = useState<Batch[]>([]);
   const [scanning, setScanning] = useState(false);
   const [history, setHistory] = useState<PayoutListResp | null>(null);
   const [error, setError] = useState('');
@@ -65,8 +67,17 @@ export default function PayoutsPage() {
       ]);
       setPayable(p); setRequests(r.items); setKyc(k); setFraud(f); setSelected(new Set());
       api.get<{ totalOwedCents: string; members: { membershipId: string; name: string; referralCode: string; owedCents: string }[] }>('/admin/clawbacks').then(setClawbacks).catch(() => {});
+      api.get<Batch[]>('/admin/payouts/batches').then(setBatches).catch(() => {});
     } catch (e) { setError(String((e as ApiError).message)); }
   }, []);
+
+  async function decideBatch(id: string, action: 'approve' | 'reject') {
+    try {
+      await api.post(`/admin/payouts/batches/${id}/${action}`);
+      showToast(action === 'approve' ? 'Batch approved & paid ✓' : 'Batch rejected');
+      await refreshAll();
+    } catch (e) { setError(String((e as ApiError).message)); }
+  }
 
   async function runFraudScan() {
     setScanning(true);
@@ -107,7 +118,9 @@ export default function PayoutsPage() {
     try {
       const body = which === 'selected' ? { method: 'csv', membershipIds: [...selected] } : { method: 'csv' };
       const res = await api.post<RunResult>('/admin/payouts/run', body);
-      showToast(`${res.paidCount} payouts processed, ${res.skippedCount} skipped`);
+      showToast(res.proposed
+        ? `Proposed ${res.count} payout(s) — awaiting a second admin's approval`
+        : `${res.paidCount} payouts processed, ${res.skippedCount} skipped`);
       setConfirmRun(null);
       await refreshAll();
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
@@ -188,6 +201,34 @@ export default function PayoutsPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* ---- maker-checker: bekleyen payout onaylari ---- */}
+      {batches.length > 0 && (
+        <div className="card fade-in delay-1" style={{ marginBottom: 16, borderColor: 'var(--gold-500)' }}>
+          <div className="spread" style={{ marginBottom: 12 }}>
+            <strong>Payout approvals (4-eyes) <span className="badge pending" style={{ marginLeft: 6 }}>{batches.length}</span></strong>
+          </div>
+          <table>
+            <thead><tr><th>Period</th><th>Members</th><th style={{ textAlign: 'right' }}>Estimate</th><th className="no-print" style={{ textAlign: 'right' }}>Decision</th></tr></thead>
+            <tbody>
+              {batches.map((b) => (
+                <tr key={b.id}>
+                  <td>{b.period}</td>
+                  <td>{b.count}</td>
+                  <td className="tnum" style={{ textAlign: 'right' }}>{money(b.estimateCents, c)}</td>
+                  <td className="no-print" style={{ textAlign: 'right' }}>
+                    <div className="row" style={{ justifyContent: 'flex-end' }}>
+                      <button className="btn success sm" onClick={() => decideBatch(b.id, 'approve')}>Approve &amp; pay</button>
+                      <button className="btn danger sm" onClick={() => decideBatch(b.id, 'reject')}>Reject</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="faint" style={{ fontSize: 11, marginTop: 8 }}>The admin who proposed a batch cannot approve it.</div>
         </div>
       )}
 

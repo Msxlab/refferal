@@ -81,23 +81,36 @@ export class PayoutsService {
   async run(actor: ActorContext, input: { membershipIds?: string[]; period?: string; method: 'manual' | 'csv' }) {
     const period = input.period ?? (await this.currentPeriod(actor.tenantId));
     const method = input.method === 'csv' ? PayoutMethod.csv : PayoutMethod.manual;
+    const targets = await this.resolveTargets(actor.tenantId, input.membershipIds);
 
-    let targets: string[];
-    if (input.membershipIds?.length) {
-      // hepsi bu tenanta ait olmali
-      const valid = await this.prisma.membership.findMany({
-        where: { id: { in: input.membershipIds }, tenantId: actor.tenantId },
-        select: { id: true },
+    // Maker-checker: acikken yurutme, ONERI olustur — farkli admin onaylar (proposeBatch/approveBatch).
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: actor.tenantId } });
+    if (tenant.requirePayoutApproval) {
+      const payableList = await this.payable(actor.tenantId);
+      const estimate = payableList.members.filter((m) => targets.includes(m.membershipId)).reduce((a, m) => a + BigInt(m.netCents), 0n);
+      const batch = await this.prisma.payoutBatch.create({
+        data: { tenantId: actor.tenantId, period, method, membershipIds: targets, estimateCents: estimate, proposedByUserId: actor.userId },
       });
-      if (valid.length !== input.membershipIds.length) {
-        throw new BadRequestException('bazi uyelikler bu isletmede yok');
-      }
-      targets = valid.map((m) => m.id);
-    } else {
-      const list = await this.payable(actor.tenantId);
-      targets = list.members.map((m) => m.membershipId);
+      await this.audit2(actor, 'payout.batch_propose', batch.id, { count: targets.length, estimateCents: estimate.toString() });
+      return { proposed: true as const, batchId: batch.id, period, method, count: targets.length, estimateCents: estimate.toString() };
     }
 
+    return this.executeTargets(actor, targets, period, method);
+  }
+
+  /** membershipIds verilirse dogrula, yoksa esigi gecen tum uyeler. */
+  private async resolveTargets(tenantId: string, membershipIds?: string[]): Promise<string[]> {
+    if (membershipIds?.length) {
+      const valid = await this.prisma.membership.findMany({ where: { id: { in: membershipIds }, tenantId }, select: { id: true } });
+      if (valid.length !== membershipIds.length) throw new BadRequestException('bazi uyelikler bu isletmede yok');
+      return valid.map((m) => m.id);
+    }
+    const list = await this.payable(tenantId);
+    return list.members.map((m) => m.membershipId);
+  }
+
+  /** Hedefleri fiilen ode (gate kontrolu + engine). run + approveBatch ortak kullanir. */
+  private async executeTargets(actor: ActorContext, targets: string[], period: string, method: PayoutMethod) {
     const paid: Array<{ membershipId: string; payoutId: string; totalCents: string }> = [];
     const skipped: Array<{ membershipId: string; reason: string; netCents: string }> = [];
 
@@ -148,6 +161,40 @@ export class PayoutsService {
     }
 
     return { period, method, paidCount: paid.length, skippedCount: skipped.length, paid, skipped };
+  }
+
+  // ---- maker-checker batch'leri ----
+
+  /** Bekleyen (proposed) batch'ler — onay kuyrugu. */
+  async listBatches(tenantId: string) {
+    const rows = await this.prisma.payoutBatch.findMany({ where: { tenantId, status: 'proposed' }, orderBy: { createdAt: 'desc' } });
+    return rows.map((b) => ({ id: b.id, period: b.period, method: b.method, count: b.membershipIds.length, estimateCents: b.estimateCents.toString(), proposedByUserId: b.proposedByUserId, createdAt: b.createdAt }));
+  }
+
+  /** Onayla + yurut. Maker≠checker: oneren kisi onaylayamaz. */
+  async approveBatch(actor: ActorContext, batchId: string) {
+    const batch = await this.prisma.payoutBatch.findFirst({ where: { id: batchId, tenantId: actor.tenantId } });
+    if (!batch) throw new NotFoundException('payout onerisi bulunamadi');
+    if (batch.status !== 'proposed') throw new ConflictException('yalnizca bekleyen oneri onaylanabilir');
+    if (batch.proposedByUserId === actor.userId) throw new BadRequestException('oneriyi yapan kisi onaylayamaz (4-goz)');
+
+    const result = await this.executeTargets(actor, batch.membershipIds, batch.period, batch.method);
+    await this.prisma.payoutBatch.update({ where: { id: batch.id }, data: { status: 'executed', approvedByUserId: actor.userId, executedAt: new Date() } });
+    await this.audit2(actor, 'payout.batch_approve', batch.id, { paidCount: result.paidCount, skippedCount: result.skippedCount });
+    return { ...result, batchId: batch.id };
+  }
+
+  async rejectBatch(actor: ActorContext, batchId: string) {
+    const batch = await this.prisma.payoutBatch.findFirst({ where: { id: batchId, tenantId: actor.tenantId } });
+    if (!batch) throw new NotFoundException('payout onerisi bulunamadi');
+    if (batch.status !== 'proposed') throw new ConflictException('yalnizca bekleyen oneri reddedilebilir');
+    await this.prisma.payoutBatch.update({ where: { id: batch.id }, data: { status: 'rejected', approvedByUserId: actor.userId } });
+    await this.audit2(actor, 'payout.batch_reject', batch.id, {});
+    return { rejected: true };
+  }
+
+  private async audit2(actor: ActorContext, action: string, entityId: string, after: object): Promise<void> {
+    await this.prisma.auditLog.create({ data: { tenantId: actor.tenantId, actorUserId: actor.userId, action, entity: 'payout', entityId, after } });
   }
 
   async list(tenantId: string, q: { status?: PayoutStatus; period?: string; page: number; pageSize: number }) {
