@@ -19,6 +19,7 @@ import { MembershipsModule } from './memberships/memberships.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PayoutsModule } from './payouts/payouts.module';
 import { PeriodsModule } from './periods/periods.module';
+import { PlansModule } from './plans/plans.module';
 import { PlatformModule } from './platform/platform.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RanksModule } from './ranks/ranks.module';
@@ -59,6 +60,7 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
     WalletModule,
     PayoutsModule,
     PeriodsModule,
+    PlansModule,
     MembersAdminModule,
     ReportsModule,
     NotificationsModule,
