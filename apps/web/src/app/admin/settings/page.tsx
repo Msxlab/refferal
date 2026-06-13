@@ -11,8 +11,9 @@ import Notifications from './sections/Notifications';
 import Data from './sections/Data';
 import Ranks from './sections/Ranks';
 import Reports from './sections/Reports';
+import Integrations from './sections/Integrations';
 
-type TabKey = 'general' | 'brand' | 'people' | 'ranks' | 'security' | 'notifications' | 'reports' | 'data';
+type TabKey = 'general' | 'brand' | 'people' | 'ranks' | 'security' | 'notifications' | 'reports' | 'integrations' | 'data';
 
 interface Tab { key: TabKey; label: string; icon: string; perm?: string; render: () => ReactNode }
 
@@ -24,6 +25,7 @@ const TABS: Tab[] = [
   { key: 'security', label: 'Security', icon: '⛉', render: () => <Security /> },
   { key: 'notifications', label: 'Notifications', icon: '◔', render: () => <Notifications /> },
   { key: 'reports', label: 'Reports', icon: '✉', render: () => <Reports /> },
+  { key: 'integrations', label: 'Integrations', icon: '⚯', render: () => <Integrations /> },
   { key: 'data', label: 'Data & Backup', icon: '☷', render: () => <Data /> },
 ];
 

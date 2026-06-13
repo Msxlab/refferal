@@ -13,6 +13,8 @@ import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { Role } from '@prisma/client';
 import { Request } from 'express';
+import { sha256 } from '../common/crypto';
+import { PrismaService } from '../prisma/prisma.service';
 import { authConfig } from './auth.config';
 import { RequestUser } from './auth.types';
 
@@ -54,6 +56,7 @@ export class AccessTokenGuard implements CanActivate {
   constructor(
     private readonly jwt: JwtService,
     private readonly reflector: Reflector,
+    private readonly prisma: PrismaService,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -63,18 +66,27 @@ export class AccessTokenGuard implements CanActivate {
     }
 
     const req = ctx.switchToHttp().getRequest<Request & { user?: RequestUser }>();
-    const header = req.headers.authorization;
-    if (!header?.startsWith('Bearer ')) {
-      throw new UnauthorizedException('erisim tokeni gerekli');
-    }
 
+    // API anahtari (entegrasyon): X-Api-Key → olusturan admin'in uyeligi/rolu adina davranir.
+    const apiKey = req.headers['x-api-key'];
     let payload: RequestUser;
-    try {
-      payload = await this.jwt.verifyAsync<RequestUser>(header.slice(7), {
-        secret: authConfig.accessSecret(),
-      });
-    } catch {
-      throw new UnauthorizedException('erisim tokeni gecersiz veya suresi dolmus');
+    if (typeof apiKey === 'string' && apiKey.length > 0) {
+      const k = await this.prisma.apiKey.findUnique({ where: { keyHash: sha256(apiKey) } });
+      if (!k || k.revokedAt) {
+        throw new UnauthorizedException('gecersiz api anahtari');
+      }
+      void this.prisma.apiKey.update({ where: { id: k.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
+      payload = { sub: k.createdByUserId, mid: k.membershipId, tid: k.tenantId, role: k.role, iat: 0, exp: 0 };
+    } else {
+      const header = req.headers.authorization;
+      if (!header?.startsWith('Bearer ')) {
+        throw new UnauthorizedException('erisim tokeni gerekli');
+      }
+      try {
+        payload = await this.jwt.verifyAsync<RequestUser>(header.slice(7), { secret: authConfig.accessSecret() });
+      } catch {
+        throw new UnauthorizedException('erisim tokeni gecersiz veya suresi dolmus');
+      }
     }
     req.user = payload;
 

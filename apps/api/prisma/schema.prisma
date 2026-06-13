@@ -181,6 +181,8 @@ model Tenant {
   rankTiers   RankTier[]
   reportSub   ReportSubscription?
   payoutBatches PayoutBatch[]
+  apiKeys     ApiKey[]
+  webhooks    WebhookEndpoint[]
 
   @@map("tenants")
 }
@@ -743,6 +745,62 @@ model PayoutBatch {
 
   @@index([tenantId, status])
   @@map("payout_batches")
+}
+
+// API anahtari (Dalga 3): X-Api-Key ile entegrasyon erisimi. Yalniz hash saklanir;
+// olusturan admin'in uyeligi/rolu adina davranir (personal access token modeli).
+model ApiKey {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  membershipId    String    @map("membership_id") @db.Uuid
+  createdByUserId String    @map("created_by_user_id") @db.Uuid
+  role            Role
+  name            String
+  prefix          String    // gosterim icin (rfk_xxxx)
+  keyHash         String    @unique @map("key_hash")
+  lastUsedAt      DateTime? @map("last_used_at")
+  revokedAt       DateTime? @map("revoked_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("api_keys")
+}
+
+// Giden webhook ucu (Dalga 3): olaylara HMAC imzali POST; retry teslimat gunlugu.
+model WebhookEndpoint {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  url        String
+  secret     String
+  events     String[]  @default([]) // ['sale.approved','payout.paid',...] bos = hepsi
+  active     Boolean   @default(true)
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([tenantId])
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  endpointId String   @map("endpoint_id") @db.Uuid
+  event      String
+  payload    Json
+  status     String   @default("pending") // pending | delivered | failed
+  attempts   Int      @default(0)
+  lastError  String?  @map("last_error")
+  responseStatus Int? @map("response_status")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@map("webhook_deliveries")
 }
 
 // Zamanlanmis e-posta raporu (#18): donemsel ozet digest (HTML), secili alicilara.

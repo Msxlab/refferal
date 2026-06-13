@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { EngineService } from '../engine/engine.service';
 import { FraudService } from '../fraud/fraud.service';
 import { ReportsService } from '../reports/reports.service';
+import { WebhooksService } from '../webhooks/webhooks.service';
 
 /**
  * Zamanlanmis isler (SPEC 7). matureCommissions tum tenant'lar icin tek kosumda
@@ -18,7 +19,19 @@ export class SchedulerService {
     private readonly engine: EngineService,
     private readonly reports: ReportsService,
     private readonly fraud: FraudService,
+    private readonly webhooks: WebhooksService,
   ) {}
+
+  /** Her dakika: bekleyen webhook teslimatlarini gonder (HMAC imzali, retry'li). */
+  @Cron(CronExpression.EVERY_MINUTE, { name: 'webhook-dispatch' })
+  async dispatchWebhooks(): Promise<void> {
+    try {
+      const { delivered, failed } = await this.webhooks.dispatchPending();
+      if (delivered + failed > 0) this.logger.log(`webhook teslimat: ${delivered} ok, ${failed} hata`);
+    } catch (err) {
+      this.logger.error('dispatchWebhooks job hatasi', err instanceof Error ? err.stack : String(err));
+    }
+  }
 
   /** Saatlik fraud taramasi (#11): risk skoru + payout hold. */
   @Cron(CronExpression.EVERY_HOUR, { name: 'fraud-scan' })

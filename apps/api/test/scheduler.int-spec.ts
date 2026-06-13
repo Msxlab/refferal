@@ -3,6 +3,7 @@ import { EngineService } from '../src/engine/engine.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { FraudService } from '../src/fraud/fraud.service';
 import { ReportsService } from '../src/reports/reports.service';
+import { WebhooksService } from '../src/webhooks/webhooks.service';
 import { SchedulerService } from '../src/scheduler/scheduler.service';
 import { createChain, createPlan, createSale, createTenant, summaryTotals, truncateAll } from './helpers';
 
@@ -21,7 +22,7 @@ describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
     prisma = new PrismaService();
     await prisma.$connect();
     engine = new EngineService(prisma);
-    scheduler = new SchedulerService(engine, new ReportsService(prisma), new FraudService(prisma));
+    scheduler = new SchedulerService(engine, new ReportsService(prisma), new FraudService(prisma), new WebhooksService(prisma));
   });
 
   afterAll(async () => {

@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ActorContext } from '../common/actor';
 import { kycPayoutBlock } from '../kyc/kyc.types';
 import { fraudPayoutBlock } from '../fraud/fraud.types';
+import { WebhooksService } from '../webhooks/webhooks.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -35,6 +36,7 @@ export class PayoutsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly engine: EngineService,
+    private readonly webhooks: WebhooksService,
   ) {}
 
   private async currentPeriod(tenantId: string): Promise<string> {
@@ -158,6 +160,11 @@ export class PayoutsService {
       } else {
         skipped.push({ membershipId, reason: result.reason, netCents: result.netCents.toString() });
       }
+    }
+
+    // giden webhook: odenen her uye icin 'payout.paid' (best-effort, teslimat worker'i gonderir)
+    for (const p of paid) {
+      await this.webhooks.emit(actor.tenantId, 'payout.paid', { membershipId: p.membershipId, payoutId: p.payoutId, totalCents: p.totalCents, period }).catch(() => undefined);
     }
 
     return { period, method, paidCount: paid.length, skippedCount: skipped.length, paid, skipped };

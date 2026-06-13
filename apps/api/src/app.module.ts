@@ -2,9 +2,11 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ApiKeysModule } from './apikeys/apikeys.module';
 import { AuthModule } from './auth/auth.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { EngineModule } from './engine/engine.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 import { FraudModule } from './fraud/fraud.module';
 import { HealthModule } from './health/health.module';
 import { InvitesModule } from './invites/invites.module';
@@ -66,6 +68,8 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
     SurveyModule,
     SanctionsModule,
     RanksModule,
+    ApiKeysModule,
+    WebhooksModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
