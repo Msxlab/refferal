@@ -20,6 +20,10 @@ interface KycProfile {
   legalName: string; taxIdType: string; taxIdLast4: string; bankName: string | null;
   routingNumber: string; accountType: string; accountLast4: string; lastChangedAt: string;
 }
+interface FraudFlag {
+  membershipId: string; fullName: string; referralCode: string; email: string;
+  score: number; reasons: string[]; status: string; note: string | null; blocked: boolean;
+}
 
 const HISTORY_STATUS = ['', 'requested', 'processing', 'paid', 'failed'] as const;
 
@@ -27,6 +31,8 @@ export default function PayoutsPage() {
   const [payable, setPayable] = useState<PayableList | null>(null);
   const [requests, setRequests] = useState<PayoutItem[] | null>(null);
   const [kyc, setKyc] = useState<KycProfile[]>([]);
+  const [fraud, setFraud] = useState<FraudFlag[]>([]);
+  const [scanning, setScanning] = useState(false);
   const [history, setHistory] = useState<PayoutListResp | null>(null);
   const [error, setError] = useState('');
   const [toast, showToast] = useToast();
@@ -50,14 +56,27 @@ export default function PayoutsPage() {
 
   const loadCore = useCallback(async () => {
     try {
-      const [p, r, k] = await Promise.all([
+      const [p, r, k, f] = await Promise.all([
         api.get<PayableList>('/admin/payouts/payable'),
         api.get<PayoutListResp>('/admin/payouts?status=requested&pageSize=100'),
         api.get<KycProfile[]>('/admin/payout-profiles?status=pending_review'),
+        api.get<FraudFlag[]>('/admin/fraud?status=open'),
       ]);
-      setPayable(p); setRequests(r.items); setKyc(k); setSelected(new Set());
+      setPayable(p); setRequests(r.items); setKyc(k); setFraud(f); setSelected(new Set());
     } catch (e) { setError(String((e as ApiError).message)); }
   }, []);
+
+  async function runFraudScan() {
+    setScanning(true);
+    try { const r = await api.post<{ flagged: number; blocked: number }>('/admin/fraud/scan'); showToast(`Scan done — ${r.flagged} flagged, ${r.blocked} blocked`); await loadCore(); }
+    catch (e) { setError(String((e as ApiError).message)); } finally { setScanning(false); }
+  }
+  async function decideFraud(membershipId: string, action: 'clear' | 'confirm') {
+    let note: string | undefined;
+    if (action === 'confirm') note = window.prompt('Note (optional):') ?? undefined;
+    try { await api.post(`/admin/fraud/${membershipId}/decide`, { action, ...(note ? { note } : {}) }); showToast(action === 'clear' ? 'Cleared ✓' : 'Confirmed'); await loadCore(); }
+    catch (e) { setError(String((e as ApiError).message)); }
+  }
 
   async function decideKyc(membershipId: string, action: 'verify' | 'reject') {
     let reason: string | undefined;
@@ -137,6 +156,7 @@ export default function PayoutsPage() {
           <div className="row no-print">
             <button className="btn success" onClick={() => setConfirmRun('all')} disabled={busy || !payable?.members.length}>{t('payouts.run')}</button>
             <button className="btn ghost" onClick={downloadExport}>⇩ {t('payouts.export')}</button>
+            <button className="btn ghost" onClick={runFraudScan} disabled={scanning}>{scanning ? 'Scanning…' : '⚠ Fraud scan'}</button>
           </div>
         </div>
       </div>
@@ -159,6 +179,33 @@ export default function PayoutsPage() {
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
                       <button className="btn success sm" onClick={() => { setDecideRef(''); setDecide({ p: r, action: 'approve' }); }}>Approve</button>
                       <button className="btn danger sm" onClick={() => { setDecideRef(''); setDecide({ p: r, action: 'reject' }); }}>Reject</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ---- fraud inceleme kuyrugu ---- */}
+      {fraud.length > 0 && (
+        <div className="card fade-in delay-1" style={{ marginBottom: 16, borderColor: 'var(--rose)' }}>
+          <div className="spread" style={{ marginBottom: 12 }}>
+            <strong>Fraud review <span className="badge failed" style={{ marginLeft: 6 }}>{fraud.length}</span></strong>
+          </div>
+          <table>
+            <thead><tr><th>Member</th><th>Score</th><th>Signals</th><th className="no-print" style={{ textAlign: 'right' }}>Decision</th></tr></thead>
+            <tbody>
+              {fraud.map((f) => (
+                <tr key={f.membershipId}>
+                  <td>{f.fullName}<div className="faint" style={{ fontSize: 12 }}>{f.referralCode}</div></td>
+                  <td><span className={`badge ${f.blocked ? 'failed' : 'pending'}`}>{f.score}{f.blocked ? ' · blocked' : ''}</span></td>
+                  <td className="faint" style={{ fontSize: 12 }}>{f.reasons.join(', ')}</td>
+                  <td className="no-print" style={{ textAlign: 'right' }}>
+                    <div className="row" style={{ justifyContent: 'flex-end' }}>
+                      <button className="btn success sm" onClick={() => decideFraud(f.membershipId, 'clear')}>Clear</button>
+                      <button className="btn danger sm" onClick={() => decideFraud(f.membershipId, 'confirm')}>Confirm</button>
                     </div>
                   </td>
                 </tr>

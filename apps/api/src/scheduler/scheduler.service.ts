@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EngineService } from '../engine/engine.service';
+import { FraudService } from '../fraud/fraud.service';
 import { ReportsService } from '../reports/reports.service';
 
 /**
@@ -16,7 +17,19 @@ export class SchedulerService {
   constructor(
     private readonly engine: EngineService,
     private readonly reports: ReportsService,
+    private readonly fraud: FraudService,
   ) {}
+
+  /** Saatlik fraud taramasi (#11): risk skoru + payout hold. */
+  @Cron(CronExpression.EVERY_HOUR, { name: 'fraud-scan' })
+  async fraudScan(): Promise<void> {
+    try {
+      const { tenants, blocked } = await this.fraud.scanAll();
+      if (blocked > 0) this.logger.warn(`[security] fraud taramasi: ${tenants} tenant, ${blocked} bloklu uye`);
+    } catch (err) {
+      this.logger.error('fraudScan job hatasi', err instanceof Error ? err.stack : String(err));
+    }
+  }
 
   /** Gece: audit zincirini muhurleyip butunlugunu dogrula (#12). */
   @Cron(CronExpression.EVERY_DAY_AT_3AM, { name: 'seal-audit-chain' })

@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { EngineModule } from './engine/engine.module';
+import { FraudModule } from './fraud/fraud.module';
 import { HealthModule } from './health/health.module';
 import { InvitesModule } from './invites/invites.module';
 import { KycModule } from './kyc/kyc.module';
@@ -56,6 +57,7 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
     CampaignsModule,
     ViewsModule,
     KycModule,
+    FraudModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

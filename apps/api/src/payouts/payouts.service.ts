@@ -5,6 +5,7 @@ import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActorContext } from '../common/actor';
 import { kycPayoutBlock } from '../kyc/kyc.types';
+import { fraudPayoutBlock } from '../fraud/fraud.types';
 
 type Tx = Prisma.TransactionClient;
 
@@ -100,9 +101,9 @@ export class PayoutsService {
     const paid: Array<{ membershipId: string; payoutId: string; totalCents: string }> = [];
     const skipped: Array<{ membershipId: string; reason: string; netCents: string }> = [];
 
-    // KYC kapisi acikken: verified + soguma gecmis olmayan profiller atlanir (audit'siz, run sonucunda gorunur)
+    // Payout engelleri: KYC kapisi (tenant bayragi) + fraud bayragi (her zaman acik).
     const tenantCfg = await this.prisma.tenant.findUniqueOrThrow({ where: { id: actor.tenantId } });
-    const kycBlock = new Map<string, string>();
+    const block = new Map<string, string>();
     if (tenantCfg.requireKycForPayout) {
       const profiles = await this.prisma.payoutProfile.findMany({
         where: { tenantId: actor.tenantId, membershipId: { in: targets } },
@@ -110,15 +111,24 @@ export class PayoutsService {
       });
       const byMember = new Map(profiles.map((p) => [p.membershipId, p]));
       for (const id of targets) {
-        const block = kycPayoutBlock(byMember.get(id) ?? null);
-        if (block) kycBlock.set(id, block);
+        const b = kycPayoutBlock(byMember.get(id) ?? null);
+        if (b) block.set(id, b);
       }
+    }
+    // fraud bayragi: cleared olmayan + skor >= esik → bloklu (riskli komisyon hold'u)
+    const flags = await this.prisma.fraudFlag.findMany({
+      where: { tenantId: actor.tenantId, membershipId: { in: targets } },
+      select: { membershipId: true, status: true, score: true },
+    });
+    for (const f of flags) {
+      const b = fraudPayoutBlock(f);
+      if (b && !block.has(f.membershipId)) block.set(f.membershipId, b);
     }
 
     for (const membershipId of targets) {
-      const block = kycBlock.get(membershipId);
-      if (block) {
-        skipped.push({ membershipId, reason: block, netCents: '0' });
+      const reason = block.get(membershipId);
+      if (reason) {
+        skipped.push({ membershipId, reason, netCents: '0' });
         continue;
       }
       const result = await this.engine.payoutMember({
@@ -411,6 +421,10 @@ export class PayoutsService {
       const block = kycPayoutBlock(profile);
       if (block) throw new BadRequestException(block);
     }
+    // fraud bayragi: bloklu uye odeme talebi acamaz (her zaman acik)
+    const flag = await this.prisma.fraudFlag.findUnique({ where: { membershipId }, select: { status: true, score: true } });
+    const fraudBlock = fraudPayoutBlock(flag);
+    if (fraudBlock) throw new BadRequestException(fraudBlock);
     const agg = await this.prisma.ledgerEntry.aggregate({
       where: { tenantId, beneficiaryMembershipId: membershipId, status: LedgerStatus.payable },
       _sum: { amountCents: true },

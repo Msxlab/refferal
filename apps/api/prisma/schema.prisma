@@ -92,6 +92,12 @@ enum BankAccountType {
   savings
 }
 
+enum FraudStatus {
+  open      // inceleme bekliyor (payout bloklu)
+  cleared   // temize cikti (payout serbest)
+  confirmed // dolandiricilik teyitli (payout bloklu kalir)
+}
+
 enum LedgerStatus {
   pending
   payable
@@ -158,6 +164,7 @@ model Tenant {
   campaigns   Campaign[]
   savedViews  SavedView[]
   payoutProfiles PayoutProfile[]
+  fraudFlags  FraudFlag[]
 
   @@map("tenants")
 }
@@ -289,6 +296,7 @@ model Membership {
   teamStats   TeamStat[]
   payouts     Payout[]
   payoutProfile PayoutProfile?
+  fraudFlag   FraudFlag?
 
   @@unique([tenantId, userId])
   @@unique([tenantId, referralCode])
@@ -606,4 +614,26 @@ model PayoutProfile {
 
   @@index([tenantId, status])
   @@map("payout_profiles")
+}
+
+// Fraud sinyal motoru (#11): saatlik tarama uye basina risk skoru + sebepler uretir.
+// score >= BLOCK ve status != cleared ise payout BLOKLANIR (riskli komisyon hold'u).
+model FraudFlag {
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String      @map("tenant_id") @db.Uuid
+  membershipId     String      @unique @map("membership_id") @db.Uuid
+  score            Int         @default(0)
+  reasons          Json        @default("[]")
+  status           FraudStatus @default(open)
+  note             String?
+  reviewedByUserId String?     @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt       DateTime?   @map("reviewed_at")
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@map("fraud_flags")
 }
