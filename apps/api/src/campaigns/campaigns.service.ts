@@ -122,37 +122,55 @@ export class CampaignsService {
     if (c.status === CampaignStatus.ended) {
       throw new ConflictException('kampanya zaten bitirilmis');
     }
-    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
-    const month = monthKey(new Date(), tenant.timezone);
-    const standings = await this.standings(tenantId, c);
+    // TEK transaction: ATOMIK claim → odul → results. Manuel finalize ile saatlik
+    // auto-finalize cron'u ayni kampanyada yarisirsa yalniz BIRI gecis yapar (cift odul yok).
+    return this.prisma.$transaction(async (tx) => {
+      const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+      const month = monthKey(new Date(), tenant.timezone);
 
-    const awarded: Standing[] = [];
-    for (const s of standings) {
-      if (s.bonusCents > 0) {
-        await this.engine.awardBonus({
-          tenantId,
-          membershipId: s.membershipId,
-          amountCents: BigInt(s.bonusCents),
-          month,
-          reason: `${c.name} — rank #${s.rank}`,
-          actorUserId: actorUserId ?? undefined,
-          meta: { campaignId: c.id, rank: s.rank },
-        });
-        awarded.push(s);
+      // Atomik claim: draft/active → ended (finalizedAt simdi). Yalniz GERCEK gecisi
+      // yapan satir sayilir; ikinci yarisan icin count=0 → odul yazmadan tx geri alinir.
+      const claim = await tx.campaign.updateMany({
+        where: { id: c.id, tenantId, status: { in: [CampaignStatus.draft, CampaignStatus.active] } },
+        data: { status: CampaignStatus.ended, finalizedAt: new Date() },
+      });
+      if (claim.count !== 1) {
+        throw new ConflictException('kampanya zaten bitirilmis');
       }
-    }
 
-    const updated = await this.prisma.campaign.update({
-      where: { id: c.id },
-      data: { status: CampaignStatus.ended, finalizedAt: new Date(), results: standings as unknown as Prisma.InputJsonValue },
-    });
-    await this.prisma.auditLog.create({
-      data: {
-        tenantId, actorUserId, action: actorUserId ? 'campaign.finalize' : 'campaign.auto_finalize', entity: 'campaign', entityId: c.id,
-        after: { awardedCount: awarded.length, totalBonusCents: awarded.reduce((a, s) => a + s.bonusCents, 0).toString() } as Prisma.InputJsonValue,
-      },
-    });
-    return { ...this.serialize(updated), standings, awardedCount: awarded.length };
+      const standings = await this.standings(tenantId, c, tx);
+
+      const awarded: Standing[] = [];
+      for (const s of standings) {
+        if (s.bonusCents > 0) {
+          await this.engine.awardBonus(
+            {
+              tenantId,
+              membershipId: s.membershipId,
+              amountCents: BigInt(s.bonusCents),
+              month,
+              reason: `${c.name} — rank #${s.rank}`,
+              actorUserId: actorUserId ?? undefined,
+              meta: { campaignId: c.id, rank: s.rank },
+            },
+            tx, // ayni transaction: claim + bu odul birlikte commit/rollback
+          );
+          awarded.push(s);
+        }
+      }
+
+      const updated = await tx.campaign.update({
+        where: { id: c.id },
+        data: { results: standings as unknown as Prisma.InputJsonValue },
+      });
+      await tx.auditLog.create({
+        data: {
+          tenantId, actorUserId, action: actorUserId ? 'campaign.finalize' : 'campaign.auto_finalize', entity: 'campaign', entityId: c.id,
+          after: { awardedCount: awarded.length, totalBonusCents: awarded.reduce((a, s) => a + s.bonusCents, 0).toString() } as Prisma.InputJsonValue,
+        },
+      });
+      return { ...this.serialize(updated), standings, awardedCount: awarded.length };
+    }, { timeout: 20_000, maxWait: 15_000 });
   }
 
   /**
@@ -193,14 +211,19 @@ export class CampaignsService {
   // ----------------------------------------------------- siralama hesaplama
 
   /** Metric'e gore CANLI siralama (pencere [startsAt, endsAt], score desc). */
-  private async standings(tenantId: string, c: { metric: string; startsAt: Date; endsAt: Date; prizes: unknown }): Promise<Standing[]> {
+  private async standings(
+    tenantId: string,
+    c: { metric: string; startsAt: Date; endsAt: Date; prizes: unknown },
+    // finalize claim transaction'i icinden tutarli okuma icin tx gecilebilir; varsayilan canli prisma.
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<Standing[]> {
     const prizes = (c.prizes as Prize[] | null) ?? [];
     const bonusByRank = new Map(prizes.map((p) => [p.rank, p.bonusCents]));
     const window = { gte: c.startsAt, lte: c.endsAt };
 
     let scored: Array<{ membershipId: string; score: number }> = [];
     if (c.metric === 'revenue' || c.metric === 'sales_count') {
-      const rows = await this.prisma.sale.groupBy({
+      const rows = await db.sale.groupBy({
         by: ['sellerMembershipId'],
         where: { tenantId, status: SaleStatus.approved, saleDate: window },
         _sum: { amountCents: true },
@@ -211,7 +234,7 @@ export class CampaignsService {
         score: c.metric === 'revenue' ? Number(r._sum.amountCents ?? 0n) : r._count._all,
       }));
     } else if (c.metric === 'new_recruits') {
-      const rows = await this.prisma.membership.groupBy({
+      const rows = await db.membership.groupBy({
         by: ['sponsorMembershipId'],
         where: { tenantId, joinedAt: window, sponsorMembershipId: { not: null } },
         _count: { _all: true },
@@ -221,7 +244,7 @@ export class CampaignsService {
         .map((r) => ({ membershipId: r.sponsorMembershipId as string, score: r._count._all }));
     } else {
       // invites
-      const rows = await this.prisma.invite.groupBy({
+      const rows = await db.invite.groupBy({
         by: ['inviterMembershipId'],
         where: { tenantId, createdAt: window },
         _count: { _all: true },
@@ -232,7 +255,7 @@ export class CampaignsService {
     scored = scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score).slice(0, MAX_STANDINGS);
     if (scored.length === 0) return [];
 
-    const members = await this.prisma.membership.findMany({
+    const members = await db.membership.findMany({
       where: { id: { in: scored.map((s) => s.membershipId) } },
       select: { id: true, referralCode: true, status: true, user: { select: { fullName: true } } },
     });

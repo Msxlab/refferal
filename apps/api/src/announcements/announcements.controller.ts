@@ -42,6 +42,6 @@ export class AppAnnouncementsController {
   @HttpCode(200)
   @Post(':id/read')
   read(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.markRead(user.mid as string, id);
+    return this.svc.markRead(user.tid as string, user.mid as string, id);
   }
 }

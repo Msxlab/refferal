@@ -311,6 +311,16 @@ export class AuthService {
     if (user) {
       const raw = randomToken(32);
       const recipient = user.lastMembershipId ?? user.memberships[0]?.id;
+      // Bildirim hangi uyelige gidiyorsa o uyeligin tenant'ina ait olmali. lastMembershipId
+      // include edilen (aktif, take:1) listede olmayabilir; tenantId'yi dogrudan cozeriz.
+      const recipientTenantId = recipient
+        ? (
+            await this.prisma.membership.findUnique({
+              where: { id: recipient },
+              select: { tenantId: true },
+            })
+          )?.tenantId ?? null
+        : null;
       await this.prisma.$transaction(async (tx) => {
         await tx.userToken.updateMany({
           where: { userId: user.id, purpose: UserTokenPurpose.password_reset, usedAt: null },
@@ -327,6 +337,7 @@ export class AuthService {
         if (recipient) {
           await tx.notification.create({
             data: {
+              tenantId: recipientTenantId,
               recipientMembershipId: recipient,
               channel: NotificationChannel.email,
               template: 'password_reset',

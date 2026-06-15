@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { hash } from '@node-rs/argon2';
 import { InviteStatus, LedgerStatus, MembershipStatus, PayoutStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
@@ -10,6 +10,7 @@ import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
 import { MembershipsService } from '../memberships/memberships.service';
 import { ActorContext } from '../common/actor';
+import { csvCell } from '../common/csv';
 
 // Admin'in atayabilecegi roller (owner devri ve platform_admin bu uctan YAPILMAZ)
 const ASSIGNABLE_ROLES: Role[] = [Role.tenant_admin, Role.tenant_staff, Role.member];
@@ -19,6 +20,8 @@ export type SortDir = 'asc' | 'desc';
 
 @Injectable()
 export class MembersAdminService {
+  private readonly logger = new Logger(MembersAdminService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
@@ -38,6 +41,9 @@ export class MembersAdminService {
     if (!m) throw new NotFoundException('uyelik bu isletmede bulunamadi');
     if (m.role === Role.tenant_owner || m.role === Role.tenant_admin) {
       throw new BadRequestException('admin/owner impersonate edilemez');
+    }
+    if (m.status !== MembershipStatus.active) {
+      throw new BadRequestException('pasif uye impersonate edilemez');
     }
     const payload: AccessTokenPayload = {
       sub: m.user.id,
@@ -157,13 +163,13 @@ export class MembersAdminService {
     const header = 'referral_code,full_name,email,role,status,depth,sponsor_code,joined_at,email_verified';
     const lines = rows.map((m) =>
       [
-        m.referralCode,
+        csvCell(m.referralCode),
         csvCell(m.user.fullName),
-        m.user.email,
+        csvCell(m.user.email),
         m.role,
         m.status,
         String(m.depth),
-        m.sponsor?.referralCode ?? '',
+        csvCell(m.sponsor?.referralCode ?? ''),
         m.joinedAt.toISOString(),
         m.user.emailVerifiedAt ? 'true' : 'false',
       ].join(','),
@@ -402,14 +408,22 @@ export class MembersAdminService {
       const taken = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
       if (taken && taken.id !== m.userId) throw new ConflictException('bu e-posta baska bir hesapta kullaniliyor');
     }
-    await this.prisma.user.update({
-      where: { id: m.userId },
-      data: {
-        ...(input.fullName !== undefined ? { fullName: input.fullName.trim() } : {}),
-        // e-posta degisirse yeniden dogrulama gerekir
-        ...(email && email !== m.user.email ? { email, emailVerifiedAt: null } : {}),
-      },
-    });
+    try {
+      await this.prisma.user.update({
+        where: { id: m.userId },
+        data: {
+          ...(input.fullName !== undefined ? { fullName: input.fullName.trim() } : {}),
+          // e-posta degisirse yeniden dogrulama gerekir
+          ...(email && email !== m.user.email ? { email, emailVerifiedAt: null } : {}),
+        },
+      });
+    } catch (e) {
+      // on-kontrol ile update arasinda eszamanli ekleme email unique kisitini cigneyebilir → ham 500 yerine 409
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('bu e-posta baska bir hesapta kullaniliyor');
+      }
+      throw e;
+    }
     await this.audit(actor, 'membership.update_profile', m.id, { fullName: input.fullName, emailChanged: !!email && email !== m.user.email });
     return { id: m.id };
   }
@@ -417,6 +431,10 @@ export class MembersAdminService {
   /** Bir uyeyi takim lideri isaretle/kaldir (Dalga 3). Yerlesimi DEGISTIRMEZ — sadece bayrak. */
   async setLeader(actor: ActorContext, membershipId: string, isTeamLeader: boolean) {
     const m = await this.requireInTenant(actor.tenantId, membershipId);
+    // takim lideri = saha temsilcisi (member/staff); owner/admin "lider" diye etiketlenmez (yanlis kok)
+    if (isTeamLeader && (m.role === Role.tenant_owner || m.role === Role.tenant_admin)) {
+      throw new BadRequestException('owner/admin takim lideri olarak isaretlenemez');
+    }
     if (m.isTeamLeader === isTeamLeader) return { id: m.id, isTeamLeader };
     await this.prisma.membership.update({ where: { id: m.id }, data: { isTeamLeader } });
     await this.audit(actor, isTeamLeader ? 'membership.set_leader' : 'membership.unset_leader', m.id, { isTeamLeader });
@@ -431,26 +449,49 @@ export class MembersAdminService {
   async leaders(tenantId: string) {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const month = monthKey(new Date(), tenant.timezone);
-    const leaders = await this.prisma.membership.findMany({
+    const leadersAll = await this.prisma.membership.findMany({
       where: { tenantId, OR: [{ isTeamLeader: true }, { sponsorMembershipId: null }] },
       orderBy: [{ depth: 'asc' }, { joinedAt: 'asc' }],
       include: { user: { select: { fullName: true } } },
     });
+    // Sinir: cok sayida lider varsa N round-trip'i sinirla (landing performansi).
+    // Asimda log + kirpma yapilir; donen sekil degismez (sirali: depth/joinedAt).
+    const MAX_LEADERS = 200;
+    const leaders = leadersAll.slice(0, MAX_LEADERS);
+    if (leadersAll.length > MAX_LEADERS) {
+      this.logger.warn(`leaders(): tenant ${tenantId} icin ${leadersAll.length} lider, ${MAX_LEADERS} ile kirpildi`);
+    }
 
     const rows = await Promise.all(
       leaders.map(async (l) => {
-        // alt-agac: kendisi + tum torunlari (ltree)
-        const team = await this.prisma.$queryRaw<Array<{ ids: string[]; cnt: bigint }>>`
-          SELECT array_agg(id::text) AS ids, count(*)::bigint AS cnt
-          FROM memberships
-          WHERE tenant_id = ${tenantId}::uuid AND path::ltree <@ ${l.path}::ltree`;
-        const ids = team[0]?.ids ?? [];
-        const teamSize = Number(team[0]?.cnt ?? 0n) - 1; // kendisi haric
-        const [vol, comm] = await Promise.all([
-          this.prisma.sale.aggregate({ where: { tenantId, status: SaleStatus.approved, summaryMonth: month, sellerMembershipId: { in: ids } }, _sum: { amountCents: true } }),
-          this.prisma.monthlySummary.aggregate({ where: { tenantId, month, membershipId: { in: ids } }, _sum: { pendingCents: true, payableCents: true, paidCents: true } }),
-        ]);
-        const commCents = (comm._sum.pendingCents ?? 0n) + (comm._sum.payableCents ?? 0n) + (comm._sum.paidCents ?? 0n);
+        // Tek round-trip: alt-agac (ltree path <@ lider.path) uzerinden ekip boyu +
+        // bu-ay grup cirosu (onayli sales) + bu-ay grup komisyonu (monthly_summaries).
+        // Toplamlar ::bigint cast'li — $queryRaw native bigint dondursun (para BigInt kalir).
+        const agg = await this.prisma.$queryRaw<
+          Array<{ team_size: bigint; vol_cents: bigint; comm_cents: bigint }>
+        >`
+          WITH sub AS (
+            SELECT id FROM memberships
+            WHERE tenant_id = ${tenantId}::uuid AND path::ltree <@ ${l.path}::ltree
+          )
+          SELECT
+            (SELECT count(*)::bigint FROM sub) AS team_size,
+            COALESCE((
+              SELECT sum(s.amount_cents)::bigint FROM sales s
+              WHERE s.tenant_id = ${tenantId}::uuid
+                AND s.status = ${SaleStatus.approved}::"SaleStatus"
+                AND s.summary_month = ${month}
+                AND s.seller_membership_id IN (SELECT id FROM sub)
+            ), 0)::bigint AS vol_cents,
+            COALESCE((
+              SELECT sum(ms.pending_cents + ms.payable_cents + ms.paid_cents)::bigint
+              FROM monthly_summaries ms
+              WHERE ms.tenant_id = ${tenantId}::uuid
+                AND ms.month = ${month}
+                AND ms.membership_id IN (SELECT id FROM sub)
+            ), 0)::bigint AS comm_cents`;
+        const r = agg[0];
+        const teamSize = Number(r?.team_size ?? 0n) - 1; // kendisi haric
         return {
           id: l.id,
           fullName: l.user.fullName,
@@ -459,8 +500,8 @@ export class MembersAdminService {
           isTeamLeader: l.isTeamLeader,
           isOwnerRoot: l.sponsorMembershipId === null && !l.isTeamLeader,
           teamSize: Math.max(0, teamSize),
-          monthlyGroupVolumeCents: (vol._sum.amountCents ?? 0n).toString(),
-          monthlyGroupCommissionCents: commCents.toString(),
+          monthlyGroupVolumeCents: (r?.vol_cents ?? 0n).toString(),
+          monthlyGroupCommissionCents: (r?.comm_cents ?? 0n).toString(),
         };
       }),
     );
@@ -475,6 +516,14 @@ export class MembersAdminService {
     }
     if (m.status === status) return { id: m.id, status };
     const updated = await this.prisma.membership.update({ where: { id: m.id }, data: { status } });
+    // pasiflestirmede bu uyeligin canli API anahtarlarini iptal et (kullanici-disi erisim de kesilsin)
+    if (status === MembershipStatus.inactive) {
+      const revoked = await this.prisma.apiKey.updateMany({
+        where: { tenantId: actor.tenantId, membershipId: m.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      if (revoked.count > 0) await this.audit(actor, 'apikey.revoke_cascade', m.id, { reason: 'deactivate', count: revoked.count });
+    }
     await this.audit(actor, status === MembershipStatus.inactive ? 'membership.deactivate' : 'membership.activate', m.id, {
       from: m.status,
       to: status,
@@ -552,6 +601,14 @@ export class MembersAdminService {
       throw new BadRequestException('owner rolu bu uctan degistirilemez');
     }
     const updated = await this.prisma.membership.update({ where: { id: m.id }, data: { role } });
+    // rol degisiminde bu uyeligin canli API anahtarlarini iptal et -- saklanmis eski yetkiyle calismaya devam etmesin
+    if (role !== m.role) {
+      const revoked = await this.prisma.apiKey.updateMany({
+        where: { tenantId: actor.tenantId, membershipId: m.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      if (revoked.count > 0) await this.audit(actor, 'apikey.revoke_cascade', m.id, { reason: 'role_change', from: m.role, to: role, count: revoked.count });
+    }
     await this.audit(actor, 'membership.set_role', m.id, { from: m.role, to: role });
     return { id: updated.id, role: updated.role };
   }
@@ -683,12 +740,4 @@ function deBig(v: unknown): unknown {
     return o;
   }
   return v;
-}
-
-/** CSV hucresi: virgul/tirnak/yeni satir varsa tirnakla ve "" kacisla (payouts exportCsv kalibi). */
-function csvCell(value: string): string {
-  if (/[",\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
 }

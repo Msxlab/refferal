@@ -3,16 +3,16 @@ import { LedgerStatus, Prisma } from '@prisma/client';
 import { ActorContext } from '../common/actor';
 import { PrismaService } from '../prisma/prisma.service';
 
-interface Tier { name: string; sortOrder: number; minTeam: number; minEarningsCents: number; overrideBps: number }
+interface Tier { name: string; sortOrder: number; minTeam: number; minEarningsCents: bigint; overrideBps: number }
 
 type Client = PrismaService | Prisma.TransactionClient;
 
 // Tenant tier tanimlamadiysa yerlesik varsayilan merdiven (override yerlesikte kapali: 0).
 const DEFAULT_TIERS: Tier[] = [
-  { name: 'Bronze', sortOrder: 0, minTeam: 0, minEarningsCents: 0, overrideBps: 0 },
-  { name: 'Silver', sortOrder: 1, minTeam: 3, minEarningsCents: 100_000, overrideBps: 0 }, // $1,000
-  { name: 'Gold', sortOrder: 2, minTeam: 10, minEarningsCents: 1_000_000, overrideBps: 0 }, // $10,000
-  { name: 'Platinum', sortOrder: 3, minTeam: 25, minEarningsCents: 5_000_000, overrideBps: 0 }, // $50,000
+  { name: 'Bronze', sortOrder: 0, minTeam: 0, minEarningsCents: 0n, overrideBps: 0 },
+  { name: 'Silver', sortOrder: 1, minTeam: 3, minEarningsCents: 100_000n, overrideBps: 0 }, // $1,000
+  { name: 'Gold', sortOrder: 2, minTeam: 10, minEarningsCents: 1_000_000n, overrideBps: 0 }, // $10,000
+  { name: 'Platinum', sortOrder: 3, minTeam: 25, minEarningsCents: 5_000_000n, overrideBps: 0 }, // $50,000
 ];
 
 @Injectable()
@@ -23,7 +23,7 @@ export class RanksService {
   async effectiveTiers(tenantId: string, client: Client = this.prisma): Promise<Tier[]> {
     const custom = await client.rankTier.findMany({ where: { tenantId }, orderBy: { sortOrder: 'asc' } });
     if (custom.length === 0) return DEFAULT_TIERS;
-    return custom.map((t) => ({ name: t.name, sortOrder: t.sortOrder, minTeam: t.minTeam, minEarningsCents: Number(t.minEarningsCents), overrideBps: t.overrideBps }));
+    return custom.map((t) => ({ name: t.name, sortOrder: t.sortOrder, minTeam: t.minTeam, minEarningsCents: t.minEarningsCents, overrideBps: t.overrideBps }));
   }
 
   /**
@@ -43,7 +43,7 @@ export class RanksService {
       }),
     ]);
     const teamSize = Number(teamRows[0]?.c ?? 0n);
-    const earnings = Number(earnAgg._sum.amountCents ?? 0n);
+    const earnings = earnAgg._sum.amountCents ?? 0n; // BigInt: esik karsilastirmasi tam hassasiyetle
     const tiers = await this.effectiveTiers(tenantId, client);
     let current: Tier | null = null;
     for (const t of tiers) {
@@ -56,6 +56,15 @@ export class RanksService {
   async overrideBpsFor(client: Client, tenantId: string, membershipId: string): Promise<number> {
     const tier = await this.resolveTier(client, tenantId, membershipId);
     return tier?.overrideBps ?? 0;
+  }
+
+  /**
+   * Bu tenant'ta bir uyenin alabilecegi EN YUKSEK rutbe override orani (bps).
+   * Toplam-dagitim tavani icin: maruz kalinabilecek maksimum override bonusu (engine invariant).
+   */
+  async maxOverrideBps(client: Client, tenantId: string): Promise<number> {
+    const tiers = await this.effectiveTiers(tenantId, client);
+    return tiers.reduce((m, t) => Math.max(m, t.overrideBps), 0);
   }
 
   // ---- admin CRUD ----
@@ -112,7 +121,7 @@ export class RanksService {
       this.prisma.sale.count({ where: { tenantId, sellerMembershipId: membershipId } }),
     ]);
     const teamSize = Number(teamRows[0]?.c ?? 0n);
-    const earnings = Number(earnAgg._sum.amountCents ?? 0n);
+    const earnings = earnAgg._sum.amountCents ?? 0n; // BigInt: esik karsilastirmasi tam hassasiyetle
 
     const tiers = await this.effectiveTiers(tenantId);
     let currentIdx = -1;
@@ -122,7 +131,8 @@ export class RanksService {
     const progress = next
       ? {
           teamPct: next.minTeam > 0 ? Math.min(100, Math.round((teamSize / next.minTeam) * 100)) : 100,
-          earningsPct: next.minEarningsCents > 0 ? Math.min(100, Math.round((earnings / next.minEarningsCents) * 100)) : 100,
+          // yuzde gosterim amacli (100'e clamp); oran burada Number'a cevrilir, esik geciti yukarida BigInt ile yapildi
+          earningsPct: next.minEarningsCents > 0n ? Math.min(100, Math.round((Number(earnings) / Number(next.minEarningsCents)) * 100)) : 100,
         }
       : null;
 
@@ -130,7 +140,7 @@ export class RanksService {
       { key: 'first_sale', label: 'First sale', earned: salesCount > 0 },
       { key: 'first_recruit', label: 'First recruit', earned: directs > 0 },
       { key: 'team_5', label: 'Team of 5', earned: teamSize >= 5 },
-      { key: 'earned_10k', label: '$10K earned', earned: earnings >= 1_000_000 },
+      { key: 'earned_10k', label: '$10K earned', earned: earnings >= 1_000_000n },
     ];
 
     return {

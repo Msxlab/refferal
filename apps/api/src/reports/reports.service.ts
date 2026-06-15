@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { LedgerType, MembershipStatus, PayoutStatus, Prisma, SaleStatus } from '@prisma/client';
 import { sha256 } from '../common/crypto';
+import { csvCell } from '../common/csv';
+import { centsToDecimalString } from '@refearn/shared';
 import { monthKey } from '../engine/month';
 import { createEmailAdapter } from '../notifications/adapters';
 import { PrismaService } from '../prisma/prisma.service';
@@ -25,9 +27,9 @@ export class ReportsService {
 
   /** Henuz hash'lenmemis kayitlari createdAt sirasiyla zincire ekle (idempotent). */
   async sealAuditChain(tenantId: string): Promise<{ sealed: number }> {
-    const last = await this.prisma.auditLog.findFirst({ where: { tenantId, hash: { not: null } }, orderBy: { createdAt: 'desc' } });
+    const last = await this.prisma.auditLog.findFirst({ where: { tenantId, hash: { not: null } }, orderBy: { seq: 'desc' } });
     let prev: string | null = last?.hash ?? null;
-    const unsealed = await this.prisma.auditLog.findMany({ where: { tenantId, hash: null }, orderBy: { createdAt: 'asc' } });
+    const unsealed = await this.prisma.auditLog.findMany({ where: { tenantId, hash: null }, orderBy: { seq: 'asc' } });
     for (const a of unsealed) {
       const hash = sha256((prev ?? '') + this.auditContent(a));
       await this.prisma.auditLog.update({ where: { id: a.id }, data: { prevHash: prev, hash } });
@@ -38,7 +40,7 @@ export class ReportsService {
 
   /** Zincir butunlugunu dogrula: sealed kayitlari yeniden hash'le, ilk kirilmayi bildir. */
   async verifyAuditChain(tenantId: string): Promise<{ ok: boolean; checked: number; brokenAt: string | null }> {
-    const rows = await this.prisma.auditLog.findMany({ where: { tenantId, hash: { not: null } }, orderBy: { createdAt: 'asc' } });
+    const rows = await this.prisma.auditLog.findMany({ where: { tenantId, hash: { not: null } }, orderBy: { seq: 'asc' } });
     let prev: string | null = null;
     for (const a of rows) {
       const expect = sha256((prev ?? '') + this.auditContent(a));
@@ -355,7 +357,7 @@ export class ReportsService {
   async tax1099(tenantId: string, year: number) {
     const start = new Date(`${year}-01-01T00:00:00.000Z`);
     const end = new Date(`${year + 1}-01-01T00:00:00.000Z`);
-    const THRESHOLD = 60_000; // $600
+    const THRESHOLD = 60_000n; // $600
 
     const rows = await this.prisma.payout.groupBy({
       by: ['membershipId'],
@@ -371,7 +373,7 @@ export class ReportsService {
     const pBy = new Map(profiles.map((p) => [p.membershipId, p]));
 
     const list = rows.map((r) => {
-      const paid = Number(r._sum.totalCents ?? 0n);
+      const paid = r._sum.totalCents ?? 0n; // BigInt cent; IRS tutari, precision korunur
       const m = mBy.get(r.membershipId);
       const p = pBy.get(r.membershipId);
       return {
@@ -382,17 +384,18 @@ export class ReportsService {
         taxIdType: p?.taxIdType ?? null,
         taxIdLast4: p?.taxIdLast4 ?? null,
         hasTaxId: !!p,
+        paidCentsBig: paid, // dahili siralama icin BigInt; JSON'a verilmez
         paidCents: paid.toString(),
         reportable: paid >= THRESHOLD,
       };
-    }).sort((a, b) => Number(b.paidCents) - Number(a.paidCents));
+    }).sort((a, b) => (a.paidCentsBig < b.paidCentsBig ? 1 : a.paidCentsBig > b.paidCentsBig ? -1 : 0));
 
     return {
       year,
       thresholdCents: THRESHOLD.toString(),
       reportableCount: list.filter((x) => x.reportable).length,
       missingTaxId: list.filter((x) => x.reportable && !x.hasTaxId).length,
-      members: list,
+      members: list.map(({ paidCentsBig, ...rest }) => rest),
     };
   }
 
@@ -403,10 +406,10 @@ export class ReportsService {
       [
         csvCell(m.legalName ?? ''),
         csvCell(m.name),
-        m.referralCode,
-        m.taxIdType ?? '',
-        m.taxIdLast4 ?? '',
-        (Number(m.paidCents) / 100).toFixed(2),
+        csvCell(m.referralCode),
+        csvCell(m.taxIdType ?? ''),
+        csvCell(m.taxIdLast4 ?? ''),
+        centsToDecimalString(BigInt(m.paidCents)),
         m.reportable ? 'yes' : 'no',
       ].join(','),
     );
@@ -627,6 +630,10 @@ export class ReportsService {
       orderBy: { createdAt: 'desc' },
       take: 5000,
     });
+    // sessiz kirpma admin'i "her seyi indirdim" sanmasina yol acar — limite ulasinca uyar
+    if (rows.length === 5000) {
+      this.logger.warn(`[audit-export] tenant=${tenantId} 5000-satir limitine ulasildi — sonuc kirpilmis olabilir (tarih/filtre daraltin)`);
+    }
     const actorOf = await this.resolveActors(rows.map((a) => a.actorUserId));
     const header = 'created_at,action,entity,entity_id,actor_name,actor_email,ip';
     const lines = rows.map((a) => {
@@ -635,20 +642,12 @@ export class ReportsService {
         a.createdAt.toISOString(),
         csvCell(a.action),
         csvCell(a.entity),
-        a.entityId ?? '',
+        csvCell(a.entityId ?? ''),
         csvCell(actor.name),
-        actor.email ?? '',
-        a.ip ?? '',
+        csvCell(actor.email ?? ''),
+        csvCell(a.ip ?? ''),
       ].join(',');
     });
     return [header, ...lines].join('\n') + '\n';
   }
-}
-
-/** CSV hucresi: virgul/tirnak/yeni satir varsa tirnakla ve "" kacisla. */
-function csvCell(value: string): string {
-  if (/[",\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
 }

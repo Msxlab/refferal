@@ -40,13 +40,22 @@ export class SanctionsService {
     return this.prisma.sanctionsEntry.count();
   }
 
-  /** Ad listeyle eslesiyor mu (normalize substring, iki yonlu). Eslesen kayitlari doner. */
+  /**
+   * Ad listeyle eslesiyor mu (token-farkinda). Eslesen kayitlari doner.
+   * Ham cift-yonlu substring yerine: bir entry'nin TUM token'lari girdide TAM KELIME olarak
+   * geciyorsa eslesme. Bu, "chris" -> "christopher" gibi mid-word yanlis-pozitifleri keser;
+   * "ali sadr hashemi nejad" -> "ali sadr hashemi nejad" gibi gercek eslesmeler korunur.
+   */
   async screen(name: string): Promise<Array<{ name: string; source: string; country: string | null }>> {
     const n = normalizeName(name);
     if (n.length < 3) return [];
+    const nTokens = new Set(n.split(' ').filter(Boolean));
     const entries = await this.prisma.sanctionsEntry.findMany({ select: { name: true, normalizedName: true, source: true, country: true } });
     return entries
-      .filter((e) => n.includes(e.normalizedName) || e.normalizedName.includes(n))
+      .filter((e) => {
+        const eTokens = e.normalizedName.split(' ').filter(Boolean);
+        return eTokens.length > 0 && eTokens.every((t) => nTokens.has(t));
+      })
       .map((e) => ({ name: e.name, source: e.source, country: e.country }));
   }
 

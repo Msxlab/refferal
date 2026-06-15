@@ -70,13 +70,25 @@ export class AccessTokenGuard implements CanActivate {
     // API anahtari (entegrasyon): X-Api-Key → olusturan admin'in uyeligi/rolu adina davranir.
     const apiKey = req.headers['x-api-key'];
     let payload: RequestUser;
+    // Principal'in API anahtarindan mi (uyelik+kiraci zaten dogrulandi) yoksa JWT'den mi geldigini izle.
+    let fromApiKey = false;
     if (typeof apiKey === 'string' && apiKey.length > 0) {
-      const k = await this.prisma.apiKey.findUnique({ where: { keyHash: sha256(apiKey) } });
-      if (!k || k.revokedAt) {
+      const k = await this.prisma.apiKey.findUnique({
+        where: { keyHash: sha256(apiKey) },
+        include: { membership: { select: { status: true, role: true, tenant: { select: { status: true } } } } },
+      });
+      // yasam-dongusu kapilari: revoke / sure dolmus / uyelik pasif / kiraci askida -> reddet
+      if (!k || k.revokedAt || (k.expiresAt && k.expiresAt.getTime() <= Date.now())) {
+        throw new UnauthorizedException('gecersiz api anahtari');
+      }
+      if (k.membership.status !== 'active' || k.membership.tenant.status !== 'active') {
+        this.logger.warn(`[security] apikey_inactive_principal key=${k.id} mid=${k.membershipId} tid=${k.tenantId}`);
         throw new UnauthorizedException('gecersiz api anahtari');
       }
       void this.prisma.apiKey.update({ where: { id: k.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
-      payload = { sub: k.createdByUserId, mid: k.membershipId, tid: k.tenantId, role: k.role, iat: 0, exp: 0 };
+      // rol her zaman CANLI uyelikten (k.membership.role) -- saklanmis stale rol downgrade'i asamaz
+      payload = { sub: k.createdByUserId, mid: k.membershipId, tid: k.tenantId, role: k.membership.role, iat: 0, exp: 0 };
+      fromApiKey = true;
     } else {
       const header = req.headers.authorization;
       if (!header?.startsWith('Bearer ')) {
@@ -94,6 +106,23 @@ export class AccessTokenGuard implements CanActivate {
     if (payload.imp && req.method !== 'GET') {
       this.logger.warn(`[security] impersonation_write_blocked imp=${payload.imp} as=${payload.sub} ${req.method} ${req.url}`);
       throw new ForbiddenException('impersonation oturumu salt-okunurdur');
+    }
+
+    // JWT bayatligi (#jwt-staleness): erisim tokeni statelessdir — pasif/yetkisi-dusurulmus uye token
+    // dolana dek (~15dk) yazma yapabilir. Yalnizca DURUM-DEGISTIREN (GET disi) JWT isteklerinde TEK
+    // indexli uyelik bakisi yap; api-key yolu zaten dogrulandi, GET okumalar 15dk tokeni korur.
+    // Canli uyelik ASKIDA/PASIF ise reddet; rolu CANLI uyelikten tazele (downgrade aninda etki etsin).
+    if (!fromApiKey && req.method !== 'GET' && payload.mid) {
+      const m = await this.prisma.membership.findUnique({
+        where: { id: payload.mid },
+        select: { status: true, role: true, tenant: { select: { status: true } } },
+      });
+      if (!m || m.status !== 'active' || m.tenant.status !== 'active') {
+        this.logger.warn(`[security] jwt_inactive_principal user=${payload.sub} mid=${payload.mid} ${req.method} ${req.url}`);
+        throw new ForbiddenException('uyelik veya kiraci artik aktif degil');
+      }
+      // rol CANLI uyelikten — saklanmis stale rol bir downgrade'i asamaz
+      payload.role = m.role;
     }
 
     if (this.reflector.getAllAndOverride<boolean>(REQUIRE_MEMBERSHIP_KEY, targets) && !payload.mid) {

@@ -69,7 +69,14 @@ export class AdminPayoutsController {
     @Query(new ZodValidationPipe(exportPayoutsSchema)) q: ExportPayoutsInput,
     @Res() res: Response,
   ) {
-    res.send(await this.payouts.achFile(user.tid as string, q.period));
+    // Banka bilgisi olmadigi icin dosyaya GIRMEYEN 'paid' payout'lar header ile yuzeye cikar
+    // (govde/NACHA byte'lari degismez — indirme sozlesmesi korunur).
+    const { file, skipped } = await this.payouts.achFile(user.tid as string, q.period);
+    res.setHeader('X-Refearn-Skipped', String(skipped.length));
+    if (skipped.length) {
+      res.setHeader('X-Refearn-Skipped-Ids', skipped.map((s) => s.membershipId).join(','));
+    }
+    res.send(file);
   }
 
   // banka mutabakati: ekstre satirlarini odenmis payout'larla esle, 'cleared' isaretle

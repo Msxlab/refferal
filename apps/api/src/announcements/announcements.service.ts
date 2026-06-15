@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { ActorContext } from '../common/actor';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -39,7 +39,10 @@ export class AnnouncementsService {
     return rows.map((a) => ({ id: a.id, title: a.title, body: a.body, createdAt: a.createdAt, read: a.reads.length > 0 }));
   }
 
-  async markRead(membershipId: string, announcementId: string) {
+  async markRead(tenantId: string, membershipId: string, announcementId: string) {
+    // duyuru bu kiracinin mi? — caprazl-tenant okundu makbuzu yazimi engellenir (tenant-scope)
+    const a = await this.prisma.announcement.findFirst({ where: { id: announcementId, tenantId }, select: { id: true } });
+    if (!a) throw new NotFoundException('duyuru bulunamadi');
     await this.prisma.announcementRead.upsert({
       where: { announcementId_membershipId: { announcementId, membershipId } },
       create: { announcementId, membershipId },

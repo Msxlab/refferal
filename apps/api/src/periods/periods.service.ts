@@ -81,12 +81,38 @@ export class PeriodsService {
   /** Donemi kilitle (idempotent). Bekleyen (pending) komisyon varsa uyari dondurur ama yine kilitler. */
   async lock(actor: ActorContext, period: string, note?: string): Promise<{ period: string; locked: true; warning?: string }> {
     this.assertPeriodFormat(period);
-    await this.prisma.periodLock.upsert({
-      where: { tenantId_period: { tenantId: actor.tenantId, period } },
-      create: { tenantId: actor.tenantId, period, lockedByUserId: actor.userId, note },
-      update: { note },
+    // TOCTOU kapanisi: kilit yazimini, engine/payout para-yazim tx'leriyle AYNI (tenant, period)
+    // advisory kilidi altinda yap. Boylece in-flight bir motor yazimi assertPeriodsOpen'da bu
+    // anahtari beklemis olur; kilit ya o yazimdan once ya da sonra atomik gorulur, arada kalan
+    // pencere kalkar. $transaction sart: pg_advisory_xact_lock yalniz tx sonuna kadar tutulur.
+    const existed = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${actor.tenantId}), hashtext(${period}))`;
+      // relock tespiti: zaten kilitliyse upsert orijinal lockedByUserId/createdAt'i korur (create dalı çalışmaz)
+      const prior = await tx.periodLock.findUnique({
+        where: { tenantId_period: { tenantId: actor.tenantId, period } },
+        select: { lockedByUserId: true, createdAt: true },
+      });
+      await tx.periodLock.upsert({
+        where: { tenantId_period: { tenantId: actor.tenantId, period } },
+        create: { tenantId: actor.tenantId, period, lockedByUserId: actor.userId, note },
+        update: { note },
+      });
+      return prior;
     });
-    await this.audit(actor, 'period.lock', period, { note: note ?? null });
+    // Zaten kilitliyse audit'i yeni aktore 'period.lock' diye yazmak yanıltıcı olur — 'period.relock'
+    // olarak işle ve orijinal kilitleyeni/zamanı koru.
+    await this.audit(
+      actor,
+      existed ? 'period.relock' : 'period.lock',
+      period,
+      existed
+        ? {
+            note: note ?? null,
+            originalLockedByUserId: existed.lockedByUserId,
+            originalLockedAt: existed.createdAt.toISOString(),
+          }
+        : { note: note ?? null },
+    );
 
     const pending = await this.prisma.monthlySummary.aggregate({
       where: { tenantId: actor.tenantId, month: period },
@@ -99,7 +125,12 @@ export class PeriodsService {
   /** Kilidi ac (muhasebe override) — audit'li. */
   async unlock(actor: ActorContext, period: string): Promise<{ period: string; locked: false }> {
     this.assertPeriodFormat(period);
-    await this.prisma.periodLock.deleteMany({ where: { tenantId: actor.tenantId, period } });
+    // lock() ile simetri: kilit silmeyi de ayni advisory anahtari altinda yap ki acilis ile
+    // in-flight okuma seri kalsin (acilmis bir donemi okuyan yazim tutarli gorur).
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${actor.tenantId}), hashtext(${period}))`;
+      await tx.periodLock.deleteMany({ where: { tenantId: actor.tenantId, period } });
+    });
     await this.audit(actor, 'period.unlock', period, {});
     return { period, locked: false };
   }

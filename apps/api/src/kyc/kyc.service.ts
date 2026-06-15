@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PayoutProfileStatus, Prisma } from '@prisma/client';
 import { ActorContext } from '../common/actor';
 import { encryptSecret } from '../common/crypto';
@@ -74,6 +74,13 @@ export class KycService {
   async decide(actor: ActorContext, membershipId: string, action: 'verify' | 'reject', reason?: string) {
     const p = await this.prisma.payoutProfile.findUnique({ where: { membershipId } });
     if (!p || p.tenantId !== actor.tenantId) throw new NotFoundException('odeme profili bulunamadi');
+    // verify aninda CANLI yeniden tara: submit'ten sonra listeye girmis bir ad onayda yakalanir
+    if (action === 'verify' && (await this.sanctions.isHit(p.legalName))) {
+      if (!p.sanctionsHit) {
+        await this.prisma.payoutProfile.update({ where: { membershipId }, data: { sanctionsHit: true } });
+      }
+      throw new ConflictException('sanctions match (compliance review) - verify edilemez');
+    }
     const status = action === 'verify' ? PayoutProfileStatus.verified : PayoutProfileStatus.rejected;
     const updated = await this.prisma.payoutProfile.update({
       where: { membershipId },

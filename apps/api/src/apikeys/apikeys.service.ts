@@ -28,7 +28,7 @@ export class ApiKeysService {
 
   async list(tenantId: string) {
     const rows = await this.prisma.apiKey.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' } });
-    return rows.map((k) => ({ id: k.id, name: k.name, prefix: k.prefix, role: k.role, lastUsedAt: k.lastUsedAt, revokedAt: k.revokedAt, createdAt: k.createdAt }));
+    return rows.map((k) => ({ id: k.id, name: k.name, prefix: k.prefix, role: k.role, lastUsedAt: k.lastUsedAt, expiresAt: k.expiresAt, revokedAt: k.revokedAt, createdAt: k.createdAt }));
   }
 
   async revoke(tenantId: string, userId: string, id: string) {
@@ -39,14 +39,8 @@ export class ApiKeysService {
     return { revoked: true };
   }
 
-  /** Guard tarafindan: ham anahtari dogrula → aktor bilgisi (yoksa null). lastUsedAt tazelenir. */
-  async verify(rawKey: string): Promise<{ userId: string; membershipId: string; tenantId: string; role: Role } | null> {
-    const k = await this.prisma.apiKey.findUnique({ where: { keyHash: sha256(rawKey) } });
-    if (!k || k.revokedAt) return null;
-    // best-effort son kullanim (await; nadir cagrildigi icin maliyet onemsiz)
-    await this.prisma.apiKey.update({ where: { id: k.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
-    return { userId: k.createdByUserId, membershipId: k.membershipId, tenantId: k.tenantId, role: k.role };
-  }
+  // NOT: eski verify() kaldirildi — guard (auth.guard.ts) kendi sorgusunu satir-ici yapiyor;
+  // ikinci (sapma riski tasiyan) kopya olu koddu, cagrani yoktu.
 
   private async audit(tenantId: string, userId: string, action: string, entityId: string, after: object) {
     await this.prisma.auditLog.create({ data: { tenantId, actorUserId: userId, action, entity: 'apikey', entityId, after } });

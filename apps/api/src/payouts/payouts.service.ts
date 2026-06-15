@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { LedgerStatus, NotificationChannel, PayoutMethod, PayoutStatus, Prisma } from '@prisma/client';
 import { EngineService } from '../engine/engine.service';
 import { monthKey } from '../engine/month';
@@ -8,7 +8,10 @@ import { kycPayoutBlock } from '../kyc/kyc.types';
 import { fraudPayoutBlock } from '../fraud/fraud.types';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { EventsService } from '../events/events.service';
+import { SanctionsService } from '../sanctions/sanctions.service';
 import { decryptSecret } from '../common/crypto';
+import { csvCell } from '../common/csv';
+import { centsToDecimalString } from '@refearn/shared';
 import { achConfigFromEnv, AchEntry, buildNachaFile } from './nacha';
 
 type Tx = Prisma.TransactionClient;
@@ -36,11 +39,14 @@ const TX_OPTS: { timeout: number; maxWait: number } = { timeout: 20_000, maxWait
 
 @Injectable()
 export class PayoutsService {
+  private readonly logger = new Logger(PayoutsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly engine: EngineService,
     private readonly webhooks: WebhooksService,
     private readonly events: EventsService,
+    private readonly sanctions: SanctionsService,
   ) {}
 
   private async currentPeriod(tenantId: string): Promise<string> {
@@ -138,11 +144,16 @@ export class PayoutsService {
     const block = new Map<string, string>();
     const profiles = await this.prisma.payoutProfile.findMany({
       where: { tenantId: actor.tenantId, membershipId: { in: targets } },
-      select: { membershipId: true, status: true, lastChangedAt: true, sanctionsHit: true },
+      select: { membershipId: true, status: true, lastChangedAt: true, sanctionsHit: true, legalName: true },
     });
     const profileByMember = new Map(profiles.map((p) => [p.membershipId, p]));
     for (const id of targets) {
       const p = profileByMember.get(id) ?? null;
+      // CANLI yeniden tara: profil submit'inden sonra yaptirim listesine girmis bir ad odeme aninda yakalanir
+      if (p && !p.sanctionsHit && (await this.sanctions.isHit(p.legalName))) {
+        await this.markSanctionsHit(actor.tenantId, id);
+        p.sanctionsHit = true;
+      }
       if (p?.sanctionsHit) { block.set(id, 'sanctions match — compliance review'); continue; }
       if (tenantCfg.requireKycForPayout) {
         const b = kycPayoutBlock(p);
@@ -208,8 +219,9 @@ export class PayoutsService {
 
     const result = await this.executeTargets(actor, batch.membershipIds, batch.period, batch.method);
     await this.prisma.payoutBatch.update({ where: { id: batch.id }, data: { status: 'executed', approvedByUserId: actor.userId, executedAt: new Date() } });
-    await this.audit2(actor, 'payout.batch_approve', batch.id, { paidCount: result.paidCount, skippedCount: result.skippedCount });
-    return { ...result, batchId: batch.id };
+    const actualPaidCents = result.paid.reduce((a, p) => a + BigInt(p.totalCents), 0n);
+    await this.audit2(actor, 'payout.batch_approve', batch.id, { paidCount: result.paidCount, skippedCount: result.skippedCount, estimateCents: batch.estimateCents.toString(), actualPaidCents: actualPaidCents.toString() });
+    return { ...result, batchId: batch.id, estimateCents: batch.estimateCents.toString(), actualPaidCents: actualPaidCents.toString() };
   }
 
   async rejectBatch(actor: ActorContext, batchId: string) {
@@ -332,6 +344,19 @@ export class PayoutsService {
           throw new BadRequestException('net odenebilir tutar pozitif degil — talep onaylanamaz');
         }
 
+        // maker-checker: onaylayan, talep aninda gozden gecirilen snapshot'tan (payout.totalCents)
+        // FAZLASINI odeyemez. Talep-onay arasinda yeni komisyon olgunlasip net artmissa bakiye
+        // degismis demektir — yeni tutar tekrar gozden gecirilmeli (talebi yenile). Net dustuyse
+        // (clawback) snapshot'tan az oldugu icin sorun yok; gercek (dusuk) net odenir.
+        if (net > payout.totalCents) {
+          throw new ConflictException(
+            `odenebilir bakiye talep anindan beri artti (onaylanan ${payout.totalCents.toString()} → guncel ${net.toString()}); lutfen talebi yenileyin`,
+          );
+        }
+
+        // kilitli aya ait payable payout edilemez (o ayin summary'sini degistirir) — engine.payoutMember ile ayni guard
+        await this.assertPeriodsOpen(tx, actor.tenantId, lines.map((l) => l.month));
+
         await tx.ledgerEntry.updateMany({
           where: { id: { in: lines.map((l) => l.id) } },
           data: { status: LedgerStatus.paid, payoutId },
@@ -374,9 +399,15 @@ export class PayoutsService {
 
       // reject — bagli satirlari serbest birak (bakiye uyeye iade)
       const lines = await this.lockBoundLines(tx, tenant.timezone, payoutId);
-      if (lines.length > 0) {
+      // Yalnizca su an 'paid' olan bagli satirlar serbest birakilir: ledger updateMany ile
+      // summary geri alma AYNI kume uzerinde calismali (asimetri = ledger/summary sapmasi).
+      const paidLines = lines.filter((l) => l.status === LedgerStatus.paid);
+      if (paidLines.length > 0) {
+        // kilitli ayin summary'sini (paid→payable) geri almak da donem kilidini ihlal eder
+        await this.assertPeriodsOpen(tx, actor.tenantId, paidLines.map((l) => l.month));
+        // kaynak durum 'paid' degilse dokunma (status'u korumasiz ezme) — summary filtresini birebir yansit
         await tx.ledgerEntry.updateMany({
-          where: { id: { in: lines.map((l) => l.id) } },
+          where: { id: { in: paidLines.map((l) => l.id) }, status: LedgerStatus.paid },
           data: { status: LedgerStatus.payable, payoutId: null },
         });
         // paid'e gecmis satirlarin summary'sini geri al
@@ -384,7 +415,7 @@ export class PayoutsService {
           tx,
           actor.tenantId,
           payout.membershipId,
-          lines.filter((l) => l.status === LedgerStatus.paid),
+          paidLines,
           'paidToPayable',
         );
       }
@@ -394,9 +425,9 @@ export class PayoutsService {
       });
       await this.audit(tx, actor, 'payout.reject', payoutId,
         { status: payout.status },
-        { status: 'failed', releasedCount: lines.length, ref: input.ref ?? null });
+        { status: 'failed', releasedCount: paidLines.length, ref: input.ref ?? null });
 
-      return this.serializeDecision(updated, lines.length);
+      return this.serializeDecision(updated, paidLines.length);
     }, TX_OPTS);
   }
 
@@ -417,6 +448,9 @@ export class PayoutsService {
       if (lines.length === 0) {
         throw new BadRequestException('bu odeme reddedilmis; bakiye uyeye iade edildi — yeni odeme calistirin');
       }
+
+      // kilitli aya ait payable yeniden payout edilemez — engine.payoutMember/decide ile ayni guard
+      await this.assertPeriodsOpen(tx, actor.tenantId, lines.map((l) => l.month));
 
       await tx.ledgerEntry.updateMany({
         where: { id: { in: lines.map((l) => l.id) } },
@@ -462,13 +496,14 @@ export class PayoutsService {
 
     const header = 'payout_id,period,referral_code,full_name,email,amount_cents,amount,paid_at';
     const lines = payouts.map((p) => {
-      const amount = (Number(p.totalCents) / 100).toFixed(2);
+      // BigInt cent -> ondalik string (Number'a dusurmeden; SPEC 3.5 para kurali)
+      const amount = centsToDecimalString(p.totalCents);
       return [
         p.id,
         p.period,
-        p.membership.referralCode,
+        csvCell(p.membership.referralCode),
         csvCell(p.membership.user.fullName),
-        p.membership.user.email,
+        csvCell(p.membership.user.email),
         p.totalCents.toString(),
         amount,
         p.paidAt?.toISOString() ?? '',
@@ -491,48 +526,61 @@ export class PayoutsService {
     unmatched: Array<{ amountCents: number; ref?: string }>;
     remainingUncleared: number;
   }> {
-    // mutabik olmayan odenmis payout'lar — tutara gore kova (FIFO eslestirme icin eski once)
-    const open = await this.prisma.payout.findMany({
-      where: { tenantId: actor.tenantId, status: PayoutStatus.paid, clearedAt: null },
-      orderBy: { paidAt: 'asc' },
-      select: { id: true, membershipId: true, totalCents: true },
-    });
-    const byAmount = new Map<string, Array<{ id: string; membershipId: string }>>();
-    for (const p of open) {
-      const key = p.totalCents.toString();
-      const arr = byAmount.get(key) ?? [];
-      arr.push({ id: p.id, membershipId: p.membershipId });
-      byAmount.set(key, arr);
-    }
-
     const matched: Array<{ payoutId: string; membershipId: string; amountCents: string; bankRef: string | null }> = [];
     const unmatched: Array<{ amountCents: number; ref?: string }> = [];
-    const now = new Date();
 
-    for (const row of rows) {
-      const key = BigInt(Math.round(row.amountCents)).toString();
-      const bucket = byAmount.get(key);
-      const hit = bucket?.shift(); // ayni tutarda birden cok varsa FIFO
-      if (!hit) {
-        unmatched.push(row);
-        continue;
+    // TEK transaction: eszamanli reconcile / cift-tik ayni payout'u iki kez temizleyemesin.
+    // FOR UPDATE SKIP LOCKED → paralel calisan reconcile bu satirlari atlar (uzerine binmez);
+    // her eslesme updateMany WHERE clearedAt IS NULL ile kosullu (0-count = baska run temizledi → unmatched).
+    await this.prisma.$transaction(async (tx) => {
+      const open = await tx.$queryRaw<Array<{ id: string; membershipId: string; totalCents: bigint }>>`
+        SELECT id, membership_id AS "membershipId", total_cents AS "totalCents"
+        FROM payouts
+        WHERE tenant_id = ${actor.tenantId}::uuid
+          AND status = 'paid'
+          AND cleared_at IS NULL
+        ORDER BY paid_at ASC
+        FOR UPDATE SKIP LOCKED`;
+
+      const byAmount = new Map<string, Array<{ id: string; membershipId: string }>>();
+      for (const p of open) {
+        const key = p.totalCents.toString();
+        const arr = byAmount.get(key) ?? [];
+        arr.push({ id: p.id, membershipId: p.membershipId });
+        byAmount.set(key, arr);
       }
-      await this.prisma.payout.update({
-        where: { id: hit.id },
-        data: { clearedAt: now, bankRef: row.ref ?? null, reconciledByUserId: actor.userId },
-      });
-      matched.push({ payoutId: hit.id, membershipId: hit.membershipId, amountCents: key, bankRef: row.ref ?? null });
-    }
 
-    await this.prisma.auditLog.create({
-      data: {
-        tenantId: actor.tenantId,
-        actorUserId: actor.userId,
-        action: 'payout.reconcile',
-        entity: 'payout',
-        after: { clearedCount: matched.length, unmatchedCount: unmatched.length } as Prisma.InputJsonValue,
-      },
-    });
+      const now = new Date();
+      for (const row of rows) {
+        const key = BigInt(Math.round(row.amountCents)).toString();
+        const bucket = byAmount.get(key);
+        const hit = bucket?.shift(); // ayni tutarda birden cok varsa FIFO
+        if (!hit) {
+          unmatched.push(row);
+          continue;
+        }
+        // kosullu: yalnizca hala uncleared ise temizle (yaris durumuna karsi idempotent)
+        const res = await tx.payout.updateMany({
+          where: { id: hit.id, clearedAt: null },
+          data: { clearedAt: now, bankRef: row.ref ?? null, reconciledByUserId: actor.userId },
+        });
+        if (res.count === 0) {
+          unmatched.push(row); // baska transaction bu arada temizledi
+          continue;
+        }
+        matched.push({ payoutId: hit.id, membershipId: hit.membershipId, amountCents: key, bankRef: row.ref ?? null });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          tenantId: actor.tenantId,
+          actorUserId: actor.userId,
+          action: 'payout.reconcile',
+          entity: 'payout',
+          after: { clearedCount: matched.length, unmatchedCount: unmatched.length } as Prisma.InputJsonValue,
+        },
+      });
+    }, TX_OPTS);
 
     const remainingUncleared = await this.prisma.payout.count({
       where: { tenantId: actor.tenantId, status: PayoutStatus.paid, clearedAt: null },
@@ -543,8 +591,15 @@ export class PayoutsService {
   /**
    * Self-hosted ACH/NACHA dosyasi (Dalga 3): donemin odenmis payout'lari icin banka dosyasi.
    * Dis servis YOK — admin bunu kendi bankasina yukler. Banka bilgisi (sifreli) decrypt edilir.
+   *
+   * Banka bilgisi (payoutProfile/accountEnc) olmayan 'paid' payout'lar dosyaya GIREMEZ; sessizce
+   * dusurulurse admin herkesi odedigini sanir ama dosya eksik fonludur. Bu yuzden atlananlari
+   * toplayip dondururuz (controller X-Refearn-Skipped header'i ile yuzeye cikarir) ve uyari loglariz.
    */
-  async achFile(tenantId: string, period?: string): Promise<string> {
+  async achFile(
+    tenantId: string,
+    period?: string,
+  ): Promise<{ file: string; skipped: Array<{ membershipId: string; name: string; reason: string }> }> {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const payouts = await this.prisma.payout.findMany({
       where: { tenantId, status: PayoutStatus.paid, period },
@@ -552,9 +607,25 @@ export class PayoutsService {
       include: { membership: { select: { id: true, user: { select: { fullName: true } }, payoutProfile: true } } },
     });
     const entries: AchEntry[] = [];
+    const skipped: Array<{ membershipId: string; name: string; reason: string }> = [];
     for (const p of payouts) {
       const prof = p.membership.payoutProfile;
-      if (!prof || !prof.accountEnc) continue; // banka bilgisi yoksa atla
+      if (!prof || !prof.accountEnc) {
+        // banka bilgisi yoksa atla — sessizce degil: topla + uyar (eksik fonlu dosya riski)
+        skipped.push({
+          membershipId: p.membership.id,
+          name: prof?.legalName ?? p.membership.user.fullName,
+          reason: !prof ? 'no_payout_profile' : 'no_bank_account',
+        });
+        continue;
+      }
+      // NACHA entry tutar alani 10 hane = max 9_999_999_999 cent ($99,999,999.99).
+      // Sinir asilirsa bozuk/kesilmis dosya yerine hata firlat (BigInt sinir kontrolu).
+      if (p.totalCents < 0n || p.totalCents > 9_999_999_999n) {
+        throw new BadRequestException(
+          `payout ${p.id} tutari NACHA entry siniri disinda ($99,999,999.99) — ACH dosyasi olusturulamaz`,
+        );
+      }
       entries.push({
         routingNumber: prof.routingNumber,
         accountNumber: decryptSecret(prof.accountEnc),
@@ -564,7 +635,14 @@ export class PayoutsService {
         id: p.membership.id,
       });
     }
-    return buildNachaFile(entries, achConfigFromEnv(tenant.name), new Date());
+    if (skipped.length) {
+      this.logger.warn(
+        `ACH dosyasi: ${skipped.length} odenmis payout banka bilgisi olmadan atlandi (dosya eksik fonlu) ` +
+          `tenant=${tenantId} period=${period ?? 'all'} membershipIds=${skipped.map((s) => s.membershipId).join(',')}`,
+      );
+    }
+    const file = buildNachaFile(entries, achConfigFromEnv(tenant.name), new Date());
+    return { file, skipped };
   }
 
   /** Uye payout talebi (SPEC 8): net payable >= esik ise 'requested' kayit. */
@@ -586,8 +664,13 @@ export class PayoutsService {
     // sanctions (her zaman) + KYC kapisi (tenant bayragi)
     const profile = await this.prisma.payoutProfile.findUnique({
       where: { membershipId },
-      select: { status: true, lastChangedAt: true, sanctionsHit: true },
+      select: { status: true, lastChangedAt: true, sanctionsHit: true, legalName: true },
     });
+    // CANLI yeniden tara: talep aninda yaptirim eslesmesi (submit'ten sonra listeye girmis olabilir)
+    if (profile && !profile.sanctionsHit && (await this.sanctions.isHit(profile.legalName))) {
+      await this.markSanctionsHit(tenantId, membershipId);
+      profile.sanctionsHit = true;
+    }
     if (profile?.sanctionsHit) throw new BadRequestException('sanctions match — compliance review');
     if (tenant.requireKycForPayout) {
       const block = kycPayoutBlock(profile);
@@ -608,26 +691,57 @@ export class PayoutsService {
       );
     }
 
-    // ayni donemde acik talep varsa tekrar olusturma
+    // donemden BAGIMSIZ: uyenin ACIK (requested|processing) bir talebi varsa tekrar olusturma.
+    // requestPayout satir baglamadigi icin ay donerken (period degisince) ayni baglanmamis
+    // bakiye yeniden snapshot'lanip cift sayilabilir — bu yuzden period filtresi YOK, tenant scope VAR.
     const period = monthKey(new Date(), tenant.timezone);
     const existing = await this.prisma.payout.findFirst({
-      where: { tenantId, membershipId, period, status: PayoutStatus.requested },
-    });
-    if (existing) {
-      return { id: existing.id, status: existing.status, period, requestedCents: existing.totalCents.toString() };
-    }
-
-    const payout = await this.prisma.payout.create({
-      data: {
+      where: {
         tenantId,
         membershipId,
-        totalCents: net,
-        method: PayoutMethod.manual,
-        status: PayoutStatus.requested,
-        period,
+        status: { in: [PayoutStatus.requested, PayoutStatus.processing] },
       },
     });
-    return { id: payout.id, status: payout.status, period, requestedCents: net.toString() };
+    if (existing) {
+      // var olan talebin KENDI donemini don (gecmis aydan olabilir)
+      return { id: existing.id, status: existing.status, period: existing.period, requestedCents: existing.totalCents.toString() };
+    }
+
+    try {
+      const payout = await this.prisma.payout.create({
+        data: {
+          tenantId,
+          membershipId,
+          totalCents: net,
+          method: PayoutMethod.manual,
+          status: PayoutStatus.requested,
+          period,
+        },
+      });
+      return { id: payout.id, status: payout.status, period, requestedCents: net.toString() };
+    } catch (e) {
+      // TOCTOU yarisi: eszamanli talep findFirst kontrolunu ayni anda gecip once olusturdu.
+      // 'payouts_one_open_per_member' kismi unique index'i (uye basina tek acik payout) ihlalini
+      // P2002 olarak yakalayip kazanan acik talebi don — ham 500 yerine var-olan-gibi davran.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const winner = await this.prisma.payout.findFirst({
+          where: {
+            tenantId,
+            membershipId,
+            status: { in: [PayoutStatus.requested, PayoutStatus.processing] },
+          },
+        });
+        if (winner) {
+          return {
+            id: winner.id,
+            status: winner.status,
+            period: winner.period,
+            requestedCents: winner.totalCents.toString(),
+          };
+        }
+      }
+      throw e;
+    }
   }
 
   async listMine(membershipId: string) {
@@ -647,6 +761,34 @@ export class PayoutsService {
   }
 
   // ---------------------------------------------------------------- internals
+
+  /** CANLI yaptirim eslesmesinde profili kalici 'hit' isaretle (sonraki kapilar da bloklasin). */
+  private async markSanctionsHit(tenantId: string, membershipId: string): Promise<void> {
+    await this.prisma.payoutProfile.updateMany({
+      where: { tenantId, membershipId },
+      data: { sanctionsHit: true },
+    });
+  }
+
+  /**
+   * Donem kilidi (muhasebe kapanisi): payout karari kilitli bir ayin summary'sine dokunamaz.
+   * engine.assertPeriodsOpen ile AYNI kural — payable→paid / paid→payable her iki yon de kilitli aya yazamaz.
+   *
+   * TOCTOU kapanisi: engine.assertPeriodsOpen ile AYNI advisory anahtari — kilit okumasindan ONCE
+   * (tenant, period) basina tx-scope advisory lock al; PeriodsService.lock/unlock ile seri calisir.
+   * Anahtarlar SIRALI alinir (deadlock'a karsi: cok-donemli payout'lar ayni kuresel sirayla kilitler).
+   */
+  private async assertPeriodsOpen(tx: Tx, tenantId: string, periods: string[]): Promise<void> {
+    const unique = [...new Set(periods)].sort();
+    if (unique.length === 0) return;
+    for (const period of unique) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${period}))`;
+    }
+    const lock = await tx.periodLock.findFirst({ where: { tenantId, period: { in: unique } } });
+    if (lock) {
+      throw new ConflictException(`donem kilitli (${lock.period}) — once muhasebe kilidini acin`);
+    }
+  }
 
   /** Payout'u FOR UPDATE ile kilitle — eszamanli decide/retry cift islemesin. Tenant-scoped. */
   private async lockPayout(tx: Tx, tenantId: string, payoutId: string): Promise<LockedPayoutRow> {
@@ -772,12 +914,4 @@ export class PayoutsService {
       },
     });
   }
-}
-
-/** CSV hucresi: virgul/tirnak/yeni satir varsa tirnakla ve "" kacisla. */
-function csvCell(value: string): string {
-  if (/[",\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
 }

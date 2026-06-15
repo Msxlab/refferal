@@ -9,9 +9,22 @@ export function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
-/** Simetrik sifreleme anahtari (32 bayt) — REFEARN_ENC_KEY'den turetilir (yoksa dev fallback). */
+/** Bilinen/zayif anahtar = at-rest sifre sahte guvenlik. Uretimde fail-fast (bkz. authConfig.accessSecret). */
+const DEV_ENC_FALLBACK = 'refearn-dev-encryption-key-change-in-prod';
+
+/** Simetrik sifreleme anahtari (32 bayt) — REFEARN_ENC_KEY'den turetilir. Uretimde zorunlu. */
 function encKey(): Buffer {
-  return createHash('sha256').update(process.env.REFEARN_ENC_KEY ?? 'refearn-dev-encryption-key-change-in-prod').digest();
+  const key = process.env.REFEARN_ENC_KEY;
+  if (process.env.NODE_ENV === 'production') {
+    // Banka hesap no gibi veri bilinen anahtarla sifrelenirse DB/yedek sizintisi = aninda cozulur.
+    if (!key || key === DEV_ENC_FALLBACK) {
+      throw new Error('REFEARN_ENC_KEY tanimli degil veya dev-fallback (uretimde zorunlu, en az 32 karakter)');
+    }
+    if (key.length < 32) {
+      throw new Error('REFEARN_ENC_KEY en az 32 karakter olmali (uretim)');
+    }
+  }
+  return createHash('sha256').update(key ?? DEV_ENC_FALLBACK).digest();
 }
 
 /**

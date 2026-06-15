@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createHmac } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { randomToken } from '../common/crypto';
+import { assertSafeWebhookUrl } from '../common/url-safety';
 import { PrismaService } from '../prisma/prisma.service';
 
 const MAX_ATTEMPTS = 5;
@@ -18,6 +19,8 @@ export class WebhooksService {
   }
 
   async create(tenantId: string, url: string, events: string[]) {
+    // SSRF korumasi: kaydetmeden once URL'i dogrula (loopback/private/link-local/reserved reddedilir).
+    await assertSafeWebhookUrl(url);
     const w = await this.prisma.webhookEndpoint.create({ data: { tenantId, url, events, secret: `whsec_${randomToken(24)}` } });
     return { id: w.id, url: w.url, events: w.events, secret: w.secret }; // secret yalniz burada tam doner
   }
@@ -77,12 +80,15 @@ export class WebhooksService {
       const body = JSON.stringify({ id: d.id, event: d.event, createdAt: d.createdAt.toISOString(), data: d.payload });
       const sig = 'sha256=' + createHmac('sha256', d.endpoint.secret).update(body).digest('hex');
       try {
+        // SSRF korumasi: gondermeden hemen once tekrar dogrula (DNS-rebinding/TOCTOU'a karsi).
+        await assertSafeWebhookUrl(d.endpoint.url);
         const ctrl = AbortSignal.timeout(8000);
         const res = await fetch(d.endpoint.url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Refearn-Event': d.event, 'X-Refearn-Signature': sig },
           body,
           signal: ctrl,
+          redirect: 'manual', // 3xx takip etme: Location ic ag'a yonlendirebilir
         });
         if (res.ok) {
           await this.prisma.webhookDelivery.update({ where: { id: d.id }, data: { status: 'delivered', attempts: d.attempts + 1, responseStatus: res.status, lastError: null } });

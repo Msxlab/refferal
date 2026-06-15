@@ -4,6 +4,7 @@ import { ActorContext } from '../common/actor';
 import { EngineService } from '../engine/engine.service';
 import { EventsService } from '../events/events.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { csvCell } from '../common/csv';
 import { parseCsv } from './csv';
 import {
   CreateSaleInput,
@@ -13,6 +14,9 @@ import {
   SalesFilterInput,
   SelfCreateSaleInput,
 } from './sales.types';
+
+// CSV import icin maksimum veri satiri (basligi haric). Export cap (5000) ile tutarli.
+const MAX_IMPORT_ROWS = 5000;
 
 @Injectable()
 export class SalesService {
@@ -150,6 +154,8 @@ export class SalesService {
     for (const g of groups) {
       const amount = g._sum.amountCents ?? 0n;
       byStatus[g.status] = { count: g._count._all, amountCents: amount.toString() };
+      // void satislar toplam/ortalama KPI'sini sismelesin — yalniz statu kirilimda gosterilir
+      if (g.status === SaleStatus.void) continue;
       count += g._count._all;
       sum += amount;
     }
@@ -182,7 +188,7 @@ export class SalesService {
       return [
         s.id,
         s.saleDate.toISOString(),
-        s.seller.referralCode,
+        csvCell(s.seller.referralCode),
         csvCell(s.seller.user.fullName),
         s.amountCents.toString(),
         amount,
@@ -333,6 +339,10 @@ export class SalesService {
     const rows = parseCsv(csv);
     if (rows.length < 2) {
       throw new BadRequestException('CSV bos veya yalnizca baslik iceriyor');
+    }
+    // Satir basina seri yazim oldugu icin yukleme boyutunu sinirla (basligi haric).
+    if (rows.length - 1 > MAX_IMPORT_ROWS) {
+      throw new BadRequestException(`CSV cok fazla satir iceriyor (en fazla ${MAX_IMPORT_ROWS})`);
     }
     const header = rows[0].map((h) => h.trim().toLowerCase());
     const col = (name?: string, fallback?: string): number => {
@@ -542,10 +552,3 @@ export class SalesService {
   }
 }
 
-/** CSV hucresi: virgul/tirnak/yeni satir varsa tirnakla ve "" kacisla (payouts kalibi). */
-function csvCell(value: string): string {
-  if (/[",\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
-}

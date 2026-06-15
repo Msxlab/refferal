@@ -11,7 +11,7 @@ import {
   SaleStatus,
   Tenant,
 } from '@prisma/client';
-import { computeCommissionLines, PlanLevelRate } from '@refearn/shared';
+import { bpsAmount, computeCommissionLines, PlanLevelRate } from '@refearn/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { RanksService } from '../ranks/ranks.service';
 import { monthKey } from './month';
@@ -399,49 +399,69 @@ export class EngineService {
    * summaryMonth'u kendisi tasir; mevcut payout akisi (payoutMember/decide/retry) LEFT JOIN
    * ile bunu da oder. Negatif amountCents = clawback/ceza (ileride).
    */
-  async awardBonus(params: {
-    tenantId: string;
-    membershipId: string;
-    amountCents: bigint;
-    month: string;
-    reason: string;
-    actorUserId?: string;
-    meta?: Record<string, unknown>;
-  }): Promise<{ ledgerId: string }> {
-    return this.tx(async (tx) => {
-      const entry = await tx.ledgerEntry.create({
-        data: {
-          tenantId: params.tenantId,
-          saleId: null,
-          beneficiaryMembershipId: params.membershipId,
-          level: 0,
-          rateBpsUsed: 0,
-          amountCents: params.amountCents,
-          type: LedgerType.adjustment,
-          status: LedgerStatus.payable,
-          summaryMonth: params.month,
-        },
-      });
-      await this.bumpSummary(tx, params.tenantId, params.membershipId, params.month, 0, {
-        payable: params.amountCents,
-      });
-      await tx.notification.create({
-        data: {
-          tenantId: params.tenantId,
-          recipientMembershipId: params.membershipId,
-          channel: NotificationChannel.push,
-          template: 'bonus_awarded',
-          payload: { amountCents: params.amountCents.toString(), reason: params.reason },
-        },
-      });
-      await this.audit(tx, params.tenantId, params.actorUserId, 'campaign.bonus', entry.id, {}, {
-        membershipId: params.membershipId,
-        amountCents: params.amountCents.toString(),
-        reason: params.reason,
-        ...(params.meta ?? {}),
-      });
-      return { ledgerId: entry.id };
+  async awardBonus(
+    params: {
+      tenantId: string;
+      membershipId: string;
+      amountCents: bigint;
+      month: string;
+      reason: string;
+      actorUserId?: string;
+      meta?: Record<string, unknown>;
+    },
+    // Cagiran kendi transaction'ini verirse (orn. kampanya finalize: claim + odul + results
+    // ATOMIK olmali) o tx uzerinde calisir — yoksa kendi tek-tx'ini acar.
+    externalTx?: Tx,
+  ): Promise<{ ledgerId: string }> {
+    if (externalTx) return this.awardBonusInTx(externalTx, params);
+    return this.tx((tx) => this.awardBonusInTx(tx, params));
+  }
+
+  private async awardBonusInTx(
+    tx: Tx,
+    params: {
+      tenantId: string;
+      membershipId: string;
+      amountCents: bigint;
+      month: string;
+      reason: string;
+      actorUserId?: string;
+      meta?: Record<string, unknown>;
+    },
+  ): Promise<{ ledgerId: string }> {
+    await this.assertPeriodsOpen(tx, params.tenantId, [params.month]); // kilitli aya bonus yazilamaz
+    const entry = await tx.ledgerEntry.create({
+      data: {
+        tenantId: params.tenantId,
+        saleId: null,
+        beneficiaryMembershipId: params.membershipId,
+        level: 0,
+        rateBpsUsed: 0,
+        amountCents: params.amountCents,
+        type: LedgerType.adjustment,
+        status: LedgerStatus.payable,
+        summaryMonth: params.month,
+      },
     });
+    await this.bumpSummary(tx, params.tenantId, params.membershipId, params.month, 0, {
+      payable: params.amountCents,
+    });
+    await tx.notification.create({
+      data: {
+        tenantId: params.tenantId,
+        recipientMembershipId: params.membershipId,
+        channel: NotificationChannel.push,
+        template: 'bonus_awarded',
+        payload: { amountCents: params.amountCents.toString(), reason: params.reason },
+      },
+    });
+    await this.audit(tx, params.tenantId, params.actorUserId, 'campaign.bonus', entry.id, {}, {
+      membershipId: params.membershipId,
+      amountCents: params.amountCents.toString(),
+      reason: params.reason,
+      ...(params.meta ?? {}),
+    });
+    return { ledgerId: entry.id };
   }
 
   // ---------------------------------------------------------------- internals
@@ -512,6 +532,8 @@ export class EngineService {
     // Sentetik seviye numaralari (1000/1001) base seviyelerle cakismaz; type=commission
     // oldugu icin void/payout/summary/maturation akisindan dogal gecer.
     let bonusCount = 0;
+    // Toplam dagitim izleyicisi (Model B tavani icin): base + tum bonuslar.
+    let distributedCents = lines.reduce((a, l) => a + l.amountCents, 0n);
     // bonuslar GERCEK direkt sponsora (compression base zincirini kaydirabilir ama "direkt sponsor"
     // anlami degismez). inactiveMembersEarn=false ise inaktif sponsor bonus da almaz.
     const directSponsor = rawChain[1];
@@ -528,6 +550,7 @@ export class EngineService {
         await tx.notification.create({
           data: { tenantId: sale.tenantId, recipientMembershipId: sponsorId, channel: NotificationChannel.push, template, payload: { saleId: sale.id, amountCents: amountCents.toString() } },
         });
+        distributedCents += amountCents;
         bonusCount++;
       };
 
@@ -535,12 +558,12 @@ export class EngineService {
       if (plan.fastStartBps > 0 && plan.fastStartDays > 0) {
         const seller = await tx.membership.findUnique({ where: { id: sale.sellerMembershipId }, select: { joinedAt: true } });
         if (seller && sale.saleDate.getTime() - seller.joinedAt.getTime() <= plan.fastStartDays * 86_400_000) {
-          await addBonus(1000, plan.fastStartBps, (sale.amountCents * BigInt(plan.fastStartBps)) / 10000n, 'commission_earned');
+          await addBonus(1000, plan.fastStartBps, bpsAmount(sale.amountCents, plan.fastStartBps), 'commission_earned');
         }
       }
       // matching: saticinin level-0 komisyonunun matchingBps'i (sponsor eslestirme)
       if (plan.matchingBps > 0 && lines.length > 0) {
-        await addBonus(1001, plan.matchingBps, (lines[0].amountCents * BigInt(plan.matchingBps)) / 10000n, 'commission_earned');
+        await addBonus(1001, plan.matchingBps, bpsAmount(lines[0].amountCents, plan.matchingBps), 'commission_earned');
       }
     }
 
@@ -548,7 +571,7 @@ export class EngineService {
     // kadar KENDI satisinda ek bonus alir. Rutbe = team + kazanc esikleri (RanksService). ----
     const overrideBps = await this.ranks.overrideBpsFor(tx, sale.tenantId, sale.sellerMembershipId);
     if (overrideBps > 0) {
-      const overrideAmount = (sale.amountCents * BigInt(overrideBps)) / 10000n;
+      const overrideAmount = bpsAmount(sale.amountCents, overrideBps);
       if (overrideAmount > 0n) {
         const seller = sale.sellerMembershipId;
         await tx.ledgerEntry.create({
@@ -559,8 +582,22 @@ export class EngineService {
         await tx.notification.create({
           data: { tenantId: sale.tenantId, recipientMembershipId: seller, channel: NotificationChannel.push, template: 'rank_override_earned', payload: { saleId: sale.id, amountCents: overrideAmount.toString(), overrideBps } },
         });
+        distributedCents += overrideAmount;
         bonusCount++;
       }
+    }
+
+    // ---- Toplam dagitim tavani (Model B): bonuslar havuzun USTUNE odenir, ama bu satisin TOPLAM
+    // dagitimi acikca hesaplanan tavani — pool + fastStart + matching + max(rutbe override) — ASLA
+    // asamaz. Dogru hesapta her bilesen kendi bps'iyle sinirli oldugundan bu invariant hep saglanir;
+    // asilmasi = bir bug (cift-yazim / hatali tutar) demektir → tx geri alinir, bozuk para yazilmaz.
+    const maxOverrideBps = await this.ranks.maxOverrideBps(tx, sale.tenantId);
+    const ceilingBps = plan.poolRateBps + plan.fastStartBps + plan.matchingBps + maxOverrideBps;
+    const ceilingCents = (sale.amountCents * BigInt(ceilingBps)) / 10000n;
+    if (distributedCents > ceilingCents) {
+      throw new ConflictException(
+        `komisyon dagitim tavani asildi (sale=${sale.id}): dagitilan ${distributedCents} > tavan ${ceilingCents} (${ceilingBps} bps)`,
+      );
     }
 
     return { applied: true, entryCount: lines.length + bonusCount };
@@ -596,10 +633,19 @@ export class EngineService {
   /**
    * Donem kilidi (muhasebe kapanisi): verilen ay(lar) kilitliyse para etkileyen yazimi reddet.
    * Ledger yazimi / void reversal / payout, kilitli bir ayin summary'sine dokunamaz.
+   *
+   * TOCTOU kapanisi: kilit okumasindan ONCE (tenant, period) basina tx-scope advisory lock al.
+   * PeriodsService.lock/unlock AYNI advisory anahtarini alir; boylece "oku→yaz" ile kilit
+   * olusturma birbirine seri olur — okuduktan sonra commit'e kadar acilan pencerede kilitli aya
+   * para yazilmasi engellenir. pg_advisory_xact_lock tx sonunda (commit/rollback) otomatik birakilir.
+   * Anahtarlar SIRALI alinir (deadlock'a karsi: cok-donemli payout'lar ayni kuresel sirayla kilitler).
    */
   private async assertPeriodsOpen(tx: Tx, tenantId: string, periods: string[]): Promise<void> {
-    const unique = [...new Set(periods)];
+    const unique = [...new Set(periods)].sort();
     if (unique.length === 0) return;
+    for (const period of unique) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${period}))`;
+    }
     const lock = await tx.periodLock.findFirst({ where: { tenantId, period: { in: unique } } });
     if (lock) {
       throw new ConflictException(`donem kilitli (${lock.period}) — once muhasebe kilidini acin`);
@@ -611,7 +657,7 @@ export class EngineService {
     tx: Tx,
     tenantId: string,
     saleDate: Date,
-  ): Promise<{ depth: number; levels: PlanLevelRate[]; fastStartBps: number; fastStartDays: number; matchingBps: number }> {
+  ): Promise<{ depth: number; levels: PlanLevelRate[]; poolRateBps: number; fastStartBps: number; fastStartDays: number; matchingBps: number }> {
     const plan = await tx.commissionPlan.findFirst({
       where: { tenantId, effectiveFrom: { lte: saleDate } },
       orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
@@ -623,6 +669,7 @@ export class EngineService {
     return {
       depth: plan.depth,
       levels: plan.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })),
+      poolRateBps: plan.poolRateBps,
       fastStartBps: plan.fastStartBps,
       fastStartDays: plan.fastStartDays,
       matchingBps: plan.matchingBps,
