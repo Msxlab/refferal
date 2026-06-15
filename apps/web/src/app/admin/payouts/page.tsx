@@ -10,7 +10,7 @@ import { activeMembership, getSession } from '@/lib/auth';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
-interface PayableMember { membershipId: string; referralCode: string; fullName: string; netCents: string }
+interface PayableMember { membershipId: string; referralCode: string; fullName: string; netCents: string; soldThisMonthCents: string }
 interface PayableList { payoutMinCents: string; currency: string; members: PayableMember[] }
 interface PayoutItem { id: string; membershipId: string; referralCode: string; fullName: string; totalCents: string; method: string; status: string; period: string; paidAt: string | null; ref: string | null; clearedAt?: string | null; bankRef?: string | null }
 interface PayoutListResp { total: number; page: number; pageSize: number; items: PayoutItem[] }
@@ -339,7 +339,7 @@ export default function PayoutsPage() {
           <table>
             <thead><tr>
               <th className="no-print" style={{ width: 30 }}><input type="checkbox" checked={selected.size > 0 && selected.size === payable.members.length} onChange={toggleAll} aria-label="Select all" /></th>
-              <th>Member</th><th>Code</th><th style={{ textAlign: 'right' }}>Net payable</th>
+              <th>Member</th><th>Code</th><th style={{ textAlign: 'right' }}>Sattığı (ay)</th><th style={{ textAlign: 'right' }}>Net payable</th><th style={{ textAlign: 'right' }}>Etkin %</th>
             </tr></thead>
             <tbody>
               {payable.members.map((m) => (
@@ -347,10 +347,12 @@ export default function PayoutsPage() {
                   <td className="no-print"><input type="checkbox" checked={selected.has(m.membershipId)} onChange={() => toggle(m.membershipId)} aria-label={`Select ${m.fullName}`} /></td>
                   <td>{m.fullName}</td>
                   <td className="faint">{m.referralCode}</td>
-                  <td className="tnum" style={{ textAlign: 'right', fontWeight: 650 }}>{money(m.netCents, c)}</td>
+                  <td className="tnum" style={{ textAlign: 'right', color: 'var(--muted)' }}>{Number(m.soldThisMonthCents) > 0 ? money(m.soldThisMonthCents, c) : '—'}</td>
+                  <td className="tnum" style={{ textAlign: 'right', fontWeight: 650, color: 'var(--gold-500)' }}>{money(m.netCents, c)}</td>
+                  <td className="tnum faint" style={{ textAlign: 'right' }}>{Number(m.soldThisMonthCents) > 0 ? `%${((Number(m.netCents) / Number(m.soldThisMonthCents)) * 100).toFixed(1)}` : '—'}</td>
                 </tr>
               ))}
-              {payable.members.length === 0 && <tr><td colSpan={4} className="muted">No members above the threshold.</td></tr>}
+              {payable.members.length === 0 && <tr><td colSpan={6} className="muted">No members above the threshold.</td></tr>}
             </tbody>
           </table>
         )}

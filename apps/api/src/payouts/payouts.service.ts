@@ -68,6 +68,18 @@ export class PayoutsService {
       HAVING SUM(le.amount_cents) >= ${tenant.payoutMinCents}
       ORDER BY SUM(le.amount_cents) DESC`;
 
+    // her uyenin BU AY kendi cirosu (sattigi) — odeme ekraninda "sattigi vs kazandigi"
+    const month = monthKey(new Date(), tenant.timezone);
+    const ids = rows.map((r) => r.membershipId);
+    const soldAgg = ids.length
+      ? await this.prisma.sale.groupBy({
+          by: ['sellerMembershipId'],
+          where: { tenantId, status: 'approved', summaryMonth: month, sellerMembershipId: { in: ids } },
+          _sum: { amountCents: true },
+        })
+      : [];
+    const soldBy = new Map(soldAgg.map((s) => [s.sellerMembershipId, s._sum.amountCents ?? 0n]));
+
     return {
       payoutMinCents: tenant.payoutMinCents.toString(),
       currency: tenant.currency,
@@ -76,6 +88,7 @@ export class PayoutsService {
         referralCode: r.referralCode,
         fullName: r.fullName,
         netCents: r.netCents.toString(),
+        soldThisMonthCents: (soldBy.get(r.membershipId) ?? 0n).toString(),
       })),
     };
   }
