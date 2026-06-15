@@ -79,6 +79,20 @@ export default function CampaignsPage() {
                 </div>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name}</div>
                 <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>{dateShort(c.startsAt)} → {dateShort(c.endsAt)}</div>
+                {(() => {
+                  const start = new Date(c.startsAt).getTime(), end = new Date(c.endsAt).getTime(), now = Date.now();
+                  const pct = end > start ? Math.max(0, Math.min(100, ((now - start) / (end - start)) * 100)) : 100;
+                  const daysLeft = Math.ceil((end - now) / 86400000);
+                  if (c.status === 'ended') return null;
+                  return (
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ height: 5, borderRadius: 4, background: 'rgba(255,255,255,.07)', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${pct}%`, borderRadius: 4, background: daysLeft <= 0 ? 'var(--amber)' : 'var(--grad-primary)' }} />
+                      </div>
+                      <div className="faint" style={{ fontSize: 10.5, marginTop: 3 }}>{now < start ? 'Not started yet' : daysLeft > 0 ? `${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : 'Window ended'}</div>
+                    </div>
+                  );
+                })()}
                 <div className="row" style={{ gap: 12, marginTop: 12 }}>
                   <span className="tnum" style={{ fontSize: 13 }}><b>{c.prizes.length}</b> <span className="faint">prizes</span></span>
                   {topPrize > 0 && <span className="tnum" style={{ fontSize: 13, color: 'var(--gold-500)' }}>up to {money(topPrize)}</span>}
