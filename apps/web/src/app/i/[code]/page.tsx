@@ -82,7 +82,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
                   <div className="faint" style={{ fontStyle: 'normal', fontSize: 11, marginTop: 6 }}>— {invite.inviterName}</div>
                 </div>
               )}
-              <div className="card" style={{ background: 'rgba(124,139,255,.08)', padding: 14, marginBottom: 18 }}>
+              <div className="card" style={{ background: 'rgba(124,139,255,.08)', padding: 14, marginBottom: 14 }}>
                 <div className="spread">
                   <div>
                     <div className="faint" style={{ fontSize: 11 }}>{t('reg.tenant')}</div>
@@ -91,6 +91,15 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
                   <span className="badge active">Active invitation</span>
                 </div>
               </div>
+
+              {/* show the opportunity before the form — people join for a reward, not an account */}
+              <div className="card" style={{ background: 'color-mix(in srgb, var(--gold-500) 8%, transparent)', borderColor: 'color-mix(in srgb, var(--gold-500) 28%, transparent)', padding: 14, marginBottom: 18 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>💸 What you’ll earn</div>
+                <div className="faint" style={{ fontSize: 12.5, lineHeight: 1.55 }}>
+                  Earn a commission on every sale you make — and a share of the sales made by the people you bring in. Record a sale, your company verifies it, and your commission is tracked and paid out automatically.
+                </div>
+              </div>
+
               <form onSubmit={onSubmit}>
                 <div className="field">
                   <label>{t('reg.fullName')}</label>

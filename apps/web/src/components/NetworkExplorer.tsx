@@ -389,7 +389,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
       ) : (
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <table>
-            <thead><tr><th>Member</th><th>Role</th><th style={{ textAlign: 'right' }}>Level</th><th style={{ textAlign: 'right' }}>Team</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Member</th><th>Role</th><th style={{ textAlign: 'right' }}>Level</th><th style={{ textAlign: 'right' }}>Team</th><th style={{ textAlign: 'right' }}>Revenue (mo)</th><th style={{ textAlign: 'right' }}>Commission (mo)</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {listRows.map(({ n, lasts, hasChildren }) => {
                 const open = !!q || expanded.has(n.id);
@@ -420,6 +420,8 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
                     <td>{n.role !== 'member' ? <span className="badge active" style={{ fontSize: 9 }}>{n.role.replace('tenant_', '')}</span> : <span className="faint" style={{ fontSize: 12 }}>member</span>}</td>
                     <td className="tnum" style={{ textAlign: 'right' }}>{n.depth}</td>
                     <td className="tnum" style={{ textAlign: 'right' }}>{hasChildren ? teamOf(n.id) : '—'}</td>
+                    <td className="tnum" style={{ textAlign: 'right', color: 'var(--muted)' }}>{Number(n.revenueCents ?? 0) > 0 ? compactMoney(Number(n.revenueCents)) : '—'}</td>
+                    <td className="tnum" style={{ textAlign: 'right', fontWeight: 600, color: Number(n.monthlyCommissionCents ?? 0) > 0 ? 'var(--gold-500)' : 'var(--faint)' }}>{Number(n.monthlyCommissionCents ?? 0) > 0 ? compactMoney(Number(n.monthlyCommissionCents)) : '—'}</td>
                     <td><span className={`badge ${n.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>{n.status}</span></td>
                     <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'right' }}>
                       {hasChildren && <button className="btn ghost sm" onClick={() => setFocusId(n.id)}>Focus ⤢</button>}
@@ -427,7 +429,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
                   </tr>
                 );
               })}
-              {listRows.length === 0 && <tr><td colSpan={6} className="muted">No members match.</td></tr>}
+              {listRows.length === 0 && <tr><td colSpan={8} className="muted">No members match.</td></tr>}
             </tbody>
           </table>
         </div>

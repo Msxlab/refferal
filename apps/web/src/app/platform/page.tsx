@@ -60,7 +60,7 @@ export default function CompaniesPage() {
 
       <div className="row fade-in delay-1" style={{ marginBottom: 14, justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <input placeholder="Search companies…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 280 }} />
-        <button className="btn ghost" title="Onboarding wizard — coming soon" disabled>＋ New company</button>
+        <span className="badge draft" style={{ fontSize: 11, alignSelf: 'center' }}>New-company onboarding — coming soon</span>
       </div>
 
       <div className="grid fade-in delay-2" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(300px,1fr))', gap: 14 }}>
