@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { CampaignStatus, MembershipStatus, Prisma, SaleStatus } from '@prisma/client';
+import { Campaign, CampaignStatus, MembershipStatus, Prisma, SaleStatus } from '@prisma/client';
 import { ActorContext } from '../common/actor';
 import { EngineService } from '../engine/engine.service';
 import { monthKey } from '../engine/month';
@@ -114,24 +114,28 @@ export class CampaignsService {
    */
   async finalize(actor: ActorContext, id: string) {
     const c = await this.require(actor.tenantId, id);
+    return this.doFinalize(actor.tenantId, c, actor.userId);
+  }
+
+  /** Finalize cekirdegi — manuel (actor) ve otomatik (scheduler, actorUserId=null) ortak yolu. */
+  private async doFinalize(tenantId: string, c: Campaign, actorUserId: string | null) {
     if (c.status === CampaignStatus.ended) {
       throw new ConflictException('kampanya zaten bitirilmis');
     }
-    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: actor.tenantId } });
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const month = monthKey(new Date(), tenant.timezone);
-    const standings = await this.standings(actor.tenantId, c);
+    const standings = await this.standings(tenantId, c);
 
-    // yalnizca odulu olan ve sirasi dolan rank'lara bonus
     const awarded: Standing[] = [];
     for (const s of standings) {
       if (s.bonusCents > 0) {
         await this.engine.awardBonus({
-          tenantId: actor.tenantId,
+          tenantId,
           membershipId: s.membershipId,
           amountCents: BigInt(s.bonusCents),
           month,
           reason: `${c.name} — rank #${s.rank}`,
-          actorUserId: actor.userId,
+          actorUserId: actorUserId ?? undefined,
           meta: { campaignId: c.id, rank: s.rank },
         });
         awarded.push(s);
@@ -140,17 +144,28 @@ export class CampaignsService {
 
     const updated = await this.prisma.campaign.update({
       where: { id: c.id },
+      data: { status: CampaignStatus.ended, finalizedAt: new Date(), results: standings as unknown as Prisma.InputJsonValue },
+    });
+    await this.prisma.auditLog.create({
       data: {
-        status: CampaignStatus.ended,
-        finalizedAt: new Date(),
-        results: standings as unknown as Prisma.InputJsonValue,
+        tenantId, actorUserId, action: actorUserId ? 'campaign.finalize' : 'campaign.auto_finalize', entity: 'campaign', entityId: c.id,
+        after: { awardedCount: awarded.length, totalBonusCents: awarded.reduce((a, s) => a + s.bonusCents, 0).toString() } as Prisma.InputJsonValue,
       },
     });
-    await this.audit(actor, 'campaign.finalize', c.id, {
-      awardedCount: awarded.length,
-      totalBonusCents: awarded.reduce((a, s) => a + s.bonusCents, 0).toString(),
-    });
     return { ...this.serialize(updated), standings, awardedCount: awarded.length };
+  }
+
+  /**
+   * Dalga 5.2: penceresi BITMIS (endsAt <= now) ama hala 'active' kampanyalari otomatik finalize eder.
+   * Boylece endsAt kozmetik olmaktan cikar — scheduler saatlik cagirir. Manuel erken-finalize'i engellemez.
+   */
+  async autoFinalizeEnded(now: Date = new Date()): Promise<{ finalized: number }> {
+    const due = await this.prisma.campaign.findMany({ where: { status: CampaignStatus.active, endsAt: { lte: now } } });
+    let finalized = 0;
+    for (const c of due) {
+      try { await this.doFinalize(c.tenantId, c, null); finalized++; } catch { /* biri patlarsa digerleri devam */ }
+    }
+    return { finalized };
   }
 
   // ----------------------------------------------------- uye yuzeyi (app)

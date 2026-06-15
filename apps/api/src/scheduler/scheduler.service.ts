@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { CampaignsService } from '../campaigns/campaigns.service';
 import { EngineService } from '../engine/engine.service';
 import { FraudService } from '../fraud/fraud.service';
 import { ReportsService } from '../reports/reports.service';
@@ -20,7 +21,19 @@ export class SchedulerService {
     private readonly reports: ReportsService,
     private readonly fraud: FraudService,
     private readonly webhooks: WebhooksService,
+    private readonly campaigns: CampaignsService,
   ) {}
+
+  /** Saatlik: penceresi biten kampanyalari otomatik finalize et (Dalga 5.2). */
+  @Cron(CronExpression.EVERY_HOUR, { name: 'auto-finalize-campaigns' })
+  async autoFinalizeCampaigns(): Promise<void> {
+    try {
+      const { finalized } = await this.campaigns.autoFinalizeEnded();
+      if (finalized > 0) this.logger.log(`otomatik finalize edilen kampanya: ${finalized}`);
+    } catch (err) {
+      this.logger.error('autoFinalizeCampaigns job hatasi', err instanceof Error ? err.stack : String(err));
+    }
+  }
 
   /** Her dakika: bekleyen webhook teslimatlarini gonder (HMAC imzali, retry'li). */
   @Cron(CronExpression.EVERY_MINUTE, { name: 'webhook-dispatch' })
