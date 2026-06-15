@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import { Bars, CountUp, Loading, StatCard } from '@/components/ui';
+import { Bars, CountUp, Loading, MoneyCounter, StatCard } from '@/components/ui';
 import { RadialNetwork } from '@/components/RadialNetwork';
+import { money } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
 interface TeamLevel {
@@ -17,12 +18,16 @@ interface Team {
   levels: TeamLevel[];
 }
 
+interface EarnSummary { currency: string; earnedThisMonthCents: string; soldThisMonthCents: string; soldLifetimeCents: string }
+
 export default function TeamPage() {
   const [team, setTeam] = useState<Team | null>(null);
+  const [earn, setEarn] = useState<EarnSummary | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
     api.get<Team>('/app/team').then(setTeam).catch((e) => setError(String((e as ApiError).message)));
+    api.get<EarnSummary>('/app/dashboard').then(setEarn).catch(() => { /* optional */ });
   }, []);
 
   if (error) return <div className="error">{error}</div>;
@@ -37,6 +42,8 @@ export default function TeamPage() {
       <p className="sub fade-in">Your downline at a glance — sized by level, shaded by activity.</p>
 
       <div className="stat-grid fade-in delay-1" style={{ marginBottom: 16 }}>
+        {earn && <StatCard label="Earned (this month)" value={<MoneyCounter cents={Number(earn.earnedThisMonthCents)} currency={earn.currency} />} icon="◆" grad="var(--foil)" hint={`${money(earn.soldThisMonthCents, earn.currency)} sold this month`} />}
+        {earn && <StatCard label="Sold (lifetime)" value={<MoneyCounter cents={Number(earn.soldLifetimeCents)} currency={earn.currency} />} icon="◇" />}
         <StatCard label={t('me.members')} value={<CountUp value={team.totalMembers} />} icon="⬡" grad="var(--grad-primary)" />
         <StatCard label={t('me.activeMembers')} value={<CountUp value={team.totalActive} />} icon="✓" grad="var(--grad-emerald)" />
       </div>
