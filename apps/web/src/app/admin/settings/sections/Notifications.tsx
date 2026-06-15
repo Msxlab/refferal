@@ -30,8 +30,8 @@ export default function Notifications() {
 
       <section>
         <div style={{ marginBottom: 10 }}>
-          <strong style={{ fontSize: 15 }}>Event routing</strong>
-          <div className="faint" style={{ fontSize: 12 }}>Default channels per event. Per-member overrides arrive with the in-app inbox.</div>
+          <strong style={{ fontSize: 15 }}>Event routing <span className="badge draft" style={{ fontSize: 10, marginLeft: 6, verticalAlign: 'middle' }}>Read-only defaults</span></strong>
+          <div className="faint" style={{ fontSize: 12 }}>Default channels per event (not editable yet). Per-member overrides arrive with the in-app inbox.</div>
         </div>
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <table>

@@ -91,7 +91,7 @@ export default function AuditPage() {
   }
 
   // Fatal yalniz ilk yukleme basarisizsa (tekrar-dene ile); aksi halde inline banner (sayfa korunur).
-  if (error && !list) return <div className="error" style={{ margin: 24 }}>{error} <button className="btn ghost sm" onClick={() => void load()} style={{ marginLeft: 8 }}>Tekrar dene</button></div>;
+  if (error && !list) return <div className="error" style={{ margin: 24 }}>{error} <button className="btn ghost sm" onClick={() => void load()} style={{ marginLeft: 8 }}>Retry</button></div>;
   const items = list?.items ?? [];
 
   return (

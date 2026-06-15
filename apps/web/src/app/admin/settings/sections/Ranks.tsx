@@ -10,6 +10,7 @@ interface RanksResp { isDefault: boolean; tiers: Tier[] }
 export default function Ranks() {
   const [data, setData] = useState<RanksResp | null>(null);
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
   const [toast, showToast] = useToast();
 
   const load = useCallback(async () => {
@@ -19,14 +20,16 @@ export default function Ranks() {
 
   // varsayilanlari ozel tier'lara kopyala (duzenlenebilir yap)
   async function customize() {
-    if (!data) return;
+    if (!data || busy) return;
+    setBusy(true);
     try {
       for (const t of data.tiers) {
         await api.post('/admin/ranks', { name: t.name, sortOrder: t.sortOrder, minTeam: t.minTeam, minEarningsCents: Number(t.minEarningsCents), overrideBps: t.overrideBps ?? 0 });
       }
       showToast('Tiers are now editable');
       await load();
-    } catch (e) { setError(String((e as ApiError).message)); }
+    } catch (e) { setError(`Could not save all tiers: ${String((e as ApiError).message)}`); await load(); }
+    finally { setBusy(false); }
   }
   async function addTier() {
     const order = (data?.tiers.length ?? 0);
@@ -54,7 +57,7 @@ export default function Ranks() {
           <strong style={{ fontSize: 14 }}>Career ranks</strong>
           <div className="faint" style={{ fontSize: 12 }}>Tiers by team size + cumulative earnings. Members see their rank and progress. <strong>Override %</strong> = extra bonus the member earns on their own sales at this rank.</div>
         </div>
-        {data.isDefault ? <button className="btn ghost sm" onClick={customize}>Customize tiers</button> : <button className="btn ghost sm" onClick={addTier}>＋ Add tier</button>}
+        {data.isDefault ? <button className="btn ghost sm" onClick={customize} disabled={busy}>{busy ? 'Customizing…' : 'Customize tiers'}</button> : <button className="btn ghost sm" onClick={addTier}>＋ Add tier</button>}
       </div>
       {data.isDefault && <div className="faint" style={{ fontSize: 12, marginBottom: 10 }}>Using built-in defaults. Click “Customize tiers” to edit.</div>}
       <table>

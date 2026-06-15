@@ -103,7 +103,7 @@ export default function General() {
         )}
         <div className="field">
           <label>Payout threshold — currently {money(s.payoutMinCents, s.currency)}</label>
-          <input type="number" min={0} value={s.payoutMinCents} onChange={(e) => setS({ ...s, payoutMinCents: e.target.value })} />
+          <input type="number" min={0} step="0.01" value={Number(s.payoutMinCents) / 100} onChange={(e) => setS({ ...s, payoutMinCents: String(Math.round(Number(e.target.value) * 100)) })} />
         </div>
       </div>
 

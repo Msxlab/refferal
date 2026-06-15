@@ -40,6 +40,8 @@ export default function PayoutsPage() {
   const [error, setError] = useState('');
   const [toast, showToast] = useToast();
   const [busy, setBusy] = useState(false);
+  // in-flight guard keyed by batch id / membershipId - double-click double-action onler
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmRun, setConfirmRun] = useState<'all' | 'selected' | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [decide, setDecide] = useState<{ p: PayoutItem; action: 'approve' | 'reject' } | null>(null);
@@ -79,19 +81,32 @@ export default function PayoutsPage() {
   }, []);
 
   async function decideBatch(id: string, action: 'approve' | 'reject') {
+    if (busyId) return;
+    setBusyId(id);
     try {
       await api.post(`/admin/payouts/batches/${id}/${action}`);
       showToast(action === 'approve' ? 'Batch approved & paid ✓' : 'Batch rejected');
       await refreshAll();
-    } catch (e) { setError(String((e as ApiError).message)); }
+    } catch (e) { setError(String((e as ApiError).message)); } finally { setBusyId(null); }
+  }
+
+  // dolar tutarini float'siz cent'e cevir: $ / bosluk / binlik ayraci temizle,
+  // ondaliktan once/sonrayi ayir, 2 haneye kadar kesirden tam sayi cent kur.
+  // Bozuk girdi NaN doner ve asagidaki >0 filtresinde elenir. (1.005 -> 100, float yok)
+  function dollarsToCents(amt: string): number {
+    const s = amt.replace(/[$\s,]/g, '');
+    if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(s)) return NaN; // gecersiz tutar
+    const dot = s.indexOf('.');
+    const whole = dot === -1 ? s : s.slice(0, dot);
+    const frac = dot === -1 ? '' : s.slice(dot + 1);
+    return parseInt(whole || '0', 10) * 100 + parseInt((frac + '00').slice(0, 2), 10);
   }
 
   async function runReconcile() {
     // "tutar[,referans]" satirlari — tutar dolar; cent'e cevir
     const rows = reconcileText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((line) => {
       const [amt, ...rest] = line.split(',');
-      const dollars = parseFloat(amt.replace(/[$\s,]/g, ''));
-      return { amountCents: Math.round(dollars * 100), ref: rest.join(',').trim() || undefined };
+      return { amountCents: dollarsToCents(amt), ref: rest.join(',').trim() || undefined };
     }).filter((r) => Number.isFinite(r.amountCents) && r.amountCents > 0);
     if (rows.length === 0) { setError('No valid rows (format: amount or amount,reference)'); return; }
     setBusy(true);
@@ -116,8 +131,10 @@ export default function PayoutsPage() {
       } });
       return;
     }
+    if (busyId) return;
+    setBusyId(membershipId);
     try { await api.post(`/admin/fraud/${membershipId}/decide`, { action }); showToast('Cleared ✓'); await loadCore(); }
-    catch (e) { setError(String((e as ApiError).message)); }
+    catch (e) { setError(String((e as ApiError).message)); } finally { setBusyId(null); }
   }
 
   async function decideKyc(membershipId: string, action: 'verify' | 'reject') {
@@ -128,11 +145,13 @@ export default function PayoutsPage() {
       } });
       return;
     }
+    if (busyId) return;
+    setBusyId(membershipId);
     try {
       await api.post(`/admin/payout-profiles/${membershipId}/decide`, { action });
       showToast(action === 'verify' ? 'Payout profile verified ✓' : 'Payout profile rejected');
       await loadCore();
-    } catch (e) { setError(String((e as ApiError).message)); }
+    } catch (e) { setError(String((e as ApiError).message)); } finally { setBusyId(null); }
   }
 
   const loadHistory = useCallback(async () => {
@@ -254,8 +273,8 @@ export default function PayoutsPage() {
                   <td className="tnum" style={{ textAlign: 'right' }}>{money(b.estimateCents, c)}</td>
                   <td className="no-print" style={{ textAlign: 'right' }}>
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
-                      <button className="btn success sm" onClick={() => decideBatch(b.id, 'approve')}>Approve &amp; pay</button>
-                      <button className="btn danger sm" onClick={() => decideBatch(b.id, 'reject')}>Reject</button>
+                      <button className="btn success sm" disabled={busyId === b.id} onClick={() => decideBatch(b.id, 'approve')}>Approve &amp; pay</button>
+                      <button className="btn danger sm" disabled={busyId === b.id} onClick={() => decideBatch(b.id, 'reject')}>Reject</button>
                     </div>
                   </td>
                 </tr>
@@ -301,8 +320,8 @@ export default function PayoutsPage() {
                   <td className="faint" style={{ fontSize: 12 }}>{f.reasons.join(', ')}</td>
                   <td className="no-print" style={{ textAlign: 'right' }}>
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
-                      <button className="btn success sm" onClick={() => decideFraud(f.membershipId, 'clear')}>Clear</button>
-                      <button className="btn danger sm" onClick={() => decideFraud(f.membershipId, 'confirm')}>Confirm</button>
+                      <button className="btn success sm" disabled={busyId === f.membershipId} onClick={() => decideFraud(f.membershipId, 'clear')}>Clear</button>
+                      <button className="btn danger sm" disabled={busyId === f.membershipId} onClick={() => decideFraud(f.membershipId, 'confirm')}>Confirm</button>
                     </div>
                   </td>
                 </tr>
@@ -329,8 +348,8 @@ export default function PayoutsPage() {
                   <td className="faint" style={{ fontSize: 12 }}>{k.bankName ? `${k.bankName} · ` : ''}{k.accountType} ••••{k.accountLast4} · {k.routingNumber}</td>
                   <td className="no-print" style={{ textAlign: 'right' }}>
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
-                      <button className="btn success sm" onClick={() => decideKyc(k.membershipId, 'verify')}>Verify</button>
-                      <button className="btn danger sm" onClick={() => decideKyc(k.membershipId, 'reject')}>Reject</button>
+                      <button className="btn success sm" disabled={busyId === k.membershipId} onClick={() => decideKyc(k.membershipId, 'verify')}>Verify</button>
+                      <button className="btn danger sm" disabled={busyId === k.membershipId} onClick={() => decideKyc(k.membershipId, 'reject')}>Reject</button>
                     </div>
                   </td>
                 </tr>

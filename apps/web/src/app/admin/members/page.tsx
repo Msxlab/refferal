@@ -55,6 +55,8 @@ export default function MembersPage() {
   const [latest, setLatest] = useState<string | null>(null);
   const [confirmM, setConfirmM] = useState<MemberItem | null>(null);
   const [bulkRole, setBulkRole] = useState('member');
+  // satir-ici rol degisimi icin in-flight guard (membership id ile)
+  const [roleBusyId, setRoleBusyId] = useState<string | null>(null);
   const [pendingBulk, setPendingBulk] = useState<{ action: 'activate' | 'deactivate' | 'set_role'; role?: string } | null>(null);
   const [preview, setPreview] = useState<{ total: number; willChange: number; skipped: { id: string; reason: string }[]; openPayoutRequests: number } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -168,8 +170,10 @@ export default function MembersPage() {
   }
 
   async function changeRole(m: MemberItem, role: string) {
+    if (roleBusyId) return;
+    setRoleBusyId(m.id);
     try { await api.post(`/admin/members/${m.id}/role`, { role }); showToast('Role updated'); await load(); }
-    catch (e) { setError(String((e as ApiError).message)); }
+    catch (e) { setError(String((e as ApiError).message)); } finally { setRoleBusyId(null); }
   }
 
   async function exportCsv() {
@@ -266,7 +270,7 @@ export default function MembersPage() {
                   {cols.isVisible('role') && (
                     <td onClick={(e) => e.stopPropagation()}>
                       {m.role === 'tenant_owner' ? <span className="faint">Owner</span> : (
-                        <select value={m.role} onChange={(e) => changeRole(m, e.target.value)} style={{ width: 134 }}>
+                        <select value={m.role} disabled={roleBusyId === m.id} onChange={(e) => changeRole(m, e.target.value)} style={{ width: 134 }}>
                           {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
                         </select>
                       )}
@@ -508,8 +512,10 @@ function MemberDrawer({ id, onClose, onNavigate, onChanged, onToast }: {
     catch (e) { setErr(String((e as ApiError).message)); } finally { setBusy(false); }
   }
   async function changeRole(role: string) {
+    if (busy) return;
+    setBusy(true);
     try { await api.post(`/admin/members/${id}/role`, { role }); onToast('Role updated'); load(); onChanged(); }
-    catch (e) { setErr(String((e as ApiError).message)); }
+    catch (e) { setErr(String((e as ApiError).message)); } finally { setBusy(false); }
   }
 
   const cur = 'USD';
@@ -528,7 +534,7 @@ function MemberDrawer({ id, onClose, onNavigate, onChanged, onToast }: {
             <button className="btn ghost" disabled={busy} onClick={viewAsMember}>👁 View as member</button>
           )}
           {p.role !== 'tenant_owner' && (
-            <select value={p.role} onChange={(e) => changeRole(e.target.value)} style={{ width: 140 }}>
+            <select value={p.role} disabled={busy} onChange={(e) => changeRole(e.target.value)} style={{ width: 140 }}>
               {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           )}

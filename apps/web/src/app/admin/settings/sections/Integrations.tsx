@@ -17,6 +17,8 @@ export default function Integrations() {
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [hookUrl, setHookUrl] = useState('');
   const [createdSecret, setCreatedSecret] = useState<string | null>(null);
+  const [keyBusy, setKeyBusy] = useState(false);
+  const [hookBusy, setHookBusy] = useState(false);
   const [error, setError] = useState('');
   const [toast, showToast] = useToast();
 
@@ -33,17 +35,21 @@ export default function Integrations() {
   useEffect(() => { void load(); }, [load]);
 
   async function createKey() {
-    if (!newKeyName.trim()) return;
+    if (keyBusy || !newKeyName.trim()) return;
+    setKeyBusy(true);
     try { const r = await api.post<{ key: string }>('/admin/api-keys', { name: newKeyName.trim() }); setCreatedKey(r.key); setNewKeyName(''); await load(); }
     catch (e) { setError(String((e as ApiError).message)); }
+    finally { setKeyBusy(false); }
   }
   async function revokeKey(id: string) {
     try { await api.del(`/admin/api-keys/${id}`); await load(); } catch (e) { setError(String((e as ApiError).message)); }
   }
   async function createHook() {
-    if (!hookUrl.trim()) return;
+    if (hookBusy || !hookUrl.trim()) return;
+    setHookBusy(true);
     try { const r = await api.post<{ secret: string }>('/admin/webhooks', { url: hookUrl.trim(), events: [] }); setCreatedSecret(r.secret); setHookUrl(''); await load(); }
     catch (e) { setError(String((e as ApiError).message)); }
+    finally { setHookBusy(false); }
   }
   async function delHook(id: string) { try { await api.del(`/admin/webhooks/${id}`); await load(); } catch (e) { setError(String((e as ApiError).message)); } }
   async function testHook() { try { const r = await api.post<{ queued: number }>('/admin/webhooks/test'); showToast(`Queued ${r.queued} test event(s)`); await load(); } catch (e) { setError(String((e as ApiError).message)); } }
@@ -66,8 +72,8 @@ export default function Integrations() {
           </div>
         )}
         <div className="row" style={{ gap: 8, marginBottom: 10 }}>
-          <input value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)} placeholder="Key name (e.g. CRM import)" style={{ flex: 1 }} />
-          <button className="btn sm" onClick={createKey}>Create</button>
+          <input value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') createKey(); }} placeholder="Key name (e.g. CRM import)" style={{ flex: 1 }} />
+          <button className="btn sm" onClick={createKey} disabled={keyBusy}>{keyBusy ? 'Creating…' : 'Create'}</button>
         </div>
         <table>
           <thead><tr><th>Name</th><th>Prefix</th><th>Last used</th><th></th></tr></thead>
@@ -92,11 +98,12 @@ export default function Integrations() {
           <div className="card" style={{ background: 'color-mix(in srgb, var(--emerald) 10%, transparent)', padding: 12, marginBottom: 12 }}>
             <div className="faint" style={{ fontSize: 11 }}>Signing secret — shown once:</div>
             <code style={{ wordBreak: 'break-all', fontSize: 12 }}>{createdSecret}</code>
+            <div><button className="btn ghost sm" style={{ marginTop: 6 }} onClick={() => { navigator.clipboard.writeText(createdSecret); showToast('Copied'); }}>Copy</button></div>
           </div>
         )}
         <div className="row" style={{ gap: 8, marginBottom: 10 }}>
-          <input value={hookUrl} onChange={(e) => setHookUrl(e.target.value)} placeholder="https://your-app.com/webhooks/refearn" style={{ flex: 1 }} />
-          <button className="btn sm" onClick={createHook}>Add</button>
+          <input value={hookUrl} onChange={(e) => setHookUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') createHook(); }} placeholder="https://your-app.com/webhooks/refearn" style={{ flex: 1 }} />
+          <button className="btn sm" onClick={createHook} disabled={hookBusy}>{hookBusy ? 'Adding…' : 'Add'}</button>
         </div>
         <table>
           <thead><tr><th>URL</th><th>Status</th><th></th></tr></thead>
