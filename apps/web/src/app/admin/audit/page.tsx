@@ -28,7 +28,23 @@ const ICON: Record<string, string> = {
 const ENTITIES = ['sale', 'payout', 'membership', 'invite', 'campaign', 'tenant', 'role', 'security'];
 
 function when(iso: string): string {
-  return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+// snake_case dotted action → plain English, e.g. 'sale.create' → 'Sale created'
+const VERBS: Record<string, string> = {
+  create: 'created', create_manual: 'added', update: 'updated', update_profile: 'profile updated', approve: 'approved',
+  reject: 'rejected', void: 'voided', delete: 'deleted', deliver: 'delivered', lock: 'locked', unlock: 'unlocked',
+  finalize: 'finalized', auto_finalize: 'auto-finalized', paid: 'paid', reconcile: 'reconciled', activate: 'activated',
+  deactivate: 'deactivated', set_role: 'role changed', set_leader: 'made leader', unset_leader: 'unmarked leader',
+  create_version: 'version created', batch_propose: 'batch proposed',
+};
+function humanizeAction(a: string): string {
+  const [entity, ...rest] = a.split('.');
+  const key = rest.join('.');
+  const verb = VERBS[key] ?? key.replace(/[._]/g, ' ');
+  const ent = entity.replace(/_/g, ' ');
+  return `${ent.charAt(0).toUpperCase()}${ent.slice(1)} ${verb}`.trim();
 }
 
 export default function AuditPage() {
@@ -122,7 +138,7 @@ export default function AuditPage() {
                   {ICON[a.entity] ?? '•'}
                 </span>
                 <span style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>{a.action}</span>
+                  <span style={{ fontWeight: 600, fontSize: 13 }} title={a.action}>{humanizeAction(a.action)}</span>
                   <span className="faint" style={{ fontSize: 11.5, display: 'block', marginTop: 2 }}>
                     {a.actorUserId ? a.actorName : '⚙ system'}{a.actorEmail ? ` · ${a.actorEmail}` : ''}
                   </span>
@@ -137,7 +153,7 @@ export default function AuditPage() {
       {list && <Pagination page={list.page} pageSize={list.pageSize} total={list.total} onPage={setPage} />}
 
       {detail && (
-        <Drawer title={detail.action} subtitle={`${detail.entity}${detail.entityId ? ` · ${detail.entityId.slice(0, 8)}` : ''}`} onClose={() => setDetail(null)} width={520}>
+        <Drawer title={humanizeAction(detail.action)} subtitle={`${detail.entity}${detail.entityId ? ` · ${detail.entityId.slice(0, 8)}` : ''}`} onClose={() => setDetail(null)} width={520}>
           <div className="grid" style={{ gap: 16 }}>
             <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <Field label="When" value={when(detail.createdAt)} />

@@ -71,7 +71,10 @@ export default function CampaignsPage() {
             return (
               <button key={c.id} className="card hover" onClick={() => setDetailId(c.id)} style={{ textAlign: 'left', cursor: 'pointer' }}>
                 <div className="spread" style={{ marginBottom: 8 }}>
-                  <span className={`badge ${c.status === 'active' ? 'active' : c.status === 'ended' ? 'paid' : 'draft'}`}>{c.status}</span>
+                  <span className="row" style={{ gap: 6 }}>
+                    <span className={`badge ${c.status === 'active' ? 'active' : c.status === 'ended' ? 'paid' : 'draft'}`}>{c.status}</span>
+                    {c.status === 'active' && new Date(c.endsAt) < new Date() && <span className="badge requested" title="The window has ended — finalize to pay bonuses">⏳ needs finalization</span>}
+                  </span>
                   <span className="faint" style={{ fontSize: 11 }}>{METRICS[c.metric]}</span>
                 </div>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name}</div>

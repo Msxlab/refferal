@@ -246,7 +246,7 @@ export default function MembersPage() {
                     <input type="checkbox" checked={selected.has(m.id)} onChange={() => toggle(m.id)} aria-label={`Select ${m.fullName}`} />
                   </td>
                   {cols.isVisible('member') && <td>{m.fullName}<div className="faint" style={{ fontSize: 12 }}>{m.email}</div></td>}
-                  {cols.isVisible('code') && <td style={{ fontFamily: 'ui-monospace, monospace' }}>{m.referralCode}</td>}
+                  {cols.isVisible('code') && <td style={{ fontFamily: 'ui-monospace, monospace' }} onClick={(e) => e.stopPropagation()}><span className="row" style={{ gap: 4 }}>{m.referralCode}<button className="btn ghost sm" title="Copy code" style={{ padding: '1px 6px', fontSize: 11 }} onClick={() => { navigator.clipboard.writeText(m.referralCode).then(() => showToast('Copied ✓')).catch(() => {}); }}>⧉</button></span></td>}
                   {cols.isVisible('sponsor') && (
                     <td onClick={(e) => e.stopPropagation()}>
                       {m.sponsorReferralCode
@@ -334,7 +334,7 @@ export default function MembersPage() {
               <div>
                 <div className="card" style={{ background: 'color-mix(in srgb, var(--emerald) 10%, transparent)', borderColor: 'color-mix(in srgb, var(--emerald) 30%, transparent)', padding: 14 }}>
                   <div style={{ fontWeight: 700, marginBottom: 6 }}>✓ Member added</div>
-                  <div className="row spread" style={{ fontSize: 13 }}><span className="muted">Referans kodu</span><strong className="tnum">{addResult.referralCode}</strong></div>
+                  <div className="row spread" style={{ fontSize: 13 }}><span className="muted">Referral code</span><strong className="tnum">{addResult.referralCode}</strong></div>
                   {addResult.tempPassword ? (
                     <div style={{ marginTop: 8 }}>
                       <div className="faint" style={{ fontSize: 11, marginBottom: 4 }}>Temporary password (share it with them — shown only once):</div>
