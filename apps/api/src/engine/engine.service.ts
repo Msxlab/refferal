@@ -3,6 +3,7 @@ import {
   LedgerStatus,
   LedgerType,
   MaturationRule,
+  MembershipStatus,
   NotificationChannel,
   PayoutMethod,
   PayoutStatus,
@@ -461,7 +462,9 @@ export class EngineService {
 
     const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: sale.tenantId } });
     const plan = await this.resolvePlan(tx, sale.tenantId, sale.saleDate);
-    const chain = await this.uplineChain(tx, sale.sellerMembershipId, plan.depth);
+    const rawChain = await this.uplineChain(tx, sale.sellerMembershipId, plan.depth);
+    // base unilevel: tenant ayarlarina gore etkin zincir (compression / inactive-earn)
+    const chain = this.effectiveBaseChain(rawChain, tenant);
     const lines = computeCommissionLines(sale.amountCents, plan.levels, chain);
 
     const { status, maturesAt } = this.maturation(tenant, sale);
@@ -509,7 +512,11 @@ export class EngineService {
     // Sentetik seviye numaralari (1000/1001) base seviyelerle cakismaz; type=commission
     // oldugu icin void/payout/summary/maturation akisindan dogal gecer.
     let bonusCount = 0;
-    const sponsorId = chain[1]; // saticinin direkt sponsoru (varsa)
+    // bonuslar GERCEK direkt sponsora (compression base zincirini kaydirabilir ama "direkt sponsor"
+    // anlami degismez). inactiveMembersEarn=false ise inaktif sponsor bonus da almaz.
+    const directSponsor = rawChain[1];
+    const sponsorEarns = !!directSponsor && (tenant.inactiveMembersEarn || directSponsor.status === MembershipStatus.active);
+    const sponsorId = sponsorEarns ? directSponsor!.id : undefined;
     if (sponsorId && (plan.fastStartBps > 0 || plan.matchingBps > 0)) {
       const addBonus = async (level: number, rateBps: number, amountCents: bigint, template: string) => {
         if (amountCents <= 0n) return;
@@ -627,21 +634,42 @@ export class EngineService {
    * chain[0] = satici. Pasif uye MVP'de payini almaya devam eder — filtre yok;
    * compression tenant ayari semada var, varsayilan kapali.
    */
-  private async uplineChain(tx: Tx, sellerMembershipId: string, depth: number): Promise<string[]> {
-    const chain: string[] = [];
+  private async uplineChain(tx: Tx, sellerMembershipId: string, depth: number): Promise<Array<{ id: string; status: MembershipStatus }>> {
+    const chain: Array<{ id: string; status: MembershipStatus }> = [];
     let currentId: string | null = sellerMembershipId;
     for (let level = 0; level < depth && currentId; level++) {
-      chain.push(currentId);
-      const m: { sponsorMembershipId: string | null } | null = await tx.membership.findUnique({
+      const m: { sponsorMembershipId: string | null; status: MembershipStatus } | null = await tx.membership.findUnique({
         where: { id: currentId },
-        select: { sponsorMembershipId: true },
+        select: { sponsorMembershipId: true, status: true },
       });
       if (!m) {
         throw new NotFoundException(`uyelik bulunamadi: ${currentId}`);
       }
+      chain.push({ id: currentId, status: m.status });
       currentId = m.sponsorMembershipId;
     }
     return chain;
+  }
+
+  /**
+   * Tenant ayarlarina gore ETKIN base zincir (Dalga 5 — atil toggle'lari gercege cevirir):
+   * - compressionEnabled: inaktif upline'lari ATLA, aktifleri yukari kaydir (roll-up).
+   * - inactiveMembersEarn=false (compression kapali): inaktif upline o seviyede pay ALMAZ, yeri
+   *   bos birakilir ('') — pay sirkette kalir, roll-up YOK.
+   * - varsayilan (inactiveMembersEarn=true): herkes kazanir (mevcut davranis — degismez).
+   * Satici (level 0) her zaman dahildir (satis zaten aktif uye adina girilir).
+   */
+  private effectiveBaseChain(raw: Array<{ id: string; status: MembershipStatus }>, tenant: Tenant): string[] {
+    if (raw.length === 0) return [];
+    const seller = raw[0].id;
+    const uplines = raw.slice(1);
+    if (tenant.compressionEnabled) {
+      return [seller, ...uplines.filter((u) => u.status === MembershipStatus.active).map((u) => u.id)];
+    }
+    if (!tenant.inactiveMembersEarn) {
+      return [seller, ...uplines.map((u) => (u.status === MembershipStatus.active ? u.id : ''))];
+    }
+    return raw.map((r) => r.id);
   }
 
   /** Olgunlasma kurali (SPEC 3.4): satirin baslangic statusu + matures_at. */
