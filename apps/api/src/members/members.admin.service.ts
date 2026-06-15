@@ -110,6 +110,18 @@ export class MembersAdminService {
         },
       }),
     ]);
+
+    // sayfadaki uyeler icin yasam-boyu SATTIGI (onayli ciro) + KAZANDIGI (payable+paid komisyon)
+    const ids = rows.map((m) => m.id);
+    const [soldAgg, earnAgg] = ids.length
+      ? await Promise.all([
+          this.prisma.sale.groupBy({ by: ['sellerMembershipId'], where: { tenantId, status: SaleStatus.approved, sellerMembershipId: { in: ids } }, _sum: { amountCents: true } }),
+          this.prisma.ledgerEntry.groupBy({ by: ['beneficiaryMembershipId'], where: { tenantId, status: { in: [LedgerStatus.payable, LedgerStatus.paid] }, beneficiaryMembershipId: { in: ids } }, _sum: { amountCents: true } }),
+        ])
+      : [[], []];
+    const soldBy = new Map(soldAgg.map((s) => [s.sellerMembershipId, s._sum.amountCents ?? 0n]));
+    const earnBy = new Map(earnAgg.map((e) => [e.beneficiaryMembershipId, e._sum.amountCents ?? 0n]));
+
     return {
       total,
       page: q.page,
@@ -124,6 +136,8 @@ export class MembersAdminService {
         status: m.status,
         depth: m.depth,
         sponsorReferralCode: m.sponsor?.referralCode ?? null,
+        soldCents: (soldBy.get(m.id) ?? 0n).toString(),
+        earnedCents: (earnBy.get(m.id) ?? 0n).toString(),
         joinedAt: m.joinedAt,
       })),
     };

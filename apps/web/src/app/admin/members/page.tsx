@@ -20,6 +20,8 @@ interface MemberItem {
   status: 'active' | 'inactive';
   depth: number;
   sponsorReferralCode: string | null;
+  soldCents: string;
+  earnedCents: string;
   joinedAt: string;
 }
 interface MembersList { total: number; page: number; pageSize: number; items: MemberItem[] }
@@ -33,6 +35,8 @@ const MEMBER_COLUMNS: TableColumn[] = [
   { key: 'code', label: 'Code' },
   { key: 'sponsor', label: 'Sponsor' },
   { key: 'level', label: 'Level' },
+  { key: 'sold', label: 'Sales $' },
+  { key: 'earned', label: 'Earned $' },
   { key: 'role', label: 'Role' },
   { key: 'status', label: 'Status' },
   { key: 'joined', label: 'Joined' },
@@ -234,6 +238,8 @@ export default function MembersPage() {
               {cols.isVisible('code') && <th>Code</th>}
               {cols.isVisible('sponsor') && <th>Sponsor</th>}
               {cols.isVisible('level') && <SortableTh label="Lvl." field="depth" sort={sort} dir={dir} onSort={onSort} />}
+              {cols.isVisible('sold') && <th style={{ textAlign: 'right' }}>Sales $</th>}
+              {cols.isVisible('earned') && <th style={{ textAlign: 'right' }}>Earned $</th>}
               {cols.isVisible('role') && <th>{t('members.role')}</th>}
               {cols.isVisible('status') && <th>Status</th>}
               {cols.isVisible('joined') && <SortableTh label="Joined" field="joinedAt" sort={sort} dir={dir} onSort={onSort} />}
@@ -255,6 +261,8 @@ export default function MembersPage() {
                     </td>
                   )}
                   {cols.isVisible('level') && <td>{m.depth}</td>}
+                  {cols.isVisible('sold') && <td className="tnum" style={{ textAlign: 'right', color: 'var(--muted)' }}>{Number(m.soldCents) > 0 ? money(m.soldCents) : '—'}</td>}
+                  {cols.isVisible('earned') && <td className="tnum" style={{ textAlign: 'right', fontWeight: 600, color: Number(m.earnedCents) > 0 ? 'var(--gold-500)' : 'var(--faint)' }}>{Number(m.earnedCents) > 0 ? money(m.earnedCents) : '—'}</td>}
                   {cols.isVisible('role') && (
                     <td onClick={(e) => e.stopPropagation()}>
                       {m.role === 'tenant_owner' ? <span className="faint">Owner</span> : (
