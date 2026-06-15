@@ -14,6 +14,8 @@ interface Dashboard {
   members: { total: number; active: number };
   thisMonth: { approvedSalesCount: number; revenueCents: string; commissionCents: string; effectiveRateBps: number };
   outstandingPayableCents: string;
+  liability: { pendingCents: string; payableCents: string; inPayoutCents: string };
+  topEarners: { membershipId: string; fullName: string; referralCode: string; earnedCents: string }[];
   pendingPayoutRequests: number;
 }
 
@@ -120,6 +122,33 @@ export default function DashboardPage() {
         <StatCard label={t('dash.payable')} value={money(data.outstandingPayableCents, c)} icon="◆" hint={t('dash.payableHint')} />
         <StatCard label={t('dash.members')} value={`${data.members.active} / ${data.members.total}`} icon="⬡" hint={t('dash.membersHint')} />
         <StatCard label={t('dash.pendingReq')} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} />
+      </div>
+
+      {/* ---- borc kirilimi + en cok kazananlar ---- */}
+      <div className="grid fade-in delay-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.2fr)', gap: 16, marginTop: 16 }}>
+        <div className="card">
+          <strong style={{ fontSize: 13 }}>Komisyon borcu (üyelere)</strong>
+          <div className="faint" style={{ fontSize: 11, marginBottom: 12 }}>Şirketin üyelere taahhüdü — olgunlaşma ve ödeme durumuna göre.</div>
+          <div className="grid" style={{ gap: 8 }}>
+            <div className="row spread"><span className="row" style={{ gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--amber)' }} />Bekleyen (olgunlaşmamış)</span><strong className="tnum">{money(data.liability.pendingCents, c)}</strong></div>
+            <div className="row spread"><span className="row" style={{ gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--sky)' }} />Ödenebilir (hazır)</span><strong className="tnum">{money(data.liability.payableCents, c)}</strong></div>
+            <div className="row spread"><span className="row" style={{ gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--emerald)' }} />Ödeme yolunda</span><strong className="tnum">{money(data.liability.inPayoutCents, c)}</strong></div>
+          </div>
+        </div>
+        <div className="card">
+          <strong style={{ fontSize: 13 }}>En çok kazananlar · {data.month}</strong>
+          <div className="faint" style={{ fontSize: 11, marginBottom: 10 }}>Bu ay en yüksek komisyonu kazanan üyeler.</div>
+          {data.topEarners.length === 0 ? <span className="muted" style={{ fontSize: 13 }}>Bu ay henüz komisyon yok.</span> : (
+            <div className="grid" style={{ gap: 6 }}>
+              {data.topEarners.map((e, i) => (
+                <div key={e.membershipId} className="row spread" style={{ fontSize: 13 }}>
+                  <span className="row" style={{ gap: 8, minWidth: 0 }}><span className="faint tnum" style={{ width: 18 }}>{i + 1}.</span><span style={{ fontWeight: 600 }}>{e.fullName}</span><span className="faint" style={{ fontSize: 11 }}>{e.referralCode}</span></span>
+                  <strong className="tnum" style={{ color: 'var(--gold-500)' }}>{money(e.earnedCents, c)}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ---- analitik: zaman serisi + karsilastirma + huni + top performers ---- */}

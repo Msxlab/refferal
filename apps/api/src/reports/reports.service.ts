@@ -107,6 +107,37 @@ export class ReportsService {
       where: { tenantId, status: PayoutStatus.requested },
     });
 
+    // borc kirilimi: bekleyen (henuz olgunlasmamis) + odeme yolunda (requested/processing payout)
+    const [pendingLedger, inPayout, topEarnRows] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ sum: bigint }>>`
+        SELECT COALESCE(SUM(amount_cents), 0)::bigint AS sum FROM ledger_entries
+        WHERE tenant_id = ${tenantId}::uuid AND status = 'pending'`,
+      this.prisma.payout.aggregate({ where: { tenantId, status: { in: [PayoutStatus.requested, PayoutStatus.processing] } }, _sum: { totalCents: true } }),
+      // en cok kazanan (bu ay): monthly_summaries net
+      this.prisma.monthlySummary.groupBy({
+        by: ['membershipId'],
+        where: { tenantId, month: targetMonth },
+        _sum: { pendingCents: true, payableCents: true, paidCents: true },
+      }),
+    ]);
+
+    // top earners isimleri + siralama
+    const earnByMember = topEarnRows
+      .map((r) => ({ membershipId: r.membershipId, cents: (r._sum.pendingCents ?? 0n) + (r._sum.payableCents ?? 0n) + (r._sum.paidCents ?? 0n) }))
+      .filter((r) => r.cents > 0n)
+      .sort((a, b) => (b.cents > a.cents ? 1 : -1))
+      .slice(0, 8);
+    const topMembers = earnByMember.length
+      ? await this.prisma.membership.findMany({ where: { id: { in: earnByMember.map((e) => e.membershipId) } }, select: { id: true, referralCode: true, user: { select: { fullName: true } } } })
+      : [];
+    const nameById = new Map(topMembers.map((m) => [m.id, m]));
+    const topEarners = earnByMember.map((e) => ({
+      membershipId: e.membershipId,
+      fullName: nameById.get(e.membershipId)?.user.fullName ?? '—',
+      referralCode: nameById.get(e.membershipId)?.referralCode ?? '',
+      earnedCents: e.cents.toString(),
+    }));
+
     const revenue = approvedAgg._sum.amountCents ?? 0n;
     const commission = commissionRows[0]?.sum ?? 0n;
 
@@ -122,6 +153,13 @@ export class ReportsService {
         effectiveRateBps: revenue > 0n ? Number((commission * 10000n) / revenue) : 0,
       },
       outstandingPayableCents: (payableRows[0]?.sum ?? 0n).toString(),
+      // borc kirilimi (sirketin uyelere borcu)
+      liability: {
+        pendingCents: (pendingLedger[0]?.sum ?? 0n).toString(),
+        payableCents: (payableRows[0]?.sum ?? 0n).toString(),
+        inPayoutCents: (inPayout._sum.totalCents ?? 0n).toString(),
+      },
+      topEarners,
       pendingPayoutRequests: pendingRequests,
     };
   }
