@@ -31,7 +31,10 @@ export default function InvitePage() {
 
   const load = useCallback(async () => {
     try {
-      setInvites(await api.get<InviteItem[]>('/app/invites'));
+      const items = await api.get<InviteItem[]>('/app/invites');
+      setInvites(items);
+      // auto-show an existing active invite link so reps can copy & share in one step
+      setLatest((cur) => cur ?? items.find((i) => i.status === 'active')?.code ?? null);
     } catch (e) {
       setError(String((e as ApiError).message));
     }

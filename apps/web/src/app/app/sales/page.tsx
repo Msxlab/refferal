@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import { Loading, Modal, Pagination, useToast } from '@/components/ui';
+import { Loading, Modal, MoneyCounter, Pagination, useToast } from '@/components/ui';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -17,6 +17,7 @@ interface MySale {
   myCommissionCents: string;
 }
 interface MySalesList { total: number; page: number; pageSize: number; items: MySale[] }
+interface SalesSummary { currency: string; soldThisMonthCents: string; salesThisMonth: number; soldLifetimeCents: string; earnedThisMonthCents: string }
 
 function todayYmd(): string {
   const d = new Date();
@@ -25,6 +26,7 @@ function todayYmd(): string {
 
 export default function MySalesPage() {
   const [list, setList] = useState<MySalesList | null>(null);
+  const [summary, setSummary] = useState<SalesSummary | null>(null);
   const [page, setPage] = useState(1);
   const [error, setError] = useState('');
   const [toast, showToast] = useToast();
@@ -41,6 +43,7 @@ export default function MySalesPage() {
   }, [page]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { api.get<SalesSummary>('/app/dashboard').then(setSummary).catch(() => { /* optional */ }); }, []);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -71,11 +74,22 @@ export default function MySalesPage() {
 
       {error && <div className="error">{error}</div>}
 
-      <div className="card fade-in delay-1" style={{ background: 'color-mix(in srgb, var(--sky) 7%, transparent)', borderColor: 'color-mix(in srgb, var(--sky) 30%, transparent)', marginBottom: 16 }}>
-        <div className="faint" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-          ◆ Sales you record are <b>drafts</b> until verified by your company. Commission is distributed across your network after approval.
+      {summary && (
+        <div className="stat-grid fade-in delay-1" style={{ marginBottom: 16 }}>
+          <div className="card stat"><div className="spread"><span className="k">Sold (this month)</span><span className="icon">◇</span></div><div className="v"><MoneyCounter cents={Number(summary.soldThisMonthCents)} currency={summary.currency} /></div><div className="hint">{summary.salesThisMonth} sales · {money(summary.soldLifetimeCents, summary.currency)} lifetime</div></div>
+          <div className="card stat"><div className="spread"><span className="k">Earned (this month)</span><span className="icon" style={{ background: 'var(--foil)' }}>◆</span></div><div className="v" style={{ color: 'var(--gold-500)' }}><MoneyCounter cents={Number(summary.earnedThisMonthCents)} currency={summary.currency} /></div><div className="hint">commission you earned</div></div>
+          <div className="card stat"><div className="spread"><span className="k">Awaiting approval</span><span className="icon">◷</span></div><div className="v">{list?.items.filter((s) => s.status === 'draft').length ?? 0}</div><div className="hint">drafts on this page</div></div>
         </div>
-      </div>
+      )}
+
+      {/* the drafts explainer only matters before the first sale */}
+      {list && list.total === 0 && (
+        <div className="card fade-in delay-1" style={{ background: 'color-mix(in srgb, var(--sky) 7%, transparent)', borderColor: 'color-mix(in srgb, var(--sky) 30%, transparent)', marginBottom: 16 }}>
+          <div className="faint" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+            ◆ Sales you record are <b>drafts</b> until verified by your company. Commission is distributed across your network after approval.
+          </div>
+        </div>
+      )}
 
       <div className="card fade-in delay-2">
         <div className="spread" style={{ marginBottom: 12 }}>

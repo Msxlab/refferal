@@ -11,6 +11,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -49,7 +50,10 @@ export default function LoginPage() {
           </div>
           <div className="field">
             <label>{t('login.password')}</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" />
+            <div style={{ position: 'relative' }}>
+              <input type={showPw ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" style={{ paddingRight: 64 }} />
+              <button type="button" onClick={() => setShowPw((v) => !v)} className="faint" style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>{showPw ? 'Hide' : 'Show'}</button>
+            </div>
           </div>
           {error && <div className="error">{error}</div>}
           <button className="btn block" style={{ marginTop: 6 }} disabled={busy}>

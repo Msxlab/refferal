@@ -177,10 +177,13 @@ export default function MemberDashboard() {
           <div className="bignum gradient-text" style={{ marginTop: 6 }}>
             <MoneyCounter cents={total} currency={c} />
           </div>
-          <div className="row" style={{ marginTop: 20, gap: 18 }}>
-            <Chip color="var(--amber)" label={t('me.pending')} value={money(pending, c)} />
-            <Chip color="var(--sky)" label={t('me.payable')} value={money(payable, c)} />
-            <Chip color="var(--emerald)" label={t('me.paid')} value={money(paid, c)} />
+          <div className="row spread" style={{ marginTop: 20, gap: 18 }}>
+            <div className="row" style={{ gap: 18 }}>
+              <Chip color="var(--amber)" label={t('me.pending')} value={money(pending, c)} />
+              <Chip color="var(--sky)" label={t('me.payable')} value={money(payable, c)} />
+              <Chip color="var(--emerald)" label={t('me.paid')} value={money(paid, c)} />
+            </div>
+            {payable > 0 && <a className="btn success sm" href="/app/wallet">{t('me.requestPayout')} →</a>}
           </div>
           {rankInfo?.rank && (
             <div className="row" style={{ marginTop: 14, gap: 8 }}>

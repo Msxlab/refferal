@@ -121,7 +121,9 @@ export default function DashboardPage() {
       <div className="stat-grid fade-in delay-2" style={{ marginTop: 16 }}>
         <StatCard label={t('dash.payable')} value={money(data.outstandingPayableCents, c)} icon="◆" hint={t('dash.payableHint')} />
         <StatCard label={t('dash.members')} value={`${data.members.active} / ${data.members.total}`} icon="⬡" hint={t('dash.membersHint')} />
-        <StatCard label={t('dash.pendingReq')} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} />
+        {data.pendingPayoutRequests > 0
+          ? <a href="/admin/payouts" style={{ textDecoration: 'none' }} title="Go to payouts"><StatCard label={`${t('dash.pendingReq')} →`} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} /></a>
+          : <StatCard label={t('dash.pendingReq')} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} />}
       </div>
 
       {/* ---- borc kirilimi + en cok kazananlar ---- */}

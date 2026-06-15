@@ -266,9 +266,11 @@ export default function SalesPage() {
         <StatCard label="Revenue (approved)" icon="◆" grad="color-mix(in srgb, var(--emerald) 22%, transparent)"
           value={summary ? <MoneyCounter cents={summary.byStatus.approved.amountCents} currency={cur} /> : '—'}
           hint={summary ? `${summary.byStatus.approved.count} approved sales` : undefined} />
-        <StatCard label="Awaiting approval" icon="◷"
-          value={summary ? summary.byStatus.draft.count : '—'}
-          hint={summary ? money(summary.byStatus.draft.amountCents, cur) : undefined} />
+        <div onClick={() => patchFilters({ ...EMPTY, status: 'draft' })} style={{ cursor: 'pointer' }} title="Show drafts awaiting approval" role="button">
+          <StatCard label="Awaiting approval →" icon="◷"
+            value={summary ? summary.byStatus.draft.count : '—'}
+            hint={summary ? money(summary.byStatus.draft.amountCents, cur) : undefined} />
+        </div>
         <StatCard label="Average sale" icon="∑"
           value={summary ? <MoneyCounter cents={summary.avgCents} currency={cur} /> : '—'}
           hint={summary ? `${summary.count} sales in view` : undefined} />
