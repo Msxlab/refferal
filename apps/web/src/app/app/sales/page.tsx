@@ -98,6 +98,7 @@ export default function MySalesPage() {
                   </td>
                   <td className="tnum" style={{ textAlign: 'right', color: Number(s.myCommissionCents) > 0 ? 'var(--emerald)' : 'var(--faint)' }}>
                     {Number(s.myCommissionCents) > 0 ? money(s.myCommissionCents, s.currency) : '—'}
+                    {Number(s.myCommissionCents) > 0 && Number(s.amountCents) > 0 && <div className="faint" style={{ fontSize: 11 }}>%{((Number(s.myCommissionCents) / Number(s.amountCents)) * 100).toFixed(1)}</div>}
                   </td>
                 </tr>
               ))}

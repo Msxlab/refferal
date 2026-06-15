@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { LedgerStatus, LedgerType } from '@prisma/client';
+import { LedgerStatus, LedgerType, SaleStatus } from '@prisma/client';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -180,10 +180,12 @@ export class WalletService {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const targetMonth = month ?? monthKey(new Date(), tenant.timezone);
 
-    const rows = await this.prisma.monthlySummary.findMany({
-      where: { membershipId, month: targetMonth },
-      orderBy: { level: 'asc' },
-    });
+    const [rows, soldThisMonth, soldLifetime] = await Promise.all([
+      this.prisma.monthlySummary.findMany({ where: { membershipId, month: targetMonth }, orderBy: { level: 'asc' } }),
+      // KENDI cirosu (sattigi): bu ay onayli satislari
+      this.prisma.sale.aggregate({ where: { tenantId, sellerMembershipId: membershipId, status: SaleStatus.approved, summaryMonth: targetMonth }, _sum: { amountCents: true }, _count: { _all: true } }),
+      this.prisma.sale.aggregate({ where: { tenantId, sellerMembershipId: membershipId, status: SaleStatus.approved }, _sum: { amountCents: true } }),
+    ]);
 
     const levels = rows.map((r) => ({
       level: r.level,
@@ -192,10 +194,19 @@ export class WalletService {
       paidCents: r.paidCents.toString(),
     }));
     const sum = (pick: (r: (typeof rows)[number]) => bigint) => rows.reduce((a, r) => a + pick(r), 0n);
+    const earnedThisMonth = sum((r) => r.pendingCents) + sum((r) => r.payableCents) + sum((r) => r.paidCents);
+    const soldCents = soldThisMonth._sum.amountCents ?? 0n;
 
     return {
       month: targetMonth,
       currency: tenant.currency,
+      // "sattigi vs kazandigi" — urunun uye tarafindaki cekirdek vaadi
+      soldThisMonthCents: soldCents.toString(),
+      salesThisMonth: soldThisMonth._count._all,
+      soldLifetimeCents: (soldLifetime._sum.amountCents ?? 0n).toString(),
+      earnedThisMonthCents: earnedThisMonth.toString(),
+      // etkin oran (kazanc/ciro) bps — yalniz kendi satislarindan degil tum komisyon dahil; bilgi amacli
+      effectiveRateBps: soldCents > 0n ? Number((earnedThisMonth * 10000n) / soldCents) : 0,
       totals: {
         pendingCents: sum((r) => r.pendingCents).toString(),
         payableCents: sum((r) => r.payableCents).toString(),
