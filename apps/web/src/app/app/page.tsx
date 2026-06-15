@@ -151,22 +151,22 @@ export default function MemberDashboard() {
       )}
       {npsDone && <div className="card fade-in" style={{ marginBottom: 16 }}><span className="muted">Thanks for your feedback! 🙏</span></div>}
 
-      {/* sattigi vs kazandigi (bu ay) — urunun cekirdek vaadi */}
+      {/* sold vs earned (this month) — the product's core promise */}
       <div className="stat-grid fade-in delay-1" style={{ marginBottom: 16 }}>
         <div className="card stat">
-          <div className="spread"><span className="k">Sattığın (bu ay)</span><span className="icon">◇</span></div>
+          <div className="spread"><span className="k">You sold (this month)</span><span className="icon">◇</span></div>
           <div className="v"><MoneyCounter cents={Number(data.soldThisMonthCents)} currency={c} /></div>
-          <div className="hint">{data.salesThisMonth} satış · ömür boyu {money(data.soldLifetimeCents, c)}</div>
+          <div className="hint">{data.salesThisMonth} sales · {money(data.soldLifetimeCents, c)} lifetime</div>
         </div>
         <div className="card stat">
-          <div className="spread"><span className="k">Kazandığın (bu ay)</span><span className="icon" style={{ background: 'var(--foil)' }}>◆</span></div>
+          <div className="spread"><span className="k">You earned (this month)</span><span className="icon" style={{ background: 'var(--foil)' }}>◆</span></div>
           <div className="v" style={{ color: 'var(--gold-500)' }}><MoneyCounter cents={Number(data.earnedThisMonthCents)} currency={c} /></div>
-          <div className="hint">komisyon (bekleyen+ödenebilir+ödenen)</div>
+          <div className="hint">commission (pending + payable + paid)</div>
         </div>
         <div className="card stat">
-          <div className="spread"><span className="k">Etkin oran</span><span className="icon">%</span></div>
-          <div className="v">{data.effectiveRateBps > 0 ? `%${(data.effectiveRateBps / 100).toFixed(1)}` : '—'}</div>
-          <div className="hint">kazancın / cironun oranı</div>
+          <div className="spread"><span className="k">Effective rate</span><span className="icon">%</span></div>
+          <div className="v">{data.effectiveRateBps > 0 ? `${(data.effectiveRateBps / 100).toFixed(1)}%` : '—'}</div>
+          <div className="hint">earned / sold</div>
         </div>
       </div>
 

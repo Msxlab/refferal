@@ -80,7 +80,7 @@ function MemberNode({ data }: NodeProps<Node<NodeData>>) {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
         <div style={{ display: 'flex', gap: 6 }}>
-          {n.isTeamLeader && <span className="badge payable" style={{ fontSize: 9 }}>🎖 lider</span>}
+          {n.isTeamLeader && <span className="badge payable" style={{ fontSize: 9 }}>🎖 leader</span>}
           {n.role !== 'member' && <span className="badge active" style={{ fontSize: 9 }}>{n.role.replace('tenant_', '')}</span>}
           {data.rank && <span className="badge payable" style={{ fontSize: 9 }}>🏅 {data.rank}</span>}
           {n.status !== 'active' && <span className="badge inactive" style={{ fontSize: 9 }}>{n.status}</span>}
@@ -88,7 +88,7 @@ function MemberNode({ data }: NodeProps<Node<NodeData>>) {
         <span className="row" style={{ gap: 6 }}>
           {data.revenue > 0 && <span className="tnum" style={{ fontSize: 10, color: 'var(--muted)' }} title={`${data.sales} satış (bu ay)`}>◇ {compactMoney(data.revenue)}</span>}
           {Number(n.monthlyCommissionCents ?? 0) > 0
-            ? <span className="tnum" style={{ fontSize: 10, fontWeight: 700, color: 'var(--gold-500)' }} title="Bu ay komisyon (kazanç)">◆ {compactMoney(Number(n.monthlyCommissionCents))}</span>
+            ? <span className="tnum" style={{ fontSize: 10, fontWeight: 700, color: 'var(--gold-500)' }} title="Commission this month (earned)">◆ {compactMoney(Number(n.monthlyCommissionCents))}</span>
             : (data.revenue === 0 && data.team > 0 && <span style={{ fontSize: 10, color: 'var(--muted)' }}>⬡ {data.team}</span>)}
         </span>
       </div>
@@ -325,14 +325,14 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
     <div>
       {/* ---- ag analitigi seridi ---- */}
       <div className="net-kpis" style={{ marginBottom: 14 }}>
-        <Kpi label={focusId ? 'Bu kolda' : 'Toplam kişi'} value={String(analytics.people)} icon="⬡" />
-        <Kpi label="Aktif" value={`${analytics.active}`} sub={analytics.people ? `%${Math.round((analytics.active / analytics.people) * 100)}` : undefined} icon="●" />
-        <Kpi label="Derinlik" value={String(analytics.maxDepth)} icon="⤳" />
-        <Kpi label="Bu ay katılan" value={String(analytics.newThisMonth)} icon="✦" />
-        <Kpi label="Ciro (bu ay)" value={compactMoney(analytics.revenue)} icon="◇" />
-        <Kpi label="Komisyon (bu ay)" value={compactMoney(analytics.monthlyComm)} icon="◆" />
-        {hasEarnings && <Kpi label="Yaşam-boyu kazanç" value={compactMoney(analytics.earnings)} icon="$" />}
-        {analytics.top && analytics.top.cents > 0 && <Kpi label="En çok kazanan" value={analytics.top.name} sub={compactMoney(analytics.top.cents)} icon="★" />}
+        <Kpi label={focusId ? 'In this branch' : 'Total people'} value={String(analytics.people)} icon="⬡" />
+        <Kpi label="Active" value={`${analytics.active}`} sub={analytics.people ? `${Math.round((analytics.active / analytics.people) * 100)}%` : undefined} icon="●" />
+        <Kpi label="Depth" value={String(analytics.maxDepth)} icon="⤳" />
+        <Kpi label="Joined this month" value={String(analytics.newThisMonth)} icon="✦" />
+        <Kpi label="Revenue (this mo)" value={compactMoney(analytics.revenue)} icon="◇" />
+        <Kpi label="Commission (this mo)" value={compactMoney(analytics.monthlyComm)} icon="◆" />
+        {hasEarnings && <Kpi label="Lifetime earnings" value={compactMoney(analytics.earnings)} icon="$" />}
+        {analytics.top && analytics.top.cents > 0 && <Kpi label="Top earner" value={analytics.top.name} sub={compactMoney(analytics.top.cents)} icon="★" />}
       </div>
 
       {/* ---- temiz arac cubugu ---- */}
@@ -352,8 +352,8 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
           <button
             className={`btn sm ${heat === 'none' ? 'ghost' : ''}`}
             onClick={() => setHeat((h) => h === 'none' ? 'revenue' : h === 'revenue' ? 'earnings' : 'none')}
-            title="Düğümleri metriğe göre ısı-haritasıyla tonla"
-          >◉ Isı: {heat === 'none' ? 'kapalı' : heat === 'revenue' ? 'ciro' : 'kazanç'}</button>
+            title="Shade nodes by metric (heat map)"
+          >◉ Heat: {heat === 'none' ? 'off' : heat === 'revenue' ? 'revenue' : 'earnings'}</button>
         )}
         <button className="btn ghost sm" onClick={exportCsv}>⇩ CSV</button>
         {view === 'tree' && <button className="btn ghost sm" onClick={exportPng}>⇩ PNG</button>}
@@ -437,7 +437,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
         <Drawer title={selected.fullName} subtitle={`${selected.referralCode} · ${title}`} onClose={() => setSelected(null)}
           footer={
             <>
-              {onToggleLeader && <button className="btn ghost" onClick={() => { onToggleLeader(selected); setSelected(null); }}>{selected.isTeamLeader ? '🎖 Liderlikten çıkar' : '🎖 Lider yap'}</button>}
+              {onToggleLeader && <button className="btn ghost" onClick={() => { onToggleLeader(selected); setSelected(null); }}>{selected.isTeamLeader ? '🎖 Remove leader' : '🎖 Make leader'}</button>}
               <button className="btn ghost" onClick={() => { setView('tree'); setQuery(selected.referralCode); setSelected(null); }}>Show in tree ⤳</button>
               {teamOf(selected.id) > 0 && <button className="btn" onClick={() => { setFocusId(selected.id); setSelected(null); }}>Focus subtree ⤢</button>}
             </>
@@ -453,7 +453,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
               <Stat label="Direct recruits" value={String((childrenOf.get(selected.id) ?? []).length)} />
               <Stat label="Total team" value={String(teamOf(selected.id))} />
               <Stat label="Sponsor" value={selected.parentId ? byId.get(selected.parentId)?.fullName ?? '—' : '— (top)'} />
-              {Number(selected.monthlyCommissionCents ?? 0) > 0 && <Stat label="Komisyon (bu ay)" value={compactMoney(Number(selected.monthlyCommissionCents))} />}
+              {Number(selected.monthlyCommissionCents ?? 0) > 0 && <Stat label="Commission (this mo)" value={compactMoney(Number(selected.monthlyCommissionCents))} />}
               {Number(selected.earningsCents ?? 0) > 0 && <Stat label="Lifetime earnings" value={compactMoney(Number(selected.earningsCents))} />}
               {Number(selected.revenueCents ?? 0) > 0 && <Stat label="Revenue (this mo)" value={compactMoney(Number(selected.revenueCents))} />}
               {(subtreeRevById.get(selected.id) ?? 0) > 0 && <Stat label="Subtree revenue (mo)" value={compactMoney(subtreeRevById.get(selected.id) ?? 0)} />}

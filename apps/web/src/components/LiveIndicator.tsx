@@ -8,9 +8,9 @@ import { getSession } from '@/lib/auth';
 const EVENT_TYPES = ['sale.created', 'sale.approved', 'payout.paid'] as const;
 
 const LABELS: Record<string, string> = {
-  'sale.created': 'Yeni satış',
-  'sale.approved': 'Satış onaylandı',
-  'payout.paid': 'Ödeme yapıldı',
+  'sale.created': 'New sale',
+  'sale.approved': 'Sale approved',
+  'payout.paid': 'Payout sent',
 };
 
 /**
@@ -52,7 +52,7 @@ export function LiveIndicator() {
   }, []);
 
   return (
-    <span className="live" title={connected ? 'Canlı bağlı' : 'Bağlantı yok'} aria-live="polite">
+    <span className="live" title={connected ? 'Live — connected' : 'Disconnected'} aria-live="polite">
       <span className={`live-dot ${connected ? 'on' : 'off'}`} />
       {last ? <span className="live-msg">{last}</span> : null}
     </span>

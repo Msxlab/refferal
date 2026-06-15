@@ -45,7 +45,7 @@ export default function Plan() {
   const previewTotal = preview.reduce((a, r) => a + r.amountCents, 0);
 
   async function savePlan() {
-    if (overPool) { setError('Seviye oranları toplamı havuz oranını aşamaz.'); return; }
+    if (overPool) { setError('Level rates total cannot exceed the pool rate.'); return; }
     setSavingPlan(true); setError('');
     try {
       await api.post('/admin/plans', {
@@ -56,7 +56,7 @@ export default function Plan() {
         // mevcut bonuslari yeni versiyona tasi
         ...(p ? { fastStartBps: p.fastStartBps, fastStartDays: p.fastStartDays, matchingBps: p.matchingBps } : {}),
       });
-      showToast('Yeni plan versiyonu kaydedildi ✓');
+      showToast('New plan version saved ✓');
       const l = await api.get<PlanList>('/admin/plans'); setList(l); hydrate(l.plans.find((x) => x.active) ?? l.plans[0]);
     } catch (e) { setError(String((e as ApiError).message)); } finally { setSavingPlan(false); }
   }
@@ -79,44 +79,44 @@ export default function Plan() {
       <div className="card">
         <div className="spread" style={{ marginBottom: 10 }}>
           <div>
-            <strong style={{ fontSize: 14 }}>Komisyon planı (yüzdeler)</strong>
-            <div className="faint" style={{ fontSize: 12 }}>Havuz oranı + her seviyenin (kademe) %&apos;si. Kaydetmek yeni bir <em>versiyon</em> oluşturur; geçmiş satışlar kendi tarihindeki planla kalır.</div>
+            <strong style={{ fontSize: 14 }}>Commission plan (percentages)</strong>
+            <div className="faint" style={{ fontSize: 12 }}>Pool rate + each level (tier) %. Saving creates a new <em>version</em>; past sales keep the plan that was effective on their date.</div>
           </div>
-          <span className="badge active" style={{ fontSize: 10 }}>{list.plans.length} versiyon</span>
+          <span className="badge active" style={{ fontSize: 10 }}>{list.plans.length} versions</span>
         </div>
 
         <div className="row" style={{ gap: 12, alignItems: 'flex-end', marginBottom: 12 }}>
-          <div className="field" style={{ flex: 2, margin: 0 }}><label>Versiyon adı</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ör. 2026 planı" /></div>
-          <div className="field" style={{ flex: 1, margin: 0 }}><label>Havuz oranı (%)</label><input type="number" step="0.01" min={0} max={100} value={poolPct} onChange={(e) => setPoolPct(Number(e.target.value))} /></div>
+          <div className="field" style={{ flex: 2, margin: 0 }}><label>Version name</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. 2026 plan" /></div>
+          <div className="field" style={{ flex: 1, margin: 0 }}><label>Pool rate (%)</label><input type="number" step="0.01" min={0} max={100} value={poolPct} onChange={(e) => setPoolPct(Number(e.target.value))} /></div>
         </div>
 
         <table>
-          <thead><tr><th>Kademe</th><th style={{ textAlign: 'right' }}>Oran (%)</th><th style={{ textAlign: 'right' }}>$1.000 satışta</th><th /></tr></thead>
+          <thead><tr><th>Tier</th><th style={{ textAlign: 'right' }}>Rate (%)</th><th style={{ textAlign: 'right' }}>On a $1,000 sale</th><th /></tr></thead>
           <tbody>
             {levels.map((l, i) => (
               <tr key={i}>
-                <td>{levelLabel(i)}{i === 0 && <span className="faint" style={{ fontSize: 11 }}> (satıcı)</span>}</td>
+                <td>{levelLabel(i)}{i === 0 && <span className="faint" style={{ fontSize: 11 }}> (seller)</span>}</td>
                 <td style={{ textAlign: 'right' }}><input type="number" step="0.01" min={0} max={100} value={l.ratePct} onChange={(e) => setLevels(levels.map((x, j) => j === i ? { ratePct: Number(e.target.value) } : x))} style={{ width: 90, textAlign: 'right' }} /></td>
                 <td className="tnum" style={{ textAlign: 'right' }}>{money(preview[i]?.amountCents ?? 0)}</td>
-                <td style={{ textAlign: 'right' }}>{i === levels.length - 1 && levels.length > 1 && <button className="btn ghost sm" onClick={() => setLevels(levels.slice(0, -1))} title="Son kademeyi sil">✕</button>}</td>
+                <td style={{ textAlign: 'right' }}>{i === levels.length - 1 && levels.length > 1 && <button className="btn ghost sm" onClick={() => setLevels(levels.slice(0, -1))} title="Remove last tier">✕</button>}</td>
               </tr>
             ))}
           </tbody>
         </table>
         <div className="row spread" style={{ marginTop: 8 }}>
-          <button className="btn ghost sm" onClick={() => setLevels([...levels, { ratePct: 0 }])} disabled={levels.length >= 20}>＋ Kademe ekle</button>
+          <button className="btn ghost sm" onClick={() => setLevels([...levels, { ratePct: 0 }])} disabled={levels.length >= 20}>＋ Add tier</button>
           <span className={overPool ? 'badge failed' : 'faint'} style={{ fontSize: 12 }}>
-            Seviye toplamı %{levelSumPct.toFixed(2)} / havuz %{poolPct.toFixed(2)} {overPool ? '— havuzu aşıyor!' : ''}
+            Levels total {levelSumPct.toFixed(2)}% / pool {poolPct.toFixed(2)}% {overPool ? '— exceeds the pool!' : ''}
           </span>
         </div>
 
         <div className="card" style={{ background: 'var(--panel-2)', marginTop: 12, padding: 12 }}>
-          <div className="row spread"><span className="faint" style={{ fontSize: 12 }}>Önizleme: $1.000&apos;lık bir satışta toplam dağıtılan komisyon</span><strong className="tnum" style={{ color: 'var(--gold-500)' }}>{money(previewTotal)}</strong></div>
-          <div className="faint" style={{ fontSize: 11, marginTop: 4 }}>Kalan {money(PREVIEW_CENTS - previewTotal)} şirkette kalır (eksik üst-sponsor olduğunda da pay şirkette kalır).</div>
+          <div className="row spread"><span className="faint" style={{ fontSize: 12 }}>Preview: total commission distributed on a $1,000 sale</span><strong className="tnum" style={{ color: 'var(--gold-500)' }}>{money(previewTotal)}</strong></div>
+          <div className="faint" style={{ fontSize: 11, marginTop: 4 }}>The remaining {money(PREVIEW_CENTS - previewTotal)} stays with the company (a missing upline level also stays with the company).</div>
         </div>
 
         {error && <div className="error" style={{ marginTop: 10 }}>{error}</div>}
-        <div className="row" style={{ marginTop: 12 }}><button className="btn" onClick={savePlan} disabled={savingPlan || overPool}>{savingPlan ? 'Kaydediliyor…' : 'Yeni versiyon kaydet'}</button></div>
+        <div className="row" style={{ marginTop: 12 }}><button className="btn" onClick={savePlan} disabled={savingPlan || overPool}>{savingPlan ? 'Saving…' : 'Save new version'}</button></div>
       </div>
 
       {/* ---- bonus katmanlari (mevcut) ---- */}

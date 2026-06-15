@@ -164,7 +164,7 @@ export default function SalesPage() {
     setBusy(true); setError('');
     try {
       const dollars = parseFloat(amount);
-      if (!Number.isFinite(dollars) || dollars <= 0) { setError('Geçerli bir tutar girin ($, 0\'dan büyük).'); setBusy(false); return; }
+      if (!Number.isFinite(dollars) || dollars <= 0) { setError('Enter a valid amount greater than 0.'); setBusy(false); return; }
       const cents = Math.round(dollars * 100);
       await api.post('/admin/sales', {
         sellerReferralCode: code.trim(),
@@ -373,7 +373,7 @@ export default function SalesPage() {
                             <span style={{ color: 'var(--gold-500)', fontWeight: 650 }}>{money(s.commissionCents, s.currency)}</span>
                             <div className="faint" style={{ fontSize: 11 }}>{Number(s.amountCents) > 0 ? `%${((Number(s.commissionCents) / Number(s.amountCents)) * 100).toFixed(1)}` : '—'}</div>
                           </>
-                        : <span className="faint">{s.status === 'draft' ? 'taslak' : '—'}</span>}
+                        : <span className="faint">{s.status === 'draft' ? 'draft' : '—'}</span>}
                     </td>
                   )}
                   {cols.isVisible('customer') && <td className="muted" style={{ fontSize: 12.5 }}>{s.customerRef || '—'}</td>}
@@ -578,7 +578,7 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
               <div className="muted" style={{ fontSize: 13 }}>No commissions yet — approve to distribute.</div>
             ) : (
               <table>
-                <thead><tr><th>Katman</th><th>Beneficiary</th><th style={{ textAlign: 'right' }}>Rate</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
+                <thead><tr><th>Tier</th><th>Beneficiary</th><th style={{ textAlign: 'right' }}>Rate</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
                 <tbody>
                   {d.ledger.map((l) => (
                     <tr key={l.id}>
@@ -623,7 +623,7 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
             <>
               <div style={{ fontWeight: 700, margin: '8px 0' }}>Commission distribution</div>
               <table>
-                <thead><tr><th>Katman</th><th>Beneficiary</th><th style={{ textAlign: 'right' }}>Rate</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
+                <thead><tr><th>Tier</th><th>Beneficiary</th><th style={{ textAlign: 'right' }}>Rate</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
                 <tbody>
                   {d.ledger.map((l) => (
                     <tr key={l.id}>

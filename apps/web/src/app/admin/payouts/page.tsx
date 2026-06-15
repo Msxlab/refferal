@@ -90,12 +90,12 @@ export default function PayoutsPage() {
       const dollars = parseFloat(amt.replace(/[$\s,]/g, ''));
       return { amountCents: Math.round(dollars * 100), ref: rest.join(',').trim() || undefined };
     }).filter((r) => Number.isFinite(r.amountCents) && r.amountCents > 0);
-    if (rows.length === 0) { setError('Geçerli satır yok (biçim: tutar veya tutar,referans)'); return; }
+    if (rows.length === 0) { setError('No valid rows (format: amount or amount,reference)'); return; }
     setBusy(true);
     try {
       const res = await api.post<{ clearedCount: number; unmatched: { amountCents: number; ref?: string }[]; remainingUncleared: number }>('/admin/payouts/reconcile', { rows });
       setReconcileResult(res);
-      showToast(`${res.clearedCount} ödeme mutabık (cleared) ✓`);
+      showToast(`${res.clearedCount} payouts cleared ✓`);
       await refreshAll();
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
   }
@@ -195,7 +195,7 @@ export default function PayoutsPage() {
             <button className="btn ghost" onClick={runFraudScan} disabled={scanning}>{scanning ? 'Scanning…' : '⚠ Fraud scan'}</button>
             <button className="btn ghost" onClick={() => { const y = new Date().getFullYear(); downloadCsv(`/admin/tax/1099.csv?year=${y}`, `1099-nec-${y}.csv`).catch((e) => setError(String((e as ApiError).message))); }}>⇩ 1099-NEC</button>
             <button className="btn ghost" onClick={() => { downloadCsv('/admin/payouts/ach.txt', 'payouts-ach.txt').catch((e) => setError(String((e as ApiError).message))); }} title="Self-hosted bank file (NACHA) — upload to your bank">⇩ ACH file</button>
-            <button className="btn ghost" onClick={() => { setReconcileOpen(true); setReconcileText(''); setReconcileResult(null); }} title="Bankadan dönen ekstreyi ödenmiş payout'larla eşle">⇄ Mutabakat</button>
+            <button className="btn ghost" onClick={() => { setReconcileOpen(true); setReconcileText(''); setReconcileResult(null); }} title="Match the bank statement against paid payouts">⇄ Reconcile</button>
           </div>
         </div>
       </div>
@@ -339,7 +339,7 @@ export default function PayoutsPage() {
           <table>
             <thead><tr>
               <th className="no-print" style={{ width: 30 }}><input type="checkbox" checked={selected.size > 0 && selected.size === payable.members.length} onChange={toggleAll} aria-label="Select all" /></th>
-              <th>Member</th><th>Code</th><th style={{ textAlign: 'right' }}>Sattığı (ay)</th><th style={{ textAlign: 'right' }}>Net payable</th><th style={{ textAlign: 'right' }}>Etkin %</th>
+              <th>Member</th><th>Code</th><th style={{ textAlign: 'right' }}>Sold (mo)</th><th style={{ textAlign: 'right' }}>Net payable</th><th style={{ textAlign: 'right' }}>Eff. %</th>
             </tr></thead>
             <tbody>
               {payable.members.map((m) => (
@@ -378,7 +378,7 @@ export default function PayoutsPage() {
                   <td>{p.fullName}<div className="faint" style={{ fontSize: 12 }}>{p.referralCode}</div></td>
                   <td className="tnum">{money(p.totalCents, c)}</td>
                   <td className="faint">{p.method}</td>
-                  <td><span className={`badge ${p.status}`}>{p.status}</span>{p.clearedAt ? <span className="badge paid" style={{ marginLeft: 6, fontSize: 10 }} title={p.bankRef ? `Banka ref: ${p.bankRef}` : 'Banka mutabakatı tamam'}>✓ cleared</span> : null}</td>
+                  <td><span className={`badge ${p.status}`}>{p.status}</span>{p.clearedAt ? <span className="badge paid" style={{ marginLeft: 6, fontSize: 10 }} title={p.bankRef ? `Bank ref: ${p.bankRef}` : 'Bank reconciled'}>✓ cleared</span> : null}</td>
                   <td>{p.period}</td>
                   <td className="muted">{dateShort(p.paidAt)}</td>
                 </tr>
@@ -428,32 +428,32 @@ export default function PayoutsPage() {
       {detailId && <PayoutDrawer id={detailId} currency={c} onClose={() => setDetailId(null)} onChanged={refreshAll} onToast={showToast} />}
 
       {reconcileOpen && (
-        <Modal title="Banka mutabakatı" onClose={() => setReconcileOpen(false)}>
+        <Modal title="Bank reconciliation" onClose={() => setReconcileOpen(false)}>
           <div style={{ width: 'min(520px, 90vw)' }}>
             <p className="muted" style={{ marginTop: 0 }}>
-              Banka ACH dosyasını işleyip parayı gönderdikten sonra, dönen ekstreyi buraya yapıştırın.
-              Her satır <strong>tutar</strong> (ör. <code>1500.00</code>) veya <strong>tutar,referans</strong> (ör. <code>1500.00,ACH-001</code>)
-              olmalı. Sistem tutara göre ödenmiş payout&apos;larla eşler ve <em>cleared</em> işaretler.
+              After the bank processes the ACH file and sends the money, paste the returned statement here.
+              Each line is <strong>amount</strong> (e.g. <code>1500.00</code>) or <strong>amount,reference</strong> (e.g. <code>1500.00,ACH-001</code>).
+              We match by amount against paid payouts and mark them <em>cleared</em>.
             </p>
             <div className="field">
-              <label>Ekstre satırları</label>
+              <label>Statement lines</label>
               <textarea value={reconcileText} onChange={(e) => setReconcileText(e.target.value)} rows={6} placeholder={'1500.00,ACH-20260613-001\n2250.50\n980.00,WIRE-77'} style={{ fontFamily: 'var(--mono, monospace)', width: '100%' }} />
             </div>
             {reconcileResult && (
               <div className="card" style={{ background: 'var(--panel-2)', marginBottom: 12 }}>
-                <div className="row spread"><span>✓ Mutabık (cleared)</span><strong>{reconcileResult.clearedCount}</strong></div>
-                <div className="row spread"><span>Eşleşmeyen satır</span><strong>{reconcileResult.unmatched.length}</strong></div>
-                <div className="row spread"><span className="muted">Hâlâ mutabık olmayan ödeme</span><span className="muted">{reconcileResult.remainingUncleared}</span></div>
+                <div className="row spread"><span>✓ Cleared</span><strong>{reconcileResult.clearedCount}</strong></div>
+                <div className="row spread"><span>Unmatched lines</span><strong>{reconcileResult.unmatched.length}</strong></div>
+                <div className="row spread"><span className="muted">Still uncleared payouts</span><span className="muted">{reconcileResult.remainingUncleared}</span></div>
                 {reconcileResult.unmatched.length > 0 && (
                   <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
-                    Eşleşmeyenler: {reconcileResult.unmatched.map((u) => money(String(u.amountCents), c)).join(', ')}
+                    Unmatched: {reconcileResult.unmatched.map((u) => money(String(u.amountCents), c)).join(', ')}
                   </div>
                 )}
               </div>
             )}
             <div className="row" style={{ justifyContent: 'flex-end', gap: 10 }}>
-              <button className="btn ghost" onClick={() => setReconcileOpen(false)} disabled={busy}>Kapat</button>
-              <button className="btn" onClick={runReconcile} disabled={busy || !reconcileText.trim()}>{busy ? 'Eşleniyor…' : '⇄ Eşle'}</button>
+              <button className="btn ghost" onClick={() => setReconcileOpen(false)} disabled={busy}>Close</button>
+              <button className="btn" onClick={runReconcile} disabled={busy || !reconcileText.trim()}>{busy ? 'Matching…' : '⇄ Match'}</button>
             </div>
           </div>
         </Modal>

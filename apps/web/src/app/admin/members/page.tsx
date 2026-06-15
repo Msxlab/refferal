@@ -24,6 +24,9 @@ interface MemberItem {
 }
 interface MembersList { total: number; page: number; pageSize: number; items: MemberItem[] }
 const ROLES = ['member', 'tenant_staff', 'tenant_admin'];
+// human labels for the raw role enums (API value stays the same)
+const ROLE_LABELS: Record<string, string> = { member: 'Rep', tenant_staff: 'Staff', tenant_admin: 'Admin', tenant_owner: 'Owner' };
+const roleLabel = (r: string): string => ROLE_LABELS[r] ?? r;
 const STATUS_TABS = [['', 'All'], ['active', 'Active'], ['inactive', 'Inactive']] as const;
 const MEMBER_COLUMNS: TableColumn[] = [
   { key: 'member', label: 'Member', locked: true },
@@ -108,7 +111,7 @@ export default function MembersPage() {
     e.preventDefault(); if (!editM) return; setError(''); setBusy(true);
     try {
       await api.patch(`/admin/members/${editM.id}`, { fullName: editName.trim(), email: editEmail.trim() });
-      showToast('Profil güncellendi ✓');
+      showToast('Profile updated ✓');
       setEditM(null);
       await load();
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
@@ -124,7 +127,7 @@ export default function MembersPage() {
         role: addRole,
       });
       setAddResult(res);
-      showToast('Üye eklendi ✓');
+      showToast('Member added ✓');
       await load();
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
   }
@@ -201,7 +204,7 @@ export default function MembersPage() {
         </div>
         <div className="row fade-in no-print" style={{ gap: 8 }}>
           <button className="btn ghost" onClick={exportCsv}>⇩ Export CSV</button>
-          <button className="btn ghost" onClick={() => { setError(''); setAddName(''); setAddEmail(''); setAddSponsor(''); setAddRole('member'); setAddAsLeader(false); setAddResult(null); setShowAdd(true); }}>＋ Üye ekle</button>
+          <button className="btn ghost" onClick={() => { setError(''); setAddName(''); setAddEmail(''); setAddSponsor(''); setAddRole('member'); setAddAsLeader(false); setAddResult(null); setShowAdd(true); }}>＋ Add member</button>
           <button className="btn" onClick={() => { setLatest(null); setShowInvite(true); }}>✦ {t('members.invite')}</button>
         </div>
       </div>
@@ -254,9 +257,9 @@ export default function MembersPage() {
                   {cols.isVisible('level') && <td>{m.depth}</td>}
                   {cols.isVisible('role') && (
                     <td onClick={(e) => e.stopPropagation()}>
-                      {m.role === 'tenant_owner' ? <span className="faint">owner</span> : (
+                      {m.role === 'tenant_owner' ? <span className="faint">Owner</span> : (
                         <select value={m.role} onChange={(e) => changeRole(m, e.target.value)} style={{ width: 134 }}>
-                          {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                          {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
                         </select>
                       )}
                     </td>
@@ -265,7 +268,7 @@ export default function MembersPage() {
                   {cols.isVisible('joined') && <td className="muted">{dateShort(m.joinedAt)}</td>}
                   <td className="no-print" style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                     <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
-                      <button className="btn ghost sm" title="Profili düzenle" onClick={() => { setError(''); setEditM(m); setEditName(m.fullName); setEditEmail(m.email); }}>✎</button>
+                      <button className="btn ghost sm" title="Edit profile" onClick={() => { setError(''); setEditM(m); setEditName(m.fullName); setEditEmail(m.email); }}>✎</button>
                       {m.role !== 'tenant_owner' && (
                         <button className="btn ghost sm" onClick={() => setConfirmM(m)}>
                           {m.status === 'active' ? t('members.deactivate') : t('members.activate')}
@@ -290,7 +293,7 @@ export default function MembersPage() {
             <button className="btn sm danger" disabled={selDeactivatable === 0} onClick={() => openBulk('deactivate')}>Deactivate {selDeactivatable || ''}</button>
             <span className="row" style={{ gap: 4 }}>
               <select value={bulkRole} onChange={(e) => setBulkRole(e.target.value)} style={{ width: 'auto' }} aria-label="Bulk role">
-                {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
               </select>
               <button className="btn sm ghost" onClick={() => openBulk('set_role')}>Set role</button>
             </span>
@@ -325,45 +328,45 @@ export default function MembersPage() {
       )}
 
       {showAdd && (
-        <Modal title="Üye ekle" onClose={() => setShowAdd(false)}>
+        <Modal title="Add member" onClose={() => setShowAdd(false)}>
           <div style={{ width: 'min(460px, 90vw)' }}>
             {addResult ? (
               <div>
                 <div className="card" style={{ background: 'color-mix(in srgb, var(--emerald) 10%, transparent)', borderColor: 'color-mix(in srgb, var(--emerald) 30%, transparent)', padding: 14 }}>
-                  <div style={{ fontWeight: 700, marginBottom: 6 }}>✓ Üye eklendi</div>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>✓ Member added</div>
                   <div className="row spread" style={{ fontSize: 13 }}><span className="muted">Referans kodu</span><strong className="tnum">{addResult.referralCode}</strong></div>
                   {addResult.tempPassword ? (
                     <div style={{ marginTop: 8 }}>
-                      <div className="faint" style={{ fontSize: 11, marginBottom: 4 }}>Geçici şifre (kişiyle paylaşın — bir daha gösterilmez):</div>
+                      <div className="faint" style={{ fontSize: 11, marginBottom: 4 }}>Temporary password (share it with them — shown only once):</div>
                       <div className="row spread" style={{ gap: 8 }}>
                         <span style={{ color: 'var(--gold-500)', fontFamily: 'var(--mono, monospace)', fontWeight: 700 }}>{addResult.tempPassword}</span>
-                        <button className="btn ghost sm" onClick={() => { navigator.clipboard.writeText(addResult.tempPassword!).then(() => showToast('Kopyalandı ✓')).catch(() => {}); }}>Kopyala</button>
+                        <button className="btn ghost sm" onClick={() => { navigator.clipboard.writeText(addResult.tempPassword!).then(() => showToast('Copied ✓')).catch(() => {}); }}>Copy</button>
                       </div>
                     </div>
-                  ) : <div className="faint" style={{ fontSize: 12, marginTop: 8 }}>Bu e-posta zaten kayıtlı — kişi mevcut şifresiyle girer (yeni üyelik eklendi).</div>}
+                  ) : <div className="faint" style={{ fontSize: 12, marginTop: 8 }}>This email already exists — the person signs in with their existing password (a new membership was added).</div>}
                 </div>
                 <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
-                  <button type="button" className="btn ghost" onClick={() => { setAddResult(null); setAddName(''); setAddEmail(''); setAddSponsor(''); }}>Bir tane daha</button>
-                  <button type="button" className="btn" onClick={() => setShowAdd(false)}>Bitti</button>
+                  <button type="button" className="btn ghost" onClick={() => { setAddResult(null); setAddName(''); setAddEmail(''); setAddSponsor(''); }}>Add another</button>
+                  <button type="button" className="btn" onClick={() => setShowAdd(false)}>Done</button>
                 </div>
               </div>
             ) : (
               <form onSubmit={createMember}>
-                <div className="field"><label>Ad soyad</label><input value={addName} onChange={(e) => setAddName(e.target.value)} required minLength={2} autoFocus placeholder="Ör. Jane Smith" /></div>
-                <div className="field"><label>E-posta</label><input type="email" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} required placeholder="name@company.com" /></div>
+                <div className="field"><label>Full name</label><input value={addName} onChange={(e) => setAddName(e.target.value)} required minLength={2} autoFocus placeholder="e.g. Jane Smith" /></div>
+                <div className="field"><label>Email</label><input type="email" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} required placeholder="name@company.com" /></div>
                 <div className="row" style={{ gap: 12 }}>
-                  <div className="field" style={{ flex: 2, margin: 0 }}><label>Sponsor kodu {addAsLeader ? '(lider — sponsor yok)' : '(boş = owner)'}</label><input value={addSponsor} onChange={(e) => setAddSponsor(e.target.value)} placeholder="Ör. ALICE1" disabled={addAsLeader} /></div>
-                  <div className="field" style={{ flex: 1, margin: 0 }}><label>Rol</label><select value={addRole} onChange={(e) => setAddRole(e.target.value)}>{ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select></div>
+                  <div className="field" style={{ flex: 2, margin: 0 }}><label>Sponsor code {addAsLeader ? '(leader — no sponsor)' : '(blank = owner)'}</label><input value={addSponsor} onChange={(e) => setAddSponsor(e.target.value)} placeholder="e.g. ALICE1" disabled={addAsLeader} /></div>
+                  <div className="field" style={{ flex: 1, margin: 0 }}><label>Role</label><select value={addRole} onChange={(e) => setAddRole(e.target.value)}>{ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}</select></div>
                 </div>
                 <label className="row" style={{ gap: 8, cursor: 'pointer', fontSize: 13, margin: '4px 0 8px' }}>
                   <input type="checkbox" checked={addAsLeader} onChange={(e) => setAddAsLeader(e.target.checked)} style={{ width: 'auto' }} />
-                  🎖 Yeni takım lideri olarak ekle (ağacın tepesinde, sponsorsuz kök)
+                  🎖 Add as a new team leader (top of the tree, no sponsor)
                 </label>
-                <div className="faint" style={{ fontSize: 12 }}>Geçici şifre otomatik üretilir; kişi onunla girip değiştirir. (Yerleşim kalıcıdır.)</div>
+                <div className="faint" style={{ fontSize: 12 }}>A temporary password is generated; the person signs in with it and changes it. (Placement is permanent.)</div>
                 {error && <div className="error">{error}</div>}
                 <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
-                  <button type="button" className="btn ghost" onClick={() => setShowAdd(false)} disabled={busy}>Vazgeç</button>
-                  <button className="btn" disabled={busy}>{busy ? 'Ekleniyor…' : '＋ Üye ekle'}</button>
+                  <button type="button" className="btn ghost" onClick={() => setShowAdd(false)} disabled={busy}>Cancel</button>
+                  <button className="btn" disabled={busy}>{busy ? 'Adding…' : '＋ Add member'}</button>
                 </div>
               </form>
             )}
@@ -372,15 +375,15 @@ export default function MembersPage() {
       )}
 
       {editM && (
-        <Modal title={`Profili düzenle — ${editM.fullName}`} onClose={() => setEditM(null)}>
+        <Modal title={`Edit profile — ${editM.fullName}`} onClose={() => setEditM(null)}>
           <form onSubmit={saveProfile} style={{ width: 'min(420px, 90vw)' }}>
-            <div className="field"><label>Ad soyad</label><input value={editName} onChange={(e) => setEditName(e.target.value)} required minLength={2} autoFocus /></div>
-            <div className="field"><label>E-posta</label><input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} required /></div>
-            <div className="faint" style={{ fontSize: 12 }}>E-posta değişirse kişinin yeniden doğrulaması gerekir. Yerleşim (sponsor) değişmez.</div>
+            <div className="field"><label>Full name</label><input value={editName} onChange={(e) => setEditName(e.target.value)} required minLength={2} autoFocus /></div>
+            <div className="field"><label>Email</label><input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} required /></div>
+            <div className="faint" style={{ fontSize: 12 }}>Changing the email requires the person to re-verify. Placement (sponsor) does not change.</div>
             {error && <div className="error">{error}</div>}
             <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
-              <button type="button" className="btn ghost" onClick={() => setEditM(null)} disabled={busy}>Vazgeç</button>
-              <button className="btn" disabled={busy}>{busy ? 'Kaydediliyor…' : 'Kaydet'}</button>
+              <button type="button" className="btn ghost" onClick={() => setEditM(null)} disabled={busy}>Cancel</button>
+              <button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
             </div>
           </form>
         </Modal>

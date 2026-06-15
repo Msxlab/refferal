@@ -42,7 +42,7 @@ export default function NetworkPage() {
   const toggleLeader = useCallback(async (n: ApiNode) => {
     try {
       await api.post(`/admin/members/${n.id}/leader`, { isTeamLeader: !n.isTeamLeader });
-      showToast(n.isTeamLeader ? 'Liderlikten çıkarıldı' : 'Lider yapıldı 🎖');
+      showToast(n.isTeamLeader ? 'Removed as leader' : 'Marked as leader 🎖');
       loadLeaders();
       if (root) openTree(root.id === ALL ? null : root.id, root.name);
     } catch (e) { setError(String((e as ApiError).message)); }
@@ -55,8 +55,8 @@ export default function NetworkPage() {
     return (
       <div>
         <div className="row" style={{ gap: 10, marginBottom: 12, alignItems: 'center' }}>
-          <button className="btn ghost sm" onClick={() => { setRoot(null); setNodes(null); }}>← Liderler</button>
-          <div className="eyebrow" style={{ margin: 0 }}>{root.id === ALL ? 'Tüm ağ' : 'Ekip ağacı'}</div>
+          <button className="btn ghost sm" onClick={() => { setRoot(null); setNodes(null); }}>← Leaders</button>
+          <div className="eyebrow" style={{ margin: 0 }}>{root.id === ALL ? 'Whole network' : 'Team tree'}</div>
           <h1 className="h1" style={{ margin: 0, fontSize: 22 }}>{root.name}</h1>
         </div>
         {!nodes ? <Loading rows={5} /> : <NetworkExplorer nodes={nodes} tiers={tiers} title={root.name} onToggleLeader={toggleLeader} />}
@@ -69,17 +69,17 @@ export default function NetworkPage() {
   return (
     <div>
       <div className="eyebrow fade-in">{t('nav.tree')}</div>
-      <h1 className="h1 fade-in">Takım liderleri</h1>
+      <h1 className="h1 fade-in">Team leaders</h1>
       <p className="sub fade-in" style={{ marginBottom: 16 }}>
-        Her lideri ayrı bir ağaç olarak aç — ekibini, satışlarını ve <strong>bu ayki komisyonlarını</strong> canlı gör. Bir üyeyi ağaçta açıp <em>“Lider yap”</em> ile lider işaretleyebilirsin.
+        Open each leader as its own tree — see their team, sales and <strong>this month&apos;s commission</strong> live. Open any member in the tree and use <em>“Make leader”</em> to mark them a leader.
       </p>
 
       {!leaders ? <Loading rows={4} /> : (
         <div className="net-kpis" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
           {/* tüm ağ */}
-          <button className="card hover" style={{ textAlign: 'left', cursor: 'pointer', border: '1px dashed var(--border-strong)' }} onClick={() => openTree(null, 'Tüm ağ')}>
-            <div style={{ fontWeight: 750, fontSize: 15 }}>◈ Tüm ağ</div>
-            <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>Şirketin tamamını tek ağaçta gör</div>
+          <button className="card hover" style={{ textAlign: 'left', cursor: 'pointer', border: '1px dashed var(--border-strong)' }} onClick={() => openTree(null, 'Whole network')}>
+            <div style={{ fontWeight: 750, fontSize: 15 }}>◈ Whole network</div>
+            <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>See the entire company as one tree</div>
           </button>
 
           {leaders.map((l) => (
@@ -89,12 +89,12 @@ export default function NetworkPage() {
                   <div style={{ fontWeight: 750, fontSize: 15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.fullName}</div>
                   <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{l.referralCode}</div>
                 </div>
-                {l.isOwnerRoot ? <span className="badge active" style={{ fontSize: 9 }}>owner</span> : <span className="badge payable" style={{ fontSize: 9 }}>🎖 lider</span>}
+                {l.isOwnerRoot ? <span className="badge active" style={{ fontSize: 9 }}>owner</span> : <span className="badge payable" style={{ fontSize: 9 }}>🎖 leader</span>}
               </div>
               <div className="row" style={{ gap: 14, marginTop: 10 }}>
-                <div><div className="faint" style={{ fontSize: 10 }}>Ekip</div><div style={{ fontWeight: 700 }}>⬡ {l.teamSize}</div></div>
-                <div><div className="faint" style={{ fontSize: 10 }}>Ciro (ay)</div><div className="tnum" style={{ fontWeight: 700 }}>◇ {money(l.monthlyGroupVolumeCents)}</div></div>
-                <div><div className="faint" style={{ fontSize: 10 }}>Komisyon (ay)</div><div className="tnum" style={{ fontWeight: 700, color: 'var(--gold-500)' }}>◆ {money(l.monthlyGroupCommissionCents)}</div></div>
+                <div><div className="faint" style={{ fontSize: 10 }}>Team</div><div style={{ fontWeight: 700 }}>⬡ {l.teamSize}</div></div>
+                <div><div className="faint" style={{ fontSize: 10 }}>Revenue (mo)</div><div className="tnum" style={{ fontWeight: 700 }}>◇ {money(l.monthlyGroupVolumeCents)}</div></div>
+                <div><div className="faint" style={{ fontSize: 10 }}>Commission (mo)</div><div className="tnum" style={{ fontWeight: 700, color: 'var(--gold-500)' }}>◆ {money(l.monthlyGroupCommissionCents)}</div></div>
               </div>
             </button>
           ))}

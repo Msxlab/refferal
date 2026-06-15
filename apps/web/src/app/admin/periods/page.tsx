@@ -49,10 +49,10 @@ export default function PeriodsPage() {
     setBusy(true);
     try {
       const res = await api.post<{ warning?: string }>(`/admin/periods/${lockTarget}/lock`, { note: note || undefined });
-      showToast(res.warning ? `Kilitlendi — uyarı: ${res.warning}` : `${lockTarget} kilitlendi`);
+      showToast(res.warning ? `Locked — warning: ${res.warning}` : `${lockTarget} locked`);
       setLockTarget(null); setNote('');
       await load();
-    } catch (e) { showToast(`Kilitleme hatası: ${(e as ApiError).message}`); } finally { setBusy(false); }
+    } catch (e) { showToast(`Lock failed: ${(e as ApiError).message}`); } finally { setBusy(false); }
   }
 
   async function doUnlock() {
@@ -60,49 +60,49 @@ export default function PeriodsPage() {
     setBusy(true);
     try {
       await api.post(`/admin/periods/${unlockTarget}/unlock`, {});
-      showToast(`${unlockTarget} kilidi açıldı`);
+      showToast(`${unlockTarget} unlocked`);
       setUnlockTarget(null);
       await load();
-    } catch (e) { showToast(`Kilit açma hatası: ${(e as ApiError).message}`); } finally { setBusy(false); }
+    } catch (e) { showToast(`Unlock failed: ${(e as ApiError).message}`); } finally { setBusy(false); }
   }
 
-  // Yalniz ilk yukleme hatasinda tam-sayfa hata (kurtarma butonuyla); aksi halde inline banner.
-  if (error && !rows) return <div className="error" style={{ margin: 24 }}>{error} <button className="btn ghost sm" onClick={() => void load()} style={{ marginLeft: 8 }}>Tekrar dene</button></div>;
+  // Full-page error only on the initial load failure (with a retry); otherwise an inline banner.
+  if (error && !rows) return <div className="error" style={{ margin: 24 }}>{error} <button className="btn ghost sm" onClick={() => void load()} style={{ marginLeft: 8 }}>Retry</button></div>;
   if (!rows) return <Loading />;
 
   return (
     <div>
       <div className="spread">
         <div>
-          <div className="eyebrow fade-in">Muhasebe</div>
-          <h1 className="h1 fade-in">Dönem kapanışı</h1>
-          <p className="sub fade-in">Bir ayı kilitleyince o döneme yeni komisyon yazılamaz, ters kayıt atılamaz ve ödeme yapılamaz — defter kapanır. Kilidi açmak audit&apos;e işlenir.</p>
+          <div className="eyebrow fade-in">Accounting</div>
+          <h1 className="h1 fade-in">Period close</h1>
+          <p className="sub fade-in">Locking a month closes the books — no new commission, reversals or payouts can touch that period. Unlocking is recorded in the audit log.</p>
         </div>
-        <button className="btn ghost no-print" onClick={() => window.print()}>🖶 Yazdır</button>
+        <button className="btn ghost no-print" onClick={() => window.print()}>🖶 Print</button>
       </div>
 
       {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
 
       <div className="stat-grid" style={{ marginTop: 16 }}>
-        <StatCard label="Kilitli dönem" value={String(stats.lockedCount)} icon="▥" />
-        <StatCard label="Açık dönemlerde ödenebilir" value={money(stats.openPayable.toString())} icon="◆" />
-        <StatCard label="Açık dönemlerde bekleyen" value={money(stats.openPending.toString())} icon="◷" />
+        <StatCard label="Locked periods" value={String(stats.lockedCount)} icon="▥" />
+        <StatCard label="Payable in open periods" value={money(stats.openPayable.toString())} icon="◆" />
+        <StatCard label="Pending in open periods" value={money(stats.openPending.toString())} icon="◷" />
       </div>
 
       {rows.length === 0 ? (
-        <div className="card" style={{ marginTop: 16 }}><span className="muted">Henüz dönem verisi yok — onaylanmış satış geldikçe burada listelenir.</span></div>
+        <div className="card" style={{ marginTop: 16 }}><span className="muted">No period data yet — periods appear here as approved sales come in.</span></div>
       ) : (
         <div className="card" style={{ marginTop: 16, overflowX: 'auto' }}>
           <table>
             <thead>
               <tr>
-                <th>Dönem</th>
-                <th style={{ textAlign: 'right' }}>Ciro</th>
-                <th style={{ textAlign: 'right' }}>Bekleyen</th>
-                <th style={{ textAlign: 'right' }}>Ödenebilir</th>
-                <th style={{ textAlign: 'right' }}>Ödenen</th>
-                <th>Durum</th>
-                <th className="no-print">İşlem</th>
+                <th>Period</th>
+                <th style={{ textAlign: 'right' }}>Revenue</th>
+                <th style={{ textAlign: 'right' }}>Pending</th>
+                <th style={{ textAlign: 'right' }}>Payable</th>
+                <th style={{ textAlign: 'right' }}>Paid</th>
+                <th>Status</th>
+                <th className="no-print">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -115,13 +115,13 @@ export default function PeriodsPage() {
                   <td style={{ textAlign: 'right' }}>{money(r.paidCents)}</td>
                   <td>
                     {r.locked
-                      ? <span className="badge paid" title={r.lockedBy ? `Kilitleyen: ${r.lockedBy}` : undefined}>🔒 Kilitli</span>
-                      : <span className="badge draft">Açık</span>}
+                      ? <span className="badge paid" title={r.lockedBy ? `Locked by: ${r.lockedBy}` : undefined}>🔒 Locked</span>
+                      : <span className="badge draft">Open</span>}
                   </td>
                   <td className="no-print">
                     {r.locked
-                      ? <button className="btn ghost sm" onClick={() => setUnlockTarget(r.period)}>Kilidi aç</button>
-                      : <button className="btn sm" onClick={() => { setLockTarget(r.period); setNote(''); }}>Kilitle</button>}
+                      ? <button className="btn ghost sm" onClick={() => setUnlockTarget(r.period)}>Unlock</button>
+                      : <button className="btn sm" onClick={() => { setLockTarget(r.period); setNote(''); }}>Lock</button>}
                   </td>
                 </tr>
               ))}
@@ -131,24 +131,24 @@ export default function PeriodsPage() {
       )}
 
       {lockTarget && (
-        <Modal title={`${lockTarget} dönemini kilitle`} onClose={() => setLockTarget(null)}>
-          <p className="muted" style={{ marginTop: 0 }}>Bu ay kapatılacak. Kapandıktan sonra bu döneme komisyon/ters kayıt/ödeme yazılamaz.</p>
+        <Modal title={`Lock period ${lockTarget}`} onClose={() => setLockTarget(null)}>
+          <p className="muted" style={{ marginTop: 0 }}>This month will be closed. After closing, no commission / reversal / payout can be written to this period.</p>
           <label className="field">
-            <span>Not (opsiyonel)</span>
-            <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={500} placeholder="örn. Haziran kapanışı — banka mutabakatı tamam" />
+            <span>Note (optional)</span>
+            <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={500} placeholder="e.g. June close — bank reconciliation done" />
           </label>
           <div className="row spread" style={{ marginTop: 12 }}>
-            <button className="btn ghost" onClick={() => setLockTarget(null)} disabled={busy}>Vazgeç</button>
-            <button className="btn" onClick={doLock} disabled={busy}>{busy ? 'Kilitleniyor…' : '🔒 Kilitle'}</button>
+            <button className="btn ghost" onClick={() => setLockTarget(null)} disabled={busy}>Cancel</button>
+            <button className="btn" onClick={doLock} disabled={busy}>{busy ? 'Locking…' : '🔒 Lock'}</button>
           </div>
         </Modal>
       )}
 
       {unlockTarget && (
         <Confirm
-          title={`${unlockTarget} kilidini aç`}
-          message="Kapanmış bir defteri yeniden açıyorsunuz. Bu işlem audit kaydına işlenir ve döneme tekrar yazım açılır."
-          confirmLabel="Kilidi aç"
+          title={`Unlock period ${unlockTarget}`}
+          message="You are reopening a closed book. This is recorded in the audit log and re-opens the period for writes."
+          confirmLabel="Unlock"
           danger
           busy={busy}
           onConfirm={doUnlock}

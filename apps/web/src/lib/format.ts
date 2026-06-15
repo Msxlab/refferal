@@ -16,18 +16,18 @@ export function levelLabel(level: number, short = false): string {
   switch (level) {
     case 1000: return short ? 'Fast' : 'Fast-start';
     case 1001: return short ? 'Match' : 'Matching';
-    case 1002: return short ? 'Rütbe' : 'Rütbe override';
-    case 0: return short ? 'L0' : 'Direkt (L0)';
-    default: return short ? `L${level}` : `Seviye ${level}`;
+    case 1002: return short ? 'Rank' : 'Rank override';
+    case 0: return short ? 'L0' : 'Direct (L0)';
+    default: return short ? `L${level}` : `Level ${level}`;
   }
 }
 
-/** Ledger satir tipi → okunur etiket. */
+/** Ledger entry type → human label. */
 export function ledgerTypeLabel(type: string): string {
   switch (type) {
-    case 'commission': return 'Komisyon';
-    case 'reversal': return 'Ters kayıt';
-    case 'adjustment': return 'Düzeltme';
+    case 'commission': return 'Commission';
+    case 'reversal': return 'Reversal';
+    case 'adjustment': return 'Adjustment';
     default: return type;
   }
 }
