@@ -72,4 +72,21 @@ describe('manual member create (entegrasyon)', () => {
     const log = await prisma.auditLog.findFirst({ where: { tenantId: tenant.id, action: 'membership.create_manual' } });
     expect(log).toBeTruthy();
   });
+
+  it('updateProfile: ad/e-posta degisir, e-posta degisince emailVerifiedAt sifirlanir', async () => {
+    const { owner, actor } = await ownerCtx();
+    const created = await members.createManual(actor, owner.id, { fullName: 'Eski Ad', email: 'eski@oppein.test' });
+    await members.updateProfile(actor, created.id, { fullName: 'Yeni Ad', email: 'yeni@oppein.test' });
+    const m = await prisma.membership.findUniqueOrThrow({ where: { id: created.id }, include: { user: true } });
+    expect(m.user.fullName).toBe('Yeni Ad');
+    expect(m.user.email).toBe('yeni@oppein.test');
+    expect(m.user.emailVerifiedAt).toBeNull(); // yeniden dogrulama gerekir
+  });
+
+  it('updateProfile: baska hesabin e-postasi alinamaz', async () => {
+    const { owner, actor } = await ownerCtx();
+    await members.createManual(actor, owner.id, { fullName: 'Bir', email: 'bir@oppein.test' });
+    const ikinci = await members.createManual(actor, owner.id, { fullName: 'Iki', email: 'iki@oppein.test' });
+    await expect(members.updateProfile(actor, ikinci.id, { email: 'bir@oppein.test' })).rejects.toThrow(ConflictException);
+  });
 });

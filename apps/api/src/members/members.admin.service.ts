@@ -375,6 +375,31 @@ export class MembersAdminService {
     };
   }
 
+  /** Uye profilini duzenle (Dalga 2.2): ad/e-posta. E-posta benzersizligi korunur. Yerlesime dokunmaz. */
+  async updateProfile(actor: ActorContext, membershipId: string, input: { fullName?: string; email?: string }) {
+    const m = await this.prisma.membership.findFirst({
+      where: { id: membershipId, tenantId: actor.tenantId },
+      select: { id: true, userId: true, user: { select: { email: true, fullName: true } } },
+    });
+    if (!m) throw new NotFoundException('uyelik bu isletmede bulunamadi');
+
+    const email = input.email?.trim().toLowerCase();
+    if (email && email !== m.user.email) {
+      const taken = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
+      if (taken && taken.id !== m.userId) throw new ConflictException('bu e-posta baska bir hesapta kullaniliyor');
+    }
+    await this.prisma.user.update({
+      where: { id: m.userId },
+      data: {
+        ...(input.fullName !== undefined ? { fullName: input.fullName.trim() } : {}),
+        // e-posta degisirse yeniden dogrulama gerekir
+        ...(email && email !== m.user.email ? { email, emailVerifiedAt: null } : {}),
+      },
+    });
+    await this.audit(actor, 'membership.update_profile', m.id, { fullName: input.fullName, emailChanged: !!email && email !== m.user.email });
+    return { id: m.id };
+  }
+
   /** Bir uyeyi takim lideri isaretle/kaldir (Dalga 3). Yerlesimi DEGISTIRMEZ — sadece bayrak. */
   async setLeader(actor: ActorContext, membershipId: string, isTeamLeader: boolean) {
     const m = await this.requireInTenant(actor.tenantId, membershipId);

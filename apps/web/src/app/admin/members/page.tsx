@@ -59,6 +59,10 @@ export default function MembersPage() {
   const [addSponsor, setAddSponsor] = useState('');
   const [addRole, setAddRole] = useState('member');
   const [addAsLeader, setAddAsLeader] = useState(false);
+  // profil duzenle
+  const [editM, setEditM] = useState<MemberItem | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
   const [addResult, setAddResult] = useState<{ referralCode: string; tempPassword?: string; newUser: boolean } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -98,6 +102,16 @@ export default function MembersPage() {
       setLatest(res.code);
       showToast('Invitation created ✓');
     } catch (e) { setError(String((e as ApiError).message)); }
+  }
+
+  async function saveProfile(e: FormEvent) {
+    e.preventDefault(); if (!editM) return; setError(''); setBusy(true);
+    try {
+      await api.patch(`/admin/members/${editM.id}`, { fullName: editName.trim(), email: editEmail.trim() });
+      showToast('Profil güncellendi ✓');
+      setEditM(null);
+      await load();
+    } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
   }
 
   async function createMember(e: FormEvent) {
@@ -250,11 +264,14 @@ export default function MembersPage() {
                   {cols.isVisible('status') && <td><span className={`badge ${m.status}`}>{m.status}</span></td>}
                   {cols.isVisible('joined') && <td className="muted">{dateShort(m.joinedAt)}</td>}
                   <td className="no-print" style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
-                    {m.role !== 'tenant_owner' && (
-                      <button className="btn ghost sm" onClick={() => setConfirmM(m)}>
-                        {m.status === 'active' ? t('members.deactivate') : t('members.activate')}
-                      </button>
-                    )}
+                    <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
+                      <button className="btn ghost sm" title="Profili düzenle" onClick={() => { setError(''); setEditM(m); setEditName(m.fullName); setEditEmail(m.email); }}>✎</button>
+                      {m.role !== 'tenant_owner' && (
+                        <button className="btn ghost sm" onClick={() => setConfirmM(m)}>
+                          {m.status === 'active' ? t('members.deactivate') : t('members.activate')}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -351,6 +368,21 @@ export default function MembersPage() {
               </form>
             )}
           </div>
+        </Modal>
+      )}
+
+      {editM && (
+        <Modal title={`Profili düzenle — ${editM.fullName}`} onClose={() => setEditM(null)}>
+          <form onSubmit={saveProfile} style={{ width: 'min(420px, 90vw)' }}>
+            <div className="field"><label>Ad soyad</label><input value={editName} onChange={(e) => setEditName(e.target.value)} required minLength={2} autoFocus /></div>
+            <div className="field"><label>E-posta</label><input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} required /></div>
+            <div className="faint" style={{ fontSize: 12 }}>E-posta değişirse kişinin yeniden doğrulaması gerekir. Yerleşim (sponsor) değişmez.</div>
+            {error && <div className="error">{error}</div>}
+            <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+              <button type="button" className="btn ghost" onClick={() => setEditM(null)} disabled={busy}>Vazgeç</button>
+              <button className="btn" disabled={busy}>{busy ? 'Kaydediliyor…' : 'Kaydet'}</button>
+            </div>
+          </form>
         </Modal>
       )}
 

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, HttpCode, Param, ParseUUIDPipe, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, Res } from '@nestjs/common';
 import { MembershipStatus, Role } from '@prisma/client';
 import { Response } from 'express';
 import { z } from 'zod';
@@ -50,6 +50,10 @@ const createManualSchema = z.object({
 });
 const treeSchema = z.object({ root: z.string().uuid().optional() });
 const leaderSchema = z.object({ isTeamLeader: z.boolean() });
+const updateProfileSchema = z.object({
+  fullName: z.string().trim().min(2).max(120).optional(),
+  email: z.string().trim().toLowerCase().email().max(254).optional(),
+}).refine((v) => v.fullName !== undefined || v.email !== undefined, { message: 'en az bir alan gerekli' });
 
 @RequireMembership()
 @Controller('admin/members')
@@ -132,6 +136,17 @@ export class MembersAdminController {
   @Get(':id/export')
   exportData(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.members.exportData(user.tid as string, id);
+  }
+
+  // profil duzenle (ad/e-posta) — yerlesime dokunmaz
+  @Roles(...ADMIN)
+  @Patch(':id')
+  updateProfile(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(updateProfileSchema)) body: z.infer<typeof updateProfileSchema>,
+  ) {
+    return this.members.updateProfile(this.actor(user), id, body);
   }
 
   // takim lideri isaretle/kaldir (yerlesimi degistirmez)
