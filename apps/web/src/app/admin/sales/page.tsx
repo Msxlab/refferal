@@ -83,6 +83,8 @@ export default function SalesPage() {
   const [error, setError] = useState('');
   const [toast, showToast] = useToast();
   const [code, setCode] = useState('');
+  const [sellerOpts, setSellerOpts] = useState<{ fullName: string; referralCode: string }[]>([]);
+  const [sellerPicked, setSellerPicked] = useState(false);
   const [amount, setAmount] = useState('');
   const [newDate, setNewDate] = useState('');
   const [newCustomer, setNewCustomer] = useState('');
@@ -139,6 +141,16 @@ export default function SalesPage() {
     const id = setTimeout(() => void load(), 250);
     return () => clearTimeout(id);
   }, [load]);
+
+  // satici otomatik-tamamlama (Record a sale): isim/kod ile canli arama
+  useEffect(() => {
+    if (!showNew || sellerPicked || code.trim().length < 1) { setSellerOpts([]); return; }
+    const id = setTimeout(() => {
+      api.get<{ items: { fullName: string; referralCode: string }[] }>(`/admin/members?search=${encodeURIComponent(code.trim())}&pageSize=6`)
+        .then((r) => setSellerOpts(r.items)).catch(() => setSellerOpts([]));
+    }, 200);
+    return () => clearTimeout(id);
+  }, [code, showNew, sellerPicked]);
 
   // canli: baska bir uye/admin satis girdiginde/onayladiginda liste kendiliginden tazelenir
   useLiveRefresh(() => void load(), ['sale.created', 'sale.approved']);
@@ -255,7 +267,7 @@ export default function SalesPage() {
           <button className="btn ghost" onClick={exportCsv}>⇩ Export CSV</button>
           <button className="btn ghost" onClick={() => window.print()}>🖶 Print</button>
           <button className="btn ghost" onClick={() => setShowImport(true)}>⇪ Import</button>
-          <button className="btn" onClick={() => { setError(''); setNewDate(new Date().toLocaleDateString('en-CA')); setShowNew(true); }}>＋ New sale</button>
+          <button className="btn" onClick={() => { setError(''); setCode(''); setSellerOpts([]); setSellerPicked(false); setNewDate(new Date().toLocaleDateString('en-CA')); setShowNew(true); }}>＋ New sale</button>
         </div>
       </div>
 
@@ -450,7 +462,21 @@ export default function SalesPage() {
       {showNew && (
         <Modal title="Record a sale" onClose={() => setShowNew(false)}>
           <form onSubmit={createSale} style={{ width: 'min(460px, 90vw)' }}>
-            <div className="field"><label>{t('sales.seller')}</label><input value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. ALICE1" required autoFocus /></div>
+            <div className="field" style={{ position: 'relative' }}>
+              <label>{t('sales.seller')}</label>
+              <input value={code} onChange={(e) => { setCode(e.target.value); setSellerPicked(false); }} placeholder="Search name or code…" required autoFocus autoComplete="off" />
+              {sellerOpts.length > 0 && !sellerPicked && (
+                <div className="card" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, padding: 4, maxHeight: 200, overflowY: 'auto', boxShadow: 'var(--shadow-lg)' }}>
+                  {sellerOpts.map((o) => (
+                    <button key={o.referralCode} type="button" className="row spread" style={{ width: '100%', padding: '7px 10px', background: 'none', border: 'none', cursor: 'pointer', borderRadius: 8, textAlign: 'left' }}
+                      onClick={() => { setCode(o.referralCode); setSellerPicked(true); setSellerOpts([]); }}>
+                      <span style={{ fontWeight: 600, fontSize: 13 }}>{o.fullName}</span>
+                      <span className="faint" style={{ fontSize: 12, fontFamily: 'ui-monospace, monospace' }}>{o.referralCode}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <div className="field">
               <label>{t('sales.amount')} ($)</label>
               <input type="number" min={0} step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="100000.00" required />
