@@ -45,6 +45,9 @@ export default function PayoutsPage() {
   const [decide, setDecide] = useState<{ p: PayoutItem; action: 'approve' | 'reject' } | null>(null);
   const [decideRef, setDecideRef] = useState('');
   const [detailId, setDetailId] = useState<string | null>(null);
+  // generic reason modal (replaces window.prompt for fraud/KYC)
+  const [reasonModal, setReasonModal] = useState<{ title: string; label: string; run: (text: string) => Promise<void> } | null>(null);
+  const [reasonText, setReasonText] = useState('');
   // banka mutabakati
   const [reconcileOpen, setReconcileOpen] = useState(false);
   const [reconcileText, setReconcileText] = useState('');
@@ -106,19 +109,27 @@ export default function PayoutsPage() {
     catch (e) { setError(String((e as ApiError).message)); } finally { setScanning(false); }
   }
   async function decideFraud(membershipId: string, action: 'clear' | 'confirm') {
-    let note: string | undefined;
-    if (action === 'confirm') note = window.prompt('Note (optional):') ?? undefined;
-    try { await api.post(`/admin/fraud/${membershipId}/decide`, { action, ...(note ? { note } : {}) }); showToast(action === 'clear' ? 'Cleared ✓' : 'Confirmed'); await loadCore(); }
+    if (action === 'confirm') {
+      setReasonText('');
+      setReasonModal({ title: 'Confirm fraud', label: 'Note (optional)', run: async (note) => {
+        await api.post(`/admin/fraud/${membershipId}/decide`, { action, ...(note.trim() ? { note: note.trim() } : {}) }); showToast('Confirmed'); await loadCore();
+      } });
+      return;
+    }
+    try { await api.post(`/admin/fraud/${membershipId}/decide`, { action }); showToast('Cleared ✓'); await loadCore(); }
     catch (e) { setError(String((e as ApiError).message)); }
   }
 
   async function decideKyc(membershipId: string, action: 'verify' | 'reject') {
-    let reason: string | undefined;
     if (action === 'reject') {
-      reason = window.prompt('Reason for rejection (optional):') ?? undefined;
+      setReasonText('');
+      setReasonModal({ title: 'Reject payout profile', label: 'Reason (optional)', run: async (reason) => {
+        await api.post(`/admin/payout-profiles/${membershipId}/decide`, { action, ...(reason.trim() ? { reason: reason.trim() } : {}) }); showToast('Payout profile rejected'); await loadCore();
+      } });
+      return;
     }
     try {
-      await api.post(`/admin/payout-profiles/${membershipId}/decide`, { action, ...(reason ? { reason } : {}) });
+      await api.post(`/admin/payout-profiles/${membershipId}/decide`, { action });
       showToast(action === 'verify' ? 'Payout profile verified ✓' : 'Payout profile rejected');
       await loadCore();
     } catch (e) { setError(String((e as ApiError).message)); }
@@ -426,6 +437,21 @@ export default function PayoutsPage() {
       )}
 
       {detailId && <PayoutDrawer id={detailId} currency={c} onClose={() => setDetailId(null)} onChanged={refreshAll} onToast={showToast} />}
+
+      {reasonModal && (
+        <Modal title={reasonModal.title} onClose={() => setReasonModal(null)}>
+          <div style={{ width: 'min(420px, 90vw)' }}>
+            <div className="field">
+              <label>{reasonModal.label}</label>
+              <textarea value={reasonText} onChange={(e) => setReasonText(e.target.value)} rows={2} autoFocus />
+            </div>
+            <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
+              <button className="btn ghost" onClick={() => setReasonModal(null)} disabled={busy}>Cancel</button>
+              <button className="btn" disabled={busy} onClick={async () => { setBusy(true); try { await reasonModal.run(reasonText); setReasonModal(null); } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); } }}>Confirm</button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {reconcileOpen && (
         <Modal title="Bank reconciliation" onClose={() => setReconcileOpen(false)}>
