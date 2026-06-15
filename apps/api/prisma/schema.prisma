@@ -324,6 +324,9 @@ model Membership {
   payouts     Payout[]
   payoutProfile PayoutProfile?
   fraudFlag   FraudFlag?
+  apiKeys     ApiKey[]
+  notifications     Notification[]
+  announcementReads AnnouncementRead[]
 
   @@unique([tenantId, userId])
   @@unique([tenantId, referralCode])
@@ -458,7 +461,10 @@ model LedgerEntry {
   updatedAt               DateTime     @updatedAt @map("updated_at")
 
   tenant      Tenant     @relation(fields: [tenantId], references: [id])
-  sale        Sale?      @relation(fields: [saleId], references: [id])
+  // Restrict: ledger satiri olan satis silinemez (void/ters kayit yolu vardir).
+  // SET NULL olsaydi sale_id'yi NULL'a cekerdi = UPDATE; guard_ledger_update bunu
+  // engeller, bu yuzden FK RESTRICT olmali (ledger degismezligi — bkz. DECISIONS).
+  sale        Sale?      @relation(fields: [saleId], references: [id], onDelete: Restrict)
   beneficiary Membership @relation("Beneficiary", fields: [beneficiaryMembershipId], references: [id])
   // Restrict: payout silinince 'paid' satirin payout_id'si sessizce NULL olmasin
   // (ledger degismezligi — bkz. DECISIONS "Inceleme bulgulari").
@@ -534,6 +540,8 @@ model Payout {
   entries    LedgerEntry[]
 
   @@index([tenantId, status])
+  // Kismi unique index ham SQL migration'da (20260615144000_payout_one_open_per_member):
+  // uye basina en fazla bir ACIK (requested|processing) payout — Prisma kismi unique'i ifade edemez.
   @@map("payouts")
 }
 
@@ -568,6 +576,9 @@ model Notification {
   createdAt             DateTime            @default(now()) @map("created_at")
   updatedAt             DateTime            @updatedAt @map("updated_at")
 
+  // Cascade: uyelik silinince bildirimleri de gider (orphan satir kalmaz).
+  membership Membership @relation(fields: [recipientMembershipId], references: [id], onDelete: Cascade)
+
   @@index([status, createdAt])
   @@index([recipientMembershipId, channel, readAt])
   @@map("notifications")
@@ -587,9 +598,13 @@ model AuditLog {
   // (hash = sha256(prevHash + kanonik icerik)). Tek satir oynanirsa zincir kirilir.
   prevHash    String?  @map("prev_hash")
   hash        String?
+  // Monoton sira: createdAt esitliginde (ayni tx now()) zincir sirasini KESINLESTIRIR.
+  // DB tarafindan atanir (BIGSERIAL); uygulama asla set etmez. Hash icerigine GIRMEZ.
+  seq         BigInt   @default(autoincrement())
   createdAt   DateTime @default(now()) @map("created_at")
 
   @@index([tenantId, createdAt])
+  @@index([tenantId, seq])
   @@map("audit_logs")
 }
 
@@ -792,6 +807,8 @@ model AnnouncementRead {
   readAt         DateTime @default(now()) @map("read_at")
 
   announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  // Cascade: uyelik silinince okundu makbuzlari da gider (orphan satir kalmaz).
+  membership   Membership   @relation(fields: [membershipId], references: [id], onDelete: Cascade)
 
   @@unique([announcementId, membershipId])
   @@map("announcement_reads")
@@ -825,12 +842,16 @@ model ApiKey {
   prefix          String    // gosterim icin (rfk_xxxx)
   keyHash         String    @unique @map("key_hash")
   lastUsedAt      DateTime? @map("last_used_at")
+  // Opsiyonel son-kullanma: dolmus anahtar guard'da reddedilir (yasam-dongusu).
+  expiresAt       DateTime? @map("expires_at")
   revokedAt       DateTime? @map("revoked_at")
   createdAt       DateTime  @default(now()) @map("created_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
+  @@index([membershipId])
   @@map("api_keys")
 }
 
