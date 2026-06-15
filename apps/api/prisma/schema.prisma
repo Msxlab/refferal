@@ -297,6 +297,9 @@ model Membership {
   path                String
   depth               Int
   status              MembershipStatus @default(active)
+  // Takim lideri (Dalga 3): owner birini "grup/ekip lideri" isaretler. Liderler sayfasinda
+  // listelenir; "agaci" = ltree alt-agaci (path <@ lider.path). Yerlesimi DEGISTIRMEZ (sadece bayrak).
+  isTeamLeader        Boolean          @default(false) @map("is_team_leader")
   // Sybil tespiti (#16): kayit anindaki IP. Ayni IP'den N+ uye → fraud sinyali.
   signupIp            String?          @map("signup_ip")
   // Kisisel davet landing (#23): uyenin /i/{code} sayfasinda gosterilen karsilama mesaji.

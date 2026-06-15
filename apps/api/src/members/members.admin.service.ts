@@ -317,25 +317,31 @@ export class MembersAdminService {
   async createManual(
     actor: ActorContext,
     actorMembershipId: string,
-    input: { fullName: string; email: string; sponsorReferralCode?: string; sponsorMembershipId?: string; role?: Role; tempPassword?: string },
+    input: { fullName: string; email: string; sponsorReferralCode?: string; sponsorMembershipId?: string; role?: Role; tempPassword?: string; asLeader?: boolean },
   ) {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: actor.tenantId } });
     if (tenant.status !== TenantStatus.active) throw new BadRequestException('isletme aktif degil');
 
-    // sponsor: belirtilmezse actor (owner) altina yerlesir
-    let sponsorId = actorMembershipId;
-    if (input.sponsorMembershipId || input.sponsorReferralCode) {
-      const s = await this.prisma.membership.findFirst({
-        where: { tenantId: actor.tenantId, ...(input.sponsorMembershipId ? { id: input.sponsorMembershipId } : { referralCode: input.sponsorReferralCode }) },
-        select: { id: true, status: true },
+    // asLeader=true ve sponsor verilmemisse: yeni KOK lider (agacin tepesinde, sponsorsuz).
+    const asRoot = !!input.asLeader && !input.sponsorMembershipId && !input.sponsorReferralCode;
+
+    // sponsor: belirtilmezse actor (owner) altina yerlesir (kok lider degilse)
+    let sponsor: { id: string; path: string; depth: number; tenantId: string } | null = null;
+    if (!asRoot) {
+      let sponsorId = actorMembershipId;
+      if (input.sponsorMembershipId || input.sponsorReferralCode) {
+        const s = await this.prisma.membership.findFirst({
+          where: { tenantId: actor.tenantId, ...(input.sponsorMembershipId ? { id: input.sponsorMembershipId } : { referralCode: input.sponsorReferralCode }) },
+          select: { id: true, status: true },
+        });
+        if (!s) throw new NotFoundException('sponsor uyeligi bu isletmede bulunamadi');
+        if (s.status !== MembershipStatus.active) throw new BadRequestException('sponsor aktif degil');
+        sponsorId = s.id;
+      }
+      sponsor = await this.prisma.membership.findUniqueOrThrow({
+        where: { id: sponsorId }, select: { id: true, path: true, depth: true, tenantId: true },
       });
-      if (!s) throw new NotFoundException('sponsor uyeligi bu isletmede bulunamadi');
-      if (s.status !== MembershipStatus.active) throw new BadRequestException('sponsor aktif degil');
-      sponsorId = s.id;
     }
-    const sponsor = await this.prisma.membership.findUniqueOrThrow({
-      where: { id: sponsorId }, select: { id: true, path: true, depth: true, tenantId: true },
-    });
 
     const email = input.email.trim().toLowerCase();
     const role = input.role && ASSIGNABLE_ROLES.includes(input.role) ? input.role : Role.member;
@@ -352,18 +358,74 @@ export class MembersAdminService {
         const dup = await tx.membership.findFirst({ where: { tenantId: actor.tenantId, userId: user.id }, select: { id: true } });
         if (dup) throw new ConflictException('bu e-postali kullanici zaten bu isletmede uye');
       }
-      const membership = await this.memberships.createUnder(tx, { tenantId: actor.tenantId, userId: user.id, sponsor, role });
+      const membership = asRoot
+        ? await this.memberships.createRoot(tx, { tenantId: actor.tenantId, userId: user.id, role, isTeamLeader: true })
+        : await this.memberships.createUnder(tx, { tenantId: actor.tenantId, userId: user.id, sponsor: sponsor!, role });
       return { membership, tempPassword, newUser: tempPassword !== null };
     }, { timeout: 15_000 });
 
-    await this.audit(actor, 'membership.create_manual', out.membership.id, { email, sponsorId, role, newUser: out.newUser });
+    await this.audit(actor, 'membership.create_manual', out.membership.id, { email, sponsorId: sponsor?.id ?? null, role, newUser: out.newUser, asLeader: asRoot });
     return {
       id: out.membership.id,
       referralCode: out.membership.referralCode,
       role: out.membership.role,
+      isTeamLeader: out.membership.isTeamLeader,
       newUser: out.newUser,
       ...(out.tempPassword ? { tempPassword: out.tempPassword } : {}),
     };
+  }
+
+  /** Bir uyeyi takim lideri isaretle/kaldir (Dalga 3). Yerlesimi DEGISTIRMEZ — sadece bayrak. */
+  async setLeader(actor: ActorContext, membershipId: string, isTeamLeader: boolean) {
+    const m = await this.requireInTenant(actor.tenantId, membershipId);
+    if (m.isTeamLeader === isTeamLeader) return { id: m.id, isTeamLeader };
+    await this.prisma.membership.update({ where: { id: m.id }, data: { isTeamLeader } });
+    await this.audit(actor, isTeamLeader ? 'membership.set_leader' : 'membership.unset_leader', m.id, { isTeamLeader });
+    return { id: m.id, isTeamLeader };
+  }
+
+  /**
+   * Takim liderleri (Dalga 3): isTeamLeader=true her uye + CANLI grup ozeti — alt-agac (ltree
+   * path <@ lider.path) bu-ay grup cirosu + bu-ay grup komisyonu + ekip boyu. Owner'in kendi
+   * "tum sirket" kokunu da basa ekler. "10 lider = 10 agac" landing'i bunu besler.
+   */
+  async leaders(tenantId: string) {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    const month = monthKey(new Date(), tenant.timezone);
+    const leaders = await this.prisma.membership.findMany({
+      where: { tenantId, OR: [{ isTeamLeader: true }, { sponsorMembershipId: null }] },
+      orderBy: [{ depth: 'asc' }, { joinedAt: 'asc' }],
+      include: { user: { select: { fullName: true } } },
+    });
+
+    const rows = await Promise.all(
+      leaders.map(async (l) => {
+        // alt-agac: kendisi + tum torunlari (ltree)
+        const team = await this.prisma.$queryRaw<Array<{ ids: string[]; cnt: bigint }>>`
+          SELECT array_agg(id::text) AS ids, count(*)::bigint AS cnt
+          FROM memberships
+          WHERE tenant_id = ${tenantId}::uuid AND path::ltree <@ ${l.path}::ltree`;
+        const ids = team[0]?.ids ?? [];
+        const teamSize = Number(team[0]?.cnt ?? 0n) - 1; // kendisi haric
+        const [vol, comm] = await Promise.all([
+          this.prisma.sale.aggregate({ where: { tenantId, status: SaleStatus.approved, summaryMonth: month, sellerMembershipId: { in: ids } }, _sum: { amountCents: true } }),
+          this.prisma.monthlySummary.aggregate({ where: { tenantId, month, membershipId: { in: ids } }, _sum: { pendingCents: true, payableCents: true, paidCents: true } }),
+        ]);
+        const commCents = (comm._sum.pendingCents ?? 0n) + (comm._sum.payableCents ?? 0n) + (comm._sum.paidCents ?? 0n);
+        return {
+          id: l.id,
+          fullName: l.user.fullName,
+          referralCode: l.referralCode,
+          role: l.role,
+          isTeamLeader: l.isTeamLeader,
+          isOwnerRoot: l.sponsorMembershipId === null && !l.isTeamLeader,
+          teamSize: Math.max(0, teamSize),
+          monthlyGroupVolumeCents: (vol._sum.amountCents ?? 0n).toString(),
+          monthlyGroupCommissionCents: commCents.toString(),
+        };
+      }),
+    );
+    return { month, leaders: rows };
   }
 
   async setStatus(actor: ActorContext, membershipId: string, status: MembershipStatus) {
@@ -460,13 +522,23 @@ export class MembersAdminService {
    * Her dugume BU AY (tenant timezone, summaryMonth) approved satis sayisi + cirosu eklenir
    * (tek groupBy — node basina sorgu YOK). teamSize frontend'de hesaplanir.
    */
-  async tree(tenantId: string) {
+  async tree(tenantId: string, rootMembershipId?: string) {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const month = monthKey(new Date(), tenant.timezone);
 
+    // root verilirse YALNIZ o liderin alt-agaci (ltree path <@ root.path) — "tek lider, tek agac"
+    let pathFilter: Prisma.MembershipWhereInput = {};
+    if (rootMembershipId) {
+      const root = await this.prisma.membership.findFirst({ where: { id: rootMembershipId, tenantId }, select: { id: true, path: true } });
+      if (!root) throw new NotFoundException('lider/kok uyelik bu isletmede bulunamadi');
+      const sub = await this.prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM memberships WHERE tenant_id = ${tenantId}::uuid AND path::ltree <@ ${root.path}::ltree`;
+      pathFilter = { id: { in: sub.map((r) => r.id) } };
+    }
+
     const [nodes, salesAgg, earnAgg, monthlyAgg] = await Promise.all([
       this.prisma.membership.findMany({
-        where: { tenantId },
+        where: { tenantId, ...pathFilter },
         orderBy: [{ depth: 'asc' }, { joinedAt: 'asc' }],
         include: { user: { select: { fullName: true } } },
       }),
@@ -505,6 +577,7 @@ export class MembersAdminService {
         role: m.role,
         status: m.status,
         depth: m.depth,
+        isTeamLeader: m.isTeamLeader,
         joinedAt: m.joinedAt.toISOString(),
         salesCount: agg?._count._all ?? 0,
         revenueCents: (agg?._sum.amountCents ?? 0n).toString(),
@@ -547,7 +620,7 @@ export class MembersAdminService {
   private async requireInTenant(tenantId: string, membershipId: string) {
     const m = await this.prisma.membership.findFirst({
       where: { id: membershipId, tenantId },
-      select: { id: true, role: true, status: true },
+      select: { id: true, role: true, status: true, isTeamLeader: true },
     });
     if (!m) throw new NotFoundException('uyelik bu isletmede bulunamadi');
     return m;

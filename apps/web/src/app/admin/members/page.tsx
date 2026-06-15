@@ -58,6 +58,7 @@ export default function MembersPage() {
   const [addEmail, setAddEmail] = useState('');
   const [addSponsor, setAddSponsor] = useState('');
   const [addRole, setAddRole] = useState('member');
+  const [addAsLeader, setAddAsLeader] = useState(false);
   const [addResult, setAddResult] = useState<{ referralCode: string; tempPassword?: string; newUser: boolean } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -105,7 +106,7 @@ export default function MembersPage() {
       const res = await api.post<{ referralCode: string; tempPassword?: string; newUser: boolean }>('/admin/members', {
         fullName: addName.trim(),
         email: addEmail.trim(),
-        ...(addSponsor.trim() ? { sponsorReferralCode: addSponsor.trim() } : {}),
+        ...(addAsLeader ? { asLeader: true } : (addSponsor.trim() ? { sponsorReferralCode: addSponsor.trim() } : {})),
         role: addRole,
       });
       setAddResult(res);
@@ -186,7 +187,7 @@ export default function MembersPage() {
         </div>
         <div className="row fade-in no-print" style={{ gap: 8 }}>
           <button className="btn ghost" onClick={exportCsv}>⇩ Export CSV</button>
-          <button className="btn ghost" onClick={() => { setError(''); setAddName(''); setAddEmail(''); setAddSponsor(''); setAddRole('member'); setAddResult(null); setShowAdd(true); }}>＋ Üye ekle</button>
+          <button className="btn ghost" onClick={() => { setError(''); setAddName(''); setAddEmail(''); setAddSponsor(''); setAddRole('member'); setAddAsLeader(false); setAddResult(null); setShowAdd(true); }}>＋ Üye ekle</button>
           <button className="btn" onClick={() => { setLatest(null); setShowInvite(true); }}>✦ {t('members.invite')}</button>
         </div>
       </div>
@@ -334,9 +335,13 @@ export default function MembersPage() {
                 <div className="field"><label>Ad soyad</label><input value={addName} onChange={(e) => setAddName(e.target.value)} required minLength={2} autoFocus placeholder="Ör. Jane Smith" /></div>
                 <div className="field"><label>E-posta</label><input type="email" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} required placeholder="name@company.com" /></div>
                 <div className="row" style={{ gap: 12 }}>
-                  <div className="field" style={{ flex: 2, margin: 0 }}><label>Sponsor kodu (boş = owner)</label><input value={addSponsor} onChange={(e) => setAddSponsor(e.target.value)} placeholder="Ör. ALICE1" /></div>
+                  <div className="field" style={{ flex: 2, margin: 0 }}><label>Sponsor kodu {addAsLeader ? '(lider — sponsor yok)' : '(boş = owner)'}</label><input value={addSponsor} onChange={(e) => setAddSponsor(e.target.value)} placeholder="Ör. ALICE1" disabled={addAsLeader} /></div>
                   <div className="field" style={{ flex: 1, margin: 0 }}><label>Rol</label><select value={addRole} onChange={(e) => setAddRole(e.target.value)}>{ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select></div>
                 </div>
+                <label className="row" style={{ gap: 8, cursor: 'pointer', fontSize: 13, margin: '4px 0 8px' }}>
+                  <input type="checkbox" checked={addAsLeader} onChange={(e) => setAddAsLeader(e.target.checked)} style={{ width: 'auto' }} />
+                  🎖 Yeni takım lideri olarak ekle (ağacın tepesinde, sponsorsuz kök)
+                </label>
                 <div className="faint" style={{ fontSize: 12 }}>Geçici şifre otomatik üretilir; kişi onunla girip değiştirir. (Yerleşim kalıcıdır.)</div>
                 {error && <div className="error">{error}</div>}
                 <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>

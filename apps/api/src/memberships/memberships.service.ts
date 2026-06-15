@@ -56,4 +56,45 @@ export class MembershipsService {
     }
     throw new ConflictException('referral kodu uretilemedi');
   }
+
+  /**
+   * Kok uyelik olusturur (Dalga 3): sponsorsuz, depth=0, path=own_id. Yeni bir takim liderini
+   * agacin tepesine ekler. INSERT oldugu icin re-parenting trigger'ina (BEFORE UPDATE) takilmaz.
+   */
+  async createRoot(
+    tx: Tx,
+    params: { tenantId: string; userId: string; role?: Role; isTeamLeader?: boolean },
+  ): Promise<Membership> {
+    const id = newUuid();
+    const path = ltreeLabel(id);
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        return await tx.membership.create({
+          data: {
+            id,
+            tenantId: params.tenantId,
+            userId: params.userId,
+            role: params.role ?? Role.member,
+            sponsorMembershipId: null,
+            referralCode: randomCode(8),
+            depth: 0,
+            path,
+            isTeamLeader: params.isTeamLeader ?? true,
+          },
+        });
+      } catch (e) {
+        if (
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          e.code === 'P2002' &&
+          Array.isArray(e.meta?.target) &&
+          (e.meta.target as string[]).includes('referral_code')
+        ) {
+          continue;
+        }
+        throw e;
+      }
+    }
+    throw new ConflictException('referral kodu uretilemedi');
+  }
 }

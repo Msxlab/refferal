@@ -21,6 +21,7 @@ export interface ApiNode {
   joinedAt?: string;
   earningsCents?: string; // yasam-boyu (payable+paid)
   monthlyCommissionCents?: string; // BU AY komisyon (pending+payable+paid)
+  isTeamLeader?: boolean;
 }
 
 export interface RankTierLite { name: string; minTeam: number; minEarningsCents: string }
@@ -79,6 +80,7 @@ function MemberNode({ data }: NodeProps<Node<NodeData>>) {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
         <div style={{ display: 'flex', gap: 6 }}>
+          {n.isTeamLeader && <span className="badge payable" style={{ fontSize: 9 }}>🎖 lider</span>}
           {n.role !== 'member' && <span className="badge active" style={{ fontSize: 9 }}>{n.role.replace('tenant_', '')}</span>}
           {data.rank && <span className="badge payable" style={{ fontSize: 9 }}>🏅 {data.rank}</span>}
           {n.status !== 'active' && <span className="badge inactive" style={{ fontSize: 9 }}>{n.status}</span>}
@@ -96,7 +98,7 @@ function MemberNode({ data }: NodeProps<Node<NodeData>>) {
 }
 const nodeTypes = { member: MemberNode };
 
-export function NetworkExplorer({ nodes, title = 'network', tiers = [] }: { nodes: ApiNode[]; title?: string; tiers?: RankTierLite[] }) {
+export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggleLeader }: { nodes: ApiNode[]; title?: string; tiers?: RankTierLite[]; onToggleLeader?: (n: ApiNode) => void }) {
   const [view, setView] = useState<'tree' | 'list'>('list');
   const [focusId, setFocusId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -435,6 +437,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [] }: { node
         <Drawer title={selected.fullName} subtitle={`${selected.referralCode} · ${title}`} onClose={() => setSelected(null)}
           footer={
             <>
+              {onToggleLeader && <button className="btn ghost" onClick={() => { onToggleLeader(selected); setSelected(null); }}>{selected.isTeamLeader ? '🎖 Liderlikten çıkar' : '🎖 Lider yap'}</button>}
               <button className="btn ghost" onClick={() => { setView('tree'); setQuery(selected.referralCode); setSelected(null); }}>Show in tree ⤳</button>
               {teamOf(selected.id) > 0 && <button className="btn" onClick={() => { setFocusId(selected.id); setSelected(null); }}>Focus subtree ⤢</button>}
             </>

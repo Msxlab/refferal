@@ -45,7 +45,11 @@ const createManualSchema = z.object({
   sponsorMembershipId: z.string().uuid().optional(),
   role: z.enum(['tenant_admin', 'tenant_staff', 'member']).optional(),
   tempPassword: z.string().min(10).max(128).optional(),
+  // sponsor verilmediginde true ise: yeni KOK takim lideri (agacin tepesinde)
+  asLeader: z.boolean().optional(),
 });
+const treeSchema = z.object({ root: z.string().uuid().optional() });
+const leaderSchema = z.object({ isTeamLeader: z.boolean() });
 
 @RequireMembership()
 @Controller('admin/members')
@@ -62,11 +66,18 @@ export class MembersAdminController {
     return this.members.list(user.tid as string, { ...q, status: q.status as MembershipStatus | undefined });
   }
 
-  // DIKKAT: statik GET route'lar (tree, export.csv) ':id' route'undan ONCE tanimli kalmali.
+  // DIKKAT: statik GET route'lar (tree, leaders, export.csv) ':id' route'undan ONCE tanimli kalmali.
   @Roles(...STAFF)
   @Get('tree')
-  tree(@CurrentUser() user: RequestUser) {
-    return this.members.tree(user.tid as string);
+  tree(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(treeSchema)) q: z.infer<typeof treeSchema>) {
+    return this.members.tree(user.tid as string, q.root);
+  }
+
+  // takim liderleri landing'i (canli grup ozetleriyle)
+  @Roles(...STAFF)
+  @Get('leaders')
+  leaders(@CurrentUser() user: RequestUser) {
+    return this.members.leaders(user.tid as string);
   }
 
   @Roles(...STAFF)
@@ -121,6 +132,18 @@ export class MembersAdminController {
   @Get(':id/export')
   exportData(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.members.exportData(user.tid as string, id);
+  }
+
+  // takim lideri isaretle/kaldir (yerlesimi degistirmez)
+  @Roles(...ADMIN)
+  @HttpCode(200)
+  @Post(':id/leader')
+  setLeader(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(leaderSchema)) body: z.infer<typeof leaderSchema>,
+  ) {
+    return this.members.setLeader(this.actor(user), id, body.isTeamLeader);
   }
 
   @Roles(...ADMIN)
