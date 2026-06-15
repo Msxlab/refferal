@@ -5,6 +5,7 @@ import { EngineService } from '../src/engine/engine.service';
 import { RanksService } from '../src/ranks/ranks.service';
 import { WebhooksService } from '../src/webhooks/webhooks.service';
 import { EventsService } from '../src/events/events.service';
+import { SanctionsService } from '../src/sanctions/sanctions.service';
 import { ActorContext } from '../src/common/actor';
 import { createChain, createTenant, truncateAll } from './helpers';
 
@@ -17,7 +18,7 @@ describe('payout reconciliation (entegrasyon)', () => {
     prisma = new PrismaService();
     await prisma.$connect();
     const engine = new EngineService(prisma, new RanksService(prisma));
-    payouts = new PayoutsService(prisma, engine, new WebhooksService(prisma), new EventsService());
+    payouts = new PayoutsService(prisma, engine, new WebhooksService(prisma), new EventsService(), new SanctionsService(prisma));
   });
   afterAll(async () => { await prisma.$disconnect(); });
   beforeEach(async () => { await truncateAll(prisma); });
