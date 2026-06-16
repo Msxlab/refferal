@@ -22,6 +22,9 @@ export interface ApiNode {
   earningsCents?: string; // yasam-boyu (payable+paid)
   monthlyCommissionCents?: string; // BU AY komisyon (pending+payable+paid)
   isTeamLeader?: boolean;
+  // server-side hesaplanmis (tree() ucu) — varsa client recursion yerine kullanilir
+  teamSize?: number; // alt-agac kisi sayisi (kendisi haric)
+  subtreeRevenueCents?: string; // dugum + tum torunlarin bu-ay cirosu
 }
 
 export interface RankTierLite { name: string; minTeam: number; minEarningsCents: string }
@@ -145,11 +148,14 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
   }, [nodes, byId]);
 
   const teamOf = useCallback((id: string): number => {
+    // server degeri varsa onu kullan (tree() ucu hesapliyor); yoksa client'ta yur (platform ag verisi / eski response)
+    const sv = byId.get(id)?.teamSize;
+    if (sv !== undefined) return sv;
     let count = 0;
     const stack = [...(childrenOf.get(id) ?? [])];
     while (stack.length) { const c = stack.pop()!; count++; stack.push(...(childrenOf.get(c.id) ?? [])); }
     return count;
-  }, [childrenOf]);
+  }, [childrenOf, byId]);
 
   // client-side rutbe: tenant tier'lari + (team, yasam-boyu kazanc) ile kosulan en yuksek tier
   const earningsById = useMemo(() => new Map(nodes.map((n) => [n.id, Number(n.earningsCents ?? 0)])), [nodes]);
@@ -167,9 +173,14 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
     return name;
   }, [sortedTiers, teamOf, earningsById]);
 
-  // alt-agac cirosu (bu ay): dugum + tum torunlarinin revenueCents toplami (memoize)
+  // alt-agac cirosu (bu ay): dugum + tum torunlarinin revenueCents toplami.
+  // server degeri (subtreeRevenueCents) varsa onu kullan (recursion yok); yoksa client'ta hesapla.
   const subtreeRevById = useMemo(() => {
     const memo = new Map<string, number>();
+    if (nodes.length > 0 && nodes[0].subtreeRevenueCents !== undefined) {
+      for (const n of nodes) memo.set(n.id, Number(n.subtreeRevenueCents ?? 0));
+      return memo;
+    }
     const calc = (id: string): number => {
       const cached = memo.get(id);
       if (cached !== undefined) return cached;

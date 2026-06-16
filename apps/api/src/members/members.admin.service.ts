@@ -725,6 +725,25 @@ export class MembersAdminService {
       monthlyAgg.map((g) => [g.membershipId, (g._sum.pendingCents ?? 0n) + (g._sum.payableCents ?? 0n) + (g._sum.paidCents ?? 0n)]),
     );
 
+    // teamSize (alt-agac kisi sayisi, kendisi haric) + subtreeRevenueCents (dugum + tum torunlarin
+    // bu-ay cirosu). Eskiden NetworkExplorer client'ta recursive hesapliyordu (her render'da, yavas);
+    // burada TEK GECISTE hesaplanir: nodes derinlik-artan sirali geldigi icin TERSTEN (en derin once)
+    // her dugumun toplamini parent'ina yukleriz — recursion/self-join yok, O(n).
+    const teamSize = new Map<string, number>();
+    const subtreeRev = new Map<string, bigint>();
+    for (const m of nodes) {
+      teamSize.set(m.id, 0);
+      subtreeRev.set(m.id, bySeller.get(m.id)?._sum.amountCents ?? 0n);
+    }
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const m = nodes[i];
+      const pid = m.sponsorMembershipId;
+      if (pid && teamSize.has(pid)) {
+        teamSize.set(pid, teamSize.get(pid)! + teamSize.get(m.id)! + 1); // bu cocuk + onun alt-takimi
+        subtreeRev.set(pid, subtreeRev.get(pid)! + subtreeRev.get(m.id)!);
+      }
+    }
+
     return nodes.map((m) => {
       const agg = bySeller.get(m.id);
       return {
@@ -741,6 +760,8 @@ export class MembersAdminService {
         revenueCents: (agg?._sum.amountCents ?? 0n).toString(),
         earningsCents: (byBenef.get(m.id) ?? 0n).toString(),
         monthlyCommissionCents: (byMonthly.get(m.id) ?? 0n).toString(),
+        teamSize: teamSize.get(m.id) ?? 0,
+        subtreeRevenueCents: (subtreeRev.get(m.id) ?? 0n).toString(),
       };
     });
   }
