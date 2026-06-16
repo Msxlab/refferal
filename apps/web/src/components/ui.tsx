@@ -57,8 +57,8 @@ export function Donut({ segments, size = 168, thickness = 20, center }: { segmen
     .map((s) => `${s.label}: ${total > 0 ? Math.round((Math.max(0, s.value) / total) * 100) : 0}%`)
     .join(', ');
   return (
-    <div role="img" aria-label={ariaLabel} style={{ position: 'relative', width: size, height: size }}>
-      <svg width={size} height={size} aria-hidden="true" style={{ transform: 'rotate(-90deg)' }}>
+    <div role="img" aria-label={ariaLabel} style={{ position: 'relative', width: '100%', maxWidth: size, aspectRatio: '1 / 1', margin: '0 auto' }}>
+      <svg viewBox={`0 0 ${size} ${size}`} width="100%" height="100%" aria-hidden="true" style={{ transform: 'rotate(-90deg)', display: 'block' }}>
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,.06)" strokeWidth={thickness} />
         {total > 0 &&
           segments.map((s, i) => {

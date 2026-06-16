@@ -26,6 +26,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
   const pathname = usePathname();
   const [session, setSessionState] = useState<Session | null>(null);
+  const [navOpen, setNavOpen] = useState(false);
+
+  // route degisince mobil drawer'i kapat
+  useEffect(() => { setNavOpen(false); }, [pathname]);
 
   useEffect(() => {
     const s = getSession();
@@ -56,12 +60,21 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   return (
-    <div className="shell">
+    <div className={`shell${navOpen ? ' nav-open' : ''}`}>
+      <div className="mobile-topbar no-print">
+        <button className="hamburger" aria-label={t('nav.menu')} aria-expanded={navOpen} onClick={() => setNavOpen((v) => !v)}>☰</button>
+        <div className="brand"><span className="dot">R</span> Refearn</div>
+        <div className="row" style={{ gap: 6, marginLeft: 'auto' }}>
+          <NotificationBell />
+          <ThemeToggle />
+        </div>
+      </div>
+      {navOpen && <div className="nav-backdrop no-print" onClick={() => setNavOpen(false)} aria-hidden="true" />}
       <aside className="side">
         <div className="brand"><span className="dot">R</span> Refearn</div>
         <nav>
           {NAV.filter((n) => !(n.adminOnly && isStaff)).map((n) => (
-            <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
+            <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''} onClick={() => setNavOpen(false)}>
               <span className="ic">{n.ic}</span>{t(n.key)}
             </Link>
           ))}
