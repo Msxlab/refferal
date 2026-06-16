@@ -82,7 +82,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid fade-in delay-1" style={{ gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)' }}>
+      <div className="grid stack-sm fade-in delay-1" style={{ gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)' }}>
         <div className="card hero">
           <div className="faint" style={{ fontSize: 12 }}>{t('dash.revenue')}</div>
           <div className="bignum gradient-text" style={{ marginTop: 6 }}><MoneyCounter cents={revenue} currency={c} /></div>
@@ -127,7 +127,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ---- borc kirilimi + en cok kazananlar ---- */}
-      <div className="grid fade-in delay-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.2fr)', gap: 16, marginTop: 16 }}>
+      <div className="grid stack-sm fade-in delay-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.2fr)', gap: 16, marginTop: 16 }}>
         <div className="card">
           <strong style={{ fontSize: 13 }}>Commission owed (to members)</strong>
           <div className="faint" style={{ fontSize: 11, marginBottom: 12 }}>What the company owes members — by maturation and payout state.</div>
@@ -182,7 +182,7 @@ export default function DashboardPage() {
             <TrendChart series={analytics.series} currency={c} />
           </div>
 
-          <div className="grid fade-in" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.2fr)', gap: 16 }}>
+          <div className="grid stack-sm fade-in" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.2fr)', gap: 16 }}>
             <div className="card">
               <strong style={{ fontSize: 14 }}>Sales funnel</strong>
               <div className="faint" style={{ fontSize: 12, marginBottom: 14 }}>Status mix over the selected window.</div>

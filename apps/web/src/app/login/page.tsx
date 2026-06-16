@@ -36,7 +36,7 @@ export default function LoginPage() {
 
   return (
     <div className="center">
-      <div className="fade-in" style={{ width: 392 }}>
+      <div className="fade-in" style={{ width: '100%', maxWidth: 392 }}>
         <div style={{ textAlign: 'center', marginBottom: 22 }}>
           <Brand size="lg" />
           <div className="muted" style={{ marginTop: 10 }}>{t('login.tagline')}</div>

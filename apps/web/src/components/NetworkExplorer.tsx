@@ -387,7 +387,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
           </ReactFlow>
         </div>
       ) : (
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="card" style={{ padding: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
           <table>
             <thead><tr><th>Member</th><th>Role</th><th style={{ textAlign: 'right' }}>Level</th><th style={{ textAlign: 'right' }}>Team</th><th style={{ textAlign: 'right' }}>Revenue (mo)</th><th style={{ textAlign: 'right' }}>Commission (mo)</th><th>Status</th><th></th></tr></thead>
             <tbody>

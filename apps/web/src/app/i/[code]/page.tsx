@@ -59,7 +59,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
 
   return (
     <div className="center">
-      <div className="fade-in" style={{ width: 420 }}>
+      <div className="fade-in" style={{ width: '100%', maxWidth: 420 }}>
         <div style={{ textAlign: 'center', marginBottom: 20 }}><Brand size="lg" /></div>
         <div className="card card-glow">
           <div className="eyebrow" style={{ marginBottom: 4 }}>{t('reg.title')}</div>

@@ -176,7 +176,7 @@ function CampaignForm({ existing, onClose, onSaved, onError }: {
       <form onSubmit={submit} style={{ width: 'min(520px, 90vw)' }}>
         <div className="field"><label>Name</label><input value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder="e.g. Q3 Sales Sprint" /></div>
         <div className="field"><label>Description (optional)</label><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What is this contest about?" /></div>
-        <div className="grid" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
           <div className="field" style={{ margin: 0 }}>
             <label>Metric</label>
             <select value={metric} onChange={(e) => setMetric(e.target.value as Metric)} disabled={!isDraft}>
