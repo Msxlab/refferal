@@ -173,7 +173,7 @@ function CampaignForm({ existing, onClose, onSaved, onError }: {
 
   return (
     <Modal title={existing ? 'Edit campaign' : 'New campaign'} onClose={onClose}>
-      <form onSubmit={submit} style={{ width: 'min(520px, 90vw)' }}>
+      <form onSubmit={submit} style={{ width: 'min(520px, 100%)' }}>
         <div className="field"><label>Name</label><input value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder="e.g. Q3 Sales Sprint" /></div>
         <div className="field"><label>Description (optional)</label><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What is this contest about?" /></div>
         <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>

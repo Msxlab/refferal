@@ -241,7 +241,7 @@ function ProfileForm({ existing, onClose, onSaved }: { existing: PayoutProfile |
 
   return (
     <Modal title="Payout details" onClose={onClose}>
-      <form onSubmit={submit} style={{ width: 'min(460px, 90vw)' }}>
+      <form onSubmit={submit} style={{ width: 'min(460px, 100%)' }}>
         <div className="field"><label>Legal name (as on tax documents)</label><input value={legalName} onChange={(e) => setLegalName(e.target.value)} required autoFocus /></div>
         <div className="grid" style={{ gridTemplateColumns: '1fr 2fr', gap: 10 }}>
           <div className="field" style={{ margin: 0 }}><label>Tax ID type</label>

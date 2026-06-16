@@ -461,7 +461,7 @@ export default function SalesPage() {
 
       {showNew && (
         <Modal title="Record a sale" onClose={() => setShowNew(false)}>
-          <form onSubmit={createSale} style={{ width: 'min(460px, 90vw)' }}>
+          <form onSubmit={createSale} style={{ width: 'min(460px, 100%)' }}>
             <div className="field" style={{ position: 'relative' }}>
               <label>{t('sales.seller')}</label>
               <input value={code} onChange={(e) => { setCode(e.target.value); setSellerPicked(false); }} placeholder="Search name or code…" required autoFocus autoComplete="off" />

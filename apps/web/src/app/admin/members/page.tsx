@@ -341,7 +341,7 @@ export default function MembersPage() {
 
       {showAdd && (
         <Modal title="Add member" onClose={() => setShowAdd(false)}>
-          <div style={{ width: 'min(460px, 90vw)' }}>
+          <div style={{ width: 'min(460px, 100%)' }}>
             {addResult ? (
               <div>
                 <div className="card" style={{ background: 'color-mix(in srgb, var(--emerald) 10%, transparent)', borderColor: 'color-mix(in srgb, var(--emerald) 30%, transparent)', padding: 14 }}>
@@ -388,7 +388,7 @@ export default function MembersPage() {
 
       {editM && (
         <Modal title={`Edit profile — ${editM.fullName}`} onClose={() => setEditM(null)}>
-          <form onSubmit={saveProfile} style={{ width: 'min(420px, 90vw)' }}>
+          <form onSubmit={saveProfile} style={{ width: 'min(420px, 100%)' }}>
             <div className="field"><label>Full name</label><input value={editName} onChange={(e) => setEditName(e.target.value)} required minLength={2} autoFocus /></div>
             <div className="field"><label>Email</label><input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} required /></div>
             <div className="faint" style={{ fontSize: 12 }}>Changing the email requires the person to re-verify. Placement (sponsor) does not change.</div>

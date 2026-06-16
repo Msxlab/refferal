@@ -459,7 +459,7 @@ export default function PayoutsPage() {
 
       {reasonModal && (
         <Modal title={reasonModal.title} onClose={() => setReasonModal(null)}>
-          <div style={{ width: 'min(420px, 90vw)' }}>
+          <div style={{ width: 'min(420px, 100%)' }}>
             <div className="field">
               <label>{reasonModal.label}</label>
               <textarea value={reasonText} onChange={(e) => setReasonText(e.target.value)} rows={2} autoFocus />
@@ -474,7 +474,7 @@ export default function PayoutsPage() {
 
       {reconcileOpen && (
         <Modal title="Bank reconciliation" onClose={() => setReconcileOpen(false)}>
-          <div style={{ width: 'min(520px, 90vw)' }}>
+          <div style={{ width: 'min(520px, 100%)' }}>
             <p className="muted" style={{ marginTop: 0 }}>
               After the bank processes the ACH file and sends the money, paste the returned statement here.
               Each line is <strong>amount</strong> (e.g. <code>1500.00</code>) or <strong>amount,reference</strong> (e.g. <code>1500.00,ACH-001</code>).
