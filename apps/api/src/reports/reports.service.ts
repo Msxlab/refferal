@@ -89,15 +89,13 @@ export class ReportsService {
       this.prisma.sale.count({ where: { tenantId, status: SaleStatus.approved, summaryMonth: targetMonth } }),
     ]);
 
-    // bu ayin komisyon gideri: o aya ait commission ledger satirlari (pozitif)
-    // ::bigint cast: SUM(bigint) Postgres'te numeric doner; Prisma raw onu string verir.
-    const commissionRows = await this.prisma.$queryRaw<Array<{ sum: bigint }>>`
-      SELECT COALESCE(SUM(le.amount_cents), 0)::bigint AS sum
-      FROM ledger_entries le
-      JOIN sales s ON s.id = le.sale_id
-      WHERE le.tenant_id = ${tenantId}::uuid
-        AND le.type = 'commission'
-        AND COALESCE(s.summary_month, to_char(s.sale_date AT TIME ZONE ${tenant.timezone}, 'YYYY-MM')) = ${targetMonth}`;
+    // bu ayin NET komisyon gideri — monthly_summaries'ten (reversal/clawback dusulmus).
+    // ONEMLI: ham 'commission' ledger toplami void sonrasi reversal'lari yok sayip rakami SISIRIR
+    // ve ayni ekrandaki analytics() ile celisirdi; otorite/netted kaynak monthly_summaries'tir.
+    const commissionAgg = await this.prisma.monthlySummary.aggregate({
+      where: { tenantId, month: targetMonth },
+      _sum: { pendingCents: true, payableCents: true, paidCents: true },
+    });
 
     // toplam odenebilir bakiye (tum zamanlar, payable ledger neti)
     const payableRows = await this.prisma.$queryRaw<Array<{ sum: bigint }>>`
@@ -141,7 +139,7 @@ export class ReportsService {
     }));
 
     const revenue = approvedAgg._sum.amountCents ?? 0n;
-    const commission = commissionRows[0]?.sum ?? 0n;
+    const commission = (commissionAgg._sum.pendingCents ?? 0n) + (commissionAgg._sum.payableCents ?? 0n) + (commissionAgg._sum.paidCents ?? 0n);
 
     return {
       month: targetMonth,

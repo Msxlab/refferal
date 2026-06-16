@@ -37,6 +37,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     setSessionState(s);
   }, [router]);
 
+  // sekmeler-arasi senkron: baska sekmede cikis yapilirsa (refearn.session silinir) burada da login'e don
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'refearn.session' && !e.newValue) router.replace('/login');
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [router]);
+
   if (!session) return <div className="center muted">{t('common.loading')}</div>;
   const active = activeMembership(session);
   const isStaff = active?.role === 'tenant_staff';

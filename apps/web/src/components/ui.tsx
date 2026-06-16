@@ -136,14 +136,19 @@ export function StatCard({ label, value, icon, grad, hint, delay }: { label: str
 export function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
 
-  // a11y: acilista odagi modala tasi; ESC ile kapat
+  // a11y: acilista odagi modala tasi; ESC ile kapat; arka plan scroll'unu kilitle
   useEffect(() => {
     ref.current?.focus();
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
   }, [onClose]);
 
   return (

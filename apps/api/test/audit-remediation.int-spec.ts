@@ -15,6 +15,7 @@ import { MembersAdminService } from '../src/members/members.admin.service';
 import { PayoutsService } from '../src/payouts/payouts.service';
 import { PeriodsService } from '../src/periods/periods.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { ReportsService } from '../src/reports/reports.service';
 import { SalesService } from '../src/sales/sales.service';
 import { createChain, createPlan, createSale, createTenant, truncateAll } from './helpers';
 
@@ -33,6 +34,7 @@ describe('audit remediation (regresyon)', () => {
   let kyc: KycService;
   let members: MembersAdminService;
   let sales: SalesService;
+  let reports: ReportsService;
   let campaigns: CampaignsService;
   let announcements: AnnouncementsService;
 
@@ -49,6 +51,7 @@ describe('audit remediation (regresyon)', () => {
     kyc = moduleRef.get(KycService);
     members = moduleRef.get(MembersAdminService);
     sales = moduleRef.get(SalesService);
+    reports = moduleRef.get(ReportsService);
     campaigns = moduleRef.get(CampaignsService);
     announcements = moduleRef.get(AnnouncementsService);
   });
@@ -235,6 +238,21 @@ describe('audit remediation (regresyon)', () => {
     expect(s.count).toBe(1); // yalniz approved sayilir
     expect(s.sumCents).toBe('1000000'); // void haric
     expect(s.byStatus.void.count).toBe(1); // ama kirilimda gorunur
+  });
+
+  // ---- CROSS-TEST: void sonrasi dashboard commission KPI'si reversal'i netler (analytics ile tutarli) ----
+  it('dashboard: void sonrasi commission KPI reversal i netler (gross degil)', async () => {
+    const tenant = await createTenant(prisma); // on_approval -> payable
+    await createPlan(prisma, tenant.id);
+    const [, seller] = await createChain(prisma, tenant.id, 2);
+    const sale = await createSale(prisma, tenant.id, seller.id, 1_000_000n, { saleDate: new Date('2026-06-15T12:00:00Z') });
+    await engine.approveSale(sale.id);
+    const before = await reports.dashboard(tenant.id, '2026-06');
+    expect(BigInt(before.thisMonth.commissionCents)).toBeGreaterThan(0n);
+    // void -> reversal satirlari + summary dusurulur; KPI artik NET (gross degil)
+    await engine.voidSale(sale.id);
+    const after = await reports.dashboard(tenant.id, '2026-06');
+    expect(BigInt(after.thisMonth.commissionCents)).toBe(0n); // reversal netlendi, sismedi
   });
 
   // ---- HIGH: kampanya finalize atomik claim — eszamanli finalize tek odul yazar ----

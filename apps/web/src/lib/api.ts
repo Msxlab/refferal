@@ -43,6 +43,10 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   if (res.status === 401 && session && retry) {
     const refreshed = await refresh(session);
     if (refreshed) return request<T>(path, init, false);
+    // refresh basarisiz -> oturum temizlendi; bayat ekranda kalmak yerine login'e dondur
+    if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+      window.location.href = '/login';
+    }
     throw new ApiError(401, { message: 'oturum suresi doldu' });
   }
 

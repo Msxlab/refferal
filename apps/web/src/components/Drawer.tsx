@@ -14,9 +14,14 @@ export function Drawer({ title, subtitle, onClose, children, footer, width = 460
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     ref.current?.focus();
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden'; // arka plan scroll'unu kilitle
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
   }, [onClose]);
 
   return (
