@@ -301,7 +301,11 @@ export class WalletService {
     });
 
     if (directs.length === 0) {
-      return { month, currency: tenant.currency, recruits: [], summary: { total: 0, active: 0, needsNudgeCount: 0, joinedThisMonth: 0 } };
+      return {
+        month, currency: tenant.currency, recruits: [],
+        summary: { total: 0, active: 0, needsNudgeCount: 0, joinedThisMonth: 0 },
+        growthTrend: this.monthsBack(month, 6).map((m) => ({ month: m, joined: 0 })),
+      };
     }
 
     // Bu ay onayli satis (recruit'in KENDI sattigi): tek groupBy (dashboard() ile birebir ayni kalip).
@@ -317,6 +321,7 @@ export class WalletService {
     let active = 0;
     let needsNudgeCount = 0;
     let joinedThisMonth = 0;
+    const joinByMonth = new Map<string, number>();
     const recruits = directs.map((d) => {
       const s = salesById.get(d.id);
       const salesThisMonth = s?._count._all ?? 0;
@@ -325,7 +330,9 @@ export class WalletService {
       // nudge sinyali: AKTIF ama bu ay henuz satis yapmamis recruit (pasif=inactive ayri durum).
       const needsNudge = isActive && salesThisMonth === 0;
       if (needsNudge) needsNudgeCount++;
-      if (monthKey(d.joinedAt, tenant.timezone) === month) joinedThisMonth++;
+      const jm = monthKey(d.joinedAt, tenant.timezone);
+      if (jm === month) joinedThisMonth++;
+      joinByMonth.set(jm, (joinByMonth.get(jm) ?? 0) + 1);
       return {
         id: d.id,
         fullName: d.user.fullName,
@@ -339,11 +346,15 @@ export class WalletService {
       };
     });
 
+    // son 6 ay katilim trendi (1. seviye recruit'lerin joinedAt'i — gizlilik-guvenli sayim)
+    const growthTrend = this.monthsBack(month, 6).map((m) => ({ month: m, joined: joinByMonth.get(m) ?? 0 }));
+
     return {
       month,
       currency: tenant.currency,
       recruits,
       summary: { total: recruits.length, active, needsNudgeCount, joinedThisMonth },
+      growthTrend,
     };
   }
 }

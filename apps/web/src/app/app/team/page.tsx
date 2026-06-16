@@ -3,10 +3,16 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import { Bars, CountUp, Loading, MoneyCounter, StatCard } from '@/components/ui';
+import { Bars, CountUp, Loading, MoneyCounter, StatCard, useToast } from '@/components/ui';
 import { RadialNetwork } from '@/components/RadialNetwork';
 import { money, dateShort } from '@/lib/format';
 import { t } from '@/lib/i18n';
+
+/** 'YYYY-MM' → kisa ay etiketi (ör. 'Jun'). */
+function monthShort(ym: string): string {
+  const [y, m] = ym.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { month: 'short' });
+}
 
 interface TeamLevel {
   level: number;
@@ -28,6 +34,7 @@ interface Recruit {
 interface RecruitsResponse {
   month: string; currency: string; recruits: Recruit[];
   summary: { total: number; active: number; needsNudgeCount: number; joinedThisMonth: number };
+  growthTrend: Array<{ month: string; joined: number }>;
 }
 
 export default function TeamPage() {
@@ -35,6 +42,14 @@ export default function TeamPage() {
   const [earn, setEarn] = useState<EarnSummary | null>(null);
   const [recruits, setRecruits] = useState<RecruitsResponse | null>(null);
   const [error, setError] = useState('');
+  const [toast, showToast] = useToast();
+
+  function nudge(r: Recruit) {
+    // MVP: recruit e-postasini panoya kopyala (gercek bildirim gondermez — net mesaj).
+    if (r.email && typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(r.email).then(() => showToast(`${r.fullName}'s email copied — send them a message`)).catch(() => showToast('Could not copy'));
+    }
+  }
 
   useEffect(() => {
     api.get<Team>('/app/team').then(setTeam).catch((e) => setError(String((e as ApiError).message)));
@@ -103,6 +118,13 @@ export default function TeamPage() {
             </div>
           )}
 
+          {recruits.recruits.length > 0 && recruits.growthTrend.some((g) => g.joined > 0) && (
+            <div style={{ margin: '8px 0 14px' }}>
+              <div className="faint" style={{ fontSize: 11, marginBottom: 6 }}>New direct recruits — last 6 months</div>
+              <Bars data={recruits.growthTrend.map((g) => ({ label: monthShort(g.month), value: g.joined }))} />
+            </div>
+          )}
+
           {recruits.recruits.length === 0 ? (
             <div className="muted" style={{ textAlign: 'center', padding: '22px 0' }}>
               You haven&apos;t invited anyone yet.<br />
@@ -110,7 +132,7 @@ export default function TeamPage() {
             </div>
           ) : (
             <table>
-              <thead><tr><th>Member</th><th>Status</th><th>Joined</th><th style={{ textAlign: 'right' }}>Sales (mo)</th><th style={{ textAlign: 'right' }}>Sold (mo)</th></tr></thead>
+              <thead><tr><th>Member</th><th>Status</th><th>Joined</th><th style={{ textAlign: 'right' }}>Sales (mo)</th><th style={{ textAlign: 'right' }}>Sold (mo)</th><th></th></tr></thead>
               <tbody>
                 {recruits.recruits.map((r) => (
                   <tr key={r.id} style={r.needsNudge ? { background: 'color-mix(in srgb, var(--amber) 6%, transparent)' } : undefined}>
@@ -124,6 +146,9 @@ export default function TeamPage() {
                     <td className="tnum" style={{ textAlign: 'right', fontWeight: 600, color: Number(r.soldThisMonthCents) > 0 ? 'var(--gold-500)' : 'var(--faint)' }}>
                       {Number(r.soldThisMonthCents) > 0 ? money(r.soldThisMonthCents, recruits.currency) : '—'}
                     </td>
+                    <td style={{ textAlign: 'right' }}>
+                      {r.needsNudge && <button className="btn ghost sm" onClick={() => nudge(r)} title={`Copy ${r.fullName}'s email`}>👋 Nudge</button>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -136,6 +161,8 @@ export default function TeamPage() {
         Your <strong>direct recruits</strong> — the people you personally invited — are shown by name above.
         Deeper levels of your network are shared only as aggregate counts per level, never individual details.
       </div>
+
+      {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
 }
