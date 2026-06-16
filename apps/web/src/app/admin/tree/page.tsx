@@ -15,8 +15,11 @@ interface Leader {
 
 const ALL = '__all__';
 
+interface LeadersMeta { totalLeaders: number; shownLeaders: number; truncated: boolean }
+
 export default function NetworkPage() {
   const [leaders, setLeaders] = useState<Leader[] | null>(null);
+  const [meta, setMeta] = useState<LeadersMeta | null>(null);
   const [tiers, setTiers] = useState<RankTierLite[]>([]);
   const [root, setRoot] = useState<{ id: string; name: string } | null>(null); // null = liderler landing
   const [nodes, setNodes] = useState<ApiNode[] | null>(null);
@@ -24,7 +27,12 @@ export default function NetworkPage() {
   const [toast, showToast] = useToast();
 
   const loadLeaders = useCallback(() => {
-    api.get<{ leaders: Leader[] }>('/admin/members/leaders').then((r) => setLeaders(r.leaders)).catch((e) => setError(String((e as ApiError).message)));
+    api.get<{ leaders: Leader[] } & Partial<LeadersMeta>>('/admin/members/leaders')
+      .then((r) => {
+        setLeaders(r.leaders);
+        if (r.totalLeaders !== undefined) setMeta({ totalLeaders: r.totalLeaders, shownLeaders: r.shownLeaders ?? r.leaders.length, truncated: !!r.truncated });
+      })
+      .catch((e) => setError(String((e as ApiError).message)));
   }, []);
 
   useEffect(() => {
@@ -73,6 +81,14 @@ export default function NetworkPage() {
       <p className="sub fade-in" style={{ marginBottom: 16 }}>
         Open each leader as its own tree — see their team, sales and <strong>this month&apos;s commission</strong> live. Open any member in the tree and use <em>“Make leader”</em> to mark them a leader.
       </p>
+
+      {meta?.truncated && (
+        <div className="row fade-in" style={{ gap: 8, padding: '8px 12px', borderRadius: 10, marginBottom: 12, fontSize: 13,
+          background: 'color-mix(in srgb, var(--amber) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--amber) 32%, transparent)' }}>
+          <span aria-hidden>⚠</span>
+          <span>Showing the first <strong>{meta.shownLeaders}</strong> of <strong>{meta.totalLeaders}</strong> leaders. Search &amp; pagination are coming soon.</span>
+        </div>
+      )}
 
       {!leaders ? <Loading rows={4} /> : (
         <div className="net-kpis" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>

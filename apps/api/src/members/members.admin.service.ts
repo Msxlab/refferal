@@ -505,7 +505,8 @@ export class MembersAdminService {
         };
       }),
     );
-    return { month, leaders: rows };
+    // Sessiz kirpmayi GORUNUR yap: FE 'N / M gosteriliyor' uyarisi cizebilsin.
+    return { month, totalLeaders: leadersAll.length, shownLeaders: rows.length, truncated: leadersAll.length > MAX_LEADERS, leaders: rows };
   }
 
   async setStatus(actor: ActorContext, membershipId: string, status: MembershipStatus) {
