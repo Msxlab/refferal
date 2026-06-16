@@ -45,6 +45,12 @@ export class WalletController {
     return this.wallet.team(user.mid as string, user.tid as string);
   }
 
+  /** Direkt recruit'ler (1. seviye): isim + bu-ay aktivite + nudge sinyali. Gizlilik: yalniz kendi davet ettikleri. */
+  @Get('team/recruits')
+  recruits(@CurrentUser() user: RequestUser) {
+    return this.wallet.recruits(user.mid as string, user.tid as string);
+  }
+
   /** Gizlilik-uyumlu liderlik: yalniz kendi sirasi + yuzdelik dilim. */
   @Get('leaderboard')
   leaderboard(@CurrentUser() user: RequestUser) {

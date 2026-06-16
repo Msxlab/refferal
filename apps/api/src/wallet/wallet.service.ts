@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { LedgerStatus, LedgerType, SaleStatus } from '@prisma/client';
+import { LedgerStatus, LedgerType, MembershipStatus, SaleStatus } from '@prisma/client';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -270,5 +270,80 @@ export class WalletService {
     }
 
     return { totalMembers, totalActive, levels };
+  }
+
+  /**
+   * DIREKT recruit'ler: uyenin KENDI davet ettigi 1. seviye uyeler (sponsorMembershipId = me).
+   * GIZLILIK: bu yuzey team()'den FARKLI — burada isim donebilir cunku uye onlari kendisi davet etti
+   * (gizlilik kisiti DERIN downline icindir, direkt recruit'ler degil). 2+ seviye derin ASLA isimle
+   * donmez; bunun icin team() agregati kullanilir. Tum sorgular SALT-OKUNUR (yerlesim/path'e dokunmaz).
+   */
+  async recruits(membershipId: string, tenantId: string) {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    const month = monthKey(new Date(), tenant.timezone);
+
+    const me = await this.prisma.membership.findFirst({ where: { id: membershipId, tenantId }, select: { id: true } });
+    if (!me) {
+      throw new NotFoundException('uyelik bulunamadi');
+    }
+
+    // 1. seviye: [tenantId, sponsorMembershipId] index'i (schema.prisma) kullanilir.
+    const directs = await this.prisma.membership.findMany({
+      where: { tenantId, sponsorMembershipId: membershipId },
+      select: {
+        id: true,
+        referralCode: true,
+        status: true,
+        joinedAt: true,
+        user: { select: { fullName: true, email: true } },
+      },
+      orderBy: { joinedAt: 'asc' },
+    });
+
+    if (directs.length === 0) {
+      return { month, currency: tenant.currency, recruits: [], summary: { total: 0, active: 0, needsNudgeCount: 0, joinedThisMonth: 0 } };
+    }
+
+    // Bu ay onayli satis (recruit'in KENDI sattigi): tek groupBy (dashboard() ile birebir ayni kalip).
+    const ids = directs.map((d) => d.id);
+    const salesRows = await this.prisma.sale.groupBy({
+      by: ['sellerMembershipId'],
+      where: { tenantId, status: SaleStatus.approved, summaryMonth: month, sellerMembershipId: { in: ids } },
+      _sum: { amountCents: true },
+      _count: { _all: true },
+    });
+    const salesById = new Map(salesRows.map((r) => [r.sellerMembershipId, r]));
+
+    let active = 0;
+    let needsNudgeCount = 0;
+    let joinedThisMonth = 0;
+    const recruits = directs.map((d) => {
+      const s = salesById.get(d.id);
+      const salesThisMonth = s?._count._all ?? 0;
+      const isActive = d.status === MembershipStatus.active;
+      if (isActive) active++;
+      // nudge sinyali: AKTIF ama bu ay henuz satis yapmamis recruit (pasif=inactive ayri durum).
+      const needsNudge = isActive && salesThisMonth === 0;
+      if (needsNudge) needsNudgeCount++;
+      if (monthKey(d.joinedAt, tenant.timezone) === month) joinedThisMonth++;
+      return {
+        id: d.id,
+        fullName: d.user.fullName,
+        email: d.user.email,
+        referralCode: d.referralCode,
+        status: d.status,
+        joinedAt: d.joinedAt,
+        salesThisMonth,
+        soldThisMonthCents: (s?._sum.amountCents ?? 0n).toString(),
+        needsNudge,
+      };
+    });
+
+    return {
+      month,
+      currency: tenant.currency,
+      recruits,
+      summary: { total: recruits.length, active, needsNudgeCount, joinedThisMonth },
+    };
   }
 }
