@@ -509,6 +509,67 @@ export class MembersAdminService {
     return { month, totalLeaders: leadersAll.length, shownLeaders: rows.length, truncated: leadersAll.length > MAX_LEADERS, leaders: rows };
   }
 
+  /**
+   * Ag saglik panosu (salt-okunur agregat): pasif kume, bu-ay satissiz aktif uye orani.
+   * STAFF/ADMIN yuzeyi — isim+sayim doner; member-facing /app/team gizlilik kontratindan AYRI.
+   * Tum sorgular salt-okunur (yerlesim/path'e dokunmaz).
+   */
+  async networkHealth(tenantId: string) {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    const month = monthKey(new Date(), tenant.timezone);
+
+    // 1) durum dagilimi
+    const statusRows = await this.prisma.membership.groupBy({ by: ['status'], where: { tenantId }, _count: { _all: true } });
+    const members = statusRows.reduce((a, r) => a + r._count._all, 0);
+    const active = statusRows.find((r) => r.status === MembershipStatus.active)?._count._all ?? 0;
+    const inactive = members - active;
+
+    // 2) bu ay onayli satis yapan DISTINCT satici -> satissiz aktif uye orani (retention sinyali)
+    const sellers = await this.prisma.sale.findMany({
+      where: { tenantId, status: SaleStatus.approved, summaryMonth: month },
+      distinct: ['sellerMembershipId'],
+      select: { sellerMembershipId: true },
+    });
+    const noSaleCount = Math.max(0, active - sellers.length);
+    const noSaleActive = { count: noSaleCount, total: active, pct: active > 0 ? Math.round((noSaleCount / active) * 100) : 0 };
+
+    // 3) pasif kumeler: lider (isTeamLeader|root), ekibi var ama alt-agaci BU AY $0 satis
+    const leaders = await this.prisma.membership.findMany({
+      where: { tenantId, OR: [{ isTeamLeader: true }, { sponsorMembershipId: null }] },
+      orderBy: [{ depth: 'asc' }, { joinedAt: 'asc' }],
+      take: 200,
+      select: { id: true, referralCode: true, user: { select: { fullName: true } } },
+    });
+    let dormantClusters: Array<{ leaderId: string; leaderName: string; referralCode: string; teamSize: number }> = [];
+    if (leaders.length > 0) {
+      const leaderIds = leaders.map((l) => l.id);
+      // ekip boyu (kendisi haric) — tek ltree self-join
+      const teamRows = await this.prisma.$queryRaw<Array<{ id: string; team: bigint }>>(Prisma.sql`
+        SELECT l.id::text AS id, count(d.id)::bigint AS team
+        FROM memberships l
+        JOIN memberships d ON d.tenant_id = l.tenant_id AND d.path::ltree <@ l.path::ltree
+        WHERE l.tenant_id = ${tenantId}::uuid AND l.id::text IN (${Prisma.join(leaderIds)})
+        GROUP BY l.id`);
+      const teamById = new Map(teamRows.map((r) => [r.id, Math.max(0, Number(r.team) - 1)]));
+      // bu ay alt-agacta >=1 onayli satisi olan liderler
+      const soldRows = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT DISTINCT l.id::text AS id
+        FROM memberships l
+        JOIN memberships d ON d.tenant_id = l.tenant_id AND d.path::ltree <@ l.path::ltree
+        JOIN sales s ON s.tenant_id = l.tenant_id AND s.seller_membership_id = d.id
+          AND s.status = ${SaleStatus.approved}::"SaleStatus" AND s.summary_month = ${month}
+        WHERE l.tenant_id = ${tenantId}::uuid AND l.id::text IN (${Prisma.join(leaderIds)})`);
+      const soldLeaderIds = new Set(soldRows.map((r) => r.id));
+      dormantClusters = leaders
+        .filter((l) => !soldLeaderIds.has(l.id) && (teamById.get(l.id) ?? 0) > 0)
+        .map((l) => ({ leaderId: l.id, leaderName: l.user.fullName, referralCode: l.referralCode, teamSize: teamById.get(l.id) ?? 0 }))
+        .sort((a, b) => b.teamSize - a.teamSize)
+        .slice(0, 20);
+    }
+
+    return { month, totals: { members, active, inactive }, noSaleActive, dormantClusters };
+  }
+
   async setStatus(actor: ActorContext, membershipId: string, status: MembershipStatus) {
     const m = await this.requireInTenant(actor.tenantId, membershipId);
     // owner pasife alinamaz: tenant'i aktif owner'siz birakmayi onler (setRole owner-guard'i ile simetrik)

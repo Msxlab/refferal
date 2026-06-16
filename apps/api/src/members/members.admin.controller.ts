@@ -84,6 +84,13 @@ export class MembersAdminController {
     return this.members.leaders(user.tid as string);
   }
 
+  // ag saglik panosu (pasif kume + satissiz aktif uye orani). Statik route — ':id'den ONCE.
+  @Roles(...STAFF)
+  @Get('network-health')
+  networkHealth(@CurrentUser() user: RequestUser) {
+    return this.members.networkHealth(user.tid as string);
+  }
+
   @Roles(...STAFF)
   @Get('export.csv')
   @Header('Content-Type', 'text/csv; charset=utf-8')

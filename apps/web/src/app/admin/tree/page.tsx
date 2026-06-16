@@ -17,9 +17,18 @@ const ALL = '__all__';
 
 interface LeadersMeta { totalLeaders: number; shownLeaders: number; truncated: boolean }
 
+interface DormantCluster { leaderId: string; leaderName: string; referralCode: string; teamSize: number }
+interface NetworkHealth {
+  month: string;
+  totals: { members: number; active: number; inactive: number };
+  noSaleActive: { count: number; total: number; pct: number };
+  dormantClusters: DormantCluster[];
+}
+
 export default function NetworkPage() {
   const [leaders, setLeaders] = useState<Leader[] | null>(null);
   const [meta, setMeta] = useState<LeadersMeta | null>(null);
+  const [health, setHealth] = useState<NetworkHealth | null>(null);
   const [tiers, setTiers] = useState<RankTierLite[]>([]);
   const [root, setRoot] = useState<{ id: string; name: string } | null>(null); // null = liderler landing
   const [nodes, setNodes] = useState<ApiNode[] | null>(null);
@@ -38,6 +47,7 @@ export default function NetworkPage() {
   useEffect(() => {
     loadLeaders();
     api.get<{ tiers: RankTierLite[] }>('/admin/ranks').then((r) => setTiers(r.tiers)).catch(() => { /* opsiyonel */ });
+    api.get<NetworkHealth>('/admin/members/network-health').then(setHealth).catch(() => { /* opsiyonel */ });
   }, [loadLeaders]);
 
   const openTree = useCallback((rootId: string | null, name: string) => {
@@ -87,6 +97,35 @@ export default function NetworkPage() {
           background: 'color-mix(in srgb, var(--amber) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--amber) 32%, transparent)' }}>
           <span aria-hidden>⚠</span>
           <span>Showing the first <strong>{meta.shownLeaders}</strong> of <strong>{meta.totalLeaders}</strong> leaders. Search &amp; pagination are coming soon.</span>
+        </div>
+      )}
+
+      {/* ---- ag saglik seridi ---- */}
+      {health && (
+        <div className="card fade-in" style={{ marginBottom: 16 }}>
+          <div className="net-kpis" style={{ marginBottom: health.dormantClusters.length > 0 ? 14 : 0 }}>
+            <div className="net-kpi"><span className="faint" style={{ fontSize: 11 }}>Members</span><div style={{ fontWeight: 750, fontSize: 17 }}>⬡ {health.totals.members}</div></div>
+            <div className="net-kpi"><span className="faint" style={{ fontSize: 11 }}>Active</span><div style={{ fontWeight: 750, fontSize: 17 }}>● {health.totals.active}<span className="faint" style={{ fontSize: 11, fontWeight: 400 }}> / {health.totals.inactive} inactive</span></div></div>
+            <div className="net-kpi">
+              <span className="faint" style={{ fontSize: 11 }}>No sale this month</span>
+              <div style={{ fontWeight: 750, fontSize: 17, color: health.noSaleActive.pct >= 50 ? 'var(--amber)' : 'var(--text)' }}>
+                {health.noSaleActive.pct}%<span className="faint" style={{ fontSize: 11, fontWeight: 400 }}> ({health.noSaleActive.count}/{health.noSaleActive.total} active)</span>
+              </div>
+            </div>
+            <div className="net-kpi"><span className="faint" style={{ fontSize: 11 }}>Dormant teams</span><div style={{ fontWeight: 750, fontSize: 17, color: health.dormantClusters.length > 0 ? 'var(--amber)' : 'var(--emerald)' }}>{health.dormantClusters.length}</div></div>
+          </div>
+          {health.dormantClusters.length > 0 && (
+            <div>
+              <div className="faint" style={{ fontSize: 11, marginBottom: 6 }}>Teams with no group sales this month — open to investigate:</div>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                {health.dormantClusters.map((d) => (
+                  <button key={d.leaderId} className="btn ghost sm" onClick={() => openTree(d.leaderId, d.leaderName)} title={`${d.referralCode} · team of ${d.teamSize}`}>
+                    {d.leaderName} <span className="faint">⬡{d.teamSize}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
