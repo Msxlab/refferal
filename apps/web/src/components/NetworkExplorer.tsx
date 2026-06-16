@@ -6,6 +6,8 @@ import { stratify, tree } from 'd3-hierarchy';
 import { toPng } from 'html-to-image';
 import '@xyflow/react/dist/style.css';
 import { Drawer } from '@/components/Drawer';
+import { PrintSheet, PrintHeader } from '@/components/PrintSheet';
+import { activeMembership, getSession } from '@/lib/auth';
 
 export interface ApiNode {
   id: string;
@@ -109,7 +111,9 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<'dark' | 'light'>('dark');
   const [heat, setHeat] = useState<'none' | 'revenue' | 'earnings'>('none');
+  const [printing, setPrinting] = useState(false);
   const flowRef = useRef<HTMLDivElement>(null);
+  const tenantName = useMemo(() => { const s = getSession(); return (s && activeMembership(s)?.tenantName) || 'Refearn'; }, []);
   const toggleExpand = (id: string) => setExpanded((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   // bu ay ciro var mi? (tree ucu doldurur; platform ag verisinde olmayabilir)
@@ -332,6 +336,18 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
 
   const parentIds = useMemo(() => subtree.filter((n) => (childrenOf.get(n.id) ?? []).length > 0).map((n) => n.id), [subtree, childrenOf]);
 
+  // yazdirma icin: odaklanilan kapsamin TAM (expand'den bagimsiz) derinlik-girintili dokumu
+  const printRows = useMemo(() => {
+    const out: Array<{ n: ApiNode; rel: number }> = [];
+    const walk = (n: ApiNode, rel: number) => {
+      out.push({ n, rel });
+      for (const c of sortKids(n)) walk(c, rel + 1);
+    };
+    roots.forEach((r) => walk(r, 0));
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roots, childrenOf]);
+
   return (
     <div>
       {/* ---- ag analitigi seridi ---- */}
@@ -367,6 +383,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
           >◉ Heat: {heat === 'none' ? 'off' : heat === 'revenue' ? 'revenue' : 'earnings'}</button>
         )}
         <button className="btn ghost sm" onClick={exportCsv}>⇩ CSV</button>
+        <button className="btn ghost sm" onClick={() => setPrinting(true)}>⇩ Print</button>
         {view === 'tree' && <button className="btn ghost sm" onClick={exportPng}>⇩ PNG</button>}
         <span className="faint" style={{ fontSize: 12 }}>{subtree.length} {subtree.length === 1 ? 'person' : 'people'}</span>
       </div>
@@ -490,6 +507,40 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
             )}
           </div>
         </Drawer>
+      )}
+
+      {printing && (
+        <PrintSheet onDone={() => setPrinting(false)}>
+          <PrintHeader tenantName={tenantName} title="Network Genealogy" subtitle={`${title} · ${printRows.length} people`} />
+          <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #999', textAlign: 'left' }}>
+                <th style={{ padding: '4px 6px' }}>Member</th>
+                <th style={{ padding: '4px 6px' }}>Code</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right' }}>Lvl</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right' }}>Direct</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right' }}>Team</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right' }}>Revenue (mo)</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right' }}>Commission (mo)</th>
+                <th style={{ padding: '4px 6px' }}>Rank</th>
+              </tr>
+            </thead>
+            <tbody>
+              {printRows.map(({ n, rel }) => (
+                <tr key={n.id} style={{ borderBottom: '1px solid #eee', breakInside: 'avoid' }}>
+                  <td style={{ padding: `3px 6px 3px ${6 + rel * 16}px` }}>{rel > 0 ? '└ ' : ''}{n.fullName}{n.isTeamLeader ? ' 🎖' : ''}</td>
+                  <td style={{ padding: '3px 6px', fontFamily: 'ui-monospace, monospace' }}>{n.referralCode}</td>
+                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{n.depth}</td>
+                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{(childrenOf.get(n.id) ?? []).length}</td>
+                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{teamOf(n.id)}</td>
+                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{compactMoney(Number(n.revenueCents ?? 0))}</td>
+                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{compactMoney(Number(n.monthlyCommissionCents ?? 0))}</td>
+                  <td style={{ padding: '3px 6px' }}>{rankOf(n.id) ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </PrintSheet>
       )}
     </div>
   );
