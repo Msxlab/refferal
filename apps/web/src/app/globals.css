@@ -229,6 +229,11 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px
 
 /* ---------------------------------------------------------------- tables */
 table { width: 100%; border-collapse: collapse; }
+/* Genis veri tablolari, kapsayici kartin icinde yatay KAYDIRILIR — herhangi bir
+   ekran genisliginde (dar laptop/tablet/mobil) sayfa yana kaymaz, Role/Status/Actions
+   gibi sag kolonlar ekran disinda kirpilmaz, parmakla/trackpad'le kaydirilir.
+   Yalniz tablo iceren kartlar hedeflenir (acilir menulu/popover'li kartlar etkilenmez). */
+.card:has(table) { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
 th { color: var(--faint); font-weight: 650; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
 tbody tr { transition: background var(--dur-fast) ease; }
@@ -308,7 +313,9 @@ tr:last-child td { border-bottom: none; }
 .side nav a .ic { width: 18px; text-align: center; opacity: .9; }
 .side nav a.active .ic { color: var(--brand); }
 .side .foot { margin-top: 26px; padding: 14px 12px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--border); }
-.main { padding: 30px 34px; max-width: 1140px; }
+/* min-width:0: grid 1fr kolonu, icindeki genis tablonun min-content'i yuzunden viewport'u
+   ASMASIN; kolon kendi payinda kalir, genis tablo .card icinde yatay kaydirilir (bkz. .card:has(table)). */
+.main { padding: 30px 34px; max-width: 1140px; min-width: 0; }
 
 .topbar { position: sticky; top: 0; z-index: 40; border-bottom: 1px solid var(--border); background: var(--bg-1); }
 .topbar .inner { max-width: 860px; margin: 0 auto; display: flex; align-items: center; gap: 18px; padding: 14px 18px; }
@@ -335,7 +342,8 @@ tr:last-child td { border-bottom: none; }
 @media (max-width: 720px) {
   .shell { grid-template-columns: 1fr; }
   .side { display: none; }
-  .main { padding: 20px 16px; }
+  .main { padding: 20px 16px; max-width: 100%; }
+  .modal { max-width: 100%; }
 }
 
 /* ------------------------------------------------- yogunluk (compact tablo) */
