@@ -454,31 +454,34 @@ export class MembersAdminService {
       orderBy: [{ depth: 'asc' }, { joinedAt: 'asc' }],
       include: { user: { select: { fullName: true } } },
     });
-    // Sinir: cok sayida lider varsa N round-trip'i sinirla (landing performansi).
-    // Asimda log + kirpma yapilir; donen sekil degismez (sirali: depth/joinedAt).
-    const MAX_LEADERS = 200;
-    const leaders = leadersAll.slice(0, MAX_LEADERS);
-    if (leadersAll.length > MAX_LEADERS) {
-      this.logger.warn(`leaders(): tenant ${tenantId} icin ${leadersAll.length} lider, ${MAX_LEADERS} ile kirpildi`);
+    // Yumusak ust sinir (eski hard 200 yerine): cok-buyuk tenant'ta render'i koru, asimi truncated ile bildir.
+    const SOFT_CAP = 500;
+    const leaders = leadersAll.slice(0, SOFT_CAP);
+    if (leadersAll.length > SOFT_CAP) {
+      this.logger.warn(`leaders(): tenant ${tenantId} icin ${leadersAll.length} lider, ${SOFT_CAP} ile gosterildi`);
     }
 
-    const rows = await Promise.all(
-      leaders.map(async (l) => {
-        // Tek round-trip: alt-agac (ltree path <@ lider.path) uzerinden ekip boyu +
-        // bu-ay grup cirosu (onayli sales) + bu-ay grup komisyonu (monthly_summaries).
-        // Toplamlar ::bigint cast'li — $queryRaw native bigint dondursun (para BigInt kalir).
-        const agg = await this.prisma.$queryRaw<
-          Array<{ team_size: bigint; vol_cents: bigint; comm_cents: bigint }>
-        >`
+    // Eskiden lider-basina ayri $queryRaw (N round-trip) vardi -> TEK lateral sorgu.
+    // Ayni agregasyon (ltree alt-agac: ekip boyu + bu-ay grup cirosu + grup komisyonu),
+    // gosterilen liderlerle sinirli. Toplamlar ::bigint (para BigInt kalir).
+    const aggById = new Map<string, { team_size: bigint; vol_cents: bigint; comm_cents: bigint }>();
+    if (leaders.length > 0) {
+      const ids = leaders.map((l) => l.id);
+      const aggRows = await this.prisma.$queryRaw<
+        Array<{ leader_id: string; team_size: bigint; vol_cents: bigint; comm_cents: bigint }>
+      >(Prisma.sql`
+        SELECT l.id::text AS leader_id, agg.team_size, agg.vol_cents, agg.comm_cents
+        FROM memberships l
+        CROSS JOIN LATERAL (
           WITH sub AS (
             SELECT id FROM memberships
-            WHERE tenant_id = ${tenantId}::uuid AND path::ltree <@ ${l.path}::ltree
+            WHERE tenant_id = l.tenant_id AND path::ltree <@ l.path::ltree
           )
           SELECT
             (SELECT count(*)::bigint FROM sub) AS team_size,
             COALESCE((
               SELECT sum(s.amount_cents)::bigint FROM sales s
-              WHERE s.tenant_id = ${tenantId}::uuid
+              WHERE s.tenant_id = l.tenant_id
                 AND s.status = ${SaleStatus.approved}::"SaleStatus"
                 AND s.summary_month = ${month}
                 AND s.seller_membership_id IN (SELECT id FROM sub)
@@ -486,27 +489,32 @@ export class MembersAdminService {
             COALESCE((
               SELECT sum(ms.pending_cents + ms.payable_cents + ms.paid_cents)::bigint
               FROM monthly_summaries ms
-              WHERE ms.tenant_id = ${tenantId}::uuid
+              WHERE ms.tenant_id = l.tenant_id
                 AND ms.month = ${month}
                 AND ms.membership_id IN (SELECT id FROM sub)
-            ), 0)::bigint AS comm_cents`;
-        const r = agg[0];
-        const teamSize = Number(r?.team_size ?? 0n) - 1; // kendisi haric
-        return {
-          id: l.id,
-          fullName: l.user.fullName,
-          referralCode: l.referralCode,
-          role: l.role,
-          isTeamLeader: l.isTeamLeader,
-          isOwnerRoot: l.sponsorMembershipId === null && !l.isTeamLeader,
-          teamSize: Math.max(0, teamSize),
-          monthlyGroupVolumeCents: (r?.vol_cents ?? 0n).toString(),
-          monthlyGroupCommissionCents: (r?.comm_cents ?? 0n).toString(),
-        };
-      }),
-    );
+            ), 0)::bigint AS comm_cents
+        ) agg
+        WHERE l.tenant_id = ${tenantId}::uuid AND l.id::text IN (${Prisma.join(ids)})`);
+      for (const r of aggRows) aggById.set(r.leader_id, { team_size: r.team_size, vol_cents: r.vol_cents, comm_cents: r.comm_cents });
+    }
+
+    const rows = leaders.map((l) => {
+      const r = aggById.get(l.id);
+      const teamSize = Number(r?.team_size ?? 0n) - 1; // sub kendini de sayar -> kendisi haric
+      return {
+        id: l.id,
+        fullName: l.user.fullName,
+        referralCode: l.referralCode,
+        role: l.role,
+        isTeamLeader: l.isTeamLeader,
+        isOwnerRoot: l.sponsorMembershipId === null && !l.isTeamLeader,
+        teamSize: Math.max(0, teamSize),
+        monthlyGroupVolumeCents: (r?.vol_cents ?? 0n).toString(),
+        monthlyGroupCommissionCents: (r?.comm_cents ?? 0n).toString(),
+      };
+    });
     // Sessiz kirpmayi GORUNUR yap: FE 'N / M gosteriliyor' uyarisi cizebilsin.
-    return { month, totalLeaders: leadersAll.length, shownLeaders: rows.length, truncated: leadersAll.length > MAX_LEADERS, leaders: rows };
+    return { month, totalLeaders: leadersAll.length, shownLeaders: rows.length, truncated: leadersAll.length > SOFT_CAP, leaders: rows };
   }
 
   /**
