@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { CurrentUser } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
 import { ZodValidationPipe } from '../common/zod.pipe';
@@ -69,5 +69,23 @@ export class AccountController {
     @Body(new ZodValidationPipe(disable2faSchema)) body: Disable2faInput,
   ) {
     return this.account.disable2fa(user.sub, body);
+  }
+
+  // ---- Aktif oturumlar ----
+
+  @Get('sessions')
+  sessions(@CurrentUser() user: RequestUser) {
+    return this.account.listSessions(user.sub, user.sid);
+  }
+
+  @HttpCode(200)
+  @Post('sessions/revoke-others')
+  revokeOthers(@CurrentUser() user: RequestUser) {
+    return this.account.revokeOtherSessions(user.sub, user.sid);
+  }
+
+  @Delete('sessions/:id')
+  revokeSession(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.account.revokeSession(user.sub, id);
   }
 }

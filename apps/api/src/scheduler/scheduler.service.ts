@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { CampaignsService } from '../campaigns/campaigns.service';
 import { EngineService } from '../engine/engine.service';
 import { FraudService } from '../fraud/fraud.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { ReportsService } from '../reports/reports.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 
@@ -22,7 +23,22 @@ export class SchedulerService {
     private readonly fraud: FraudService,
     private readonly webhooks: WebhooksService,
     private readonly campaigns: CampaignsService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  /** Gece: 30 gunden eski iptal/suresi-dolmus refresh token'lari sil (tablo sinirsiz buyumesin). */
+  @Cron(CronExpression.EVERY_DAY_AT_4AM, { name: 'cleanup-refresh-tokens' })
+  async cleanupRefreshTokens(): Promise<void> {
+    try {
+      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const { count } = await this.prisma.refreshToken.deleteMany({
+        where: { OR: [{ revokedAt: { lt: cutoff } }, { expiresAt: { lt: cutoff } }] },
+      });
+      if (count > 0) this.logger.log(`eski refresh token temizlendi: ${count}`);
+    } catch (err) {
+      this.logger.error('cleanupRefreshTokens job hatasi', err instanceof Error ? err.stack : String(err));
+    }
+  }
 
   /** Saatlik: penceresi biten kampanyalari otomatik finalize et (Dalga 5.2). */
   @Cron(CronExpression.EVERY_HOUR, { name: 'auto-finalize-campaigns' })

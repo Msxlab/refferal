@@ -16,6 +16,24 @@ function newRecoveryCode(): string {
   return `${c.slice(0, 5)}-${c.slice(5)}`;
 }
 
+/** userAgent -> okunabilir cihaz etiketi ("Chrome on Windows"). Harici dep yok, kaba ama yeterli. */
+function deviceLabel(ua: string | null): string {
+  if (!ua) return 'Unknown device';
+  const browser = /Edg\//.test(ua) ? 'Edge'
+    : /OPR\/|Opera/.test(ua) ? 'Opera'
+    : /Chrome\//.test(ua) ? 'Chrome'
+    : /Firefox\//.test(ua) ? 'Firefox'
+    : /Safari\//.test(ua) ? 'Safari'
+    : 'Browser';
+  const os = /Windows/.test(ua) ? 'Windows'
+    : /Mac OS X|Macintosh/.test(ua) ? 'macOS'
+    : /Android/.test(ua) ? 'Android'
+    : /iPhone|iPad|iPod/.test(ua) ? 'iOS'
+    : /Linux/.test(ua) ? 'Linux'
+    : '';
+  return os ? `${browser} on ${os}` : browser;
+}
+
 /**
  * Kullanici KENDI hesabi (membership-bagimsiz). Authenticated; admin'in baska uyeyi
  * duzenledigi members.admin.updateProfile'dan AYRI — burada principal yalniz kendini gunceller.
@@ -132,5 +150,50 @@ export class AccountService {
     }
     await this.prisma.user.update({ where: { id: userId }, data: { totpSecret: null, totpEnabledAt: null, mfaRecoveryCodes: Prisma.DbNull } });
     return { disabled: true };
+  }
+
+  // ---- Aktif oturumlar (cihazlar) ----
+
+  /** Kullanicinin aktif oturumlari (familyId basina tek). currentSid = bu access token'in sid'i. */
+  async listSessions(userId: string, currentSid?: string) {
+    const tokens = await this.prisma.refreshToken.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, familyId: true, ip: true, userAgent: true, createdAt: true },
+    });
+    // familyId basina TEK oturum (en yeni token = rotasyon ucu). familyId yoksa (migration oncesi) id'yi family say.
+    const byFamily = new Map<string, (typeof tokens)[number]>();
+    for (const t of tokens) {
+      const fam = t.familyId ?? t.id;
+      if (!byFamily.has(fam)) byFamily.set(fam, t); // tokens createdAt desc -> ilk gorulen = en yeni
+    }
+    const sessions = [...byFamily.entries()].map(([fam, t]) => ({
+      id: fam,
+      device: deviceLabel(t.userAgent),
+      ip: t.ip,
+      lastActive: t.createdAt, // refresh her ~15dk rotates -> son token ~ son aktivite
+      current: !!currentSid && fam === currentSid,
+    }));
+    sessions.sort((a, b) => (b.current ? 1 : 0) - (a.current ? 1 : 0) || (b.lastActive > a.lastActive ? 1 : -1));
+    return { sessions };
+  }
+
+  /** Tek oturumu kapat: o family'nin (ya da migration-oncesi id eslesen) tum token'larini iptal et. */
+  async revokeSession(userId: string, familyId: string) {
+    const res = await this.prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null, OR: [{ familyId }, { id: familyId }] },
+      data: { revokedAt: new Date() },
+    });
+    return { revoked: res.count };
+  }
+
+  /** "Diger tum cihazlardan cik": mevcut oturum (sid) HARIC tum aktif token'lari iptal et. */
+  async revokeOtherSessions(userId: string, currentSid?: string) {
+    const where: Prisma.RefreshTokenWhereInput = { userId, revokedAt: null };
+    // currentSid disindaki HER SEYI iptal et — NULL familyId (migration-oncesi) DAHIL.
+    // (SQL'de family_id <> sid NULL'lari disladigi icin acik OR ile NULL'lari da kapsa.)
+    if (currentSid) where.OR = [{ familyId: { not: currentSid } }, { familyId: null }];
+    const res = await this.prisma.refreshToken.updateMany({ where, data: { revokedAt: new Date() } });
+    return { revoked: res.count };
   }
 }

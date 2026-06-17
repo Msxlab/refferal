@@ -24,7 +24,7 @@ describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
     prisma = new PrismaService();
     await prisma.$connect();
     engine = new EngineService(prisma, new RanksService(prisma));
-    scheduler = new SchedulerService(engine, new ReportsService(prisma), new FraudService(prisma), new WebhooksService(prisma), new CampaignsService(prisma, engine));
+    scheduler = new SchedulerService(engine, new ReportsService(prisma), new FraudService(prisma), new WebhooksService(prisma), new CampaignsService(prisma, engine), prisma);
   });
 
   afterAll(async () => {

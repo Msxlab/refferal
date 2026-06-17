@@ -12,6 +12,8 @@ export interface AccessTokenPayload {
   perms?: string[];
   // platform sahibi (kiracci-ustu) — yalnizca true iken gomulur.
   plat?: boolean;
+  // oturum (cihaz) kimligi = refresh-token familyId. "aktif oturumlar"da current'i isaretler.
+  sid?: string;
   // impersonation: dolu ise bu token bir admin'in (imp = admin userId) uye adina actigi
   // SALT-OKUNUR oturumdur. Guard GET disi tum istekleri reddeder.
   imp?: string;

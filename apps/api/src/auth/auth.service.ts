@@ -6,6 +6,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { JwtService } from '@nestjs/jwt';
 import { hash, verify } from '@node-rs/argon2';
 import { authenticator } from 'otplib';
@@ -303,12 +304,14 @@ export class AuthService {
       throw new UnauthorizedException('refresh token suresi dolmus');
     }
 
+    const familyId = token.familyId ?? randomUUID(); // ayni oturum (cihaz) — eski token'da yoksa (migration oncesi) yeni ata
     return this.prisma.$transaction(async (tx) => {
       const newRaw = randomToken();
       const newToken = await tx.refreshToken.create({
         data: {
           userId: token.userId,
           tokenHash: sha256(newRaw),
+          familyId,
           expiresAt: new Date(Date.now() + authConfig.refreshTtlMs),
           ip: meta.ip,
           userAgent: meta.userAgent,
@@ -322,7 +325,7 @@ export class AuthService {
       if (rotated.count === 0) {
         throw new UnauthorizedException('refresh token zaten kullanilmis');
       }
-      return this.buildSession(tx, token.userId, newRaw);
+      return this.buildSession(tx, token.userId, newRaw, familyId);
     });
   }
 
@@ -335,7 +338,7 @@ export class AuthService {
   }
 
   /** Coklu uyelikte tenant secimi; "son secim hatirlanir" (SPEC 4.1). */
-  async switchTenant(userId: string, membershipId: string): Promise<{ accessToken: string; activeMembershipId: string }> {
+  async switchTenant(userId: string, membershipId: string, sid?: string): Promise<{ accessToken: string; activeMembershipId: string }> {
     const membership = await this.prisma.membership.findFirst({
       where: {
         id: membershipId,
@@ -355,7 +358,7 @@ export class AuthService {
       where: { id: userId },
       data: { lastMembershipId: membership.id },
     });
-    const accessToken = await this.signAccess(user, membership);
+    const accessToken = await this.signAccess(user, membership, sid);
     return { accessToken, activeMembershipId: membership.id };
   }
 
@@ -441,17 +444,19 @@ export class AuthService {
 
   private async issueSession(userId: string, meta: RequestMeta): Promise<AuthSession> {
     const raw = randomToken();
+    const familyId = randomUUID(); // yeni oturum (cihaz) — rotasyon boyunca sabit kalir
     return this.prisma.$transaction(async (tx) => {
       await tx.refreshToken.create({
         data: {
           userId,
           tokenHash: sha256(raw),
+          familyId,
           expiresAt: new Date(Date.now() + authConfig.refreshTtlMs),
           ip: meta.ip,
           userAgent: meta.userAgent,
         },
       });
-      return this.buildSession(tx, userId, raw);
+      return this.buildSession(tx, userId, raw, familyId);
     });
   }
 
@@ -459,6 +464,7 @@ export class AuthService {
     tx: Prisma.TransactionClient,
     userId: string,
     refreshTokenRaw: string,
+    familyId: string,
   ): Promise<AuthSession> {
     const user = await tx.user.findUniqueOrThrow({
       where: { id: userId },
@@ -481,7 +487,7 @@ export class AuthService {
       await tx.user.update({ where: { id: user.id }, data: { lastMembershipId: active.id } });
     }
 
-    const accessToken = await this.signAccess(user, active);
+    const accessToken = await this.signAccess(user, active, familyId);
     const memberships: MembershipSummary[] = list.map((m) => ({
       id: m.id,
       tenantId: m.tenant.id,
@@ -508,13 +514,14 @@ export class AuthService {
     };
   }
 
-  private signAccess(user: Pick<User, 'id' | 'isPlatformAdmin'>, membership: ActiveMembership | null): Promise<string> {
+  private signAccess(user: Pick<User, 'id' | 'isPlatformAdmin'>, membership: ActiveMembership | null, familyId?: string): Promise<string> {
     const payload: AccessTokenPayload = {
       sub: user.id,
       mid: membership?.id ?? null,
       tid: membership?.tenant.id ?? null,
       role: membership?.role ?? null,
     };
+    if (familyId) payload.sid = familyId; // oturum (cihaz) kimligi — switchTenant'ta mevcut sid korunur
     if (user.isPlatformAdmin) payload.plat = true;
     // owner/platform → perms gomulmez (guard tum-izinli sayar). Diger katmanlarda
     // ozel rolun izinleri, yoksa enum katmaninin varsayilanlari token'a yazilir.

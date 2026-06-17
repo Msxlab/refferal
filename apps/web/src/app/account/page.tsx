@@ -7,10 +7,15 @@ import { QRCodeSVG } from 'qrcode.react';
 import { api, ApiError } from '@/lib/api';
 import { activeMembership, getSession, isAdminRole, setSession } from '@/lib/auth';
 import { Brand, Loading, ThemeToggle, useToast } from '@/components/ui';
+import { dateShort } from '@/lib/format';
 
 interface Account {
   id: string; email: string; fullName: string; locale: string; avatarPath: string | null;
   emailVerified: boolean; twoFactorEnabled: boolean; createdAt: string;
+}
+
+interface SessionRow {
+  id: string; device: string; ip: string | null; lastActive: string; current: boolean;
 }
 
 export default function AccountPage() {
@@ -77,6 +82,20 @@ export default function AccountPage() {
     }
   }
 
+  // aktif oturumlar
+  const [sessions, setSessions] = useState<SessionRow[] | null>(null);
+  function loadSessions() {
+    api.get<{ sessions: SessionRow[] }>('/account/sessions').then((r) => setSessions(r.sessions)).catch(() => { /* opsiyonel */ });
+  }
+  async function revokeSession(id: string) {
+    try { await api.del(`/account/sessions/${id}`); loadSessions(); showToast('Signed out that device'); }
+    catch (err) { showToast(String((err as ApiError).message)); }
+  }
+  async function revokeOtherSessions() {
+    try { const r = await api.post<{ revoked: number }>('/account/sessions/revoke-others'); loadSessions(); showToast(`Signed out ${r.revoked} other device${r.revoked === 1 ? '' : 's'}`); }
+    catch (err) { showToast(String((err as ApiError).message)); }
+  }
+
   useEffect(() => {
     const s = getSession();
     if (!s) { router.replace('/login'); return; }
@@ -85,6 +104,7 @@ export default function AccountPage() {
     api.get<Account>('/account')
       .then((a) => { setAcc(a); setFullName(a.fullName); setLocale(a.locale); })
       .catch((e) => setError(String((e as ApiError).message)));
+    loadSessions();
   }, [router]);
 
   async function saveProfile(e: React.FormEvent) {
@@ -263,6 +283,37 @@ export default function AccountPage() {
             </form>
           )}
         </div>
+
+        {/* ---- Aktif oturumlar ---- */}
+        {sessions && (
+          <div className="card fade-in" style={{ marginBottom: 16 }}>
+            <div className="spread" style={{ alignItems: 'flex-start', marginBottom: sessions.length ? 10 : 0 }}>
+              <div>
+                <strong style={{ fontSize: 15 }}>Active sessions</strong>
+                <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>Devices currently signed in to your account.</div>
+              </div>
+              {sessions.filter((s) => !s.current).length > 0 && <button className="btn ghost sm" onClick={revokeOtherSessions}>Sign out others</button>}
+            </div>
+            <table>
+              <tbody>
+                {sessions.map((s) => (
+                  <tr key={s.id}>
+                    <td>
+                      <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {s.device}
+                        {s.current && <span className="badge active" style={{ fontSize: 9 }}>this device</span>}
+                      </div>
+                      <div className="faint" style={{ fontSize: 11 }}>{s.ip ?? 'unknown IP'} · active {dateShort(s.lastActive)}</div>
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      {!s.current && <button className="btn ghost sm" onClick={() => revokeSession(s.id)}>Sign out</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {toast && <div className="toast" role="status">{toast}</div>}
       </main>
