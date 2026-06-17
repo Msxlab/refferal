@@ -461,24 +461,36 @@ export class MembersAdminService {
       this.logger.warn(`leaders(): tenant ${tenantId} icin ${leadersAll.length} lider, ${SOFT_CAP} ile gosterildi`);
     }
 
+    // Son 6 ay (eskiden yeniye) — sparkline trend serisi icin.
+    const months: string[] = [];
+    {
+      const [yy, mm] = month.split('-').map(Number);
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(Date.UTC(yy, mm - 1 - i, 1));
+        months.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+      }
+    }
+
     // Eskiden lider-basina ayri $queryRaw (N round-trip) vardi -> TEK lateral sorgu.
-    // Ayni agregasyon (ltree alt-agac: ekip boyu + bu-ay grup cirosu + grup komisyonu),
+    // Ayni agregasyon (ltree alt-agac: ekip boyu + aktif sayi + bu-ay grup cirosu + komisyonu),
     // gosterilen liderlerle sinirli. Toplamlar ::bigint (para BigInt kalir).
-    const aggById = new Map<string, { team_size: bigint; vol_cents: bigint; comm_cents: bigint }>();
+    const aggById = new Map<string, { team_size: bigint; active_count: bigint; vol_cents: bigint; comm_cents: bigint }>();
+    const trendById = new Map<string, Map<string, bigint>>(); // leaderId -> (month -> vol)
     if (leaders.length > 0) {
       const ids = leaders.map((l) => l.id);
       const aggRows = await this.prisma.$queryRaw<
-        Array<{ leader_id: string; team_size: bigint; vol_cents: bigint; comm_cents: bigint }>
+        Array<{ leader_id: string; team_size: bigint; active_count: bigint; vol_cents: bigint; comm_cents: bigint }>
       >(Prisma.sql`
-        SELECT l.id::text AS leader_id, agg.team_size, agg.vol_cents, agg.comm_cents
+        SELECT l.id::text AS leader_id, agg.team_size, agg.active_count, agg.vol_cents, agg.comm_cents
         FROM memberships l
         CROSS JOIN LATERAL (
           WITH sub AS (
-            SELECT id FROM memberships
+            SELECT id, status FROM memberships
             WHERE tenant_id = l.tenant_id AND path::ltree <@ l.path::ltree
           )
           SELECT
             (SELECT count(*)::bigint FROM sub) AS team_size,
+            (SELECT count(*)::bigint FROM sub WHERE status = 'active'::"MembershipStatus") AS active_count,
             COALESCE((
               SELECT sum(s.amount_cents)::bigint FROM sales s
               WHERE s.tenant_id = l.tenant_id
@@ -495,12 +507,28 @@ export class MembersAdminService {
             ), 0)::bigint AS comm_cents
         ) agg
         WHERE l.tenant_id = ${tenantId}::uuid AND l.id::text IN (${Prisma.join(ids)})`);
-      for (const r of aggRows) aggById.set(r.leader_id, { team_size: r.team_size, vol_cents: r.vol_cents, comm_cents: r.comm_cents });
+      for (const r of aggRows) aggById.set(r.leader_id, { team_size: r.team_size, active_count: r.active_count, vol_cents: r.vol_cents, comm_cents: r.comm_cents });
+
+      // 6-ay grup-cirosu serisi (sparkline): tek grouped sorgu, gosterilen liderlerle sinirli.
+      const trendRows = await this.prisma.$queryRaw<Array<{ leader_id: string; month: string; vol: bigint }>>(Prisma.sql`
+        SELECT l.id::text AS leader_id, s.summary_month AS month, sum(s.amount_cents)::bigint AS vol
+        FROM memberships l
+        JOIN memberships d ON d.tenant_id = l.tenant_id AND d.path::ltree <@ l.path::ltree
+        JOIN sales s ON s.tenant_id = l.tenant_id AND s.seller_membership_id = d.id
+          AND s.status = ${SaleStatus.approved}::"SaleStatus" AND s.summary_month IN (${Prisma.join(months)})
+        WHERE l.tenant_id = ${tenantId}::uuid AND l.id::text IN (${Prisma.join(ids)})
+        GROUP BY l.id, s.summary_month`);
+      for (const r of trendRows) {
+        let m = trendById.get(r.leader_id);
+        if (!m) { m = new Map(); trendById.set(r.leader_id, m); }
+        m.set(r.month, r.vol);
+      }
     }
 
     const rows = leaders.map((l) => {
       const r = aggById.get(l.id);
       const teamSize = Number(r?.team_size ?? 0n) - 1; // sub kendini de sayar -> kendisi haric
+      const tm = trendById.get(l.id);
       return {
         id: l.id,
         fullName: l.user.fullName,
@@ -509,12 +537,15 @@ export class MembersAdminService {
         isTeamLeader: l.isTeamLeader,
         isOwnerRoot: l.sponsorMembershipId === null && !l.isTeamLeader,
         teamSize: Math.max(0, teamSize),
+        activeCount: Number(r?.active_count ?? 0n), // alt-agacta aktif (lider dahil)
         monthlyGroupVolumeCents: (r?.vol_cents ?? 0n).toString(),
         monthlyGroupCommissionCents: (r?.comm_cents ?? 0n).toString(),
+        // 6-ay grup-cirosu (eskiden yeniye), cent string'leri — yalniz sparkline gosterimi icin
+        trend: months.map((m) => (tm?.get(m) ?? 0n).toString()),
       };
     });
     // Sessiz kirpmayi GORUNUR yap: FE 'N / M gosteriliyor' uyarisi cizebilsin.
-    return { month, totalLeaders: leadersAll.length, shownLeaders: rows.length, truncated: leadersAll.length > SOFT_CAP, leaders: rows };
+    return { month, months, totalLeaders: leadersAll.length, shownLeaders: rows.length, truncated: leadersAll.length > SOFT_CAP, leaders: rows };
   }
 
   /**
