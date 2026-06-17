@@ -74,6 +74,29 @@ export class ReportsService {
     return { tenants: tenants.length, broken };
   }
 
+  /**
+   * Admin (tenant sahibi) ilk-kurulum checklist'i: referral programini calistirmak icin
+   * adimlar. Mevcut tenant verisinden TURETILIR (yeni tablo yok). %100'de FE karti gizler.
+   * NOT: komisyon plani adimi YOK — planlar platform (Axtra) tarafindan belirlenir.
+   */
+  async onboarding(tenantId: string, userId: string) {
+    const [user, memberCount, inviteCount, saleCount, payoutCount] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: userId }, select: { emailVerifiedAt: true } }),
+      this.prisma.membership.count({ where: { tenantId } }),
+      this.prisma.invite.count({ where: { tenantId } }),
+      this.prisma.sale.count({ where: { tenantId } }),
+      this.prisma.payout.count({ where: { tenantId } }),
+    ]);
+    const steps = [
+      { key: 'verify_email', label: 'Verify your email', done: !!user?.emailVerifiedAt, cta: null as string | null },
+      { key: 'invite_team', label: 'Invite your team', done: inviteCount > 0 || memberCount > 1, cta: '/admin/members' },
+      { key: 'first_sale', label: 'Record your first sale', done: saleCount > 0, cta: '/admin/sales' },
+      { key: 'first_payout', label: 'Process your first payout', done: payoutCount > 0, cta: '/admin/payouts' },
+    ];
+    const done = steps.filter((s) => s.done).length;
+    return { steps, done, total: steps.length, percent: Math.round((done / steps.length) * 100) };
+  }
+
   /** Admin dashboard (SPEC 9): ciro, komisyon, uye, payable — secili ay (varsayilan bu ay). */
   async dashboard(tenantId: string, month?: string) {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });

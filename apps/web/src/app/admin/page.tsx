@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Donut, Loading, MoneyCounter, StatCard } from '@/components/ui';
@@ -30,11 +31,22 @@ interface Analytics {
   topPerformers: Array<{ membershipId: string; fullName: string; referralCode: string; revenueCents: string; salesCount: number }>;
 }
 
+interface Onboarding {
+  steps: { key: string; label: string; done: boolean; cta: string | null }[];
+  done: number; total: number; percent: number;
+}
+
 const RANGES = [3, 6, 12];
+const CTA_LABEL: Record<string, string> = {
+  invite_team: 'Invite members',
+  first_sale: 'Record a sale',
+  first_payout: 'Go to payouts',
+};
 
 export default function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
   const [months, setMonths] = useState(6);
   const [error, setError] = useState('');
   const [fin, setFin] = useState<{ ok: boolean; payoutMismatches: unknown[]; summaryMismatches: unknown[] } | null>(null);
@@ -48,6 +60,7 @@ export default function DashboardPage() {
 
   const loadDashboard = useCallback(() => {
     api.get<Dashboard>('/admin/dashboard').then(setData).catch((e) => setError(String((e as ApiError).message)));
+    api.get<Onboarding>('/admin/onboarding').then(setOnboarding).catch(() => { /* opsiyonel */ });
   }, []);
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
 
@@ -81,6 +94,39 @@ export default function DashboardPage() {
           <button className="btn ghost" onClick={() => window.print()}>🖶 Print report</button>
         </div>
       </div>
+
+      {/* ---- ilk-kurulum rehberi: %100'de gizlenir ---- */}
+      {onboarding && onboarding.percent < 100 && (
+        <div className="card fade-in" style={{ marginBottom: 18, border: '1px solid var(--gold-500)', boxShadow: 'var(--shadow-glow)' }}>
+          <div className="spread" style={{ alignItems: 'flex-start', marginBottom: 12 }}>
+            <div>
+              <strong style={{ fontSize: 16 }}>Get your referral program running</strong>
+              <div className="faint" style={{ fontSize: 13, marginTop: 2 }}>Finish setup to start tracking referrals and paying commissions.</div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <div style={{ fontWeight: 800, fontSize: 22 }}>{onboarding.percent}%</div>
+              <div className="faint" style={{ fontSize: 12 }}>{onboarding.done} of {onboarding.total}</div>
+            </div>
+          </div>
+          <div style={{ height: 6, background: 'var(--panel-3)', borderRadius: 3, marginBottom: 14 }}>
+            <div style={{ height: '100%', width: `${onboarding.percent}%`, borderRadius: 3, background: 'var(--foil)', transition: 'width .7s' }} />
+          </div>
+          <div>
+            {onboarding.steps.map((s) => (
+              <div key={s.key} className="row" style={{ gap: 12, padding: '9px 0', borderTop: '1px solid var(--border)', alignItems: 'center' }}>
+                <span style={{ fontSize: 16, width: 18, textAlign: 'center', color: s.done ? 'var(--emerald)' : 'var(--faint)' }}>{s.done ? '✓' : '○'}</span>
+                <span style={{ flex: 1, fontSize: 14, color: s.done ? 'var(--muted)' : 'var(--text)' }}>{s.label}</span>
+                {s.done
+                  ? <span className="faint" style={{ fontSize: 12 }}>Done</span>
+                  : s.cta
+                    ? <Link href={s.cta} className="btn ghost sm">{CTA_LABEL[s.key] ?? 'Open'} →</Link>
+                    : <span className="faint" style={{ fontSize: 12 }}>Pending</span>}
+              </div>
+            ))}
+          </div>
+          <div className="faint" style={{ fontSize: 11, marginTop: 10 }}>This guide hides automatically once every step is done.</div>
+        </div>
+      )}
 
       <div className="grid stack-sm fade-in delay-1" style={{ gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)' }}>
         <div className="card hero">

@@ -40,6 +40,13 @@ export class ReportsController {
     return this.reports.dashboard(user.tid as string, q.month);
   }
 
+  // Admin ilk-kurulum checklist'i (referral programini calistir). %100'de FE karti gizler.
+  @Roles(...STAFF)
+  @Get('onboarding')
+  onboarding(@CurrentUser() user: RequestUser) {
+    return this.reports.onboarding(user.tid as string, user.sub);
+  }
+
   @Roles(...STAFF)
   @Get('analytics')
   analytics(
