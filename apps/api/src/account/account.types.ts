@@ -17,3 +17,15 @@ export const changePasswordSchema = z.object({
   newPassword: z.string().min(10).max(200),
 });
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
+/** 2FA etkinlestir: authenticator'dan gelen 6 haneli kod. */
+export const enable2faSchema = z.object({
+  code: z.string().trim().min(6).max(10),
+});
+export type Enable2faInput = z.infer<typeof enable2faSchema>;
+
+/** 2FA kapat: guvenlik icin mevcut sifre dogrulanir. */
+export const disable2faSchema = z.object({
+  password: z.string().min(1),
+});
+export type Disable2faInput = z.infer<typeof disable2faSchema>;

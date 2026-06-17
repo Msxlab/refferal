@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { hash, verify } from '@node-rs/argon2';
+import { authenticator } from 'otplib';
 import {
   InviteStatus,
   Membership,
@@ -19,7 +20,7 @@ import {
   User,
   UserTokenPurpose,
 } from '@prisma/client';
-import { randomToken, sha256 } from '../common/crypto';
+import { decryptSecret, randomToken, sha256 } from '../common/crypto';
 import { defaultPermissionsForTier } from '../common/permissions';
 import { MembershipsService } from '../memberships/memberships.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -34,6 +35,16 @@ import {
 
 // argon2id parametreleri (OWASP onerisi)
 export const ARGON2_OPTS = { memoryCost: 19_456, timeCost: 2, parallelism: 1 };
+
+// 2FA: TOTP saat kaymasi toleransi (+-1 adim) + login 2. adim challenge token omru (5 dk)
+authenticator.options = { window: 1 };
+const MFA_CHALLENGE_TTL_SECONDS = 300;
+
+/** Login 2FA istiyorsa donen yanit (tam oturum YERINE). */
+export interface MfaChallenge {
+  mfaRequired: true;
+  mfaToken: string;
+}
 
 // Kullanici yokken de sifre dogrulamasi kosulur (timing esitligi icin)
 let dummyHashPromise: Promise<string> | null = null;
@@ -203,14 +214,72 @@ export class AuthService {
     return this.issueSession(userId, meta);
   }
 
-  async login(input: LoginInput, meta: RequestMeta = {}): Promise<AuthSession> {
+  async login(input: LoginInput, meta: RequestMeta = {}): Promise<AuthSession | MfaChallenge> {
     const user = await this.prisma.user.findUnique({ where: { email: input.email } });
     const ok = await safeVerify(user?.passwordHash ?? (await dummyHash()), input.password);
     if (!user || !ok) {
       await this.securityEvent('security.login_failed', { email: input.email, ip: meta.ip }, user?.id);
       throw new UnauthorizedException('e-posta veya sifre hatali');
     }
+    // 2FA etkinse: tam oturum yerine kisa-omurlu MFA challenge token'i don. Bu token AYRI
+    // secret ile imzalidir -> AccessTokenGuard (accessSecret) onu gecerli access-token SAYMAZ.
+    if (user.totpEnabledAt) {
+      const mfaToken = await this.jwt.signAsync(
+        { sub: user.id, mfa: true },
+        { secret: this.mfaSecret(), expiresIn: MFA_CHALLENGE_TTL_SECONDS },
+      );
+      return { mfaRequired: true, mfaToken };
+    }
     return this.issueSession(user.id, meta);
+  }
+
+  /** Login 2. adim: MFA challenge token + (6 haneli TOTP | kurtarma kodu) -> tam oturum. */
+  async loginTwoFactor(mfaToken: string, code: string, meta: RequestMeta = {}): Promise<AuthSession> {
+    let claims: { sub?: string; mfa?: boolean };
+    try {
+      claims = await this.jwt.verifyAsync(mfaToken, { secret: this.mfaSecret() });
+    } catch {
+      throw new UnauthorizedException('2fa oturumu suresi doldu, tekrar giris yapin');
+    }
+    if (!claims?.mfa || !claims.sub) {
+      throw new UnauthorizedException('gecersiz 2fa oturumu');
+    }
+    const user = await this.prisma.user.findUnique({ where: { id: claims.sub } });
+    if (!user || !user.totpEnabledAt || !user.totpSecret) {
+      throw new UnauthorizedException('2fa etkin degil');
+    }
+    if (!(await this.verifyTotpOrRecovery(user, code))) {
+      await this.securityEvent('security.login_2fa_failed', { ip: meta.ip }, user.id);
+      throw new UnauthorizedException('dogrulama kodu hatali');
+    }
+    return this.issueSession(user.id, meta);
+  }
+
+  /** access secret'tan TUREYEN ayri anahtar: guard bu token'i access-token saymaz (2FA-oncesi sizma onlenir). */
+  private mfaSecret(): string {
+    return authConfig.accessSecret() + ':mfa-challenge';
+  }
+
+  /** 6 haneli TOTP VEYA tek-kullanimlik kurtarma kodu dogrula (recovery eslesirse TUKETILIR). */
+  private async verifyTotpOrRecovery(
+    user: { id: string; totpSecret: string | null; mfaRecoveryCodes: Prisma.JsonValue },
+    code: string,
+  ): Promise<boolean> {
+    const clean = code.replace(/\s/g, '');
+    if (/^\d{6}$/.test(clean) && user.totpSecret) {
+      const secret = decryptSecret(user.totpSecret);
+      if (authenticator.verify({ token: clean, secret })) return true;
+    }
+    // kurtarma kodu: dash/uppercase normalize edilip sha256 — enable2fa ile AYNI kalip
+    const codes = Array.isArray(user.mfaRecoveryCodes) ? (user.mfaRecoveryCodes as string[]) : [];
+    const h = sha256(clean.replace(/-/g, '').toUpperCase());
+    const idx = codes.indexOf(h);
+    if (idx >= 0) {
+      const remaining = codes.filter((_, i) => i !== idx);
+      await this.prisma.user.update({ where: { id: user.id }, data: { mfaRecoveryCodes: remaining } });
+      return true;
+    }
+    return false;
   }
 
   /** Rotasyonlu refresh: eski token iptal, yenisi verilir. Reuse → tum oturumlar kapanir. */

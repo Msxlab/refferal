@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { QRCodeSVG } from 'qrcode.react';
 import { api, ApiError } from '@/lib/api';
 import { activeMembership, getSession, isAdminRole, setSession } from '@/lib/auth';
 import { Brand, Loading, ThemeToggle, useToast } from '@/components/ui';
@@ -30,6 +31,51 @@ export default function AccountPage() {
   const [confirmPw, setConfirmPw] = useState('');
   const [savingPw, setSavingPw] = useState(false);
   const [pwError, setPwError] = useState('');
+
+  // 2FA akisi
+  const [twoFaStep, setTwoFaStep] = useState<'idle' | 'setup' | 'recovery' | 'disable'>('idle');
+  const [setupData, setSetupData] = useState<{ otpauthUrl: string; secret: string } | null>(null);
+  const [twoFaCode, setTwoFaCode] = useState('');
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [disablePw, setDisablePw] = useState('');
+  const [twoFaBusy, setTwoFaBusy] = useState(false);
+  const [twoFaError, setTwoFaError] = useState('');
+
+  function resetTwoFa() {
+    setTwoFaStep('idle'); setSetupData(null); setTwoFaCode(''); setRecoveryCodes([]); setDisablePw(''); setTwoFaError('');
+  }
+
+  async function startSetup() {
+    setTwoFaBusy(true); setTwoFaError('');
+    try {
+      const d = await api.post<{ otpauthUrl: string; secret: string }>('/account/2fa/setup');
+      setSetupData(d); setTwoFaStep('setup');
+    } catch (err) { setTwoFaError(String((err as ApiError).message)); } finally { setTwoFaBusy(false); }
+  }
+
+  async function enableTwoFa(e: React.FormEvent) {
+    e.preventDefault(); setTwoFaBusy(true); setTwoFaError('');
+    try {
+      const r = await api.post<{ enabled: boolean; recoveryCodes: string[] }>('/account/2fa/enable', { code: twoFaCode.trim() });
+      setRecoveryCodes(r.recoveryCodes); setTwoFaStep('recovery'); setTwoFaCode('');
+      if (acc) setAcc({ ...acc, twoFactorEnabled: true });
+    } catch (err) { setTwoFaError(String((err as ApiError).message)); } finally { setTwoFaBusy(false); }
+  }
+
+  async function disableTwoFa(e: React.FormEvent) {
+    e.preventDefault(); setTwoFaBusy(true); setTwoFaError('');
+    try {
+      await api.post('/account/2fa/disable', { password: disablePw });
+      if (acc) setAcc({ ...acc, twoFactorEnabled: false });
+      resetTwoFa(); showToast('Two-factor authentication disabled');
+    } catch (err) { setTwoFaError(String((err as ApiError).message)); } finally { setTwoFaBusy(false); }
+  }
+
+  function copyRecovery() {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(recoveryCodes.join('\n')).then(() => showToast('Recovery codes copied')).catch(() => showToast('Could not copy'));
+    }
+  }
 
   useEffect(() => {
     const s = getSession();
@@ -147,20 +193,75 @@ export default function AccountPage() {
           </div>
         </form>
 
-        {/* ---- 2FA (sirada) ---- */}
+        {/* ---- 2FA (TOTP) ---- */}
         <div className="card fade-in delay-3" style={{ marginBottom: 16 }}>
-          <div className="spread" style={{ alignItems: 'center' }}>
+          <div className="spread" style={{ alignItems: 'flex-start' }}>
             <div>
               <strong style={{ fontSize: 15 }}>Two-factor authentication</strong>
               <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
-                {acc.twoFactorEnabled ? 'Enabled — your account is protected with an authenticator app.' : 'Add an authenticator app for an extra layer of security.'}
+                {acc.twoFactorEnabled
+                  ? 'Enabled — sign-in requires a code from your authenticator app.'
+                  : 'Add an authenticator app (Google Authenticator, 1Password, Authy…) for an extra layer of security. Optional.'}
               </div>
             </div>
-            <span className="row" style={{ gap: 8 }}>
+            <span className="row" style={{ gap: 8, flexShrink: 0 }}>
               <span className={`badge ${acc.twoFactorEnabled ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>{acc.twoFactorEnabled ? 'on' : 'off'}</span>
-              <button className="btn ghost sm" disabled title="Coming soon">Set up</button>
+              {twoFaStep === 'idle' && !acc.twoFactorEnabled && <button className="btn ghost sm" onClick={startSetup} disabled={twoFaBusy}>{twoFaBusy ? '…' : 'Set up'}</button>}
+              {twoFaStep === 'idle' && acc.twoFactorEnabled && <button className="btn ghost sm" onClick={() => { setTwoFaError(''); setTwoFaStep('disable'); }}>Disable</button>}
+              {twoFaStep !== 'idle' && twoFaStep !== 'recovery' && <button className="btn ghost sm" onClick={resetTwoFa}>Cancel</button>}
             </span>
           </div>
+
+          {twoFaError && <div className="error" style={{ marginTop: 12 }}>{twoFaError}</div>}
+
+          {twoFaStep === 'setup' && setupData && (
+            <form onSubmit={enableTwoFa} style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+              <div style={{ fontSize: 13, marginBottom: 10 }}>1. Scan this QR code with your authenticator app:</div>
+              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+                <div className="qr"><QRCodeSVG value={setupData.otpauthUrl} size={144} /></div>
+                <div style={{ minWidth: 170, flex: 1 }}>
+                  <div className="faint" style={{ fontSize: 11, marginBottom: 4 }}>Or enter this key manually:</div>
+                  <code style={{ fontSize: 12, wordBreak: 'break-all', fontFamily: 'ui-monospace, monospace' }}>{setupData.secret}</code>
+                </div>
+              </div>
+              <div className="field">
+                <label>2. Enter the 6-digit code to confirm</label>
+                <input value={twoFaCode} onChange={(e) => setTwoFaCode(e.target.value)} inputMode="numeric" placeholder="123456" autoFocus
+                  style={{ maxWidth: 180, letterSpacing: '0.2em', fontFamily: 'ui-monospace, monospace', fontSize: 16 }} />
+              </div>
+              <div className="row" style={{ justifyContent: 'flex-end' }}>
+                <button className="btn" type="submit" disabled={twoFaBusy || twoFaCode.trim().length < 6}>{twoFaBusy ? 'Verifying…' : 'Enable 2FA'}</button>
+              </div>
+            </form>
+          )}
+
+          {twoFaStep === 'recovery' && (
+            <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+              <strong style={{ fontSize: 13, color: 'var(--emerald)' }}>✓ Two-factor authentication enabled</strong>
+              <p className="faint" style={{ fontSize: 12, margin: '6px 0 10px' }}>
+                Save these recovery codes somewhere safe. Each works once if you lose your authenticator — they won&apos;t be shown again.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 6, fontFamily: 'ui-monospace, monospace', fontSize: 13, background: 'var(--panel-2)', padding: 12, borderRadius: 10 }}>
+                {recoveryCodes.map((c) => <span key={c}>{c}</span>)}
+              </div>
+              <div className="row" style={{ justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+                <button className="btn ghost sm" onClick={copyRecovery}>⧉ Copy</button>
+                <button className="btn" onClick={resetTwoFa}>Done</button>
+              </div>
+            </div>
+          )}
+
+          {twoFaStep === 'disable' && (
+            <form onSubmit={disableTwoFa} style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+              <div className="field">
+                <label>Enter your password to disable 2FA</label>
+                <input type="password" value={disablePw} onChange={(e) => setDisablePw(e.target.value)} autoComplete="current-password" autoFocus style={{ maxWidth: 260 }} />
+              </div>
+              <div className="row" style={{ justifyContent: 'flex-end' }}>
+                <button className="btn danger" type="submit" disabled={twoFaBusy || !disablePw}>{twoFaBusy ? 'Disabling…' : 'Disable 2FA'}</button>
+              </div>
+            </form>
+          )}
         </div>
 
         {toast && <div className="toast" role="status">{toast}</div>}

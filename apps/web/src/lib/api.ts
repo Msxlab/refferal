@@ -77,8 +77,13 @@ export const api = {
 };
 
 /** Login ozel: token henuz yok. */
-export async function login(email: string, password: string): Promise<Session> {
-  const res = await rawFetch('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+/** 2FA etkin hesapta login 1. adimin donusu (tam oturum YERINE). */
+export interface MfaChallenge {
+  mfaRequired: true;
+  mfaToken: string;
+}
+
+async function readOrThrow(res: Response): Promise<unknown> {
   if (!res.ok) {
     let body: unknown = null;
     try {
@@ -88,7 +93,18 @@ export async function login(email: string, password: string): Promise<Session> {
     }
     throw new ApiError(res.status, body);
   }
-  return (await res.json()) as Session;
+  return res.json();
+}
+
+export async function login(email: string, password: string): Promise<Session | MfaChallenge> {
+  const res = await rawFetch('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+  return (await readOrThrow(res)) as Session | MfaChallenge;
+}
+
+/** Login 2. adim: challenge token + TOTP/kurtarma kodu -> tam oturum. */
+export async function loginTwoFactor(mfaToken: string, code: string): Promise<Session> {
+  const res = await rawFetch('/auth/login/2fa', { method: 'POST', body: JSON.stringify({ mfaToken, code }) });
+  return (await readOrThrow(res)) as Session;
 }
 
 /** CSV indirme: metin doner, Bearer ekler. */

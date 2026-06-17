@@ -6,6 +6,10 @@ import { AccountService } from './account.service';
 import {
   changePasswordSchema,
   ChangePasswordInput,
+  disable2faSchema,
+  Disable2faInput,
+  enable2faSchema,
+  Enable2faInput,
   updateProfileSchema,
   UpdateProfileInput,
 } from './account.types';
@@ -39,5 +43,31 @@ export class AccountController {
     @Body(new ZodValidationPipe(changePasswordSchema)) body: ChangePasswordInput,
   ) {
     return this.account.changePassword(user.sub, body);
+  }
+
+  // ---- 2FA (TOTP) ----
+
+  @HttpCode(200)
+  @Post('2fa/setup')
+  setup2fa(@CurrentUser() user: RequestUser) {
+    return this.account.setup2fa(user.sub);
+  }
+
+  @HttpCode(200)
+  @Post('2fa/enable')
+  enable2fa(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(enable2faSchema)) body: Enable2faInput,
+  ) {
+    return this.account.enable2fa(user.sub, body);
+  }
+
+  @HttpCode(200)
+  @Post('2fa/disable')
+  disable2fa(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(disable2faSchema)) body: Disable2faInput,
+  ) {
+    return this.account.disable2fa(user.sub, body);
   }
 }

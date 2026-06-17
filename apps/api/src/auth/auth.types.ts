@@ -55,6 +55,13 @@ export const loginSchema = z.object({
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
+/** Login 2. adim: MFA challenge token + 6 haneli TOTP veya kurtarma kodu. */
+export const loginTwoFactorSchema = z.object({
+  mfaToken: z.string().min(10).max(1024),
+  code: z.string().trim().min(6).max(20),
+});
+export type LoginTwoFactorInput = z.infer<typeof loginTwoFactorSchema>;
+
 export const refreshSchema = z.object({
   refreshToken: z.string().min(16).max(256),
 });
