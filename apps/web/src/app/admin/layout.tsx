@@ -81,7 +81,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </nav>
         <div className="foot">
           <div className="faint" style={{ fontSize: 11 }}>{active?.tenantName}</div>
-          <div style={{ fontSize: 13, fontWeight: 600, margin: '2px 0 4px' }}>{session.user.fullName}</div>
+          <Link href="/account" title="Account settings" style={{ fontSize: 13, fontWeight: 600, margin: '2px 0 4px', display: 'inline-block', color: 'var(--text)' }}>{session.user.fullName} <span className="faint" style={{ fontWeight: 400 }}>⚙</span></Link>
           <div className="row spread">
             <span className="badge active" style={{ fontSize: 10 }}>{active?.role}</span>
             <div className="row" style={{ gap: 6 }}>

@@ -80,6 +80,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <span className="faint" style={{ fontSize: 12 }}>{active?.tenantName}</span>
           <NotificationBell />
           <ThemeToggle />
+          <Link href="/account" className="btn ghost sm" title="Account settings">Account</Link>
           <button className="btn ghost sm" onClick={logout}>{t('nav.logout')}</button>
         </div>
       </header>

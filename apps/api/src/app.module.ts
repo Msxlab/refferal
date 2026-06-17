@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { AccountModule } from './account/account.module';
 import { AnnouncementsModule } from './announcements/announcements.module';
 import { ApiKeysModule } from './apikeys/apikeys.module';
 import { AuthModule } from './auth/auth.module';
@@ -53,6 +54,7 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
     EngineModule,
     EventsModule,
     AuthModule,
+    AccountModule,
     MembershipsModule,
     MeModule,
     InvitesModule,
