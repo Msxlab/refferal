@@ -97,6 +97,11 @@ html, body {
   font-size: 14px; line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
+/* form elemanlari color/font'u UA'dan alir, body'den DEGIL — miras ettir.
+   (Aksi halde renk set etmeyen <button class="card"> gibi kapsayicilar koyu temada
+   UA varsayilan koyu metniyle SOLUK cikar; .btn vb. kendi rengini set ettiginden etkilenmez.) */
+button, input, select, textarea { font-family: inherit; }
+button, select { color: inherit; }
 /* cok hafif grain — plastik hissi kirar (dark'ta) */
 body::before {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
