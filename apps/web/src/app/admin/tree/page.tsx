@@ -230,7 +230,7 @@ export default function NetworkPage() {
 
           {/* toolbar: arama + siralama + gorunum */}
           <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
-            <input placeholder="Search leader or code…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ flex: 1, minWidth: 180, maxWidth: 300 }} />
+            <input aria-label="Search leaders by name or code" placeholder="Search leader or code…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ flex: 1, minWidth: 180, maxWidth: 300 }} />
             <select value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)} aria-label="Sort leaders" style={{ width: 'auto' }}>
               <option value="volume">Sort: group volume</option>
               <option value="team">Team size</option>

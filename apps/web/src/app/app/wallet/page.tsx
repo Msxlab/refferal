@@ -308,7 +308,7 @@ function ProfileForm({ existing, onClose, onSaved }: { existing: PayoutProfile |
         <div className="field"><label>Legal name (as on tax documents)</label><input value={legalName} onChange={(e) => setLegalName(e.target.value)} required autoFocus /></div>
         <div className="grid" style={{ gridTemplateColumns: '1fr 2fr', gap: 10 }}>
           <div className="field" style={{ margin: 0 }}><label>Tax ID type</label>
-            <select value={taxIdType} onChange={(e) => setTaxIdType(e.target.value as 'ssn' | 'ein')}><option value="ssn">SSN</option><option value="ein">EIN</option></select>
+            <select aria-label="Tax ID type" value={taxIdType} onChange={(e) => setTaxIdType(e.target.value as 'ssn' | 'ein')}><option value="ssn">SSN</option><option value="ein">EIN</option></select>
           </div>
           <div className="field" style={{ margin: 0 }}><label>Tax ID (9 digits){existing ? ' — re-enter to update' : ''}</label><input value={taxId} onChange={(e) => setTaxId(e.target.value)} inputMode="numeric" placeholder="123456789" required /></div>
         </div>
@@ -316,7 +316,7 @@ function ProfileForm({ existing, onClose, onSaved }: { existing: PayoutProfile |
         <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <div className="field" style={{ margin: 0 }}><label>Routing number (9 digits)</label><input value={routingNumber} onChange={(e) => setRoutingNumber(e.target.value)} inputMode="numeric" required /></div>
           <div className="field" style={{ margin: 0 }}><label>Account type</label>
-            <select value={accountType} onChange={(e) => setAccountType(e.target.value as 'checking' | 'savings')}><option value="checking">Checking</option><option value="savings">Savings</option></select>
+            <select aria-label="Account type" value={accountType} onChange={(e) => setAccountType(e.target.value as 'checking' | 'savings')}><option value="checking">Checking</option><option value="savings">Savings</option></select>
           </div>
         </div>
         <div className="field"><label>Account number{existing ? ' — re-enter to update' : ''}</label><input value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} inputMode="numeric" placeholder="account number" required /></div>

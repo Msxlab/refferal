@@ -220,7 +220,7 @@ export default function MembersPage() {
       {error && <div className="error">{error}</div>}
 
       <div className="row fade-in delay-1 no-print" style={{ margin: '14px 0', gap: 10, flexWrap: 'wrap' }}>
-        <input placeholder="🔍  Search name, email or code…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} style={{ flex: 1, maxWidth: 320 }} />
+        <input aria-label="Search members by name, email, or code" placeholder="🔍  Search name, email or code…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} style={{ flex: 1, maxWidth: 320 }} />
         <div className="seg-tabs">
           {STATUS_TABS.map(([v, lbl]) => (
             <button key={v} className={`seg-tab ${status === v ? 'on' : ''}`} onClick={() => { setStatus(v); setPage(1); }}>{lbl}</button>

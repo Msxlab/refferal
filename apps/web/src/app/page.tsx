@@ -10,5 +10,5 @@ export default function Home() {
     const s = getSession();
     router.replace(s ? landingForSession(s) : '/login');
   }, [router]);
-  return <div className="center muted">Yonlendiriliyor...</div>;
+  return <div className="center muted">Redirecting…</div>;
 }

@@ -280,6 +280,11 @@ export default function AccountPage() {
             </div>
           </form>
         )}
+        {mailing && !mailing.hasMembership && (
+          <div className="card faint fade-in delay-1" style={{ marginBottom: 16, fontSize: 13 }}>
+            A mailing address (for commission checks) becomes available once you have an active membership in a company.
+          </div>
+        )}
 
         {/* ---- Sifre ---- */}
         <form onSubmit={changePassword} className="card fade-in delay-2" style={{ marginBottom: 16 }}>

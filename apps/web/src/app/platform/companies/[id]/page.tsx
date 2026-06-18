@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
-import { Confirm, Loading, useToast } from '@/components/ui';
+import { Confirm, Loading, Modal, useToast } from '@/components/ui';
 import { NetworkExplorer, type ApiNode } from '@/components/NetworkExplorer';
 import { bps, money, dateShort } from '@/lib/format';
 
@@ -34,6 +34,8 @@ export default function CompanyPage() {
   const [period, setPeriod] = useState(() => new Date().toISOString().slice(0, 7));
   const [busy, setBusy] = useState(false);
   const [confirmStatus, setConfirmStatus] = useState(false);
+  const [payInvoice, setPayInvoice] = useState<Invoice | null>(null);
+  const [payNote, setPayNote] = useState('');
 
   function loadCompany() {
     api.get<Company>(`/platform/companies/${id}`).then(setCompany).catch((e) => setError(String((e as ApiError).message)));
@@ -67,11 +69,11 @@ export default function CompanyPage() {
     try { await api.post(`/platform/companies/${id}/invoices`, { period }); loadBilling(); showToast(`Invoice issued for ${period}`); }
     catch (e) { showToast(String((e as ApiError).message)); } finally { setBusy(false); }
   }
-  async function markPaid(inv: Invoice) {
-    const note = typeof window !== 'undefined' ? window.prompt('Payment reference (check #, wire ref):', '') : '';
-    if (note === null) return;
+  function openMarkPaid(inv: Invoice) { setPayNote(''); setPayInvoice(inv); }
+  async function doMarkPaid() {
+    if (!payInvoice) return;
     setBusy(true);
-    try { await api.post(`/platform/invoices/${inv.id}/paid`, { note: note || undefined }); loadBilling(); showToast('Marked paid ✓'); }
+    try { await api.post(`/platform/invoices/${payInvoice.id}/paid`, { note: payNote.trim() || undefined }); loadBilling(); showToast('Marked paid ✓'); setPayInvoice(null); }
     catch (e) { showToast(String((e as ApiError).message)); } finally { setBusy(false); }
   }
   async function voidInvoice(inv: Invoice) {
@@ -149,7 +151,7 @@ export default function CompanyPage() {
         </div>
 
         <div className="card" style={{ background: 'var(--panel-2)', padding: 0, overflowX: 'auto' }}>
-          <table>
+          <table aria-label="Invoice history">
             <thead><tr><th>Period</th><th>Amount</th><th>Status</th><th>Due</th><th>Paid</th><th></th></tr></thead>
             <tbody>
               {(billing?.invoices ?? []).map((inv) => (
@@ -161,13 +163,14 @@ export default function CompanyPage() {
                   <td className="muted">{inv.paidAt ? dateShort(inv.paidAt) : '—'}</td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {inv.status === 'open' && <>
-                      <button className="btn success sm" onClick={() => markPaid(inv)} disabled={busy}>Mark paid</button>{' '}
+                      <button className="btn success sm" onClick={() => openMarkPaid(inv)} disabled={busy}>Mark paid</button>{' '}
                       <button className="btn ghost sm" onClick={() => voidInvoice(inv)} disabled={busy}>Void</button>
                     </>}
                   </td>
                 </tr>
               ))}
-              {(billing?.invoices?.length ?? 0) === 0 && <tr><td colSpan={6} className="muted">No invoices yet.</td></tr>}
+              {!billing && <tr><td colSpan={6} className="muted">Loading…</td></tr>}
+              {billing && billing.invoices.length === 0 && <tr><td colSpan={6} className="muted">No invoices yet.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -193,6 +196,21 @@ export default function CompanyPage() {
           onConfirm={toggleStatus}
           onClose={() => setConfirmStatus(false)}
         />
+      )}
+      {payInvoice && (
+        <Modal title={`Mark ${payInvoice.period} invoice paid`} onClose={() => setPayInvoice(null)}>
+          <div style={{ width: 'min(420px, 100%)' }}>
+            <p className="muted" style={{ marginTop: 0 }}>{money(payInvoice.amountCents, payInvoice.currency)} — record how it was paid (optional).</p>
+            <div className="field">
+              <label htmlFor="pay-note">Payment reference</label>
+              <input id="pay-note" value={payNote} onChange={(e) => setPayNote(e.target.value)} placeholder="check #1234 / wire ref" autoFocus />
+            </div>
+            <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+              <button className="btn ghost" onClick={() => setPayInvoice(null)} disabled={busy}>Cancel</button>
+              <button className="btn success" onClick={doMarkPaid} disabled={busy}>{busy ? '…' : 'Mark paid'}</button>
+            </div>
+          </div>
+        </Modal>
       )}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>

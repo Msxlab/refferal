@@ -293,7 +293,7 @@ export default function SalesPage() {
 
       {/* ---- arac cubugu: ara + hizli tarih + filtreler + kayitli gorunumler ---- */}
       <div className="row fade-in delay-1 no-print" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '14px 0' }}>
-        <input value={filters.q} onChange={(e) => patchFilters({ ...filters, q: e.target.value })}
+        <input aria-label="Search sales by seller, code, or customer" value={filters.q} onChange={(e) => patchFilters({ ...filters, q: e.target.value })}
           placeholder="🔍  Search seller, code, customer…" style={{ flex: 1, minWidth: 200, maxWidth: 320 }} />
 
         <div className="seg-tabs">

@@ -116,7 +116,7 @@ export default function AuditPage() {
       {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
 
       <div className="row fade-in delay-1 no-print" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '14px 0' }}>
-        <input placeholder="🔍  Search action or entity…" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} style={{ flex: 1, minWidth: 180, maxWidth: 280 }} />
+        <input aria-label="Search audit log by action or entity" placeholder="🔍  Search action or entity…" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} style={{ flex: 1, minWidth: 180, maxWidth: 280 }} />
         <select value={entity} onChange={(e) => { setEntity(e.target.value); setPage(1); }} style={{ width: 'auto' }} aria-label="Entity">
           <option value="">All entities</option>
           {ENTITIES.map((e) => <option key={e} value={e}>{ICON[e] ?? '•'} {e}</option>)}

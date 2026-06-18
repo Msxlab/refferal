@@ -443,7 +443,7 @@ export default function PayoutsPage() {
             </p>
             <div className="field">
               <label>{decide.action === 'approve' ? 'Bank / transfer reference (optional)' : 'Reason (optional)'}</label>
-              <input value={decideRef} onChange={(e) => setDecideRef(e.target.value)} placeholder={decide.action === 'approve' ? 'e.g. ACH-20260613-001' : 'e.g. invalid bank details'} autoFocus />
+              <input aria-label={decide.action === 'approve' ? 'Bank or transfer reference' : 'Reason'} value={decideRef} onChange={(e) => setDecideRef(e.target.value)} placeholder={decide.action === 'approve' ? 'e.g. ACH-20260613-001' : 'e.g. invalid bank details'} autoFocus />
             </div>
             <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
               <button className="btn ghost" onClick={() => setDecide(null)} disabled={busy}>Cancel</button>
@@ -462,7 +462,7 @@ export default function PayoutsPage() {
           <div style={{ width: 'min(420px, 100%)' }}>
             <div className="field">
               <label>{reasonModal.label}</label>
-              <textarea value={reasonText} onChange={(e) => setReasonText(e.target.value)} rows={2} autoFocus />
+              <textarea aria-label={reasonModal.label} value={reasonText} onChange={(e) => setReasonText(e.target.value)} rows={2} autoFocus />
             </div>
             <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
               <button className="btn ghost" onClick={() => setReasonModal(null)} disabled={busy}>Cancel</button>
@@ -482,7 +482,7 @@ export default function PayoutsPage() {
             </p>
             <div className="field">
               <label>Statement lines</label>
-              <textarea value={reconcileText} onChange={(e) => setReconcileText(e.target.value)} rows={6} placeholder={'1500.00,ACH-20260613-001\n2250.50\n980.00,WIRE-77'} style={{ fontFamily: 'var(--mono, monospace)', width: '100%' }} />
+              <textarea aria-label="Bank statement lines" value={reconcileText} onChange={(e) => setReconcileText(e.target.value)} rows={6} placeholder={'1500.00,ACH-20260613-001\n2250.50\n980.00,WIRE-77'} style={{ fontFamily: 'var(--mono, monospace)', width: '100%' }} />
             </div>
             {reconcileResult && (
               <div className="card" style={{ background: 'var(--panel-2)', marginBottom: 12 }}>

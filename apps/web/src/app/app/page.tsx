@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
 import { Bars, Donut, Loading, MoneyCounter } from '@/components/ui';
 import { dateShort, money, levelLabel } from '@/lib/format';
@@ -183,7 +184,7 @@ export default function MemberDashboard() {
               <Chip color="var(--sky)" label={t('me.payable')} value={money(payable, c)} />
               <Chip color="var(--emerald)" label={t('me.paid')} value={money(paid, c)} />
             </div>
-            {payable > 0 && <a className="btn success sm" href="/app/wallet">{t('me.requestPayout')} →</a>}
+            {payable > 0 && <Link className="btn success sm" href="/app/wallet">{t('me.requestPayout')} →</Link>}
           </div>
           {rankInfo?.rank && (
             <div className="row" style={{ marginTop: 14, gap: 8 }}>

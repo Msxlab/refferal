@@ -179,7 +179,7 @@ function CampaignForm({ existing, onClose, onSaved, onError }: {
         <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
           <div className="field" style={{ margin: 0 }}>
             <label>Metric</label>
-            <select value={metric} onChange={(e) => setMetric(e.target.value as Metric)} disabled={!isDraft}>
+            <select aria-label="Campaign metric" value={metric} onChange={(e) => setMetric(e.target.value as Metric)} disabled={!isDraft}>
               {(Object.keys(METRICS) as Metric[]).map((m) => <option key={m} value={m}>{METRICS[m]}</option>)}
             </select>
           </div>
