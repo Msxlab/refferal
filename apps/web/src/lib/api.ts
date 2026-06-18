@@ -107,6 +107,24 @@ export async function loginTwoFactor(mfaToken: string, code: string): Promise<Se
   return (await readOrThrow(res)) as Session;
 }
 
+/** Binary (PDF) indirme: POST + Bearer -> Blob. 401'de bir kez refresh dener. */
+export async function postBlob(path: string, body?: unknown): Promise<Blob> {
+  const session = getSession();
+  const init: RequestInit = { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined };
+  let res = await rawFetch(path, init, session?.accessToken);
+  if (res.status === 401 && session) {
+    const refreshed = await refresh(session);
+    if (!refreshed) throw new ApiError(401, { message: 'oturum suresi doldu' });
+    res = await rawFetch(path, init, refreshed.accessToken);
+  }
+  if (!res.ok) {
+    let body2: unknown = null;
+    try { body2 = await res.json(); } catch { body2 = { message: res.statusText }; }
+    throw new ApiError(res.status, body2);
+  }
+  return res.blob();
+}
+
 /** CSV indirme: metin doner, Bearer ekler. */
 export async function getCsv(path: string): Promise<string> {
   const session = getSession();
