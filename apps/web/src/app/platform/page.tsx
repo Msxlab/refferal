@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
-import { Loading } from '@/components/ui';
+import { Loading, useToast } from '@/components/ui';
 import { money } from '@/lib/format';
+
+interface Ar { totals: { openCents: string; overdueCents: string; paidCents: string }; invoices: unknown[] }
 
 interface Company {
   id: string;
@@ -24,10 +26,25 @@ export default function CompaniesPage() {
   const [companies, setCompanies] = useState<Company[] | null>(null);
   const [error, setError] = useState('');
   const [q, setQ] = useState('');
+  const [ar, setAr] = useState<Ar | null>(null);
+  const [period, setPeriod] = useState(() => new Date().toISOString().slice(0, 7));
+  const [busy, setBusy] = useState(false);
+  const [toast, showToast] = useToast();
 
+  function loadAr() { api.get<Ar>('/platform/billing').then(setAr).catch(() => {}); }
   useEffect(() => {
     api.get<Company[]>('/platform/companies').then(setCompanies).catch((e) => setError(String((e as ApiError).message)));
+    loadAr();
   }, []);
+
+  async function runInvoices() {
+    setBusy(true);
+    try {
+      const r = await api.post<{ created: number; skipped: number }>('/platform/invoices/run', { period });
+      showToast(`${period}: ${r.created} invoice${r.created === 1 ? '' : 's'} issued${r.skipped ? `, ${r.skipped} already existed` : ''}`);
+      loadAr();
+    } catch (e) { showToast(String((e as ApiError).message)); } finally { setBusy(false); }
+  }
 
   const filtered = useMemo(
     () => (companies ?? []).filter((c) => !q.trim() || c.name.toLowerCase().includes(q.toLowerCase()) || c.slug.includes(q.toLowerCase())),
@@ -57,6 +74,32 @@ export default function CompaniesPage() {
         <Kpi label="Members (all)" value={totals.members.toLocaleString('en-US')} icon="⬡" />
         <Kpi label="Revenue this month" value={money(totals.revenue, 'USD')} icon="◆" />
       </div>
+
+      {/* Billing (AR) — manuel takip: faturalandır, ödeme gelince şirket sayfasından işaretle */}
+      {ar && (
+        <div className="card fade-in delay-1" style={{ marginBottom: 18, display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div>
+            <div className="faint" style={{ fontSize: 11 }}>Outstanding</div>
+            <div className="tnum" style={{ fontSize: 18, fontWeight: 700 }}>{money(ar.totals.openCents, 'USD')}</div>
+          </div>
+          <div>
+            <div className="faint" style={{ fontSize: 11 }}>Overdue</div>
+            <div className="tnum" style={{ fontSize: 18, fontWeight: 700, color: Number(ar.totals.overdueCents) > 0 ? 'var(--rose, #e11d48)' : 'var(--text)' }}>{money(ar.totals.overdueCents, 'USD')}</div>
+          </div>
+          <div>
+            <div className="faint" style={{ fontSize: 11 }}>Collected</div>
+            <div className="tnum" style={{ fontSize: 18, fontWeight: 700, color: 'var(--emerald)' }}>{money(ar.totals.paidCents, 'USD')}</div>
+          </div>
+          <span style={{ flex: 1 }} />
+          <div className="field" style={{ margin: 0 }}>
+            <label>Bill all active companies</label>
+            <div className="row" style={{ gap: 8 }}>
+              <input value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="2026-06" style={{ maxWidth: 110 }} />
+              <button className="btn sm" onClick={runInvoices} disabled={busy}>Run invoices</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="row fade-in delay-1" style={{ marginBottom: 14, justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <input placeholder="Search companies…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 280 }} />
@@ -89,6 +132,7 @@ export default function CompaniesPage() {
         ))}
         {filtered.length === 0 && <div className="muted">No companies match.</div>}
       </div>
+      {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
 }
