@@ -109,6 +109,8 @@ enum PayoutMethod {
   manual
   csv
   stripe
+  // Faz A2: cek ile odeme — uyenin posta adresine postalanir (ABD pazari, varsayilan model).
+  check
 }
 
 enum PayoutStatus {
@@ -309,6 +311,15 @@ model Membership {
   // doluysa onaylanmis; surum hangi metnin kabul edildigini izler.
   disclaimerAcceptedAt DateTime?       @map("disclaimer_accepted_at")
   disclaimerVersion    String?         @map("disclaimer_version")
+  // Cek odeme adresi (Faz A2): cek BU adrese postalanir. Uye Account'ta kendi girer/gunceller.
+  // Payout aninda Payout'a snapshot'lanir; sonradan degisse gecmis cekin adresi bozulmaz. ABD-only.
+  mailingName       String?            @map("mailing_name")
+  mailingLine1      String?            @map("mailing_line1")
+  mailingLine2      String?            @map("mailing_line2")
+  mailingCity       String?            @map("mailing_city")
+  mailingState      String?            @map("mailing_state")
+  mailingPostal     String?            @map("mailing_postal")
+  mailingCountry    String?            @default("US") @map("mailing_country")
   // Kisisel davet landing (#23): uyenin /i/{code} sayfasinda gosterilen karsilama mesaji.
   inviteMessage       String?          @map("invite_message")
   // Kanal bazli bildirim tercihleri: { "<event>": { in_app, email, push } } — bos = varsayilanlar.

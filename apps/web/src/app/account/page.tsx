@@ -18,6 +18,12 @@ interface SessionRow {
   id: string; device: string; ip: string | null; lastActive: string; current: boolean;
 }
 
+interface MailingAddress {
+  mailingName: string | null; mailingLine1: string | null; mailingLine2: string | null;
+  mailingCity: string | null; mailingState: string | null; mailingPostal: string | null; mailingCountry: string;
+}
+interface MailingResp { hasMembership: boolean; complete: boolean; address: MailingAddress | null; }
+
 export default function AccountPage() {
   const router = useRouter();
   const [acc, setAcc] = useState<Account | null>(null);
@@ -82,6 +88,49 @@ export default function AccountPage() {
     }
   }
 
+  // cek posta adresi (Faz A2)
+  const [mailing, setMailing] = useState<MailingResp | null>(null);
+  const [maName, setMaName] = useState('');
+  const [maLine1, setMaLine1] = useState('');
+  const [maLine2, setMaLine2] = useState('');
+  const [maCity, setMaCity] = useState('');
+  const [maState, setMaState] = useState('');
+  const [maPostal, setMaPostal] = useState('');
+  const [savingMa, setSavingMa] = useState(false);
+  const [maError, setMaError] = useState('');
+
+  function fillMailing(r: MailingResp) {
+    setMailing(r);
+    if (r.address) {
+      setMaName(r.address.mailingName ?? '');
+      setMaLine1(r.address.mailingLine1 ?? '');
+      setMaLine2(r.address.mailingLine2 ?? '');
+      setMaCity(r.address.mailingCity ?? '');
+      setMaState(r.address.mailingState ?? '');
+      setMaPostal(r.address.mailingPostal ?? '');
+    }
+  }
+  async function saveMailing(e: React.FormEvent) {
+    e.preventDefault();
+    setMaError(''); setSavingMa(true);
+    try {
+      const r = await api.patch<MailingResp>('/account/mailing-address', {
+        mailingName: maName.trim(),
+        mailingLine1: maLine1.trim(),
+        mailingLine2: maLine2.trim() || null,
+        mailingCity: maCity.trim(),
+        mailingState: maState.trim().toUpperCase(),
+        mailingPostal: maPostal.trim(),
+      });
+      fillMailing(r);
+      showToast('Mailing address saved');
+    } catch (err) {
+      setMaError(String((err as ApiError).message));
+    } finally {
+      setSavingMa(false);
+    }
+  }
+
   // aktif oturumlar
   const [sessions, setSessions] = useState<SessionRow[] | null>(null);
   function loadSessions() {
@@ -104,6 +153,7 @@ export default function AccountPage() {
     api.get<Account>('/account')
       .then((a) => { setAcc(a); setFullName(a.fullName); setLocale(a.locale); })
       .catch((e) => setError(String((e as ApiError).message)));
+    api.get<MailingResp>('/account/mailing-address').then(fillMailing).catch(() => { /* uyeliksiz principal */ });
     loadSessions();
   }, [router]);
 
@@ -190,6 +240,54 @@ export default function AccountPage() {
             <button className="btn" type="submit" disabled={!dirty || savingProfile}>{savingProfile ? 'Saving…' : 'Save changes'}</button>
           </div>
         </form>
+
+        {/* ---- Cek posta adresi (Faz A2) ---- */}
+        {mailing?.hasMembership && (
+          <form onSubmit={saveMailing} className="card fade-in delay-1" style={{ marginBottom: 16 }}>
+            <div className="spread" style={{ alignItems: 'flex-start' }}>
+              <div>
+                <strong style={{ fontSize: 15 }}>Mailing address</strong>
+                <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
+                  Commission checks are mailed here. Keep it current — you can&apos;t request a payout without a complete address.
+                </div>
+              </div>
+              <span className={`badge ${mailing.complete ? 'active' : 'inactive'}`} style={{ fontSize: 9, flexShrink: 0 }}>
+                {mailing.complete ? '✓ complete' : 'incomplete'}
+              </span>
+            </div>
+            <div className="field" style={{ marginTop: 12 }}>
+              <label>Payable to (name on check)</label>
+              <input value={maName} onChange={(e) => setMaName(e.target.value)} minLength={2} maxLength={120} placeholder="Full legal name" required />
+            </div>
+            <div className="field">
+              <label>Street address</label>
+              <input value={maLine1} onChange={(e) => setMaLine1(e.target.value)} minLength={3} maxLength={120} placeholder="123 Main St" required />
+            </div>
+            <div className="field">
+              <label>Apt / Suite <span className="faint">(optional)</span></label>
+              <input value={maLine2} onChange={(e) => setMaLine2(e.target.value)} maxLength={120} placeholder="Apt 4B" />
+            </div>
+            <div className="row" style={{ gap: 10 }}>
+              <div className="field" style={{ flex: 2 }}>
+                <label>City</label>
+                <input value={maCity} onChange={(e) => setMaCity(e.target.value)} minLength={2} maxLength={80} placeholder="Los Angeles" required />
+              </div>
+              <div className="field" style={{ flex: 1 }}>
+                <label>State</label>
+                <input value={maState} onChange={(e) => setMaState(e.target.value.toUpperCase())} maxLength={2} placeholder="CA" style={{ textTransform: 'uppercase' }} required />
+              </div>
+              <div className="field" style={{ flex: 1 }}>
+                <label>ZIP</label>
+                <input value={maPostal} onChange={(e) => setMaPostal(e.target.value)} inputMode="numeric" placeholder="90001" required />
+              </div>
+            </div>
+            {maError && <div className="error" style={{ marginBottom: 10 }}>{maError}</div>}
+            <div className="spread" style={{ alignItems: 'center' }}>
+              <span className="faint" style={{ fontSize: 11 }}>United States only.</span>
+              <button className="btn" type="submit" disabled={savingMa}>{savingMa ? 'Saving…' : 'Save address'}</button>
+            </div>
+          </form>
+        )}
 
         {/* ---- Sifre ---- */}
         <form onSubmit={changePassword} className="card fade-in delay-2" style={{ marginBottom: 16 }}>

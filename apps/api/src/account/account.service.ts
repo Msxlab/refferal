@@ -5,7 +5,14 @@ import { authenticator } from 'otplib';
 import { ARGON2_OPTS } from '../auth/auth.service';
 import { decryptSecret, encryptSecret, randomCode, sha256 } from '../common/crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { ChangePasswordInput, Disable2faInput, Enable2faInput, UpdateProfileInput } from './account.types';
+import {
+  ChangePasswordInput,
+  Disable2faInput,
+  Enable2faInput,
+  mailingAddressComplete,
+  UpdateMailingAddressInput,
+  UpdateProfileInput,
+} from './account.types';
 
 // Saat kaymasina tolerans: +-1 adim (30sn) kabul et.
 authenticator.options = { window: 1 };
@@ -150,6 +157,60 @@ export class AccountService {
     }
     await this.prisma.user.update({ where: { id: userId }, data: { totpSecret: null, totpEnabledAt: null, mfaRecoveryCodes: Prisma.DbNull } });
     return { disabled: true };
+  }
+
+  // ---- Cek posta adresi (Faz A2) ----
+
+  /** Aktif uyeligin cek posta adresi. membershipId yoksa (uyeliksiz principal) bos doner. */
+  async mailingAddress(membershipId: string | null) {
+    if (!membershipId) {
+      return { hasMembership: false as const, complete: false, address: null };
+    }
+    const m = await this.prisma.membership.findUnique({
+      where: { id: membershipId },
+      select: {
+        mailingName: true, mailingLine1: true, mailingLine2: true,
+        mailingCity: true, mailingState: true, mailingPostal: true, mailingCountry: true,
+        user: { select: { fullName: true } },
+      },
+    });
+    if (!m) {
+      throw new NotFoundException('uyelik bulunamadi');
+    }
+    return {
+      hasMembership: true as const,
+      complete: mailingAddressComplete(m),
+      address: {
+        // mailingName bos ise cek "Pay to" satiri icin kullanici adina dus
+        mailingName: m.mailingName ?? m.user.fullName,
+        mailingLine1: m.mailingLine1,
+        mailingLine2: m.mailingLine2,
+        mailingCity: m.mailingCity,
+        mailingState: m.mailingState,
+        mailingPostal: m.mailingPostal,
+        mailingCountry: m.mailingCountry ?? 'US',
+      },
+    };
+  }
+
+  /** Cek posta adresini guncelle. ABD-only (country='US' sabit). */
+  async updateMailingAddress(membershipId: string | null, input: UpdateMailingAddressInput) {
+    if (!membershipId) {
+      throw new BadRequestException('aktif bir uyelik gerekli');
+    }
+    await this.prisma.membership.update({
+      where: { id: membershipId },
+      data: {
+        mailingName: input.mailingName,
+        mailingLine1: input.mailingLine1,
+        mailingLine2: input.mailingLine2 ?? null,
+        mailingCity: input.mailingCity,
+        mailingState: input.mailingState,
+        mailingPostal: input.mailingPostal,
+        mailingCountry: 'US',
+      },
+    });
+    return this.mailingAddress(membershipId);
   }
 
   // ---- Aktif oturumlar (cihazlar) ----

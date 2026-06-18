@@ -10,6 +10,8 @@ import {
   Disable2faInput,
   enable2faSchema,
   Enable2faInput,
+  updateMailingAddressSchema,
+  UpdateMailingAddressInput,
   updateProfileSchema,
   UpdateProfileInput,
 } from './account.types';
@@ -69,6 +71,21 @@ export class AccountController {
     @Body(new ZodValidationPipe(disable2faSchema)) body: Disable2faInput,
   ) {
     return this.account.disable2fa(user.sub, body);
+  }
+
+  // ---- Cek posta adresi (Faz A2) ----
+
+  @Get('mailing-address')
+  mailingAddress(@CurrentUser() user: RequestUser) {
+    return this.account.mailingAddress(user.mid);
+  }
+
+  @Patch('mailing-address')
+  updateMailingAddress(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(updateMailingAddressSchema)) body: UpdateMailingAddressInput,
+  ) {
+    return this.account.updateMailingAddress(user.mid, body);
   }
 
   // ---- Aktif oturumlar ----

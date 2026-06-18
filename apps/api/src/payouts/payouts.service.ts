@@ -13,6 +13,7 @@ import { decryptSecret } from '../common/crypto';
 import { csvCell } from '../common/csv';
 import { centsToDecimalString } from '@refearn/shared';
 import { achConfigFromEnv, AchEntry, buildNachaFile } from './nacha';
+import { mailingAddressComplete } from '../account/account.types';
 
 type Tx = Prisma.TransactionClient;
 
@@ -650,13 +651,20 @@ export class PayoutsService {
     // Dolandiricilik kapisi: dogrulanmamis (sybil) hesap kazanc cekemesin.
     const membership = await this.prisma.membership.findFirst({
       where: { id: membershipId, tenantId },
-      select: { user: { select: { emailVerifiedAt: true } } },
+      select: {
+        user: { select: { emailVerifiedAt: true } },
+        mailingName: true, mailingLine1: true, mailingCity: true, mailingState: true, mailingPostal: true,
+      },
     });
     if (!membership) {
       throw new BadRequestException('uyelik bulunamadi');
     }
     if (!membership.user.emailVerifiedAt) {
       throw new BadRequestException('odeme talebi icin e-posta adresinizi dogrulamaniz gerekir');
+    }
+    // Cek-odeme kapisi (Faz A2): cek bir adrese postalanir — eksik adresle talep acilamaz.
+    if (!mailingAddressComplete(membership)) {
+      throw new BadRequestException('odeme talebi icin once cek posta adresinizi tamamlayin (Account)');
     }
 
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
