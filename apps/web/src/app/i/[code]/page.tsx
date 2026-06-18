@@ -131,7 +131,8 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
                     I confirm that the name and information I provide are accurate and that I am the
                     person registering. I understand commissions are paid by check mailed to the
                     address on my account once my balance reaches the payout minimum, and that I am
-                    responsible for keeping my details correct. I agree to the program terms.
+                    responsible for keeping my details correct. I agree to the{' '}
+                    <a href="/terms" target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: 'var(--accent, var(--gold-500))', textDecoration: 'underline' }}>program terms</a>.
                   </span>
                 </label>
                 {error && <div className="error">{error}</div>}
