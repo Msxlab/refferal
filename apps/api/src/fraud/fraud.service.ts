@@ -64,6 +64,34 @@ export class FraudService {
       for (const m of shared) add(m.id, { score: 35, reason: 'shared_signup_ip' });
     }
 
+    // sinyal 5: hizli-odeme (Faz B3) — YENI hesap (< 14 gun) aniden BUYUK payable biriktirmis
+    // (>= 10x payout esigi). "Dondur+incele": tek basina bloklar (skor >= BLOCK), admin gozden gecirir.
+    // Mesru yuksek-performansli olabilir; bu yuzden otomatik blok DEGIL hold — admin clear'lar.
+    const NEW_ACCOUNT_DAYS = 14;
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { payoutMinCents: true } });
+    if (tenant) {
+      const velocityThreshold = tenant.payoutMinCents * 10n;
+      const newCutoff = new Date(Date.now() - NEW_ACCOUNT_DAYS * 86_400_000);
+      const newMembers = await this.prisma.membership.findMany({
+        where: { tenantId, joinedAt: { gte: newCutoff } },
+        select: { id: true },
+      });
+      if (newMembers.length) {
+        const newIds = newMembers.map((m) => m.id);
+        const payable = await this.prisma.ledgerEntry.groupBy({
+          by: ['beneficiaryMembershipId'],
+          where: { tenantId, status: 'payable', beneficiaryMembershipId: { in: newIds } },
+          _sum: { amountCents: true },
+        });
+        for (const p of payable) {
+          const sum = p._sum.amountCents ?? 0n;
+          if (sum >= velocityThreshold) {
+            add(p.beneficiaryMembershipId, { score: FRAUD_BLOCK_SCORE, reason: `rapid_payout_new_account($${(Number(sum) / 100).toFixed(0)}/<${NEW_ACCOUNT_DAYS}d)` });
+          }
+        }
+      }
+    }
+
     // upsert: uye basina topla, mevcut bayragi koru (cleared → yeniden tetiklenirse ac)
     const existing = await this.prisma.fraudFlag.findMany({ where: { tenantId, membershipId: { in: [...byMember.keys()] } } });
     const existingById = new Map(existing.map((f) => [f.membershipId, f]));

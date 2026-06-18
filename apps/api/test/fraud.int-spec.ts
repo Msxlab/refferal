@@ -61,6 +61,26 @@ describe('fraud engine (entegrasyon)', () => {
     expect(flag.reasons.join(',')).toMatch(/high_void_rate/);
   });
 
+  it('B3 hizli-odeme: YENI hesap (< 14 gun) buyuk payable biriktirince tarama dondurup bloklar', async () => {
+    const { tenant, seller, ownerTok } = await setup();
+    // seller createChain ile joinedAt=now (yeni). buyuk payable: $15k >= 10x payout esigi ($1000)
+    await prisma.ledgerEntry.create({ data: { tenantId: tenant.id, saleId: null, beneficiaryMembershipId: seller.id, level: 0, rateBpsUsed: 0, amountCents: 1_500_000n, type: LedgerType.adjustment, status: LedgerStatus.payable, summaryMonth: '2026-06' } });
+
+    await request(srv()).post('/v1/admin/fraud/scan').set('Authorization', `Bearer ${ownerTok}`).expect(200);
+    const list = await request(srv()).get('/v1/admin/fraud').set('Authorization', `Bearer ${ownerTok}`).expect(200);
+    const flag = list.body.find((f: { membershipId: string }) => f.membershipId === seller.id);
+    expect(flag).toBeTruthy();
+    expect(flag.blocked).toBe(true);
+    expect(flag.reasons.join(',')).toMatch(/rapid_payout_new_account/);
+
+    // ESKI hesap ayni bakiyeyle bu sinyali TETIKLEMEZ — joinedAt'i geriye al, yeni uye yok say
+    await prisma.membership.update({ where: { id: seller.id }, data: { joinedAt: new Date(Date.now() - 60 * 86_400_000) } });
+    await prisma.fraudFlag.delete({ where: { membershipId: seller.id } });
+    await request(srv()).post('/v1/admin/fraud/scan').set('Authorization', `Bearer ${ownerTok}`).expect(200);
+    const list2 = await request(srv()).get('/v1/admin/fraud').set('Authorization', `Bearer ${ownerTok}`).expect(200);
+    expect(list2.body.find((f: { membershipId: string }) => f.membershipId === seller.id)).toBeFalsy();
+  });
+
   it('bloklu uye payout alamaz; clear sonrasi serbest', async () => {
     const { tenant, seller, owner, ownerTok, sellerTok } = await setup();
     // odenebilir bakiye
