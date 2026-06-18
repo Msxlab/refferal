@@ -48,6 +48,8 @@ export const registerByInviteSchema = z.object({
   password: z.string().min(10).max(128),
   fullName: z.string().trim().min(2).max(120),
   locale: z.enum(['en', 'tr']).default('en'),
+  // Faz A1: sorumluluk metni onayi ZORUNLU (true degilse zod reddeder). Hukuki kayit.
+  acceptDisclaimer: z.literal(true),
 });
 export type RegisterByInviteInput = z.infer<typeof registerByInviteSchema>;
 

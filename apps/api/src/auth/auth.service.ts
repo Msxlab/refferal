@@ -37,6 +37,9 @@ import {
 // argon2id parametreleri (OWASP onerisi)
 export const ARGON2_OPTS = { memoryCost: 19_456, timeCost: 2, parallelism: 1 };
 
+// Kayit disclaimer'inin surumu — FE'deki metin degisirse artir; hangi metnin kabul edildigini izler.
+export const DISCLAIMER_VERSION = 'v1';
+
 // 2FA: TOTP saat kaymasi toleransi (+-1 adim) + login 2. adim challenge token omru (5 dk)
 authenticator.options = { window: 1 };
 const MFA_CHALLENGE_TTL_SECONDS = 300;
@@ -154,10 +157,15 @@ export class AuthService {
         userId: user.id,
         sponsor: invite.inviter,
       });
-      // sybil sinyali (#16): kayit IP'sini sakla — ayni IP'den coklu kayit fraud taramasinda yakalanir
-      if (meta.ip) {
-        await tx.membership.update({ where: { id: membership.id }, data: { signupIp: meta.ip } });
-      }
+      // sybil sinyali (#16): kayit IP'si + Faz A1 disclaimer onayi (zod true zorunlu kildi).
+      await tx.membership.update({
+        where: { id: membership.id },
+        data: {
+          ...(meta.ip ? { signupIp: meta.ip } : {}),
+          disclaimerAcceptedAt: new Date(),
+          disclaimerVersion: DISCLAIMER_VERSION,
+        },
+      });
 
       await tx.invite.update({
         where: { id: invite.id },

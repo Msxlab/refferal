@@ -25,6 +25,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [accept, setAccept] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -48,6 +49,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
         email: email.trim(),
         password,
         fullName: fullName.trim(),
+        acceptDisclaimer: true,
       });
       setSession(session);
       router.replace(landingPath(activeMembership(session)?.role));
@@ -113,8 +115,27 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
                   <label>{t('login.password')} <span className="faint">(min 10)</span></label>
                   <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={10} placeholder="••••••••••" />
                 </div>
+                {/* Faz A1: self-attestation + sorumluluk metni. Onay ZORUNLU; tarih+IP backend'de saklanir. */}
+                <label
+                  className="card"
+                  style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: 'var(--panel-2)', padding: 12, marginTop: 4, marginBottom: 12, cursor: 'pointer', fontWeight: 400 }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={accept}
+                    onChange={(e) => setAccept(e.target.checked)}
+                    required
+                    style={{ width: 16, height: 16, marginTop: 2, flexShrink: 0 }}
+                  />
+                  <span className="faint" style={{ fontSize: 11.5, lineHeight: 1.55 }}>
+                    I confirm that the name and information I provide are accurate and that I am the
+                    person registering. I understand commissions are paid by check mailed to the
+                    address on my account once my balance reaches the payout minimum, and that I am
+                    responsible for keeping my details correct. I agree to the program terms.
+                  </span>
+                </label>
                 {error && <div className="error">{error}</div>}
-                <button type="submit" className="btn block" style={{ marginTop: 6 }} disabled={busy}>
+                <button type="submit" className="btn block" style={{ marginTop: 6 }} disabled={busy || !accept}>
                   {busy ? t('common.loading') : t('reg.submit')} {!busy && <span>→</span>}
                 </button>
               </form>
