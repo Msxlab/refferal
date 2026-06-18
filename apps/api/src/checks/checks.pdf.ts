@@ -126,8 +126,8 @@ function drawCheck(doc: PDFKit.PDFDocument, company: string, chk: CheckDoc, L: n
   // cek cercevesi
   doc.roundedRect(L, top, R - L, 230, 6).strokeColor('#cccccc').lineWidth(1).stroke();
 
-  // sirket (sol ust) + cek no (sag ust)
-  doc.fillColor('#000').font('Helvetica-Bold').fontSize(14).text(company, L + 18, top + 16);
+  // sirket (sol ust) + cek no (sag ust). width+ellipsis: asiri uzun tenant adi layout'u bozmasin/tasmasin.
+  doc.fillColor('#000').font('Helvetica-Bold').fontSize(14).text(company, L + 18, top + 16, { width: R - L - 210, ellipsis: true, lineBreak: false });
   doc.font('Helvetica').fontSize(9).fillColor('#666').text('Commission Disbursement', L + 18, top + 34);
   doc.font('Helvetica-Bold').fontSize(12).fillColor('#000')
     .text(`Check No. ${chk.checkNumber}`, R - 180, top + 16, { width: 162, align: 'right' });

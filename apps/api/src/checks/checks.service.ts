@@ -8,6 +8,9 @@ import { CheckState, GenerateRunInput, MarkMailedInput, PayeeSnapshot } from './
 
 type Tx = Prisma.TransactionClient;
 const TX_OPTS = { timeout: 20_000, maxWait: 15_000 };
+// Cek tutar tavani: NACHA entry siniri ile ayni ($99,999,999.99). Ustunde tutar-yaziyla (centsToWords)
+// Number'a dusunce hassasiyet kaybeder + "Billion" ustu kelime uretmez → bozuk cek. Bu yuzden reddet.
+const CHECK_AMOUNT_MAX = 9_999_999_999n;
 
 const MAILING_SELECT = {
   mailingName: true, mailingLine1: true, mailingLine2: true,
@@ -100,6 +103,11 @@ export class ChecksService {
           skipped.push({ payoutId: p.id, name: m.user.fullName, reason: 'incomplete_address' });
           continue;
         }
+        // cek pozitif + sinirli tutarda olmali (0/negatif cek kesilmez; tavan = NACHA siniri)
+        if (p.totalCents <= 0n || p.totalCents > CHECK_AMOUNT_MAX) {
+          skipped.push({ payoutId: p.id, name: m.user.fullName, reason: 'invalid_amount' });
+          continue;
+        }
         next += 1;
         const snapshot: PayeeSnapshot = {
           name: m.mailingName ?? m.user.fullName,
@@ -171,7 +179,8 @@ export class ChecksService {
 
   /**
    * Yazdirilabilir cek PDF'i. payoutIds verilmezse no-atanmis & postalanmamis TUM cekler.
-   * Yalniz checkNumber + payeeSnapshot dolu (no atanmis) cekler basilir.
+   * Yalniz checkNumber + payeeSnapshot dolu (no atanmis) cekler basilir. POSTALANMIS cek
+   * (mailedAt dolu) HER ZAMAN haric — payoutIds verilse bile (yeniden basip cift postalamayi onler).
    */
   async buildPdf(tenantId: string, payoutIds?: string[]): Promise<{ buffer: Buffer; count: number; fileName: string }> {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { name: true } });
@@ -181,16 +190,25 @@ export class ChecksService {
         method: 'check',
         status: 'paid',
         checkNumber: { not: null },
-        ...(payoutIds?.length ? { id: { in: payoutIds } } : { mailedAt: null }),
+        mailedAt: null, // KOSULSUZ: postalanmis cek yeniden bastirilamaz (cift odeme korumasi)
+        ...(payoutIds?.length ? { id: { in: payoutIds } } : {}),
       },
       orderBy: [{ checkNumber: 'asc' }],
     });
     if (rows.length === 0) {
-      throw new BadRequestException('bastirilacak cek yok — once cek-run ile numara atayin');
+      throw new BadRequestException('bastirilacak cek yok — once cek-run ile numara atayin (postalanmis cekler haric)');
     }
 
     const checks: CheckDoc[] = rows.map((p) => {
-      const snap = p.payeeSnapshot as unknown as PayeeSnapshot;
+      const snap = p.payeeSnapshot as unknown as PayeeSnapshot | null;
+      // butunluk: no atanmis cekin adres snapshot'i tam olmali (yoksa cek-run tekrar)
+      if (!snap || !snap.name || !snap.line1 || !snap.city || !snap.state || !snap.postal) {
+        throw new BadRequestException(`cek ${p.checkNumber}: payee adres snapshot'i eksik — cek-run'i tekrar calistirin`);
+      }
+      // tutar pozitif + sinir icinde (savunma: generateRun zaten atlar, ama elle/eski veriye karsi)
+      if (p.totalCents <= 0n || p.totalCents > CHECK_AMOUNT_MAX) {
+        throw new BadRequestException(`cek ${p.checkNumber}: tutar cek sinirlari disinda (0 < tutar <= $99,999,999.99)`);
+      }
       return {
         checkNumber: p.checkNumber as number,
         amountCents: p.totalCents,

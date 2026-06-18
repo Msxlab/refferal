@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { downloadPdf } from '@/lib/download';
 import { money, dateShort } from '@/lib/format';
-import { Loading, useToast } from '@/components/ui';
+import { Confirm, Loading, useToast } from '@/components/ui';
 
 type CheckState = 'needs_address' | 'ready_to_print' | 'printed' | 'mailed';
 
@@ -33,6 +33,7 @@ export default function ChecksPage() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
+  const [confirmMail, setConfirmMail] = useState(false);
   const [toast, showToast] = useToast();
 
   const load = useCallback(() => {
@@ -88,8 +89,9 @@ export default function ChecksPage() {
       const r = await api.post<{ mailed: number }>('/admin/checks/mark-mailed', { payoutIds });
       showToast(`Marked ${r.mailed} check${r.mailed === 1 ? '' : 's'} as mailed`);
       load();
-    } catch (e) { showToast(String((e as ApiError).message)); } finally { setBusy(false); }
+    } catch (e) { showToast(String((e as ApiError).message)); } finally { setBusy(false); setConfirmMail(false); }
   }
+  const mailTargetCount = idsFor('printed', printed).length;
 
   if (error) return <div className="error" style={{ margin: 24 }}>{error}</div>;
   if (!data) return <div style={{ padding: 24 }}><Loading rows={4} /></div>;
@@ -122,7 +124,7 @@ export default function ChecksPage() {
           Generate check run{ready.length ? ` (${idsFor('ready_to_print', ready).length})` : ''}
         </button>
         <button className="btn ghost" onClick={downloadChecks} disabled={busy || printed.length === 0}>⤓ Download PDF</button>
-        <button className="btn ghost" onClick={markMailed} disabled={busy || printed.length === 0}>✓ Mark mailed</button>
+        <button className="btn ghost" onClick={() => setConfirmMail(true)} disabled={busy || printed.length === 0}>✓ Mark mailed</button>
       </div>
 
       {items.length === 0 ? (
@@ -166,6 +168,18 @@ export default function ChecksPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {confirmMail && (
+        <Confirm
+          title="Mark checks as mailed?"
+          message={`This marks ${mailTargetCount} printed check${mailTargetCount === 1 ? '' : 's'} as mailed. This cannot be undone — only do it once the checks are physically in the mail.`}
+          confirmLabel="Mark mailed"
+          danger
+          busy={busy}
+          onConfirm={markMailed}
+          onClose={() => setConfirmMail(false)}
+        />
       )}
 
       {toast && <div className="toast" role="status">{toast}</div>}

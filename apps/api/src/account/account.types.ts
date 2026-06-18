@@ -37,15 +37,20 @@ export const US_STATES = new Set([
   'SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC','AS','GU','MP','PR','VI',
 ]);
 
+// Satir sonu / kontrol karakteri yasak: cek PDF'inde adres bloku '\n' ile birlestirilir —
+// gomulu \n/\r/\t cekin adres penceresini bozar (postalanamaz) ya da sahte satir enjekte eder.
+const noCtrl = (s: string) => !/[\n\r\t\x00-\x1f]/.test(s);
+const CTRL_MSG = 'satir sonu veya kontrol karakteri iceremez';
+
 /**
  * Cek posta adresi (Faz A2): cek bu adrese postalanir. Hepsi zorunlu (line2 haric).
  * ABD-only: eyalet USPS 2-harf, ZIP 5 veya 5-4. mailingName = cekin "Pay to" satiri.
  */
 export const updateMailingAddressSchema = z.object({
-  mailingName: z.string().trim().min(2).max(120),
-  mailingLine1: z.string().trim().min(3).max(120),
-  mailingLine2: z.string().trim().max(120).optional().nullable(),
-  mailingCity: z.string().trim().min(2).max(80),
+  mailingName: z.string().trim().min(2).max(120).refine(noCtrl, CTRL_MSG),
+  mailingLine1: z.string().trim().min(3).max(120).refine(noCtrl, CTRL_MSG),
+  mailingLine2: z.string().trim().max(120).refine(noCtrl, CTRL_MSG).optional().nullable(),
+  mailingCity: z.string().trim().min(2).max(80).refine(noCtrl, CTRL_MSG),
   mailingState: z
     .string()
     .trim()

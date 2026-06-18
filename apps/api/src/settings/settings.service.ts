@@ -14,6 +14,7 @@ export interface UpdateSettingsInput {
   requireSeparateApprover?: boolean;
   requireKycForPayout?: boolean;
   requirePayoutApproval?: boolean;
+  autoRequestPayouts?: boolean;
   branding?: Prisma.InputJsonValue;
 }
 
@@ -37,6 +38,7 @@ export class SettingsService {
       requireSeparateApprover: t.requireSeparateApprover,
       requireKycForPayout: t.requireKycForPayout,
       requirePayoutApproval: t.requirePayoutApproval,
+      autoRequestPayouts: t.autoRequestPayouts,
       branding: t.branding,
     };
   }
@@ -78,6 +80,7 @@ export class SettingsService {
         requireSeparateApprover: input.requireSeparateApprover,
         requireKycForPayout: input.requireKycForPayout,
         requirePayoutApproval: input.requirePayoutApproval,
+        autoRequestPayouts: input.autoRequestPayouts,
         // kismi guncelleme tum kolonu ezmesin: mevcut branding ile birlestir
         branding:
           input.branding === undefined

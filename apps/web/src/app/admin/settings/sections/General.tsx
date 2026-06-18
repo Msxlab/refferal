@@ -18,6 +18,7 @@ interface Settings {
   requireSeparateApprover: boolean;
   requireKycForPayout: boolean;
   requirePayoutApproval: boolean;
+  autoRequestPayouts: boolean;
 }
 
 const MATURATION = [
@@ -59,6 +60,7 @@ export default function General() {
         requireSeparateApprover: s.requireSeparateApprover,
         requireKycForPayout: s.requireKycForPayout,
         requirePayoutApproval: s.requirePayoutApproval,
+        autoRequestPayouts: s.autoRequestPayouts,
       });
       setS(res);
       showToast('Settings saved ✓');
@@ -112,6 +114,7 @@ export default function General() {
         <div style={{ marginTop: 4 }}>
           <Toggle label="Require a verified payout profile (KYC) before paying members" checked={s.requireKycForPayout} onChange={(v) => setS({ ...s, requireKycForPayout: v })} />
           <Toggle label="Maker-checker — a payout run must be approved by a second admin (4-eyes)" checked={s.requirePayoutApproval} onChange={(v) => setS({ ...s, requirePayoutApproval: v })} />
+          <Toggle label="Auto-request payouts — nightly, create a check request for members who reach the threshold (admin still approves)" checked={s.autoRequestPayouts} onChange={(v) => setS({ ...s, autoRequestPayouts: v })} />
           <Toggle label="Separation of duties — the seller can't approve their own sale (maker-checker)" checked={s.requireSeparateApprover} onChange={(v) => setS({ ...s, requireSeparateApprover: v })} />
           <Toggle label="Show member name in join notifications" checked={s.notifyNewMemberName} onChange={(v) => setS({ ...s, notifyNewMemberName: v })} />
           <Toggle label="Inactive members keep earning commissions" checked={s.inactiveMembersEarn} onChange={(v) => setS({ ...s, inactiveMembersEarn: v })} />

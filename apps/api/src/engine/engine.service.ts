@@ -335,7 +335,8 @@ export class EngineService {
         return { paid: false as const, reason: 'nothing_payable' as const, netCents: 0n };
       }
       const net = rows.reduce((a, r) => a + r.amountCents, 0n);
-      if (net < tenant.payoutMinCents) {
+      // pozitif olmayan net ASLA odenmez (payoutMinCents=0 ayarinda 0/negatif cek kesilmesin).
+      if (net <= 0n || net < tenant.payoutMinCents) {
         return { paid: false as const, reason: 'below_min' as const, netCents: net };
       }
 
