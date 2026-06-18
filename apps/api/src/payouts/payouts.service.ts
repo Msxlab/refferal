@@ -648,6 +648,26 @@ export class PayoutsService {
 
   /** Uye payout talebi (SPEC 8): net payable >= esik ise 'requested' kayit. */
   async requestPayout(membershipId: string, tenantId: string) {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    const assessed = await this.assessPayout(membershipId, tenant);
+    if ('block' in assessed) {
+      throw new BadRequestException(assessed.block);
+    }
+    const period = monthKey(new Date(), tenant.timezone);
+    const r = await this.createCheckRequest(membershipId, tenantId, assessed.net, period);
+    return { id: r.id, status: r.status, period: r.period, requestedCents: r.requestedCents };
+  }
+
+  /**
+   * Payout uygunluk kapilari (requestPayout + auto-request A3 ORTAK kaynagi). Tum kapilar gecerse
+   * { net } doner, biri takilirsa { block: <sebep> }. Para HAREKETI / KAYIT YOK — yalniz degerlendirme.
+   * Kapilar: uyelik var + e-posta dogrulu + cek adresi tam + sanctions(canli) + KYC(bayrak) + fraud + esik.
+   */
+  private async assessPayout(
+    membershipId: string,
+    tenant: { id: string; payoutMinCents: bigint; requireKycForPayout: boolean },
+  ): Promise<{ net: bigint } | { block: string }> {
+    const tenantId = tenant.id;
     // Dolandiricilik kapisi: dogrulanmamis (sybil) hesap kazanc cekemesin.
     const membership = await this.prisma.membership.findFirst({
       where: { id: membershipId, tenantId },
@@ -656,18 +676,8 @@ export class PayoutsService {
         mailingName: true, mailingLine1: true, mailingCity: true, mailingState: true, mailingPostal: true,
       },
     });
-    if (!membership) {
-      throw new BadRequestException('uyelik bulunamadi');
-    }
-    if (!membership.user.emailVerifiedAt) {
-      throw new BadRequestException('odeme talebi icin e-posta adresinizi dogrulamaniz gerekir');
-    }
-    // Cek-odeme kapisi (Faz A2): cek bir adrese postalanir — eksik adresle talep acilamaz.
-    if (!mailingAddressComplete(membership)) {
-      throw new BadRequestException('odeme talebi icin once cek posta adresinizi tamamlayin (Account)');
-    }
-
-    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    if (!membership) return { block: 'uyelik bulunamadi' };
+    if (!membership.user.emailVerifiedAt) return { block: 'odeme talebi icin e-posta adresinizi dogrulamaniz gerekir' };
 
     // sanctions (her zaman) + KYC kapisi (tenant bayragi)
     const profile = await this.prisma.payoutProfile.findUnique({
@@ -679,78 +689,123 @@ export class PayoutsService {
       await this.markSanctionsHit(tenantId, membershipId);
       profile.sanctionsHit = true;
     }
-    if (profile?.sanctionsHit) throw new BadRequestException('sanctions match — compliance review');
+    if (profile?.sanctionsHit) return { block: 'sanctions match — compliance review' };
     if (tenant.requireKycForPayout) {
       const block = kycPayoutBlock(profile);
-      if (block) throw new BadRequestException(block);
+      if (block) return { block };
     }
     // fraud bayragi: bloklu uye odeme talebi acamaz (her zaman acik)
     const flag = await this.prisma.fraudFlag.findUnique({ where: { membershipId }, select: { status: true, score: true } });
     const fraudBlock = fraudPayoutBlock(flag);
-    if (fraudBlock) throw new BadRequestException(fraudBlock);
+    if (fraudBlock) return { block: fraudBlock };
+
     const agg = await this.prisma.ledgerEntry.aggregate({
       where: { tenantId, beneficiaryMembershipId: membershipId, status: LedgerStatus.payable },
       _sum: { amountCents: true },
     });
     const net = agg._sum.amountCents ?? 0n;
     if (net < tenant.payoutMinCents) {
-      throw new BadRequestException(
-        `odenebilir bakiye ($${(Number(net) / 100).toFixed(2)}) minimum esigin ($${(Number(tenant.payoutMinCents) / 100).toFixed(2)}) altinda`,
-      );
+      return {
+        block: `odenebilir bakiye ($${(Number(net) / 100).toFixed(2)}) minimum esigin ($${(Number(tenant.payoutMinCents) / 100).toFixed(2)}) altinda`,
+      };
     }
+    // Cek-odeme kapisi (Faz A2): cek bir adrese postalanir — esigi gecse bile eksik adresle talep
+    // acilamaz. Guvenlik/esik kapilarindan SONRA: yaptirimlı/bloklu uyeye "adresini tamamla" denmez.
+    if (!mailingAddressComplete(membership)) return { block: 'odeme talebi icin once cek posta adresinizi tamamlayin (Account)' };
+    return { net };
+  }
 
-    // donemden BAGIMSIZ: uyenin ACIK (requested|processing) bir talebi varsa tekrar olusturma.
-    // requestPayout satir baglamadigi icin ay donerken (period degisince) ayni baglanmamis
-    // bakiye yeniden snapshot'lanip cift sayilabilir — bu yuzden period filtresi YOK, tenant scope VAR.
-    const period = monthKey(new Date(), tenant.timezone);
+  /**
+   * Tek ACIK (requested|processing) talep kurali: varsa onu don (created=false), yoksa method=check
+   * 'requested' talep olustur (created=true). P2002 (uye basina tek-acik kismi unique) yarisinda kazanani don.
+   * donemden BAGIMSIZ dedupe (tenant scope) — ay donerken baglanmamis bakiye cift sayilmasin.
+   */
+  private async createCheckRequest(
+    membershipId: string,
+    tenantId: string,
+    net: bigint,
+    period: string,
+  ): Promise<{ id: string; status: PayoutStatus; period: string; requestedCents: string; created: boolean }> {
     const existing = await this.prisma.payout.findFirst({
-      where: {
-        tenantId,
-        membershipId,
-        status: { in: [PayoutStatus.requested, PayoutStatus.processing] },
-      },
+      where: { tenantId, membershipId, status: { in: [PayoutStatus.requested, PayoutStatus.processing] } },
     });
     if (existing) {
-      // var olan talebin KENDI donemini don (gecmis aydan olabilir)
-      return { id: existing.id, status: existing.status, period: existing.period, requestedCents: existing.totalCents.toString() };
+      return { id: existing.id, status: existing.status, period: existing.period, requestedCents: existing.totalCents.toString(), created: false };
     }
-
     try {
       const payout = await this.prisma.payout.create({
-        data: {
-          tenantId,
-          membershipId,
-          totalCents: net,
-          // Faz A2.2: uye talepleri cek ile odenir (cek-run sirali no + adres snapshot atar).
-          method: PayoutMethod.check,
-          status: PayoutStatus.requested,
-          period,
-        },
+        data: { tenantId, membershipId, totalCents: net, method: PayoutMethod.check, status: PayoutStatus.requested, period },
       });
-      return { id: payout.id, status: payout.status, period, requestedCents: net.toString() };
+      return { id: payout.id, status: payout.status, period, requestedCents: net.toString(), created: true };
     } catch (e) {
-      // TOCTOU yarisi: eszamanli talep findFirst kontrolunu ayni anda gecip once olusturdu.
-      // 'payouts_one_open_per_member' kismi unique index'i (uye basina tek acik payout) ihlalini
-      // P2002 olarak yakalayip kazanan acik talebi don — ham 500 yerine var-olan-gibi davran.
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         const winner = await this.prisma.payout.findFirst({
-          where: {
-            tenantId,
-            membershipId,
-            status: { in: [PayoutStatus.requested, PayoutStatus.processing] },
-          },
+          where: { tenantId, membershipId, status: { in: [PayoutStatus.requested, PayoutStatus.processing] } },
         });
         if (winner) {
-          return {
-            id: winner.id,
-            status: winner.status,
-            period: winner.period,
-            requestedCents: winner.totalCents.toString(),
-          };
+          return { id: winner.id, status: winner.status, period: winner.period, requestedCents: winner.totalCents.toString(), created: false };
         }
       }
       throw e;
     }
+  }
+
+  /**
+   * Faz A3: gece job'u — esigi gecen uyelere OTOMATIK 'requested' cek talebi acar + uyeye bildirir.
+   * PARA CIKMAZ: status='requested'; gercek odeme yine admin onayindan (decide/approve) gecer.
+   * Tenant.autoRequestPayouts kapaliysa o tenant atlanir. Idempotent: zaten acik talebi olan uye
+   * tekrar olusturmaz (createCheckRequest dedupe). assessPayout ile requestPayout ile AYNI kapilar.
+   */
+  async autoRequestPayouts(): Promise<{ tenants: number; created: number; skipped: number }> {
+    const tenants = await this.prisma.tenant.findMany({
+      where: { autoRequestPayouts: true },
+      select: { id: true, payoutMinCents: true, requireKycForPayout: true, timezone: true },
+    });
+    let created = 0;
+    let skipped = 0;
+    for (const tenant of tenants) {
+      // esigi gecen aday uyeler (payable net >= payoutMin) — payable() ile ayni esik mantigi
+      const candidates = await this.prisma.$queryRaw<Array<{ membershipId: string }>>`
+        SELECT le.beneficiary_membership_id AS "membershipId"
+        FROM ledger_entries le
+        WHERE le.tenant_id = ${tenant.id}::uuid AND le.status = 'payable'
+        GROUP BY le.beneficiary_membership_id
+        HAVING SUM(le.amount_cents) >= ${tenant.payoutMinCents}`;
+      const period = monthKey(new Date(), tenant.timezone);
+      for (const { membershipId } of candidates) {
+        try {
+          const assessed = await this.assessPayout(membershipId, tenant);
+          if ('block' in assessed) { skipped++; continue; }
+          const r = await this.createCheckRequest(membershipId, tenant.id, assessed.net, period);
+          if (!r.created) { skipped++; continue; } // zaten acik talep vardi → cift olusturma
+          created++;
+          // bildirim AYRI sarmali: payout olustu (created++), bildirim insert'i patlarsa uyeyi
+          // 'skipped' SAYMA (cift sayim olur) — outbox satiri uretilemedi diye sadece uyar.
+          try {
+            await this.notifyAutoRequest(tenant.id, membershipId, assessed.net, period, r.id);
+          } catch (nerr) {
+            this.logger.warn(`auto-request: uye ${membershipId} payout ${r.id} olustu ama bildirim yazilamadi — ${nerr instanceof Error ? nerr.message : String(nerr)}`);
+          }
+        } catch (err) {
+          // tek uye hatasi tum job'u dusurmesin
+          skipped++;
+          this.logger.warn(`auto-request: uye ${membershipId} atlandi — ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+    if (created > 0) this.logger.log(`auto-request: ${created} cek talebi acildi (${tenants.length} tenant, ${skipped} atlandi)`);
+    return { tenants: tenants.length, created, skipped };
+  }
+
+  /** A3 bildirimi: uyeye e-posta + in-app "cek hazirlaniyor (onay bekler)". Outbox worker gonderir. */
+  private async notifyAutoRequest(tenantId: string, membershipId: string, net: bigint, period: string, payoutId: string): Promise<void> {
+    const payload = { totalCents: net.toString(), period, payoutId } as Prisma.InputJsonValue;
+    await this.prisma.notification.createMany({
+      data: [
+        { tenantId, recipientMembershipId: membershipId, channel: NotificationChannel.email, template: 'payout_auto_requested', payload },
+        { tenantId, recipientMembershipId: membershipId, channel: NotificationChannel.in_app, template: 'payout_auto_requested', payload },
+      ],
+    });
   }
 
   async listMine(membershipId: string) {

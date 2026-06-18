@@ -159,6 +159,9 @@ model Tenant {
   requireKycForPayout Boolean        @default(false) @map("require_kyc_for_payout")
   // Maker-checker (4-goz): acikken payout run'i ONERI olusturur; farkli bir admin onaylar.
   requirePayoutApproval Boolean      @default(false) @map("require_payout_approval")
+  // Faz A3: esigi gecen uyeye gece job'u OTOMATIK 'requested' cek talebi acar + bildirir.
+  // Para CIKMAZ — admin onayi (decide) hala sart. Admin kapatabilir (elle talep modeli).
+  autoRequestPayouts  Boolean        @default(true) @map("auto_request_payouts")
   // Rolling reserve: payable komisyonun %X'i N gun 'reserved' tutulur (iade riskine karsi).
   reservePercent      Int            @default(0) @map("reserve_percent")
   reserveDays         Int            @default(0) @map("reserve_days")

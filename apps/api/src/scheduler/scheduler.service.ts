@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { CampaignsService } from '../campaigns/campaigns.service';
 import { EngineService } from '../engine/engine.service';
 import { FraudService } from '../fraud/fraud.service';
+import { PayoutsService } from '../payouts/payouts.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReportsService } from '../reports/reports.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
@@ -16,6 +17,7 @@ import { WebhooksService } from '../webhooks/webhooks.service';
 export class SchedulerService {
   private readonly logger = new Logger(SchedulerService.name);
   private running = false;
+  private autoRequestRunning = false;
 
   constructor(
     private readonly engine: EngineService,
@@ -24,7 +26,27 @@ export class SchedulerService {
     private readonly webhooks: WebhooksService,
     private readonly campaigns: CampaignsService,
     private readonly prisma: PrismaService,
+    private readonly payouts: PayoutsService,
   ) {}
+
+  /**
+   * Gece (06:00): esigi gecen uyelere OTOMATIK 'requested' cek talebi ac + uyeye bildir (Faz A3).
+   * PARA CIKMAZ — admin onayi (decide) hala sart. Tenant.autoRequestPayouts kapaliysa atlanir.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_6AM, { name: 'auto-request-payouts' })
+  async autoRequestPayouts(): Promise<void> {
+    // re-entry guard: onceki kosum (cok-uyeli/yavas) hala suruyorsa atla — ust uste binme
+    if (this.autoRequestRunning) return;
+    this.autoRequestRunning = true;
+    try {
+      const { created, skipped } = await this.payouts.autoRequestPayouts();
+      if (created > 0) this.logger.log(`otomatik cek talebi: ${created} acildi, ${skipped} atlandi`);
+    } catch (err) {
+      this.logger.error('autoRequestPayouts job hatasi', err instanceof Error ? err.stack : String(err));
+    } finally {
+      this.autoRequestRunning = false;
+    }
+  }
 
   /** Gece: 30 gunden eski iptal/suresi-dolmus refresh token'lari sil (tablo sinirsiz buyumesin). */
   @Cron(CronExpression.EVERY_DAY_AT_4AM, { name: 'cleanup-refresh-tokens' })

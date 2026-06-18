@@ -41,6 +41,12 @@ export function render(template: string, payload: Record<string, unknown>): Rend
         subject: 'Your payout was sent',
         body: `Your payout of ${money(payload.totalCents)} was processed for the ${payload.period} period.`,
       };
+    case 'payout_auto_requested':
+      // Faz A3: esik dolunca otomatik talep acildi — para henuz cikmadi (onay bekler).
+      return {
+        subject: 'Your commission check is being prepared',
+        body: `Good news! Your balance reached the payout threshold, so a check for ${money(payload.totalCents)} is being prepared for the ${payload.period} period. It's pending review and will be mailed to your address on file once approved. Make sure your mailing address is up to date in your account.`,
+      };
     case 'team_member_joined':
       return {
         subject: 'New member joined your team',
