@@ -87,7 +87,10 @@ export default function TeamPage() {
           {team.levels.some((l) => l.memberCount > 0) ? (
             <Bars data={team.levels.map((l) => ({ label: `Level ${l.level}`, value: l.memberCount }))} />
           ) : (
-            <div className="muted">{t('me.noData')}</div>
+            <div className="muted" style={{ textAlign: 'center', padding: '18px 0' }}>
+              Your team is empty.<br />
+              <span className="faint" style={{ fontSize: 12.5 }}>Invite people and you&apos;ll earn a share of their sales, too.</span>
+            </div>
           )}
           <div className="row" style={{ gap: 16, marginTop: 'auto', paddingTop: 16, fontSize: 12 }}>
             <span className="row" style={{ gap: 6 }}><i style={{ width: 10, height: 10, borderRadius: 999, background: 'var(--emerald)' }} /> Active {team.totalActive}</span>

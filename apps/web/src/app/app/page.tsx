@@ -294,7 +294,10 @@ export default function MemberDashboard() {
         {levelBars.length > 0 ? (
           <Bars data={levelBars} format={(v) => money(v, c)} />
         ) : (
-          <div className="muted">{t('me.noData')}</div>
+          <div className="muted" style={{ textAlign: 'center', padding: '18px 0' }}>
+            No commissions yet.<br />
+            <span className="faint" style={{ fontSize: 12.5 }}>Record a sale or invite your team — your earnings by level will show up here.</span>
+          </div>
         )}
       </div>
 
