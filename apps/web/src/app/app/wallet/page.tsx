@@ -20,7 +20,21 @@ interface Wallet {
   balance: { pendingCents: string; payableCents: string; paidCents: string };
   ledger: { total: number; page: number; pageSize: number; items: LedgerItem[] };
 }
-interface PayoutReq { id: string; totalCents: string; status: string; period: string; paidAt: string | null }
+type CheckStatus = 'pending_review' | 'approved' | 'printed' | 'mailed' | 'paid' | 'declined';
+interface PayoutReq {
+  id: string; totalCents: string; status: string; period: string; paidAt: string | null;
+  checkNumber: number | null; mailedAt: string | null; checkStatus: CheckStatus;
+}
+
+// uye-dostu cek durumu: etiket + rozet sinifi + aciklama
+const CHECK_STATUS: Record<CheckStatus, { label: string; cls: string; hint: string }> = {
+  pending_review: { label: 'Pending review', cls: 'pending', hint: 'Your company is reviewing this payout.' },
+  approved: { label: 'Preparing check', cls: 'processing', hint: 'Approved — your check is being prepared.' },
+  printed: { label: 'Check ready', cls: 'processing', hint: 'Your check has been printed and will be mailed shortly.' },
+  mailed: { label: 'Mailed', cls: 'active', hint: 'Your check was mailed to the address on your account.' },
+  paid: { label: 'Paid', cls: 'active', hint: 'This payout was completed.' },
+  declined: { label: 'Declined', cls: 'inactive', hint: 'This payout request was not approved.' },
+};
 
 const TYPES = ['', 'commission', 'reversal', 'adjustment'] as const;
 const STATUSES = ['', 'pending', 'payable', 'paid', 'reversed'] as const;
@@ -70,6 +84,10 @@ export default function WalletPage() {
   const reached = payable >= min;
   const pct = min > 0 ? Math.min(100, (payable / min) * 100) : 100;
   const remaining = Math.max(0, min - payable);
+  // Faz A4: cek makbuzu ozeti — postalanan/odenen toplam + yolda olan sayisi
+  const receivedCents = history.filter((p) => p.checkStatus === 'mailed' || p.checkStatus === 'paid').reduce((a, p) => a + Number(p.totalCents), 0);
+  const receivedCount = history.filter((p) => p.checkStatus === 'mailed' || p.checkStatus === 'paid').length;
+  const inProgress = history.filter((p) => ['pending_review', 'approved', 'printed'].includes(p.checkStatus)).length;
 
   return (
     <div>
@@ -139,21 +157,39 @@ export default function WalletPage() {
       </div>
 
       <div className="card fade-in delay-3" style={{ marginTop: 16 }}>
-        <strong style={{ display: 'block', marginBottom: 12 }}>{t('me.payoutHistory')}</strong>
-        <table>
-          <thead><tr><th>Period</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead>
-          <tbody>
-            {history.map((p) => (
-              <tr key={p.id}>
-                <td>{p.period}</td>
-                <td className="tnum">{money(p.totalCents, c)}</td>
-                <td><span className={`badge ${p.status}`}>{p.status}</span></td>
-                <td className="muted">{dateShort(p.paidAt)}</td>
-              </tr>
-            ))}
-            {history.length === 0 && <tr><td colSpan={4} className="muted">{t('me.noData')}</td></tr>}
-          </tbody>
-        </table>
+        <div className="spread" style={{ alignItems: 'flex-start', marginBottom: 12 }}>
+          <strong>Your checks</strong>
+          {history.length > 0 && (
+            <span className="faint" style={{ fontSize: 12, textAlign: 'right', lineHeight: 1.5 }}>
+              <span style={{ color: 'var(--emerald)', fontWeight: 600 }}>{money(receivedCents, c)}</span> received
+              {receivedCount ? ` · ${receivedCount} check${receivedCount === 1 ? '' : 's'} mailed` : ''}
+              {inProgress ? <><br />{inProgress} on the way</> : null}
+            </span>
+          )}
+        </div>
+        <p className="faint" style={{ fontSize: 12, marginTop: -4, marginBottom: 12 }}>
+          Checks are mailed to your account address once approved. Keep your <a href="/account" style={{ color: 'var(--accent)' }}>mailing address</a> up to date.
+        </p>
+        <div className="card" style={{ background: 'var(--panel-2)', padding: 0, overflowX: 'auto' }}>
+          <table>
+            <thead><tr><th>Period</th><th>Amount</th><th>Status</th><th>Check&nbsp;#</th><th>Date</th></tr></thead>
+            <tbody>
+              {history.map((p) => {
+                const cs = CHECK_STATUS[p.checkStatus] ?? CHECK_STATUS.paid;
+                return (
+                  <tr key={p.id}>
+                    <td>{p.period}</td>
+                    <td className="tnum">{money(p.totalCents, c)}</td>
+                    <td><span className={`badge ${cs.cls}`} title={cs.hint}>{cs.label}</span></td>
+                    <td className="muted tnum">{p.checkNumber ?? '—'}</td>
+                    <td className="muted">{p.mailedAt ? dateShort(p.mailedAt) : dateShort(p.paidAt)}</td>
+                  </tr>
+                );
+              })}
+              {history.length === 0 && <tr><td colSpan={5} className="muted">{t('me.noData')}</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {toast && <div className="toast" role="status">{toast}</div>}

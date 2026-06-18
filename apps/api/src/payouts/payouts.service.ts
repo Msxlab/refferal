@@ -808,12 +808,27 @@ export class PayoutsService {
     });
   }
 
+  /**
+   * Uye cek geçmişi/makbuzu (Faz A4). Her payout'a uye-dostu bir 'checkStatus' türetir:
+   * pending_review (onay bekler) → approved (onaylandı, cek hazirlaniyor) → printed (cek kesildi)
+   * → mailed (postalandi). non-cek/eski paid = 'paid', failed = 'declined'. Para HAREKETI yok.
+   */
   async listMine(membershipId: string) {
     const rows = await this.prisma.payout.findMany({
       where: { membershipId },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
+    const checkStatusOf = (p: (typeof rows)[number]): string => {
+      if (p.status === PayoutStatus.requested || p.status === PayoutStatus.processing) return 'pending_review';
+      if (p.status === PayoutStatus.failed) return 'declined';
+      if (p.status === PayoutStatus.paid && p.method === PayoutMethod.check) {
+        if (p.mailedAt) return 'mailed';
+        if (p.checkNumber != null) return 'printed';
+        return 'approved';
+      }
+      return 'paid';
+    };
     return rows.map((p) => ({
       id: p.id,
       totalCents: p.totalCents.toString(),
@@ -821,6 +836,9 @@ export class PayoutsService {
       method: p.method,
       period: p.period,
       paidAt: p.paidAt,
+      checkNumber: p.checkNumber,
+      mailedAt: p.mailedAt,
+      checkStatus: checkStatusOf(p),
     }));
   }
 
