@@ -7,6 +7,7 @@ import { AnnouncementsModule } from './announcements/announcements.module';
 import { ApiKeysModule } from './apikeys/apikeys.module';
 import { AuthModule } from './auth/auth.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
+import { ChecksModule } from './checks/checks.module';
 import { EngineModule } from './engine/engine.module';
 import { EventsModule } from './events/events.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
@@ -61,6 +62,7 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
     SalesModule,
     WalletModule,
     PayoutsModule,
+    ChecksModule,
     PeriodsModule,
     PlansModule,
     MembersAdminModule,

@@ -147,6 +147,8 @@ model Tenant {
   maturationRule      MaturationRule @default(on_delivery) @map("maturation_rule")
   maturationDays      Int?           @map("maturation_days")
   payoutMinCents      BigInt         @default(100000) @map("payout_min_cents")
+  // Cek numarasi sayaci (Faz A2.2): cek-run sirali no atarken atomik artirilir. Ilk cek = +1.
+  lastCheckNumber     Int            @default(1000) @map("last_check_number")
   compressionEnabled  Boolean        @default(false) @map("compression_enabled")
   inactiveMembersEarn Boolean        @default(true) @map("inactive_members_earn")
   notifyNewMemberName Boolean        @default(true) @map("notify_new_member_name")
@@ -550,6 +552,11 @@ model Payout {
   clearedAt          DateTime? @map("cleared_at")
   bankRef            String?   @map("bank_ref")
   reconciledByUserId String?   @map("reconciled_by_user_id") @db.Uuid
+  // Cek odeme (Faz A2.2): cek-run sirali no atar + adresi O AN snapshot'lar (sonra adres degisse
+  // gecmis cek bozulmaz) + postalaninca mailedAt set edilir. method='check' payout'lar icin.
+  checkNumber        Int?      @map("check_number")
+  mailedAt           DateTime? @map("mailed_at")
+  payeeSnapshot      Json?     @map("payee_snapshot")
   createdAt    DateTime     @default(now()) @map("created_at")
   updatedAt    DateTime     @updatedAt @map("updated_at")
 

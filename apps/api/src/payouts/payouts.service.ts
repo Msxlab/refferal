@@ -721,7 +721,8 @@ export class PayoutsService {
           tenantId,
           membershipId,
           totalCents: net,
-          method: PayoutMethod.manual,
+          // Faz A2.2: uye talepleri cek ile odenir (cek-run sirali no + adres snapshot atar).
+          method: PayoutMethod.check,
           status: PayoutStatus.requested,
           period,
         },
