@@ -36,6 +36,14 @@ interface Onboarding {
   done: number; total: number; percent: number;
 }
 
+interface Todo {
+  items: { key: string; label: string; count: number; href: string }[];
+  total: number;
+}
+const TODO_ICON: Record<string, string> = {
+  sales_approval: '◇', payout_requests: '◆', checks_to_process: '🖶', fraud_review: '⚑',
+};
+
 const RANGES = [3, 6, 12];
 const CTA_LABEL: Record<string, string> = {
   invite_team: 'Invite members',
@@ -47,6 +55,7 @@ export default function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
+  const [todo, setTodo] = useState<Todo | null>(null);
   const [months, setMonths] = useState(6);
   const [error, setError] = useState('');
   const [fin, setFin] = useState<{ ok: boolean; payoutMismatches: unknown[]; summaryMismatches: unknown[] } | null>(null);
@@ -61,6 +70,7 @@ export default function DashboardPage() {
   const loadDashboard = useCallback(() => {
     api.get<Dashboard>('/admin/dashboard').then(setData).catch((e) => setError(String((e as ApiError).message)));
     api.get<Onboarding>('/admin/onboarding').then(setOnboarding).catch(() => { /* opsiyonel */ });
+    api.get<Todo>('/admin/todo').then(setTodo).catch(() => { /* opsiyonel */ });
   }, []);
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
 
@@ -94,6 +104,28 @@ export default function DashboardPage() {
           <button className="btn ghost" onClick={() => window.print()}>🖶 Print report</button>
         </div>
       </div>
+
+      {/* ---- Yapilacaklar (C4): bekleyen eylemler ---- */}
+      {todo && todo.total > 0 && (
+        <div className="card fade-in" style={{ marginTop: 16, marginBottom: 16, borderColor: 'color-mix(in srgb, var(--gold-500) 30%, transparent)' }}>
+          <div className="spread" style={{ marginBottom: 10 }}>
+            <strong style={{ fontSize: 15 }}>Needs your attention</strong>
+            <span className="badge pending" style={{ fontSize: 10 }}>{todo.total} item{todo.total === 1 ? '' : 's'}</span>
+          </div>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 10 }}>
+            {todo.items.map((it) => (
+              <Link key={it.key} href={it.href} className="card hover" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', padding: 14 }}>
+                <span style={{ fontSize: 20 }}>{TODO_ICON[it.key] ?? '•'}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 18, lineHeight: 1 }}>{it.count}</div>
+                  <div className="faint" style={{ fontSize: 12, marginTop: 3 }}>{it.label}</div>
+                </div>
+                <span className="faint" style={{ fontSize: 16 }}>→</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ---- ilk-kurulum rehberi: %100'de gizlenir ---- */}
       {onboarding && onboarding.percent < 100 && (

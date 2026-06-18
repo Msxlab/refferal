@@ -5,6 +5,7 @@ import { csvCell } from '../common/csv';
 import { centsToDecimalString } from '@refearn/shared';
 import { monthKey } from '../engine/month';
 import { createEmailAdapter } from '../notifications/adapters';
+import { FRAUD_BLOCK_SCORE } from '../fraud/fraud.types';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -95,6 +96,27 @@ export class ReportsService {
     ];
     const done = steps.filter((s) => s.done).length;
     return { steps, done, total: steps.length, percent: Math.round((done / steps.length) * 100) };
+  }
+
+  /**
+   * Admin "yapilacaklar" kutusu (Faz C4): eyleme acik bekleyen isler tek listede — onay bekleyen
+   * satis + incelenecek odeme talebi + basilacak/postalanacak cek + dolandiricilik incelemesi.
+   * Yalniz count > 0 olanlar doner (bos kutu gosterilmez); her madde bir sayfaya yonlendirir.
+   */
+  async todo(tenantId: string) {
+    const [salesDraft, payoutsRequested, checksToMail, fraudOpen] = await Promise.all([
+      this.prisma.sale.count({ where: { tenantId, status: SaleStatus.draft } }),
+      this.prisma.payout.count({ where: { tenantId, status: { in: [PayoutStatus.requested, PayoutStatus.processing] } } }),
+      this.prisma.payout.count({ where: { tenantId, method: 'check', status: PayoutStatus.paid, mailedAt: null } }),
+      this.prisma.fraudFlag.count({ where: { tenantId, status: 'open', score: { gte: FRAUD_BLOCK_SCORE } } }),
+    ]);
+    const items = [
+      { key: 'sales_approval', label: 'Sales awaiting approval', count: salesDraft, href: '/admin/sales' },
+      { key: 'payout_requests', label: 'Payout requests to review', count: payoutsRequested, href: '/admin/payouts' },
+      { key: 'checks_to_process', label: 'Checks to print & mail', count: checksToMail, href: '/admin/checks' },
+      { key: 'fraud_review', label: 'Members flagged for review', count: fraudOpen, href: '/admin/members' },
+    ];
+    return { items: items.filter((i) => i.count > 0), total: items.reduce((a, i) => a + i.count, 0) };
   }
 
   /** Admin dashboard (SPEC 9): ciro, komisyon, uye, payable — secili ay (varsayilan bu ay). */

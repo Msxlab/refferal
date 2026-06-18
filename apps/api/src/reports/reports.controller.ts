@@ -47,6 +47,13 @@ export class ReportsController {
     return this.reports.onboarding(user.tid as string, user.sub);
   }
 
+  /** Faz C4: admin "yapilacaklar" — bekleyen eylemler tek listede. */
+  @Roles(...STAFF)
+  @Get('todo')
+  todo(@CurrentUser() user: RequestUser) {
+    return this.reports.todo(user.tid as string);
+  }
+
   @Roles(...STAFF)
   @Get('analytics')
   analytics(
