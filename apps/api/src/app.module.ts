@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { SentryExceptionFilter } from './common/sentry-exceptions.filter';
+import { ObservabilityModule } from './observability/observability.module';
 import { AccountModule } from './account/account.module';
 import { AnnouncementsModule } from './announcements/announcements.module';
 import { ApiKeysModule } from './apikeys/apikeys.module';
@@ -51,6 +53,7 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
     }),
     // Scheduler testte kapali: cron'un test DB'sinde tetiklenmesini/kayit cakismasini onler
     ...(isTest ? [] : [ScheduleModule.forRoot(), SchedulerModule]),
+    ObservabilityModule,
     PrismaModule,
     EngineModule,
     EventsModule,
@@ -84,6 +87,10 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
     AnnouncementsModule,
     HealthModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Faz B4: 5xx/beklenmeyen hatalari Sentry'ye raporlar (yaniti degistirmez)
+    { provide: APP_FILTER, useClass: SentryExceptionFilter },
+  ],
 })
 export class AppModule {}

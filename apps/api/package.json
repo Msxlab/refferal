@@ -25,6 +25,7 @@
     "@node-rs/argon2": "^2.0.2",
     "@prisma/client": "^6.6.0",
     "@refearn/shared": "workspace:*",
+    "@sentry/node": "^10.58.0",
     "dotenv": "^16.4.7",
     "expo-server-sdk": "^3.10.0",
     "helmet": "^8.0.0",
