@@ -40,3 +40,15 @@ export class PlansController {
     return this.plans.createVersion(this.actor(user), body);
   }
 }
+
+/** Faz D4: uye kazanc simulatoru — aktif planin oranlarini gizlilik-guvenli doner. */
+@RequireMembership()
+@Controller('app/plan')
+export class AppPlansController {
+  constructor(private readonly plans: PlansService) {}
+
+  @Get()
+  mine(@CurrentUser() user: RequestUser) {
+    return this.plans.memberPlan(user.tid as string);
+  }
+}

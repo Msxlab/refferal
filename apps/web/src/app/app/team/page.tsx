@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Bars, CountUp, Loading, MoneyCounter, StatCard, useToast } from '@/components/ui';
 import { RadialNetwork } from '@/components/RadialNetwork';
+import { EarningsSimulator } from '@/components/EarningsSimulator';
 import { money, dateShort } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -159,6 +160,8 @@ export default function TeamPage() {
           )}
         </div>
       )}
+
+      <EarningsSimulator />
 
       <div className="faint fade-in" style={{ fontSize: 11, marginTop: 16 }}>
         Your <strong>direct recruits</strong> — the people you personally invited — are shown by name above.

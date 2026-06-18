@@ -18,6 +18,23 @@ export class PlansService {
     });
   }
 
+  /**
+   * Faz D4: uyeye aktif planin seviye oranlari (komisyon seffafligi + kazanc simulatoru icin).
+   * Gizlilik-guvenli: yalniz ORANLAR doner (kim/ne kadar kazaniyor DEGIL) — uye bunlari client'ta
+   * "ben/ekibim su kadar satarsa ne kazanirim"a cevirir. Aktif plan yoksa active:false.
+   */
+  async memberPlan(tenantId: string) {
+    const plan = await this.activePlan(tenantId);
+    if (!plan) return { active: false as const };
+    return {
+      active: true as const,
+      name: plan.name,
+      poolRateBps: plan.poolRateBps,
+      depth: plan.depth,
+      levels: plan.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })),
+    };
+  }
+
   /** Tum plan versiyonlari + hangisi su an aktif. */
   async list(tenantId: string) {
     const [plans, active] = await Promise.all([
