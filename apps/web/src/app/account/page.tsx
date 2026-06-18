@@ -33,7 +33,6 @@ export default function AccountPage() {
 
   // profil formu
   const [fullName, setFullName] = useState('');
-  const [locale, setLocale] = useState('en');
   const [savingProfile, setSavingProfile] = useState(false);
 
   // sifre formu
@@ -151,7 +150,7 @@ export default function AccountPage() {
     const active = activeMembership(s);
     setBackHref(isAdminRole(active?.role) ? '/admin' : '/app');
     api.get<Account>('/account')
-      .then((a) => { setAcc(a); setFullName(a.fullName); setLocale(a.locale); })
+      .then((a) => { setAcc(a); setFullName(a.fullName); })
       .catch((e) => setError(String((e as ApiError).message)));
     api.get<MailingResp>('/account/mailing-address').then(fillMailing).catch(() => { /* uyeliksiz principal */ });
     loadSessions();
@@ -161,7 +160,7 @@ export default function AccountPage() {
     e.preventDefault();
     setSavingProfile(true);
     try {
-      const a = await api.patch<Account>('/account/profile', { fullName: fullName.trim(), locale });
+      const a = await api.patch<Account>('/account/profile', { fullName: fullName.trim() });
       setAcc(a);
       const s = getSession();
       if (s) setSession({ ...s, user: { ...s.user, fullName: a.fullName, locale: a.locale } });
@@ -193,7 +192,7 @@ export default function AccountPage() {
   if (error) return <div className="center error">{error}</div>;
   if (!acc) return <div className="center"><Loading /></div>;
 
-  const dirty = fullName.trim() !== acc.fullName || locale !== acc.locale;
+  const dirty = fullName.trim() !== acc.fullName;
   const joined = new Date(acc.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 
   return (
@@ -228,13 +227,6 @@ export default function AccountPage() {
               </span>
             </div>
             <div className="faint" style={{ fontSize: 11, marginTop: 4 }}>Email change with re-verification is coming soon.</div>
-          </div>
-          <div className="field">
-            <label>Language</label>
-            <select value={locale} onChange={(e) => setLocale(e.target.value)} style={{ maxWidth: 200 }}>
-              <option value="en">English</option>
-              <option value="tr">Türkçe</option>
-            </select>
           </div>
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button className="btn" type="submit" disabled={!dirty || savingProfile}>{savingProfile ? 'Saving…' : 'Save changes'}</button>

@@ -94,116 +94,15 @@ const en = {
   'reg.tenant': 'Business',
 };
 
-const tr: Record<keyof typeof en, string> = {
-  'app.title': 'Refearn',
-  'nav.dashboard': 'Panel',
-  'nav.sales': 'Satislar',
-  'nav.members': 'Uyeler',
-  'nav.tree': 'Agac',
-  'nav.campaigns': 'Kampanyalar',
-  'nav.payouts': 'Odemeler',
-  'nav.checks': 'Cekler',
-  'nav.periods': 'Kapanis',
-  'nav.audit': 'Denetim',
-  'nav.settings': 'Ayarlar',
-  'nav.logout': 'Cikis',
-  'nav.menu': 'Menu',
-  'login.title': 'Isletme Girisi',
-  'login.welcome': 'Tekrar hos geldiniz',
-  'login.tagline': 'Referans agini buyut, komisyonu otomatik dagit.',
-  'login.email': 'E-posta',
-  'login.password': 'Sifre',
-  'login.submit': 'Giris yap',
-  'login.error': 'E-posta veya sifre hatali',
-  'common.loading': 'Yukleniyor…',
-  'common.save': 'Kaydet',
-  'common.cancel': 'Vazgec',
-  'common.create': 'Olustur',
-  'common.refresh': 'Yenile',
-  'common.actions': 'Islemler',
-  'common.total': 'Toplam',
-  'dash.title': 'Genel bakis',
-  'dash.sub': 'Bu donemin ciro, komisyon ve uye ozeti.',
-  'dash.revenue': 'Bu ay ciro',
-  'dash.commission': 'Bu ay komisyon',
-  'dash.members': 'Uyeler',
-  'dash.payable': 'Odenebilir bakiye',
-  'dash.effRate': 'Efektif oran',
-  'dash.pendingReq': 'Bekleyen talep',
-  'dash.approvedSales': 'Onayli satis',
-  'dash.commissionShare': 'Komisyon payi',
-  'dash.payableHint': 'Odenmeyi bekleyen toplam',
-  'dash.membersHint': 'Aktif / toplam',
-  'dash.requestsHint': 'Uye odeme talepleri',
-  'sales.new': 'Yeni satis',
-  'sales.seller': 'Satici (referral kod)',
-  'sales.amount': 'Tutar',
-  'sales.status': 'Durum',
-  'sales.approve': 'Onayla',
-  'sales.void': 'Iptal',
-  'sales.deliver': 'Teslim',
-  'sales.import': 'CSV ice aktar',
-  'members.invite': 'Davet et',
-  'members.deactivate': 'Pasiflestir',
-  'members.activate': 'Aktiflestir',
-  'members.role': 'Rol',
-  'payouts.payable': 'Odenebilirler',
-  'payouts.run': 'Odeme calistir',
-  'payouts.export': 'CSV indir',
-  'payouts.history': 'Odeme gecmisi',
-  'anav.home': 'Ozet',
-  'anav.wallet': 'Cuzdan',
-  'anav.sales': 'Satislarim',
-  'anav.team': 'Ekibim',
-  'anav.invite': 'Davet',
-  'me.title': 'Kazanc ozetiniz',
-  'me.sub': 'Bu ay agacinizdan dogan komisyonlarin durumu.',
-  'me.monthTotal': 'Bu ay toplam',
-  'me.pending': 'Bekleyen',
-  'me.payable': 'Odenebilir',
-  'me.paid': 'Odenen',
-  'me.levelBreakdown': 'Seviye dokumu',
-  'me.levelHint': 'Hangi seviyeden ne kadar kazandiniz',
-  'me.level': 'Seviye',
-  'me.balance': 'Bakiye',
-  'me.ledger': 'Hareketler',
-  'me.requestPayout': 'Odeme talep et',
-  'me.payoutHistory': 'Odeme taleplerim',
-  'me.teamTitle': 'Ekibim',
-  'me.members': 'Kisi',
-  'me.activeMembers': 'Aktif',
-  'me.inviteCreate': 'Davet olustur',
-  'me.inviteLink': 'Davet linki',
-  'me.copy': 'Kopyala',
-  'me.copied': 'Kopyalandi',
-  'me.myInvites': 'Davetlerim',
-  'me.noData': 'Veri yok',
-  'me.incomeNote':
-    'Gecmis kazanclar gelecek kazanc garantisi degildir. Komisyon yalnizca gerceklesen urun satislarindan dogar.',
-  'reg.title': 'Davetle Kayit',
-  'reg.invalid': 'Davet gecersiz veya suresi dolmus',
-  'reg.fullName': 'Ad Soyad',
-  'reg.submit': 'Kaydol',
-  'reg.invitedBy': 'Davet eden',
-  'reg.tenant': 'Isletme',
-};
 
-const dicts = { en, tr } as const;
-export type Locale = keyof typeof dicts;
+// Faz D1: arayuz tek dil — INGILIZCE. (TR sozlugu kaldirildi.) Locale tipi geriye-uyum icin 'en'.
+export type Locale = 'en';
 export type MsgKey = keyof typeof en;
 
-const DEFAULT_LOCALE: Locale = 'en';
-
 export function getLocale(): Locale {
-  if (typeof window === 'undefined') return DEFAULT_LOCALE;
-  const v = window.localStorage.getItem('refearn.locale');
-  return v === 'tr' || v === 'en' ? v : DEFAULT_LOCALE;
-}
-
-export function setLocale(locale: Locale): void {
-  window.localStorage.setItem('refearn.locale', locale);
+  return 'en';
 }
 
 export function t(key: MsgKey): string {
-  return dicts[getLocale()][key] ?? en[key] ?? key;
+  return en[key] ?? key;
 }
