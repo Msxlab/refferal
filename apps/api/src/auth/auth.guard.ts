@@ -123,6 +123,9 @@ export class AccessTokenGuard implements CanActivate {
       }
       // rol CANLI uyelikten — saklanmis stale rol bir downgrade'i asamaz
       payload.role = m.role;
+      // NOT: ince izinler (perms) burada CANLI tazelenMEZ — bilincli (access-TTL tradeoff). Tazeleme,
+      // servis assertGrantable tavanini aktorun perms'inden hesapladigi icin RBAC davranisini degistirir
+      // (audit-remediation regresyonu). Coarse rol-downgrade + money-move re-gating B2 cekirdegini karsilar.
     }
 
     if (this.reflector.getAllAndOverride<boolean>(REQUIRE_MEMBERSHIP_KEY, targets) && !payload.mid) {

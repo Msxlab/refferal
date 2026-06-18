@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { LedgerStatus, NotificationChannel, PayoutMethod, PayoutStatus, Prisma } from '@prisma/client';
 import { EngineService } from '../engine/engine.service';
 import { monthKey } from '../engine/month';
@@ -332,6 +332,11 @@ export class PayoutsService {
       }
 
       if (input.action === 'approve') {
+        // Faz B2: para HAREKETINDEN once kapilari CANLI dogrula — sanctions/kyc/fraud durumu talep
+        // aninda temiz olsa bile onaya kadar degismis olabilir (executeTargets ile ayni guvenlik).
+        const gate = await this.payoutGateBlock(tx, tenant, payout.membershipId);
+        if (gate) throw new ForbiddenException(`odeme onaylanamaz — ${gate}`);
+
         let lines = await this.lockBoundLines(tx, tenant.timezone, payoutId);
         if (lines.length === 0) {
           // requestPayout'un secimi: uyenin tum payable satirlari (mahsup dahil)
@@ -449,6 +454,10 @@ export class PayoutsService {
       if (lines.length === 0) {
         throw new BadRequestException('bu odeme reddedilmis; bakiye uyeye iade edildi — yeni odeme calistirin');
       }
+
+      // Faz B2: yeniden odeme de para hareketidir — kapilari CANLI dogrula (decide ile ayni)
+      const gate = await this.payoutGateBlock(tx, tenant, payout.membershipId);
+      if (gate) throw new ForbiddenException(`odeme yeniden denenemez — ${gate}`);
 
       // kilitli aya ait payable yeniden payout edilemez — engine.payoutMember/decide ile ayni guard
       await this.assertPeriodsOpen(tx, actor.tenantId, lines.map((l) => l.month));
@@ -850,6 +859,35 @@ export class PayoutsService {
       where: { tenantId, membershipId },
       data: { sanctionsHit: true },
     });
+  }
+
+  /**
+   * Para-cikis kapilari (Faz B2 — money-move aninda CANLI dogrulama): sanctions(canli yeniden-tara)
+   * + KYC(tenant bayragi) + fraud. Bloklu ise sebep doner, temizse null. executeTargets (admin toplu)
+   * AYNI kapilari uygular; bu, tek-payout decide/retry icin AYNI guvenligi para hareketinden ONCE saglar.
+   * tx icinde calisir (sanctions mark dahil) — onay/odeme ile atomik.
+   */
+  private async payoutGateBlock(
+    tx: Tx,
+    tenant: { id: string; requireKycForPayout: boolean },
+    membershipId: string,
+  ): Promise<string | null> {
+    const profile = await tx.payoutProfile.findUnique({
+      where: { membershipId },
+      select: { status: true, lastChangedAt: true, sanctionsHit: true, legalName: true },
+    });
+    let sanctionsHit = profile?.sanctionsHit ?? false;
+    if (profile && !sanctionsHit && (await this.sanctions.isHit(profile.legalName))) {
+      await tx.payoutProfile.updateMany({ where: { tenantId: tenant.id, membershipId }, data: { sanctionsHit: true } });
+      sanctionsHit = true;
+    }
+    if (sanctionsHit) return 'sanctions match — compliance review';
+    if (tenant.requireKycForPayout) {
+      const b = kycPayoutBlock(profile);
+      if (b) return b;
+    }
+    const flag = await tx.fraudFlag.findUnique({ where: { membershipId }, select: { status: true, score: true } });
+    return fraudPayoutBlock(flag);
   }
 
   /**
