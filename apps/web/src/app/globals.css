@@ -375,7 +375,8 @@ tr:last-child td { border-bottom: none; }
      NOT: flex-basis'i flex:none RESET'lemesin diye tek 'flex: 0 0 100%' kullaniyoruz. */
   .topbar .inner { flex-wrap: wrap; gap: 10px 12px; padding: 11px 14px; }
   .topbar nav { order: 5; flex: 0 0 100%; min-width: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .topbar nav a { white-space: nowrap; flex: 0 0 auto; }
+  /* mobil: dokunma hedefi >= 44px (iOS); dar ekranda nav linkleri rahat tiklanir */
+  .topbar nav a { white-space: nowrap; flex: 0 0 auto; padding-top: 11px; padding-bottom: 11px; }
 }
 
 /* ------------------------------------------------- yogunluk (compact tablo) */
