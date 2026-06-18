@@ -30,6 +30,14 @@ enum TenantStatus {
   suspended
 }
 
+// Faz C2: platform → tenant-sirket faturasi. Odeme PLATFORM DISI (cek/havale; Stripe yok) —
+// manuel takip: fatura kesilir, odeme gelince elle 'paid' isaretlenir.
+enum InvoiceStatus {
+  open
+  paid
+  void
+}
+
 enum MembershipStatus {
   active
   inactive
@@ -192,8 +200,51 @@ model Tenant {
   webhooks    WebhookEndpoint[]
   announcements Announcement[]
   periodLocks PeriodLock[]
+  billing     TenantBilling?
+  invoices    Invoice[]
 
   @@map("tenants")
+}
+
+// Faz C2: tenant-sirketin faturalama yapilandirmasi (platform geliri — manuel takip, Stripe YOK).
+// monthlyFeeCents = aylik sabit ucret; active=false ise fatura uretilmez (askida/ucretsiz).
+model TenantBilling {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @unique @map("tenant_id") @db.Uuid
+  monthlyFeeCents BigInt   @default(0) @map("monthly_fee_cents")
+  currency        String   @default("USD")
+  active          Boolean  @default(true)
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_billing")
+}
+
+// Faz C2: tek fatura. Odeme platform disi → status open→paid (elle isaretleme, cek/havale referansiyla).
+model Invoice {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String        @map("tenant_id") @db.Uuid
+  period         String        // YYYY-MM (faturalanan donem)
+  amountCents    BigInt        @map("amount_cents")
+  currency       String        @default("USD")
+  status         InvoiceStatus @default(open)
+  issuedAt       DateTime      @default(now()) @map("issued_at")
+  dueAt          DateTime?     @map("due_at")
+  paidAt         DateTime?     @map("paid_at")
+  paidNote       String?       @map("paid_note") // "check #123" / "wire ref" — manuel kanit
+  markedByUserId String?       @map("marked_by_user_id") @db.Uuid
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // ayni tenant-donem icin tek fatura (idempotent uretim)
+  @@unique([tenantId, period])
+  @@index([status, issuedAt])
+  @@map("invoices")
 }
 
 // RBAC: kiracci-kapsamli roller. Sistem rolleri (isSystem) silinemez/yeniden adlandirilamaz;
