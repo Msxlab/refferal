@@ -124,6 +124,33 @@ export default function WalletPage() {
         {error && <div className="error" style={{ marginTop: 10 }}>{error}</div>}
       </div>
 
+      {/* Faz D2: guven — odeme nasil isliyor seffafligi */}
+      <div className="card fade-in delay-1" style={{ marginTop: 16 }}>
+        <strong style={{ fontSize: 15, display: 'block', marginBottom: 14 }}>How you get paid</strong>
+        <div style={{ display: 'grid', gap: 14 }}>
+          {[
+            { n: 1, t: 'Record a sale', d: 'Log your sale — your company reviews and approves it.' },
+            { n: 2, t: 'Commission is credited', d: 'Once approved, your commission is calculated and added to your balance automatically.' },
+            { n: 3, t: 'Reach the threshold', d: `When your balance reaches ${money(min, c)}, a payout is requested (you, or automatically).` },
+            { n: 4, t: 'A check is mailed to you', d: 'After your company approves it, a check is printed and mailed to your address on file. Track it under “Your checks” below.' },
+          ].map((s, i, arr) => (
+            <div key={s.n} className="row" style={{ gap: 12, alignItems: 'flex-start' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', alignSelf: 'stretch' }}>
+                <span style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--foil)', color: 'var(--on-gold)', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>{s.n}</span>
+                {i < arr.length - 1 && <span style={{ width: 2, flex: 1, background: 'var(--border)', marginTop: 4 }} />}
+              </div>
+              <div style={{ paddingBottom: i < arr.length - 1 ? 4 : 0 }}>
+                <div style={{ fontWeight: 600, fontSize: 13.5 }}>{s.t}</div>
+                <div className="faint" style={{ fontSize: 12.5, marginTop: 2, lineHeight: 1.5 }}>{s.d}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="faint" style={{ fontSize: 11.5, marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)', lineHeight: 1.5 }}>
+          🔒 Commissions come from real, approved product sales only. Your company&apos;s books are checked for balance every day.
+        </div>
+      </div>
+
       <PayoutProfileCard />
 
       <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
