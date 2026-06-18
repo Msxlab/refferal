@@ -52,6 +52,12 @@ export function render(template: string, payload: Record<string, unknown>): Rend
         subject: 'New member joined your team',
         body: payload.memberName ? `${payload.memberName} joined your team.` : 'A new member joined your team.',
       };
+    case 'rank_up':
+      // Faz D5: rutbe atlama kutlamasi
+      return {
+        subject: `You reached ${payload.rankName ?? 'a new rank'}! 🏆`,
+        body: `Congratulations! You've climbed to the ${payload.rankName ?? 'next'} rank. Keep selling and growing your team to reach the next tier.`,
+      };
     case 'bonus_awarded':
       return {
         subject: 'You won a campaign bonus! 🎉',

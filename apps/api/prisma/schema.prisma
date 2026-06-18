@@ -378,6 +378,9 @@ model Membership {
   mailingCountry    String?            @default("US") @map("mailing_country")
   // Kisisel davet landing (#23): uyenin /i/{code} sayfasinda gosterilen karsilama mesaji.
   inviteMessage       String?          @map("invite_message")
+  // Faz D5: en son bildirilen rutbe sortOrder'i — gece scan bunu asan rutbeyi 'rank_up' bildirir.
+  // null = henuz baseline alinmadi (ilk scan bildirmeden kaydeder).
+  lastRankSortOrder   Int?             @map("last_rank_sort_order")
   // Kanal bazli bildirim tercihleri: { "<event>": { in_app, email, push } } — bos = varsayilanlar.
   notificationPrefs   Json             @default("{}") @map("notification_prefs")
   joinedAt            DateTime         @default(now()) @map("joined_at")

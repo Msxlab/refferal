@@ -4,6 +4,7 @@ import { CampaignsService } from '../campaigns/campaigns.service';
 import { EngineService } from '../engine/engine.service';
 import { FraudService } from '../fraud/fraud.service';
 import { PayoutsService } from '../payouts/payouts.service';
+import { RanksService } from '../ranks/ranks.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReportsService } from '../reports/reports.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
@@ -42,7 +43,17 @@ export class SchedulerService {
     private readonly prisma: PrismaService,
     private readonly payouts: PayoutsService,
     private readonly alerts: AlertsService,
+    private readonly ranks: RanksService,
   ) {}
+
+  /** Gece (07:00): rutbe atlayan uyelere kutlama bildirimi (Faz D5). */
+  @Cron(CronExpression.EVERY_DAY_AT_7AM, { name: 'rank-up-notify' })
+  async rankUpNotify(): Promise<void> {
+    await this.runJob('rank-up-notify', async () => {
+      const { notified } = await this.ranks.notifyRankUps();
+      if (notified > 0) this.logger.log(`rutbe atlama bildirimi: ${notified} uye`);
+    });
+  }
 
   /** B4+B5+B6: isi sar — son kosum izle, hatayi Sentry'ye + log'a + kritik alarma gonder (job'u dusurme). */
   private async runJob(name: string, fn: () => Promise<void>): Promise<void> {

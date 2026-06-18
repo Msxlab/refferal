@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { LedgerStatus, Prisma } from '@prisma/client';
+import { LedgerStatus, NotificationChannel, Prisma } from '@prisma/client';
 import { ActorContext } from '../common/actor';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -102,6 +102,45 @@ export class RanksService {
     if (!t) throw new NotFoundException('rutbe bulunamadi');
     await this.prisma.rankTier.delete({ where: { id } });
     return { deleted: true };
+  }
+
+  /**
+   * Faz D5: rutbe-atlama bildirimi (gece scan). Her aktif uyenin guncel rutbesini cozer; sortOrder
+   * son-bildirilenden YUKSEKSE (Silver+ : sortOrder>=1) uyeye 'rank_up' bildirir + lastRankSortOrder gunceller.
+   * Ilk gorulen uyede (lastRankSortOrder=null) BILDIRMEZ, yalniz baseline kaydeder (geriye-donuk spam onleme).
+   */
+  async notifyRankUps(): Promise<{ tenants: number; notified: number }> {
+    const tenants = await this.prisma.tenant.findMany({ select: { id: true } });
+    let notified = 0;
+    for (const t of tenants) {
+      const members = await this.prisma.membership.findMany({
+        where: { tenantId: t.id, status: 'active' },
+        select: { id: true, lastRankSortOrder: true },
+      });
+      for (const m of members) {
+        const tier = await this.resolveTier(this.prisma, t.id, m.id);
+        const currentSort = tier?.sortOrder ?? -1;
+        if (m.lastRankSortOrder === null) {
+          // baseline: bildirmeden kaydet
+          await this.prisma.membership.update({ where: { id: m.id }, data: { lastRankSortOrder: currentSort } });
+          continue;
+        }
+        if (tier && currentSort > m.lastRankSortOrder && currentSort >= 1) {
+          const payload = { rankName: tier.name } as Prisma.InputJsonValue;
+          await this.prisma.notification.createMany({
+            data: [
+              { tenantId: t.id, recipientMembershipId: m.id, channel: NotificationChannel.email, template: 'rank_up', payload },
+              { tenantId: t.id, recipientMembershipId: m.id, channel: NotificationChannel.in_app, template: 'rank_up', payload },
+            ],
+          });
+          notified++;
+        }
+        if (currentSort !== m.lastRankSortOrder) {
+          await this.prisma.membership.update({ where: { id: m.id }, data: { lastRankSortOrder: currentSort } });
+        }
+      }
+    }
+    return { tenants: tenants.length, notified };
   }
 
   // ---- uye rutbesi + rozetler ----

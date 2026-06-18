@@ -30,7 +30,7 @@ describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
     await prisma.$connect();
     engine = new EngineService(prisma, new RanksService(prisma));
     payouts = new PayoutsService(prisma, engine, new WebhooksService(prisma), new EventsService(), new SanctionsService(prisma));
-    scheduler = new SchedulerService(engine, new ReportsService(prisma), new FraudService(prisma), new WebhooksService(prisma), new CampaignsService(prisma, engine), prisma, payouts, new AlertsService());
+    scheduler = new SchedulerService(engine, new ReportsService(prisma), new FraudService(prisma), new WebhooksService(prisma), new CampaignsService(prisma, engine), prisma, payouts, new AlertsService(), new RanksService(prisma));
   });
 
   afterAll(async () => {
@@ -127,6 +127,32 @@ describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
     const r = await payouts.autoRequestPayouts();
     expect(r.tenants).toBe(0);
     expect(await prisma.payout.count({ where: { membershipId: seller.id } })).toBe(0);
+  });
+
+  it('D5 rutbe-atlama: baseline ilk-run bildirmez; atlayinca email+in_app; idempotent', async () => {
+    const ranks = new RanksService(prisma);
+    const tenant = await createTenant(prisma);
+    // 4'lu zincir: root'un alt-agaci 3 (team=3 → Silver esigi: team>=3 + $1000)
+    const chain = await createChain(prisma, tenant.id, 4);
+    const root = chain[0];
+    await prisma.ledgerEntry.create({ data: { tenantId: tenant.id, saleId: null, beneficiaryMembershipId: root.id, level: 0, rateBpsUsed: 0, amountCents: 150_000n, type: 'adjustment', status: 'payable', summaryMonth: '2026-06' } });
+
+    // 1) baseline — bildirmez, sortOrder kaydeder
+    const r1 = await ranks.notifyRankUps();
+    expect(r1.notified).toBe(0);
+    expect((await prisma.membership.findUniqueOrThrow({ where: { id: root.id } })).lastRankSortOrder).toBe(1); // Silver
+
+    // 2) Bronze'dan Silver'a atlamis gibi: lastRankSortOrder=0 → bildirir
+    await prisma.membership.update({ where: { id: root.id }, data: { lastRankSortOrder: 0 } });
+    const r2 = await ranks.notifyRankUps();
+    expect(r2.notified).toBe(1);
+    const notifs = await prisma.notification.findMany({ where: { recipientMembershipId: root.id, template: 'rank_up' } });
+    expect(notifs.map((n) => n.channel).sort()).toEqual(['email', 'in_app']);
+
+    // 3) artik Silver=Silver → tekrar bildirmez (idempotent)
+    await prisma.notification.deleteMany({ where: { template: 'rank_up' } });
+    const r3 = await ranks.notifyRankUps();
+    expect(r3.notified).toBe(0);
   });
 
   it('A3 auto-request: posta adresi eksik uye atlanir (cek adres ister)', async () => {
