@@ -179,6 +179,7 @@ describe('payouts (entegrasyon)', () => {
     const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
     const { EngineService } = await import('../src/engine/engine.service');
     await new EngineService(prisma, new RanksService(prisma)).approveSale(sale.id);
+    // not: cek-odeme adresi (Faz A2 kapisi) createChain helper'inda varsayilan dolu gelir
 
     const req1 = await request(app.getHttpServer())
       .post('/v1/app/payout-requests')
