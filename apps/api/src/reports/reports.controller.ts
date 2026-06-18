@@ -54,6 +54,13 @@ export class ReportsController {
     return this.reports.todo(user.tid as string);
   }
 
+  /** Faz D3: kohort retention/churn raporu (katilim ayina gore). */
+  @Roles(...STAFF)
+  @Get('cohorts')
+  cohorts(@CurrentUser() user: RequestUser) {
+    return this.reports.cohorts(user.tid as string);
+  }
+
   @Roles(...STAFF)
   @Get('analytics')
   analytics(

@@ -99,6 +99,58 @@ export class ReportsService {
   }
 
   /**
+   * Kohort retention/churn (Faz D3): uyeleri KATILIM AYINA gore grupla; her kohortta kac kisi
+   * hala aktif (retention) + son 30 gunde satis yapan (uretken). Churn = joined - active.
+   * Tenant timezone'una gore ay; en yeni 24 kohort.
+   */
+  async cohorts(tenantId: string) {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { timezone: true } });
+    const rows = await this.prisma.$queryRaw<
+      Array<{ cohort: string; joined: bigint; active: bigint; producing: bigint }>
+    >`
+      SELECT to_char(m.joined_at AT TIME ZONE ${tenant.timezone}, 'YYYY-MM') AS cohort,
+             count(*)::bigint AS joined,
+             count(*) FILTER (WHERE m.status = 'active')::bigint AS active,
+             count(*) FILTER (WHERE EXISTS (
+               SELECT 1 FROM sales s
+               WHERE s.seller_membership_id = m.id AND s.status = 'approved'
+                 AND s.sale_date >= now() - interval '30 days'
+             ))::bigint AS producing
+      FROM memberships m
+      WHERE m.tenant_id = ${tenantId}::uuid
+      GROUP BY 1
+      ORDER BY 1 DESC
+      LIMIT 24`;
+
+    const cohorts = rows.map((r) => {
+      const joined = Number(r.joined);
+      const active = Number(r.active);
+      const producing = Number(r.producing);
+      return {
+        cohort: r.cohort,
+        joined,
+        active,
+        churned: joined - active,
+        producing,
+        retentionPct: joined > 0 ? Math.round((active / joined) * 100) : 0,
+        activationPct: joined > 0 ? Math.round((producing / joined) * 100) : 0,
+      };
+    });
+    const totals = cohorts.reduce(
+      (a, c) => ({ joined: a.joined + c.joined, active: a.active + c.active, producing: a.producing + c.producing }),
+      { joined: 0, active: 0, producing: 0 },
+    );
+    return {
+      cohorts,
+      totals: {
+        ...totals,
+        churned: totals.joined - totals.active,
+        retentionPct: totals.joined > 0 ? Math.round((totals.active / totals.joined) * 100) : 0,
+      },
+    };
+  }
+
+  /**
    * Admin "yapilacaklar" kutusu (Faz C4): eyleme acik bekleyen isler tek listede — onay bekleyen
    * satis + incelenecek odeme talebi + basilacak/postalanacak cek + dolandiricilik incelemesi.
    * Yalniz count > 0 olanlar doner (bos kutu gosterilmez); her madde bir sayfaya yonlendirir.

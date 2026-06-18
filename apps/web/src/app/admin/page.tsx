@@ -44,6 +44,11 @@ const TODO_ICON: Record<string, string> = {
   sales_approval: '◇', payout_requests: '◆', checks_to_process: '🖶', fraud_review: '⚑',
 };
 
+interface Cohorts {
+  cohorts: { cohort: string; joined: number; active: number; churned: number; producing: number; retentionPct: number; activationPct: number }[];
+  totals: { joined: number; active: number; producing: number; churned: number; retentionPct: number };
+}
+
 const RANGES = [3, 6, 12];
 const CTA_LABEL: Record<string, string> = {
   invite_team: 'Invite members',
@@ -56,6 +61,7 @@ export default function DashboardPage() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
   const [todo, setTodo] = useState<Todo | null>(null);
+  const [cohorts, setCohorts] = useState<Cohorts | null>(null);
   const [months, setMonths] = useState(6);
   const [error, setError] = useState('');
   const [fin, setFin] = useState<{ ok: boolean; payoutMismatches: unknown[]; summaryMismatches: unknown[] } | null>(null);
@@ -71,6 +77,7 @@ export default function DashboardPage() {
     api.get<Dashboard>('/admin/dashboard').then(setData).catch((e) => setError(String((e as ApiError).message)));
     api.get<Onboarding>('/admin/onboarding').then(setOnboarding).catch(() => { /* opsiyonel */ });
     api.get<Todo>('/admin/todo').then(setTodo).catch(() => { /* opsiyonel */ });
+    api.get<Cohorts>('/admin/cohorts').then(setCohorts).catch(() => { /* opsiyonel */ });
   }, []);
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
 
@@ -299,6 +306,51 @@ export default function DashboardPage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ---- Kohort retention/churn (D3) — yazdirilabilir ---- */}
+      {cohorts && cohorts.cohorts.length > 0 && (
+        <div className="card fade-in" style={{ marginTop: 16 }}>
+          <div className="spread" style={{ marginBottom: 4 }}>
+            <strong style={{ fontSize: 15 }}>Member cohorts — retention &amp; churn</strong>
+            <span className="faint" style={{ fontSize: 12 }}>{cohorts.totals.retentionPct}% still active · {cohorts.totals.churned} churned</span>
+          </div>
+          <div className="faint" style={{ fontSize: 12, marginBottom: 12 }}>Members grouped by the month they joined. “Producing” = made an approved sale in the last 30 days.</div>
+          <div className="card" style={{ background: 'var(--panel-2)', padding: 0, overflowX: 'auto' }}>
+            <table>
+              <thead><tr><th>Joined</th><th style={{ textAlign: 'right' }}>Members</th><th style={{ textAlign: 'right' }}>Still active</th><th style={{ textAlign: 'right' }}>Retention</th><th style={{ textAlign: 'right' }}>Producing</th><th style={{ textAlign: 'right' }}>Churned</th></tr></thead>
+              <tbody>
+                {cohorts.cohorts.map((co) => (
+                  <tr key={co.cohort}>
+                    <td>{co.cohort}</td>
+                    <td className="tnum" style={{ textAlign: 'right' }}>{co.joined}</td>
+                    <td className="tnum" style={{ textAlign: 'right' }}>{co.active}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                        <span style={{ width: 44, height: 6, borderRadius: 4, background: 'rgba(255,255,255,.08)', overflow: 'hidden', display: 'inline-block' }}>
+                          <span style={{ display: 'block', height: '100%', width: `${co.retentionPct}%`, background: co.retentionPct >= 60 ? 'var(--emerald)' : co.retentionPct >= 30 ? 'var(--gold-500)' : 'var(--rose, #e11d48)' }} />
+                        </span>
+                        <span className="tnum" style={{ fontWeight: 600, minWidth: 34 }}>{co.retentionPct}%</span>
+                      </span>
+                    </td>
+                    <td className="tnum" style={{ textAlign: 'right', color: co.producing > 0 ? 'var(--emerald)' : 'var(--faint)' }}>{co.producing} <span className="faint">({co.activationPct}%)</span></td>
+                    <td className="tnum" style={{ textAlign: 'right', color: co.churned > 0 ? 'var(--faint)' : 'inherit' }}>{co.churned || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700 }}>
+                  <td>All</td>
+                  <td className="tnum" style={{ textAlign: 'right' }}>{cohorts.totals.joined}</td>
+                  <td className="tnum" style={{ textAlign: 'right' }}>{cohorts.totals.active}</td>
+                  <td className="tnum" style={{ textAlign: 'right' }}>{cohorts.totals.retentionPct}%</td>
+                  <td className="tnum" style={{ textAlign: 'right' }}>{cohorts.totals.producing}</td>
+                  <td className="tnum" style={{ textAlign: 'right' }}>{cohorts.totals.churned}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   );
