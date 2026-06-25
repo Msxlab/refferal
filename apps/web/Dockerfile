@@ -10,7 +10,11 @@ RUN pnpm install --frozen-lockfile
 COPY apps/web apps/web
 # Tarayici API'yi ayni origin'den /v1 ile cagirir (Caddy proxy'ler) → CORS gerekmez
 ARG NEXT_PUBLIC_API_URL=/v1
+ARG NEXT_PUBLIC_APP_NAME=Refearn
+ARG NEXT_PUBLIC_APP_MONOGRAM=R
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_APP_NAME=$NEXT_PUBLIC_APP_NAME
+ENV NEXT_PUBLIC_APP_MONOGRAM=$NEXT_PUBLIC_APP_MONOGRAM
 # standalone cikti yalniz Docker'da (next.config.mjs kosulu)
 ENV NEXT_STANDALONE=1
 RUN pnpm --filter @refearn/web build

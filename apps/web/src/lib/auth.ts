@@ -39,6 +39,18 @@ export function activeMembership(s: Session): MembershipSummary | null {
   return s.memberships.find((m) => m.id === s.activeMembershipId) ?? s.memberships[0] ?? null;
 }
 
+/** Kullanicinin belirli bir sirketteki (tenant) uyeligi — platform'dan isyerine gecis icin. */
+export function membershipForTenant(s: Session, tenantId: string): MembershipSummary | null {
+  return s.memberships.find((m) => m.tenantId === tenantId) ?? null;
+}
+
+/** switch-tenant sonucunu oturuma uygula: token o tenant'a scoped, aktif uyelik guncellenir. */
+export function applyTenantSwitch(accessToken: string, activeMembershipId: string): void {
+  const s = getSession();
+  if (!s) return;
+  setSession({ ...s, accessToken, activeMembershipId });
+}
+
 const ADMIN_ROLES = new Set(['tenant_owner', 'tenant_admin', 'tenant_staff']);
 
 export function isAdminRole(role: string | undefined): boolean {
@@ -101,8 +113,11 @@ export function landingPath(role: string | undefined): string {
   return isAdminRole(role) ? '/admin' : '/app';
 }
 
-/** Oturum bazli inis: platform admin /platform, aksi halde role gore. */
+/** Oturum bazli inis: platform admin'in bir isyeri (uyelik) varsa dogrudan /admin,
+ *  yoksa /platform (sirket listesi). Diger roller role gore (admin → /admin, uye → /app). */
 export function landingForSession(s: Session): string {
-  if (s.user.isPlatformAdmin) return '/platform';
+  if (s.user.isPlatformAdmin) {
+    return activeMembership(s) ? '/admin' : '/platform';
+  }
   return landingPath(activeMembership(s)?.role);
 }

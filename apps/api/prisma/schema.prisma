@@ -125,6 +125,7 @@ enum PayoutStatus {
   requested
   processing
   paid
+  rejected
   failed
 }
 
@@ -142,6 +143,7 @@ enum NotificationChannel {
 
 enum NotificationStatus {
   pending
+  processing
   sent
   failed
 }

@@ -21,19 +21,31 @@ async function rawFetch(path: string, init: RequestInit, token?: string): Promis
   return fetch(`${BASE}${path}`, { ...init, headers });
 }
 
-/** access token suresi dolmussa bir kez refresh dener; basarisizsa oturum kapatir. */
-async function refresh(session: Session): Promise<Session | null> {
-  const res = await rawFetch('/auth/refresh', {
-    method: 'POST',
-    body: JSON.stringify({ refreshToken: session.refreshToken }),
-  });
-  if (!res.ok) {
-    clearSession();
-    return null;
-  }
-  const next = (await res.json()) as Session;
-  setSession(next);
-  return next;
+/** access token suresi dolmussa bir kez refresh dener; basarisizsa oturum kapatir.
+ *  Tek-ucus (single-flight): es zamanli 401'ler ayni refresh token'i AYNI ANDA gondermesin —
+ *  aksi halde sunucu rotasyonlu refresh'i reuse-detection ile TUM oturumu iptal eder (ani cikis). */
+let refreshInFlight: Promise<Session | null> | null = null;
+function refresh(session: Session): Promise<Session | null> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    try {
+      const current = getSession() ?? session;
+      const res = await rawFetch('/auth/refresh', {
+        method: 'POST',
+        body: JSON.stringify({ refreshToken: current.refreshToken }),
+      });
+      if (!res.ok) {
+        clearSession();
+        return null;
+      }
+      const next = (await res.json()) as Session;
+      setSession(next);
+      return next;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
 }
 
 async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
@@ -75,6 +87,11 @@ export const api = {
   del: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'DELETE', body: body !== undefined ? JSON.stringify(body) : undefined }),
 };
+
+/** Aktif sirketi (tenant) degistir: yeni access token secilen uyeligin tenant'ina scoped doner. */
+export function switchTenant(membershipId: string): Promise<{ accessToken: string; activeMembershipId: string }> {
+  return api.post('/me/switch-tenant', { membershipId });
+}
 
 /** Login ozel: token henuz yok. */
 /** 2FA etkin hesapta login 1. adimin donusu (tam oturum YERINE). */

@@ -46,6 +46,8 @@ services:
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET .env'de tanimli olmali}
       CORS_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost}
       WEB_URL: ${PUBLIC_ORIGIN:-http://localhost}
+      APP_NAME: ${APP_NAME:-Refearn}
+      APP_MONOGRAM: ${APP_MONOGRAM:-R}
       THROTTLE_LIMIT: ${THROTTLE_LIMIT:-120}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -72,6 +74,11 @@ services:
       args:
         # Tarayici ayni origin'den /v1 cagirir (Caddy proxy) → CORS yok
         NEXT_PUBLIC_API_URL: /v1
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-${APP_NAME:-Refearn}}
+        NEXT_PUBLIC_APP_MONOGRAM: ${NEXT_PUBLIC_APP_MONOGRAM:-${APP_MONOGRAM:-R}}
+    environment:
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-${APP_NAME:-Refearn}}
+      NEXT_PUBLIC_APP_MONOGRAM: ${NEXT_PUBLIC_APP_MONOGRAM:-${APP_MONOGRAM:-R}}
     depends_on:
       - api
     restart: unless-stopped

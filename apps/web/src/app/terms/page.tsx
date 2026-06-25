@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { Brand } from '@/components/ui';
+import { APP_NAME } from '@/lib/brand';
 
-export const metadata = { title: 'Program Terms — Refearn' };
+export const metadata = { title: `Program Terms — ${APP_NAME}` };
 
 // Faz D (denetim): davet disclaimer'inin 'program terms' linki buraya gelir. Public, auth gerektirmez.
 // NOT: bu sade-dil bir taslaktir, hukuki tavsiye DEGILDIR — yayindan once avukat/muhasebeci teyidi onerilir.
@@ -13,7 +14,7 @@ export default function TermsPage() {
         <div className="card">
           <div className="eyebrow" style={{ marginBottom: 4 }}>Program</div>
           <h1 className="h1" style={{ marginBottom: 6 }}>Program Terms</h1>
-          <p className="sub" style={{ marginBottom: 22 }}>The terms you agree to when you join a company&apos;s referral program on Refearn.</p>
+          <p className="sub" style={{ marginBottom: 22 }}>The terms you agree to when you join a company&apos;s referral program on {APP_NAME}.</p>
 
           {SECTIONS.map((s) => (
             <section key={s.h} style={{ marginBottom: 18 }}>

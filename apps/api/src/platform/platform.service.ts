@@ -1,5 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { MembershipStatus, SaleStatus, TenantStatus, Prisma } from '@prisma/client';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { MembershipStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
+import { hash } from '@node-rs/argon2';
+import { DEFAULT_LEVEL_RATES_BPS, DEFAULT_POOL_RATE_BPS } from '@refearn/shared';
+import { ARGON2_OPTS } from '../auth/auth.service';
+import { ltreeLabel, newUuid, randomCode } from '../common/crypto';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -133,5 +137,119 @@ export class PlatformService {
       status: m.status,
       depth: m.depth,
     }));
+  }
+
+  /**
+   * Yeni sirket (tenant) kurar: tenant + varsayilan komisyon plani + owner uyeligi (kok, depth 0).
+   * Owner kullanicisi yoksa gecici sifreyle olusturulur ve sifre BIR KEZ geri donulur.
+   * Yalniz platform admin (controller guard'i) cagirir.
+   */
+  async createCompany(
+    actorUserId: string,
+    input: { name: string; slug: string; currency: string; timezone: string; ownerEmail: string; ownerName: string },
+  ) {
+    const slug = input.slug.toLowerCase();
+    const email = input.ownerEmail.toLowerCase();
+
+    if (await this.prisma.tenant.findUnique({ where: { slug }, select: { id: true } })) {
+      throw new ConflictException('bu slug zaten kullaniliyor');
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const tenant = await tx.tenant.create({
+        data: {
+          slug,
+          name: input.name,
+          currency: input.currency,
+          timezone: input.timezone,
+          maturationRule: 'on_delivery',
+          payoutMinCents: 100_000n,
+        },
+      });
+
+      // Varsayilan plan (%10 havuz, 5 kademe) — sirket plansiz kalmasin
+      await tx.commissionPlan.create({
+        data: {
+          tenantId: tenant.id,
+          name: 'Standard Plan (10% pool, 5 levels)',
+          poolRateBps: DEFAULT_POOL_RATE_BPS,
+          depth: DEFAULT_LEVEL_RATES_BPS.length,
+          effectiveFrom: new Date(),
+          createdBy: actorUserId,
+          levels: { create: DEFAULT_LEVEL_RATES_BPS.map((rateBps, level) => ({ level, rateBps })) },
+        },
+      });
+
+      // Owner kullanicisi: varsa kullan (mevcut hesap), yoksa gecici sifreyle olustur
+      const existingUser = await tx.user.findUnique({ where: { email } });
+      let tempPassword: string | null = null;
+      let ownerUser = existingUser;
+      if (!ownerUser) {
+        tempPassword = `${randomCode(4)}-${randomCode(4)}-${randomCode(4)}`;
+        ownerUser = await tx.user.create({
+          data: { email, passwordHash: await hash(tempPassword, ARGON2_OPTS), fullName: input.ownerName, emailVerifiedAt: new Date() },
+        });
+      }
+
+      // Owner uyeligi: kok dugum (depth 0, sponsor yok), path tek INSERT'te (trigger-guvenli)
+      const membershipId = newUuid();
+      let ownerMembership: { id: string } | null = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          ownerMembership = await tx.membership.create({
+            data: {
+              id: membershipId,
+              tenantId: tenant.id,
+              userId: ownerUser.id,
+              role: Role.tenant_owner,
+              sponsorMembershipId: null,
+              referralCode: randomCode(8),
+              depth: 0,
+              path: ltreeLabel(membershipId),
+            },
+            select: { id: true },
+          });
+          break;
+        } catch (e) {
+          if (
+            e instanceof Prisma.PrismaClientKnownRequestError &&
+            e.code === 'P2002' &&
+            Array.isArray(e.meta?.target) &&
+            (e.meta.target as string[]).includes('referral_code')
+          ) {
+            continue;
+          }
+          throw e;
+        }
+      }
+      if (!ownerMembership) throw new ConflictException('referral kodu uretilemedi');
+
+      if (!existingUser) {
+        await tx.user.update({ where: { id: ownerUser.id }, data: { lastMembershipId: ownerMembership.id } });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          tenantId: tenant.id,
+          actorUserId,
+          action: 'tenant.create',
+          entity: 'tenant',
+          entityId: tenant.id,
+          after: { slug: tenant.slug, name: tenant.name, ownerEmail: email, ownerMembershipId: ownerMembership.id },
+        },
+      });
+
+      return { tenant, tempPassword, ownerExisting: !!existingUser };
+    });
+
+    return {
+      id: result.tenant.id,
+      slug: result.tenant.slug,
+      name: result.tenant.name,
+      ownerEmail: email,
+      ownerExisting: result.ownerExisting,
+      // gecici sifre yalniz YENI owner kullanicisi olusturulduysa doludur — bir kez goster
+      tempPassword: result.tempPassword,
+    };
   }
 }
