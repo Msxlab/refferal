@@ -1,9 +1,9 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
-import { ColumnsMenu, Confirm, Loading, Modal, Pagination, SortableTh, SortDir, StatCard, MoneyCounter, TableColumn, useTablePrefs, useToast } from '@/components/ui';
+import { ColumnsMenu, Confirm, Loading, Modal, Pagination, SortableTh, SortDir, MoneyCounter, TableColumn, useTablePrefs, useToast } from '@/components/ui';
 import { Drawer } from '@/components/Drawer';
 import { Popover } from '@/components/Popover';
 import { ImportWizard } from '@/components/ImportWizard';
@@ -12,6 +12,10 @@ import { PrintSheet, PrintHeader, PrintSignatures } from '@/components/PrintShee
 import { activeMembership, getSession } from '@/lib/auth';
 import { dateShort, money, levelLabel, ledgerTypeLabel } from '@/lib/format';
 import { t } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 
 interface SaleItem {
   id: string;
@@ -70,6 +74,14 @@ function chipRange(key: ChipKey): { from: string; to: string } {
     from: ymd(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
     to: ymd(new Date(now.getFullYear(), now.getMonth(), 1)),
   };
+}
+
+/* ---- status -> indigo-tema rozet stili ---- */
+function statusBadgeClass(status: string): string {
+  if (status === 'approved') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400';
+  if (status === 'draft') return 'border-amber-500/30 bg-amber-500/10 text-amber-400';
+  if (status === 'void') return 'border-destructive/30 bg-destructive/10 text-destructive';
+  return 'border-border bg-muted text-muted-foreground';
 }
 
 export default function SalesPage() {
@@ -256,186 +268,220 @@ export default function SalesPage() {
   const advCount = [filters.status, filters.from, filters.to, filters.minCents, filters.maxCents].filter(Boolean).length;
   const cur = summary?.currency ?? 'USD';
 
+  const inputCls = 'h-9 w-full rounded-lg border border-input bg-card px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-primary focus:ring-1 focus:ring-primary';
+
   return (
-    <div>
-      <div className="spread">
+    <div className="text-foreground">
+      {/* ---- baslik ---- */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="eyebrow fade-in">{t('nav.sales')}</div>
-          <h1 className="h1 fade-in">Sales Management</h1>
+          <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-primary">{t('nav.sales')}</div>
+          <h1 className="mt-1 font-display text-2xl font-extrabold tracking-tight text-foreground sm:text-[27px]">Sales &amp; commissions</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Every booked sale, its status, and the commission it generates.</p>
         </div>
-        <div className="row fade-in no-print" style={{ gap: 8 }}>
-          <button className="btn ghost" onClick={exportCsv}>⇩ Export CSV</button>
-          <button className="btn ghost" onClick={() => window.print()}>🖶 Print</button>
-          <button className="btn ghost" onClick={() => setShowImport(true)}>⇪ Import</button>
-          <button className="btn" onClick={() => { setError(''); setCode(''); setSellerOpts([]); setSellerPicked(false); setNewDate(new Date().toLocaleDateString('en-CA')); setShowNew(true); }}>＋ New sale</button>
+        <div className="no-print flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={exportCsv}>⇩ Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => window.print()}>🖶 Print</Button>
+          <Button variant="outline" size="sm" onClick={() => setShowImport(true)}>⇪ Import</Button>
+          <Button size="sm" onClick={() => { setError(''); setCode(''); setSellerOpts([]); setSellerPicked(false); setNewDate(new Date().toLocaleDateString('en-CA')); setShowNew(true); }}>＋ New sale</Button>
         </div>
       </div>
 
-      {error && <div className="error">{error}</div>}
+      {error && <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
 
       {/* ---- KPI seridi ---- */}
-      <div className="stat-grid fade-in delay-1" style={{ margin: '16px 0' }}>
-        <StatCard label="Revenue (approved)" icon="◆" grad="color-mix(in srgb, var(--emerald) 22%, transparent)"
+      <div className="my-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Kpi label="Revenue (approved)" accent
           value={summary ? <MoneyCounter cents={summary.byStatus.approved.amountCents} currency={cur} /> : '—'}
           hint={summary ? `${summary.byStatus.approved.count} approved sales` : undefined} />
-        <div onClick={() => patchFilters({ ...EMPTY, status: 'draft' })} style={{ cursor: 'pointer' }} title="Show drafts awaiting approval" role="button">
-          <StatCard label="Awaiting approval →" icon="◷"
+        <button type="button" onClick={() => patchFilters({ ...EMPTY, status: 'draft' })} title="Show drafts awaiting approval" className="text-left">
+          <Kpi label="Awaiting approval →"
             value={summary ? summary.byStatus.draft.count : '—'}
+            valueClass="text-amber-400"
             hint={summary ? money(summary.byStatus.draft.amountCents, cur) : undefined} />
-        </div>
-        <StatCard label="Average sale" icon="∑"
+        </button>
+        <Kpi label="Average sale"
           value={summary ? <MoneyCounter cents={summary.avgCents} currency={cur} /> : '—'}
           hint={summary ? `${summary.count} sales in view` : undefined} />
-        <StatCard label="Voided" icon="⊘"
+        <Kpi label="Voided"
           value={summary ? summary.byStatus.void.count : '—'}
+          valueClass="text-destructive"
           hint={summary ? money(summary.byStatus.void.amountCents, cur) : undefined} />
       </div>
 
       {/* ---- arac cubugu: ara + hizli tarih + filtreler + kayitli gorunumler ---- */}
-      <div className="row fade-in delay-1 no-print" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '14px 0' }}>
-        <input aria-label="Search sales by seller, code, or customer" value={filters.q} onChange={(e) => patchFilters({ ...filters, q: e.target.value })}
-          placeholder="🔍  Search seller, code, customer…" style={{ flex: 1, minWidth: 200, maxWidth: 320 }} />
+      <div className="no-print my-3.5 flex flex-wrap items-center gap-2.5">
+        <div className="flex h-9 min-w-[200px] max-w-[320px] flex-1 items-center gap-2 rounded-lg border border-input bg-card px-3">
+          <span className="text-muted-foreground/70">🔍</span>
+          <input aria-label="Search sales by seller, code, or customer" value={filters.q} onChange={(e) => patchFilters({ ...filters, q: e.target.value })}
+            placeholder="Search seller, code, customer…" className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/70" />
+        </div>
 
-        <div className="seg-tabs">
+        {/* hizli tarih sekmeleri (continuous-tabs benzeri segment) */}
+        <div className="flex gap-1 rounded-lg border border-border bg-muted p-1">
           {([['today', 'Today'], ['7d', '7 days'], ['month', 'This month'], ['lastMonth', 'Last month']] as [ChipKey, string][]).map(([k, lbl]) => (
-            <button key={k} className={`seg-tab ${activeChip === k ? 'on' : ''}`} onClick={() => toggleChip(k)}>{lbl}</button>
+            <button key={k} type="button" onClick={() => toggleChip(k)}
+              className={cn(
+                'rounded-md px-3 py-1 text-xs font-semibold transition-colors',
+                activeChip === k ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+              )}>{lbl}</button>
           ))}
         </div>
 
         <Popover label={<>Filters</>} badge={advCount} width={300}>
           {(close) => (
-            <div className="grid" style={{ gap: 12 }}>
-              <div className="field" style={{ margin: 0 }}>
-                <label>Status</label>
-                <select value={filters.status} onChange={(e) => patchFilters({ ...filters, status: e.target.value })}>
+            <div className="grid gap-3">
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">Status</label>
+                <select value={filters.status} onChange={(e) => patchFilters({ ...filters, status: e.target.value })} className={inputCls}>
                   {STATUSES.map((s) => <option key={s} value={s}>{s || 'All statuses'}</option>)}
                 </select>
               </div>
-              <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div className="field" style={{ margin: 0 }}><label>From</label><input type="date" value={filters.from} onChange={(e) => patchFilters({ ...filters, from: e.target.value })} /></div>
-                <div className="field" style={{ margin: 0 }}><label>To</label><input type="date" value={filters.to} onChange={(e) => patchFilters({ ...filters, to: e.target.value })} /></div>
-                <div className="field" style={{ margin: 0 }}><label>Min ($)</label><input type="number" min={0} step="0.01" value={filters.minCents ? String(Number(filters.minCents) / 100) : ''} onChange={(e) => patchFilters({ ...filters, minCents: e.target.value ? String(Math.round(parseFloat(e.target.value) * 100)) : '' })} placeholder="0.00" /></div>
-                <div className="field" style={{ margin: 0 }}><label>Max ($)</label><input type="number" min={0} step="0.01" value={filters.maxCents ? String(Number(filters.maxCents) / 100) : ''} onChange={(e) => patchFilters({ ...filters, maxCents: e.target.value ? String(Math.round(parseFloat(e.target.value) * 100)) : '' })} placeholder="0.00" /></div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div><label className="mb-1 block text-xs text-muted-foreground">From</label><input type="date" value={filters.from} onChange={(e) => patchFilters({ ...filters, from: e.target.value })} className={inputCls} /></div>
+                <div><label className="mb-1 block text-xs text-muted-foreground">To</label><input type="date" value={filters.to} onChange={(e) => patchFilters({ ...filters, to: e.target.value })} className={inputCls} /></div>
+                <div><label className="mb-1 block text-xs text-muted-foreground">Min ($)</label><input type="number" min={0} step="0.01" value={filters.minCents ? String(Number(filters.minCents) / 100) : ''} onChange={(e) => patchFilters({ ...filters, minCents: e.target.value ? String(Math.round(parseFloat(e.target.value) * 100)) : '' })} placeholder="0.00" className={cn(inputCls, 'tabular-nums')} /></div>
+                <div><label className="mb-1 block text-xs text-muted-foreground">Max ($)</label><input type="number" min={0} step="0.01" value={filters.maxCents ? String(Number(filters.maxCents) / 100) : ''} onChange={(e) => patchFilters({ ...filters, maxCents: e.target.value ? String(Math.round(parseFloat(e.target.value) * 100)) : '' })} placeholder="0.00" className={cn(inputCls, 'tabular-nums')} /></div>
               </div>
-              <div className="row" style={{ justifyContent: 'space-between' }}>
-                <button className="btn ghost sm" onClick={() => patchFilters({ ...EMPTY, q: filters.q })}>Reset</button>
-                <button className="btn sm" onClick={close}>Done</button>
+              <div className="flex items-center justify-between">
+                <Button variant="ghost" size="sm" onClick={() => patchFilters({ ...EMPTY, q: filters.q })}>Reset</Button>
+                <Button size="sm" onClick={close}>Done</Button>
               </div>
             </div>
           )}
         </Popover>
 
+        {/* kayitli gorunumler — SPEC'teki kayitli-filtre cipi gorunumu */}
         {views.map((v) => (
-          <span key={v.id} className="row" style={{ gap: 3 }}>
-            <button className="btn ghost sm" onClick={() => applyView(v)} title={v.mine ? undefined : `Shared by ${v.ownerName ?? 'team'}`}>
-              {v.shared && <span style={{ marginRight: 3 }}>👥</span>}{v.name}
+          <span key={v.id} className="inline-flex items-center gap-1 rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary">
+            <button type="button" onClick={() => applyView(v)} title={v.mine ? undefined : `Shared by ${v.ownerName ?? 'team'}`} className="inline-flex items-center gap-1">
+              {v.shared && <span>👥</span>}{v.name}
             </button>
-            {v.mine && <button className="faint" onClick={() => deleteView(v.id)} aria-label={`Delete ${v.name}`} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>✕</button>}
+            {v.mine && <button type="button" onClick={() => deleteView(v.id)} aria-label={`Delete ${v.name}`} className="ml-0.5 text-primary/70 hover:text-primary">✕</button>}
           </span>
         ))}
 
-        <span style={{ flex: 1 }} />
+        <span className="flex-1" />
         <ColumnsMenu prefs={cols} />
-        {activeFilters && <button className="btn ghost sm" onClick={() => patchFilters(EMPTY)}>Clear</button>}
-        <button className="btn ghost sm" onClick={() => { setViewName(''); setViewShared(false); setShowSaveView(true); }}>＋ Save view</button>
+        {activeFilters && <Button variant="ghost" size="sm" onClick={() => patchFilters(EMPTY)}>Clear</Button>}
+        <Button variant="outline" size="sm" onClick={() => { setViewName(''); setViewShared(false); setShowSaveView(true); }}>＋ Save view</Button>
       </div>
 
       {/* ---- tablo ---- */}
-      <div className="card fade-in delay-2">
-        <div className="spread" style={{ marginBottom: 12 }}>
-          <strong>Sales{list ? ` · ${list.total}` : ''}</strong>
-          <select className="no-print" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }} style={{ width: 'auto' }} aria-label="Rows per page">
-            <option value={25}>25 / page</option>
-            <option value={50}>50 / page</option>
-            <option value={100}>100 / page</option>
-          </select>
-        </div>
-        {!list ? <Loading rows={3} /> : (
-          <table className={cols.density === 'compact' ? 'dense' : undefined}>
-            <thead>
-              <tr>
-                <th className="no-print" style={{ width: 30 }}><input type="checkbox" checked={selected.size > 0 && selected.size === list.items.length} onChange={toggleAll} aria-label="Select all" /></th>
-                {cols.isVisible('seller') && <th>Seller</th>}
-                {cols.isVisible('amount') && <SortableTh label="Amount" field="amountCents" sort={sort} dir={dir} onSort={onSort} />}
-                {cols.isVisible('commission') && <th style={{ textAlign: 'right' }}>Commission</th>}
-                {cols.isVisible('customer') && <th>Customer</th>}
-                {cols.isVisible('status') && <SortableTh label={t('sales.status')} field="status" sort={sort} dir={dir} onSort={onSort} />}
-                {cols.isVisible('date') && <SortableTh label="Date" field="saleDate" sort={sort} dir={dir} onSort={onSort} />}
-                <th className="no-print" style={{ textAlign: 'right' }}>{t('common.actions')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.items.map((s) => (
-                <tr key={s.id} style={{ cursor: 'pointer', background: selected.has(s.id) ? 'var(--panel-2)' : undefined }} onClick={() => setDetailId(s.id)}>
-                  <td className="no-print" onClick={(e) => e.stopPropagation()}>
-                    <input type="checkbox" checked={selected.has(s.id)} onChange={() => toggle(s.id)} aria-label={`Select ${s.sellerName}`} />
-                  </td>
-                  {cols.isVisible('seller') && (
-                    <td>
-                      <span className="row" style={{ gap: 6 }}>
-                        {s.sellerName}
-                        {s.selfSubmitted && <span className="badge pending" title="Submitted by member">self</span>}
-                      </span>
-                      <div className="faint" style={{ fontSize: 12 }}>{s.sellerReferralCode}</div>
-                    </td>
-                  )}
-                  {cols.isVisible('amount') && <td className="tnum" style={{ fontWeight: 650 }}>{money(s.amountCents, s.currency)}</td>}
-                  {cols.isVisible('commission') && (
-                    <td className="tnum" style={{ textAlign: 'right' }}>
-                      {Number(s.commissionCents) > 0
-                        ? <>
-                            <span style={{ color: 'var(--gold-500)', fontWeight: 650 }}>{money(s.commissionCents, s.currency)}</span>
-                            <div className="faint" style={{ fontSize: 11 }}>{Number(s.amountCents) > 0 ? `%${((Number(s.commissionCents) / Number(s.amountCents)) * 100).toFixed(1)}` : '—'}</div>
-                          </>
-                        : <span className="faint">{s.status === 'draft' ? 'draft' : '—'}</span>}
-                    </td>
-                  )}
-                  {cols.isVisible('customer') && <td className="muted" style={{ fontSize: 12.5 }}>{s.customerRef || '—'}</td>}
-                  {cols.isVisible('status') && (
-                    <td>
-                      <span className={`badge ${s.status}`}>{s.status}</span>
-                      {s.deliveredAt && <span className="badge active" style={{ marginLeft: 6 }}>✓ delivered</span>}
-                    </td>
-                  )}
-                  {cols.isVisible('date') && <td className="muted">{dateShort(s.saleDate)}</td>}
-                  <td className="no-print" onClick={(e) => e.stopPropagation()}>
-                    <div className="row" style={{ justifyContent: 'flex-end' }}>
-                      {s.status === 'draft' && <button className="btn sm" onClick={() => setConfirm({ ids: [s.id], action: 'approve' })}>{t('sales.approve')}</button>}
-                      {s.status === 'approved' && !s.deliveredAt && <button className="btn sm ghost" onClick={() => deliver(s.id)}>{t('sales.deliver')}</button>}
-                      {s.status === 'draft' && <button className="btn sm ghost danger" onClick={() => setConfirm({ ids: [s.id], action: 'delete' })} aria-label="Delete draft">🗑</button>}
-                      {s.status !== 'void' && <button className="btn sm danger" onClick={() => setConfirm({ ids: [s.id], action: 'void' })}>{t('sales.void')}</button>}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {list.items.length === 0 && <tr><td colSpan={colCount} className="muted">No sales match these filters.</td></tr>}
-            </tbody>
-            {summary && summary.count > 0 && (
-              <tfoot>
-                <tr>
-                  <td colSpan={colCount} className="faint" style={{ fontSize: 12 }}>
-                    {summary.count} sales in view · <b className="tnum">{money(summary.sumCents, cur)}</b> · {summary.deliveredCount} delivered
-                  </td>
-                </tr>
-              </tfoot>
+      <Card className="overflow-hidden shadow-lg">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
+          <strong className="text-sm text-foreground">Sales{list ? ` · ${list.total}` : ''}</strong>
+          <div className="flex items-center gap-3">
+            {summary && (
+              <span className="hidden text-xs text-muted-foreground sm:inline">
+                In view · <strong className="tabular-nums text-foreground">{money(summary.sumCents, cur)}</strong> · commission{' '}
+                <strong className="tabular-nums text-primary">{money(summary.byStatus.approved.amountCents, cur)}</strong>
+              </span>
             )}
-          </table>
-        )}
+            <select className="no-print h-8 rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:border-primary" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }} aria-label="Rows per page">
+              <option value={25}>25 / page</option>
+              <option value={50}>50 / page</option>
+              <option value={100}>100 / page</option>
+            </select>
+          </div>
+        </div>
 
-        {list && <Pagination page={list.page} pageSize={list.pageSize} total={list.total} onPage={setPage} />}
-
-        {selected.size > 0 && (
-          <div className="bulkbar no-print">
-            <strong style={{ fontSize: 13 }}>{selected.size} selected</strong>
-            <span style={{ flex: 1 }} />
-            <button className="btn sm" disabled={selDrafts.length === 0} onClick={() => setConfirm({ ids: selDrafts, action: 'approve' })}>Approve {selDrafts.length || ''}</button>
-            <button className="btn sm ghost" disabled={selDeliverable.length === 0} onClick={() => setConfirm({ ids: selDeliverable, action: 'deliver' })}>Deliver {selDeliverable.length || ''}</button>
-            <button className="btn sm danger" disabled={selVoidable.length === 0} onClick={() => setConfirm({ ids: selVoidable, action: 'void' })}>Void {selVoidable.length || ''}</button>
-            <button className="btn sm ghost danger" disabled={selDrafts.length === 0} onClick={() => setConfirm({ ids: selDrafts, action: 'delete' })}>Delete {selDrafts.length || ''}</button>
-            <button className="btn ghost sm" onClick={() => setSelected(new Set())}>Clear</button>
+        {!list ? <div className="p-4"><Loading rows={3} /></div> : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[13px]">
+              <thead>
+                <tr className="text-left">
+                  <th className="no-print w-8 px-4 py-2.5"><input type="checkbox" className="accent-primary" checked={selected.size > 0 && selected.size === list.items.length} onChange={toggleAll} aria-label="Select all" /></th>
+                  {cols.isVisible('seller') && <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Seller</th>}
+                  {cols.isVisible('amount') && <Th><SortableTh label="Amount" field="amountCents" sort={sort} dir={dir} onSort={onSort} /></Th>}
+                  {cols.isVisible('commission') && <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Commission</th>}
+                  {cols.isVisible('customer') && <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Customer</th>}
+                  {cols.isVisible('status') && <Th><SortableTh label={t('sales.status')} field="status" sort={sort} dir={dir} onSort={onSort} /></Th>}
+                  {cols.isVisible('date') && <Th><SortableTh label="Date" field="saleDate" sort={sort} dir={dir} onSort={onSort} /></Th>}
+                  <th className="no-print px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t('common.actions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.items.map((s) => (
+                  <tr key={s.id} onClick={() => setDetailId(s.id)}
+                    className={cn('cursor-pointer border-t border-border transition-colors hover:bg-muted/50', selected.has(s.id) && 'bg-muted/60')}>
+                    <td className="no-print px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" className="accent-primary" checked={selected.has(s.id)} onChange={() => toggle(s.id)} aria-label={`Select ${s.sellerName}`} />
+                    </td>
+                    {cols.isVisible('seller') && (
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-border bg-muted text-[11px] font-bold text-muted-foreground">
+                            {(s.sellerName || '?').trim().charAt(0).toUpperCase()}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-semibold text-foreground">{s.sellerName}</span>
+                              {s.selfSubmitted && <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 px-1.5 py-0 text-[10px] text-amber-400" title="Submitted by member">self</Badge>}
+                            </div>
+                            <div className="font-mono text-[11px] text-muted-foreground/70">{s.sellerReferralCode}</div>
+                          </div>
+                        </div>
+                      </td>
+                    )}
+                    {cols.isVisible('amount') && <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-foreground">{money(s.amountCents, s.currency)}</td>}
+                    {cols.isVisible('commission') && (
+                      <td className="px-4 py-2.5 text-right">
+                        {Number(s.commissionCents) > 0
+                          ? <>
+                              <span className="font-bold tabular-nums text-primary">{money(s.commissionCents, s.currency)}</span>
+                              <div className="text-[11px] text-muted-foreground/70">{Number(s.amountCents) > 0 ? `%${((Number(s.commissionCents) / Number(s.amountCents)) * 100).toFixed(1)}` : '—'}</div>
+                            </>
+                          : <span className="text-muted-foreground/70">{s.status === 'draft' ? 'draft' : '—'}</span>}
+                      </td>
+                    )}
+                    {cols.isVisible('customer') && <td className="px-4 py-2.5 text-[12.5px] text-muted-foreground">{s.customerRef || '—'}</td>}
+                    {cols.isVisible('status') && (
+                      <td className="px-4 py-2.5">
+                        <Badge variant="outline" className={cn('px-2 py-0.5 text-[11px] font-semibold capitalize', statusBadgeClass(s.status))}>{s.status}</Badge>
+                        {s.deliveredAt && <Badge variant="outline" className="ml-1.5 border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-400">✓ delivered</Badge>}
+                      </td>
+                    )}
+                    {cols.isVisible('date') && <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{dateShort(s.saleDate)}</td>}
+                    <td className="no-print px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1.5">
+                        {s.status === 'draft' && <Button size="sm" onClick={() => setConfirm({ ids: [s.id], action: 'approve' })}>{t('sales.approve')}</Button>}
+                        {s.status === 'approved' && !s.deliveredAt && <Button variant="outline" size="sm" onClick={() => deliver(s.id)}>{t('sales.deliver')}</Button>}
+                        {s.status === 'draft' && <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setConfirm({ ids: [s.id], action: 'delete' })} aria-label="Delete draft">🗑</Button>}
+                        {s.status !== 'void' && <Button variant="destructive" size="sm" onClick={() => setConfirm({ ids: [s.id], action: 'void' })}>{t('sales.void')}</Button>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {list.items.length === 0 && <tr><td colSpan={colCount} className="px-4 py-10 text-center text-sm text-muted-foreground">No sales match these filters.</td></tr>}
+              </tbody>
+              {summary && summary.count > 0 && (
+                <tfoot>
+                  <tr className="border-t border-border">
+                    <td colSpan={colCount} className="px-4 py-3 text-xs text-muted-foreground/70">
+                      {summary.count} sales in view · <b className="tabular-nums text-foreground">{money(summary.sumCents, cur)}</b> · {summary.deliveredCount} delivered
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
           </div>
         )}
-      </div>
+
+        {list && <div className="border-t border-border px-4 py-2"><Pagination page={list.page} pageSize={list.pageSize} total={list.total} onPage={setPage} /></div>}
+
+        {selected.size > 0 && (
+          <div className="no-print flex flex-wrap items-center gap-2 border-t border-border bg-muted/40 px-4 py-3">
+            <strong className="text-[13px] text-foreground">{selected.size} selected</strong>
+            <span className="flex-1" />
+            <Button size="sm" disabled={selDrafts.length === 0} onClick={() => setConfirm({ ids: selDrafts, action: 'approve' })}>Approve {selDrafts.length || ''}</Button>
+            <Button variant="outline" size="sm" disabled={selDeliverable.length === 0} onClick={() => setConfirm({ ids: selDeliverable, action: 'deliver' })}>Deliver {selDeliverable.length || ''}</Button>
+            <Button variant="destructive" size="sm" disabled={selVoidable.length === 0} onClick={() => setConfirm({ ids: selVoidable, action: 'void' })}>Void {selVoidable.length || ''}</Button>
+            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" disabled={selDrafts.length === 0} onClick={() => setConfirm({ ids: selDrafts, action: 'delete' })}>Delete {selDrafts.length || ''}</Button>
+            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>Clear</Button>
+          </div>
+        )}
+      </Card>
 
       {confirm && (
         <Confirm
@@ -461,36 +507,36 @@ export default function SalesPage() {
 
       {showNew && (
         <Modal title="Record a sale" onClose={() => setShowNew(false)}>
-          <form onSubmit={createSale} style={{ width: 'min(460px, 100%)' }}>
-            <div className="field" style={{ position: 'relative' }}>
-              <label>{t('sales.seller')}</label>
-              <input value={code} onChange={(e) => { setCode(e.target.value); setSellerPicked(false); }} placeholder="Search name or code…" required autoFocus autoComplete="off" />
+          <form onSubmit={createSale} className="w-[min(460px,100%)]">
+            <div className="relative mb-3">
+              <label className="mb-1 block text-xs text-muted-foreground">{t('sales.seller')}</label>
+              <input value={code} onChange={(e) => { setCode(e.target.value); setSellerPicked(false); }} placeholder="Search name or code…" required autoFocus autoComplete="off" className={inputCls} />
               {sellerOpts.length > 0 && !sellerPicked && (
-                <div className="card" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, padding: 4, maxHeight: 200, overflowY: 'auto', boxShadow: 'var(--shadow-lg)' }}>
+                <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-[200px] overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg">
                   {sellerOpts.map((o) => (
-                    <button key={o.referralCode} type="button" className="row spread" style={{ width: '100%', padding: '7px 10px', background: 'none', border: 'none', cursor: 'pointer', borderRadius: 8, textAlign: 'left' }}
+                    <button key={o.referralCode} type="button" className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left hover:bg-muted"
                       onClick={() => { setCode(o.referralCode); setSellerPicked(true); setSellerOpts([]); }}>
-                      <span style={{ fontWeight: 600, fontSize: 13 }}>{o.fullName}</span>
-                      <span className="faint" style={{ fontSize: 12, fontFamily: 'ui-monospace, monospace' }}>{o.referralCode}</span>
+                      <span className="text-[13px] font-semibold text-foreground">{o.fullName}</span>
+                      <span className="font-mono text-xs text-muted-foreground/70">{o.referralCode}</span>
                     </button>
                   ))}
                 </div>
               )}
             </div>
-            <div className="field">
-              <label>{t('sales.amount')} ($)</label>
-              <input type="number" min={0} step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="100000.00" required />
-              {Number(amount) > 0 && <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>= {money(Math.round(parseFloat(amount) * 100), cur)}</div>}
+            <div className="mb-3">
+              <label className="mb-1 block text-xs text-muted-foreground">{t('sales.amount')} ($)</label>
+              <input type="number" min={0} step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="100000.00" required className={cn(inputCls, 'tabular-nums')} />
+              {Number(amount) > 0 && <div className="mt-1 text-xs text-muted-foreground/70">= {money(Math.round(parseFloat(amount) * 100), cur)}</div>}
             </div>
-            <div className="row" style={{ gap: 12 }}>
-              <div className="field" style={{ flex: 1, margin: 0 }}><label>Sale date</label><input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} /></div>
-              <div className="field" style={{ flex: 1, margin: 0 }}><label>Customer (optional)</label><input value={newCustomer} onChange={(e) => setNewCustomer(e.target.value)} placeholder="e.g. Smith kitchen" /></div>
+            <div className="flex gap-3">
+              <div className="flex-1"><label className="mb-1 block text-xs text-muted-foreground">Sale date</label><input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} className={inputCls} /></div>
+              <div className="flex-1"><label className="mb-1 block text-xs text-muted-foreground">Customer (optional)</label><input value={newCustomer} onChange={(e) => setNewCustomer(e.target.value)} placeholder="e.g. Smith kitchen" className={inputCls} /></div>
             </div>
-            <div className="field" style={{ marginTop: 12 }}><label>External ref (optional)</label><input value={newExternalRef} onChange={(e) => setNewExternalRef(e.target.value)} placeholder="e.g. INV-2026-014" /></div>
-            {error && <div className="error">{error}</div>}
-            <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
-              <button type="button" className="btn ghost" onClick={() => setShowNew(false)} disabled={busy}>Cancel</button>
-              <button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Create draft'}</button>
+            <div className="mt-3"><label className="mb-1 block text-xs text-muted-foreground">External ref (optional)</label><input value={newExternalRef} onChange={(e) => setNewExternalRef(e.target.value)} placeholder="e.g. INV-2026-014" className={inputCls} /></div>
+            {error && <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+            <div className="mt-3.5 flex justify-end gap-2.5">
+              <Button type="button" variant="ghost" onClick={() => setShowNew(false)} disabled={busy}>Cancel</Button>
+              <Button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Create draft'}</Button>
             </div>
           </form>
         </Modal>
@@ -498,16 +544,16 @@ export default function SalesPage() {
 
       {showSaveView && (
         <Modal title="Save view" onClose={() => setShowSaveView(false)}>
-          <form onSubmit={saveView} style={{ width: 'min(380px, 88vw)' }}>
-            <div className="field"><label>View name</label><input value={viewName} onChange={(e) => setViewName(e.target.value)} placeholder="e.g. Awaiting approval" required autoFocus /></div>
-            <label className="row" style={{ gap: 8, cursor: 'pointer', fontSize: 13 }}>
-              <input type="checkbox" checked={viewShared} onChange={(e) => setViewShared(e.target.checked)} style={{ width: 'auto' }} />
+          <form onSubmit={saveView} className="w-[min(380px,88vw)]">
+            <div className="mb-3"><label className="mb-1 block text-xs text-muted-foreground">View name</label><input value={viewName} onChange={(e) => setViewName(e.target.value)} placeholder="e.g. Awaiting approval" required autoFocus className={inputCls} /></div>
+            <label className="flex cursor-pointer items-center gap-2 text-[13px] text-foreground">
+              <input type="checkbox" className="accent-primary" checked={viewShared} onChange={(e) => setViewShared(e.target.checked)} />
               Share with the whole team
             </label>
-            <div className="faint" style={{ fontSize: 11, marginTop: 4 }}>Saves the current filters and sorting. {viewShared ? 'Everyone on your team will see this view.' : 'Only you will see this view.'}</div>
-            <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
-              <button type="button" className="btn ghost" onClick={() => setShowSaveView(false)}>Cancel</button>
-              <button className="btn">Save</button>
+            <div className="mt-1 text-[11px] text-muted-foreground/70">Saves the current filters and sorting. {viewShared ? 'Everyone on your team will see this view.' : 'Only you will see this view.'}</div>
+            <div className="mt-3.5 flex justify-end gap-2.5">
+              <Button type="button" variant="ghost" onClick={() => setShowSaveView(false)}>Cancel</Button>
+              <Button type="submit">Save</Button>
             </div>
           </form>
         </Modal>
@@ -517,9 +563,25 @@ export default function SalesPage() {
 
       {detailId && <SaleDrawer id={detailId} onClose={() => setDetailId(null)} onChanged={load} onToast={showToast} />}
 
-      {toast && <div className="toast" role="status">{toast}</div>}
+      {toast && <div className="toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-border bg-popover px-4 py-2 text-sm text-foreground shadow-lg" role="status">{toast}</div>}
     </div>
   );
+}
+
+/* ------------------------------------------------- KPI karti (sayfa-ici) */
+function Kpi({ label, value, hint, accent, valueClass }: { label: string; value: ReactNode; hint?: string; accent?: boolean; valueClass?: string }) {
+  return (
+    <Card className={cn('p-4 shadow-lg', accent && 'border-primary/30')}>
+      <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
+      <div className={cn('mt-1.5 font-display text-2xl font-extrabold tabular-nums tracking-tight text-foreground', accent && 'text-primary', valueClass)}>{value}</div>
+      {hint && <div className="mt-1 text-[11px] text-muted-foreground/70">{hint}</div>}
+    </Card>
+  );
+}
+
+/* ------------------------------------------------- tablo basligi sarici */
+function Th({ children }: { children: ReactNode }) {
+  return <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground [&_th]:p-0 [&_th]:text-inherit">{children}</th>;
 }
 
 /* --------------------------------------------------- satis detay cekmecesi */
@@ -564,6 +626,23 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
 
   const totalCommission = d?.ledger.filter((l) => l.type === 'commission').reduce((a, l) => a + Number(l.amountCents), 0) ?? 0;
 
+  // ---- yasam dongusu (lifecycle) adimlari: kayit -> onay -> teslim/iptal
+  const steps: { t: string; d: string; done: boolean; color: string }[] = d ? [
+    { t: 'Recorded', d: dateShort(d.createdAt), done: true, color: 'bg-primary' },
+    {
+      t: d.status === 'void' ? 'Voided' : 'Approved',
+      d: d.status === 'draft' ? 'pending' : (d.status === 'void' ? '—' : dateShort(d.createdAt)),
+      done: d.status !== 'draft',
+      color: d.status === 'void' ? 'bg-destructive' : d.status === 'approved' ? 'bg-emerald-400' : 'bg-muted',
+    },
+    {
+      t: 'Delivered',
+      d: d.deliveredAt ? dateShort(d.deliveredAt) : '—',
+      done: !!d.deliveredAt,
+      color: d.deliveredAt ? 'bg-emerald-400' : 'bg-muted',
+    },
+  ] : [];
+
   return (
     <Drawer
       title={d ? money(d.amountCents, d.currency) : 'Sale'}
@@ -571,54 +650,82 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
       onClose={onClose}
       footer={d && (
         <>
-          <button className="btn ghost" disabled={busy} onClick={() => setPrinting(true)}>🖶 Print receipt</button>
-          {d.status === 'draft' && <button className="btn" disabled={busy} onClick={() => action('approve')}>Approve</button>}
-          {d.status === 'approved' && !d.deliveredAt && <button className="btn ghost" disabled={busy} onClick={() => action('deliver')}>Mark delivered</button>}
-          {d.status === 'draft' && <button className="btn ghost danger" disabled={busy} onClick={() => setConfirmDel(true)}>Delete</button>}
-          {d.status !== 'void' && <button className="btn danger" disabled={busy} onClick={() => action('void')}>Void</button>}
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => setPrinting(true)}>🖶 Print receipt</Button>
+          {d.status === 'draft' && <Button size="sm" disabled={busy} onClick={() => action('approve')}>Approve</Button>}
+          {d.status === 'approved' && !d.deliveredAt && <Button variant="outline" size="sm" disabled={busy} onClick={() => action('deliver')}>Mark delivered</Button>}
+          {d.status === 'draft' && <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" disabled={busy} onClick={() => setConfirmDel(true)}>Delete</Button>}
+          {d.status !== 'void' && <Button variant="destructive" size="sm" disabled={busy} onClick={() => action('void')}>Void</Button>}
         </>
       )}
     >
-      {err && <div className="error">{err}</div>}
+      {err && <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</div>}
       {!d ? <Loading rows={4} /> : (
-        <div className="grid" style={{ gap: 18 }}>
-          <div>
-            <span className={`badge ${d.status}`}>{d.status}</span>
-            {d.deliveredAt && <span className="badge active" style={{ marginLeft: 6 }}>delivered</span>}
-            {d.selfSubmitted && <span className="badge pending" style={{ marginLeft: 6 }}>self-submitted</span>}
+        <div className="flex flex-col gap-[18px]">
+          {/* tutar + status — SPEC: buyuk Sora rakam + rozet */}
+          <div className="flex items-end justify-between">
+            <div>
+              <div className="text-[11px] text-muted-foreground/70">Sale amount</div>
+              <div className="font-display text-[30px] font-extrabold tabular-nums text-foreground">{money(d.amountCents, d.currency)}</div>
+            </div>
+            <div className="flex flex-col items-end gap-1.5">
+              <Badge variant="outline" className={cn('px-2 py-0.5 text-[11px] font-semibold capitalize', statusBadgeClass(d.status))}>{d.status}</Badge>
+              {d.deliveredAt && <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-400">delivered</Badge>}
+              {d.selfSubmitted && <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-400">self-submitted</Badge>}
+            </div>
           </div>
-          <Field label="Seller" value={`${d.sellerName} · ${d.sellerEmail}`} />
-          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+
+          {/* toplam komisyon seridi */}
+          <div className="flex items-center justify-between rounded-xl border border-border bg-muted px-3.5 py-3">
+            <span className="text-[12.5px] text-muted-foreground">Total commission generated</span>
+            <strong className="text-base tabular-nums text-primary">{money(totalCommission, d.currency)}</strong>
+          </div>
+
+          {/* kunye alanlari */}
+          <div className="grid grid-cols-2 gap-3.5">
+            <Field label="Seller" value={`${d.sellerName}`} sub={d.sellerEmail} />
             <Field label="Sale date" value={dateShort(d.saleDate)} />
-            <Field label="Recorded" value={dateShort(d.createdAt)} />
             <Field label="Entered by" value={d.createdByName || '—'} />
             <Field label="Approved by" value={d.approvedByName || '—'} />
             <Field label="Customer ref" value={d.customerRef || '—'} />
             <Field label="External ref" value={d.externalRef || '—'} />
           </div>
 
+          {/* komisyon dagilimi — SPEC: kart-satir listesi */}
           <div>
-            <div className="spread" style={{ marginBottom: 8 }}>
-              <strong style={{ fontSize: 13 }}>Commission distribution</strong>
-              {totalCommission > 0 && <span className="tnum faint" style={{ fontSize: 12 }}>{money(totalCommission, d.currency)} total</span>}
+            <div className="mb-2.5 flex items-center justify-between">
+              <strong className="text-[13px] text-foreground">Commission distribution</strong>
+              {totalCommission > 0 && <span className="text-xs tabular-nums text-muted-foreground/70">{money(totalCommission, d.currency)} total</span>}
             </div>
             {d.ledger.length === 0 ? (
-              <div className="muted" style={{ fontSize: 13 }}>No commissions yet — approve to distribute.</div>
+              <div className="rounded-xl border border-dashed border-border bg-muted/40 px-3 py-4 text-center text-[13px] text-muted-foreground">No commissions yet — approve to distribute.</div>
             ) : (
-              <table>
-                <thead><tr><th>Tier</th><th>Beneficiary</th><th style={{ textAlign: 'right' }}>Rate</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
-                <tbody>
-                  {d.ledger.map((l) => (
-                    <tr key={l.id}>
-                      <td title={ledgerTypeLabel(l.type)}>{levelLabel(l.level)}</td>
-                      <td>{l.beneficiaryName}<div className="faint" style={{ fontSize: 11 }}>{l.beneficiaryCode}</div></td>
-                      <td className="tnum" style={{ textAlign: 'right' }}>{(l.rateBpsUsed / 100).toFixed(2)}%</td>
-                      <td className="tnum" style={{ textAlign: 'right', color: l.type === 'reversal' ? 'var(--rose)' : undefined }}>{money(l.amountCents, d.currency)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="flex flex-col gap-2">
+                {d.ledger.map((l) => (
+                  <div key={l.id} className="flex items-center gap-2.5 rounded-xl border border-border bg-muted px-3 py-2.5">
+                    <span className="whitespace-nowrap rounded-md border border-border bg-card px-2 py-0.5 text-[10px] font-bold tabular-nums text-muted-foreground" title={ledgerTypeLabel(l.type)}>{(l.rateBpsUsed / 100).toFixed(2)}%</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[12.5px] font-semibold text-foreground">{levelLabel(l.level)}</div>
+                      <div className="truncate text-[11px] text-muted-foreground/70">{l.beneficiaryName} · {l.beneficiaryCode}</div>
+                    </div>
+                    <strong className={cn('text-[13px] tabular-nums', l.type === 'reversal' ? 'text-destructive' : 'text-emerald-400')}>{money(l.amountCents, d.currency)}</strong>
+                  </div>
+                ))}
+              </div>
             )}
+          </div>
+
+          {/* yasam dongusu zaman cizelgesi — SPEC: noktali timeline */}
+          <div>
+            <strong className="mb-3 block text-[13px] text-foreground">Lifecycle</strong>
+            <div className="flex flex-col">
+              {steps.map((st, i) => (
+                <div key={i} className="flex items-center gap-3 py-1.5">
+                  <span className={cn('h-3 w-3 shrink-0 rounded-full ring-4 ring-muted', st.done ? st.color : 'bg-muted-foreground/30')} />
+                  <span className={cn('flex-1 text-[13px] font-medium', st.done ? 'text-foreground' : 'text-muted-foreground/70')}>{st.t}</span>
+                  <span className="text-xs tabular-nums text-muted-foreground/70">{st.d}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -673,11 +780,12 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div>
-      <div className="faint" style={{ fontSize: 11 }}>{label}</div>
-      <div style={{ fontSize: 13.5, marginTop: 2 }}>{value}</div>
+      <div className="text-[11px] text-muted-foreground/70">{label}</div>
+      <div className="mt-0.5 text-[13.5px] text-foreground">{value}</div>
+      {sub && <div className="text-[11px] text-muted-foreground/70">{sub}</div>}
     </div>
   );
 }

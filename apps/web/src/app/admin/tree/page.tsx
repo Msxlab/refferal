@@ -6,6 +6,12 @@ import { Loading, useToast } from '@/components/ui';
 import { NetworkExplorer, type ApiNode, type RankTierLite } from '@/components/NetworkExplorer';
 import { money } from '@/lib/format';
 import { t } from '@/lib/i18n';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
 
 interface Leader {
   id: string; fullName: string; referralCode: string; role: string;
@@ -19,10 +25,11 @@ const ALL = '__all__';
 type LeaderStatus = 'healthy' | 'cooling' | 'dormant';
 type SortKey = 'volume' | 'team' | 'growth' | 'active';
 
-const STATUS_META: Record<LeaderStatus, { label: string; color: string }> = {
-  healthy: { label: 'healthy', color: 'var(--emerald)' },
-  cooling: { label: 'cooling', color: 'var(--amber)' },
-  dormant: { label: 'dormant', color: 'var(--rose)' },
+/** Durum -> indigo temasinda Tailwind sinif eslesmesi (pill + ilerleme cubugu + sparkline). */
+const STATUS_META: Record<LeaderStatus, { label: string; pill: string; bar: string; spark: string }> = {
+  healthy: { label: 'healthy', pill: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/30', bar: 'bg-emerald-400', spark: 'var(--emerald)' },
+  cooling: { label: 'cooling', pill: 'text-amber-400 bg-amber-400/10 border-amber-400/30', bar: 'bg-amber-400', spark: 'var(--amber)' },
+  dormant: { label: 'dormant', pill: 'text-destructive bg-destructive/10 border-destructive/30', bar: 'bg-destructive', spark: 'var(--rose)' },
 };
 
 /** Lider durumu: bu-ay grup cirosu + trend yonu + aktif oranindan turetilir. */
@@ -56,7 +63,7 @@ function compactMoney(cents: string | number): string {
 }
 
 /** Mini sparkline (cent string serisinden). Tum-sifir ise kesik taban cizgisi. */
-function Sparkline({ data, color = 'var(--muted)', w = 84, h = 22 }: { data: string[]; color?: string; w?: number; h?: number }) {
+function Sparkline({ data, color = 'hsl(var(--muted-foreground))', w = 84, h = 22 }: { data: string[]; color?: string; w?: number; h?: number }) {
   const nums = data.map(Number);
   const max = Math.max(1, ...nums);
   const allZero = nums.every((v) => v === 0);
@@ -66,9 +73,9 @@ function Sparkline({ data, color = 'var(--muted)', w = 84, h = 22 }: { data: str
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(' ');
   return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true" style={{ display: 'block' }}>
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true" className="block">
       {allZero
-        ? <line x1="1" y1={h - 2} x2={w - 1} y2={h - 2} stroke="var(--border-strong)" strokeWidth="1.5" strokeDasharray="2 3" />
+        ? <line x1="1" y1={h - 2} x2={w - 1} y2={h - 2} stroke="hsl(var(--border))" strokeWidth="1.5" strokeDasharray="2 3" />
         : <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />}
     </svg>
   );
@@ -77,8 +84,7 @@ function Sparkline({ data, color = 'var(--muted)', w = 84, h = 22 }: { data: str
 function StatusPill({ s }: { s: LeaderStatus }) {
   const m = STATUS_META[s];
   return (
-    <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap',
-      color: m.color, background: `color-mix(in srgb, ${m.color} 14%, transparent)`, border: `1px solid color-mix(in srgb, ${m.color} 32%, transparent)` }}>
+    <span className={cn('inline-block rounded-full border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap', m.pill)}>
       {m.label}
     </span>
   );
@@ -157,16 +163,28 @@ export default function NetworkPage() {
     } catch (e) { setError(String((e as ApiError).message)); }
   }, [root, openTree, loadLeaders, showToast]);
 
-  if (error) return <div className="error">{error}</div>;
+  if (error) {
+    return (
+      <div className="mx-auto max-w-[1160px] px-7 py-7">
+        <Card className="border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">{error}</Card>
+      </div>
+    );
+  }
 
   // ---- bir lider/ağ seçiliyse: o ağacı göster ----
   if (root) {
     return (
-      <div>
-        <div className="row" style={{ gap: 10, marginBottom: 12, alignItems: 'center' }}>
-          <button className="btn ghost sm" onClick={() => { setRoot(null); setNodes(null); }}>← Leaders</button>
-          <div className="eyebrow" style={{ margin: 0 }}>{root.id === ALL ? 'Whole network' : 'Team tree'}</div>
-          <h1 className="h1" style={{ margin: 0, fontSize: 22 }}>{root.name}</h1>
+      <div className="mx-auto max-w-[1160px] px-7 py-7">
+        <div className="mb-4 flex items-center gap-3">
+          <Button variant="ghost" size="sm" className="gap-1" onClick={() => { setRoot(null); setNodes(null); }}>
+            ← Leaders
+          </Button>
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.13em] text-muted-foreground/70">
+              {root.id === ALL ? 'Whole network' : 'Team tree'}
+            </div>
+            <h1 className="mt-0.5 font-display text-[22px] font-extrabold tracking-tight text-foreground">{root.name}</h1>
+          </div>
         </div>
         {!nodes ? <Loading rows={5} /> : <NetworkExplorer nodes={nodes} tiers={tiers} title={root.name} onToggleLeader={toggleLeader} />}
         {toast && <div className="toast" role="status">{toast}</div>}
@@ -176,185 +194,243 @@ export default function NetworkPage() {
 
   // ---- liderler landing'i ----
   return (
-    <div>
-      <div className="eyebrow fade-in">{t('nav.tree')}</div>
-      <h1 className="h1 fade-in">Team leaders</h1>
-      <p className="sub fade-in" style={{ marginBottom: 16 }}>
-        Open each leader as its own tree — see their team, sales and <strong>this month&apos;s commission</strong> live. Open any member in the tree and use <em>“Make leader”</em> to mark them a leader.
+    <div className="mx-auto max-w-[1160px] px-7 py-7">
+      <div className="fade-in text-[11px] font-bold uppercase tracking-[0.15em] text-primary">{t('nav.tree')}</div>
+      <h1 className="fade-in mt-1.5 font-display text-[27px] font-extrabold tracking-tight text-foreground">Team leaders</h1>
+      <p className="fade-in mt-1 max-w-[640px] text-[13.5px] text-muted-foreground">
+        Open each leader as its own tree — see their team, sales and <strong className="text-foreground">this month&apos;s commission</strong> live. Open any member in the tree and use <em>“Make leader”</em> to mark them a leader.
       </p>
 
       {meta?.truncated && (
-        <div className="row fade-in" style={{ gap: 8, padding: '8px 12px', borderRadius: 10, marginBottom: 12, fontSize: 13,
-          background: 'color-mix(in srgb, var(--amber) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--amber) 32%, transparent)' }}>
-          <span aria-hidden>⚠</span>
+        <div className="fade-in mt-4 flex items-center gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-[13px] text-foreground">
+          <span aria-hidden className="text-amber-400">⚠</span>
           <span>Showing the first <strong>{meta.shownLeaders}</strong> of <strong>{meta.totalLeaders}</strong> leaders. Search &amp; pagination are coming soon.</span>
         </div>
       )}
 
       {/* ---- ag saglik seridi ---- */}
       {health && (
-        <div className="card fade-in" style={{ marginBottom: 16 }}>
-          <div className="net-kpis" style={{ marginBottom: health.dormantClusters.length > 0 ? 14 : 0 }}>
-            <div className="net-kpi"><span className="faint" style={{ fontSize: 11 }}>Members</span><div style={{ fontWeight: 750, fontSize: 17 }}>⬡ {health.totals.members}</div></div>
-            <div className="net-kpi"><span className="faint" style={{ fontSize: 11 }}>Active</span><div style={{ fontWeight: 750, fontSize: 17 }}>● {health.totals.active}<span className="faint" style={{ fontSize: 11, fontWeight: 400 }}> / {health.totals.inactive} inactive</span></div></div>
-            <div className="net-kpi">
-              <span className="faint" style={{ fontSize: 11 }}>No sale this month</span>
-              <div style={{ fontWeight: 750, fontSize: 17, color: health.noSaleActive.pct >= 50 ? 'var(--amber)' : 'var(--text)' }}>
-                {health.noSaleActive.pct}%<span className="faint" style={{ fontSize: 11, fontWeight: 400 }}> ({health.noSaleActive.count}/{health.noSaleActive.total} active)</span>
+        <Card className="fade-in mt-[18px] p-4 shadow-lg sm:px-[18px]">
+          <div className={cn('grid grid-cols-2 gap-4 sm:grid-cols-4', health.dormantClusters.length > 0 && 'mb-[14px]')}>
+            <div>
+              <div className="text-[11px] text-muted-foreground/70">Members</div>
+              <div className="mt-0.5 text-[18px] font-bold tabular-nums text-foreground">⬡ {health.totals.members}</div>
+            </div>
+            <div>
+              <div className="text-[11px] text-muted-foreground/70">Active</div>
+              <div className="mt-0.5 text-[18px] font-bold tabular-nums text-foreground">
+                ● {health.totals.active}
+                <span className="text-[11px] font-normal text-muted-foreground/70"> / {health.totals.inactive} inactive</span>
               </div>
             </div>
-            <div className="net-kpi"><span className="faint" style={{ fontSize: 11 }}>Dormant teams</span><div style={{ fontWeight: 750, fontSize: 17, color: health.dormantClusters.length > 0 ? 'var(--amber)' : 'var(--emerald)' }}>{health.dormantClusters.length}</div></div>
+            <div>
+              <div className="text-[11px] text-muted-foreground/70">No sale this month</div>
+              <div className={cn('mt-0.5 text-[18px] font-bold tabular-nums', health.noSaleActive.pct >= 50 ? 'text-amber-400' : 'text-foreground')}>
+                {health.noSaleActive.pct}%
+                <span className="text-[11px] font-normal text-muted-foreground/70"> ({health.noSaleActive.count}/{health.noSaleActive.total} active)</span>
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] text-muted-foreground/70">Dormant teams</div>
+              <div className={cn('mt-0.5 text-[18px] font-bold tabular-nums', health.dormantClusters.length > 0 ? 'text-amber-400' : 'text-emerald-400')}>
+                {health.dormantClusters.length}
+              </div>
+            </div>
           </div>
           {health.dormantClusters.length > 0 && (
             <div>
-              <div className="faint" style={{ fontSize: 11, marginBottom: 6 }}>Teams with no group sales this month — open to investigate:</div>
-              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <div className="mb-1.5 text-[11px] text-muted-foreground/70">Teams with no group sales this month — open to investigate:</div>
+              <div className="flex flex-wrap gap-2">
                 {health.dormantClusters.map((d) => (
-                  <button key={d.leaderId} className="btn ghost sm" onClick={() => openTree(d.leaderId, d.leaderName)} title={`${d.referralCode} · team of ${d.teamSize}`}>
-                    {d.leaderName} <span className="faint">⬡{d.teamSize}</span>
-                  </button>
+                  <Button key={d.leaderId} variant="outline" size="sm" className="h-auto gap-1.5 py-1.5"
+                    onClick={() => openTree(d.leaderId, d.leaderName)} title={`${d.referralCode} · team of ${d.teamSize}`}>
+                    {d.leaderName} <span className="text-muted-foreground/70">⬡{d.teamSize}</span>
+                  </Button>
                 ))}
               </div>
             </div>
           )}
-        </div>
+        </Card>
       )}
 
-      {!leaders ? <Loading rows={4} /> : (
+      {!leaders ? <div className="mt-4"><Loading rows={4} /></div> : (
         <>
           {/* tum ag girisi */}
-          <button className="card hover" style={{ width: '100%', textAlign: 'left', cursor: 'pointer', border: '1px dashed var(--border-strong)', marginBottom: 14, padding: '12px 16px' }} onClick={() => openTree(null, 'Whole network')}>
-            <span style={{ fontWeight: 700, fontSize: 14 }}>◈ Whole network</span>
-            <span className="faint" style={{ fontSize: 12 }}> — see the entire company as one tree</span>
+          <button
+            className="fade-in mt-[14px] w-full cursor-pointer rounded-xl border border-dashed border-input bg-card px-4 py-[13px] text-left transition-colors hover:border-primary/50 hover:bg-muted"
+            onClick={() => openTree(null, 'Whole network')}
+          >
+            <span className="text-sm font-bold text-foreground">◈ Whole network</span>
+            <span className="text-xs text-muted-foreground/70"> — see the entire company as one tree</span>
           </button>
-
-          {/* toolbar: arama + siralama + gorunum */}
-          <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
-            <input aria-label="Search leaders by name or code" placeholder="Search leader or code…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ flex: 1, minWidth: 180, maxWidth: 300 }} />
-            <select value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)} aria-label="Sort leaders" style={{ width: 'auto' }}>
-              <option value="volume">Sort: group volume</option>
-              <option value="team">Team size</option>
-              <option value="growth">Growth</option>
-              <option value="active">Activity</option>
-            </select>
-            <div className="seg-tabs" role="tablist" style={{ padding: 4 }}>
-              <button className={`seg-tab ${view === 'cards' ? 'on' : ''}`} onClick={() => setView('cards')}>▦ Cards</button>
-              <button className={`seg-tab ${view === 'table' ? 'on' : ''}`} onClick={() => setView('table')}>☰ Table</button>
-            </div>
-            <span className="faint" style={{ fontSize: 12 }}>{sortedLeaders.length} {sortedLeaders.length === 1 ? 'leader' : 'leaders'}</span>
-          </div>
 
           {/* spotlight: en iyi saha lideri (arama yokken) */}
           {!q && spotlight && (
             <>
-              <div className="faint" style={{ fontSize: 11, margin: '0 0 6px', display: 'flex', alignItems: 'center', gap: 6 }}>★ Top performer this month</div>
-              <button className="card hover" onClick={() => openTree(spotlight.id, spotlight.fullName)}
-                style={{ width: '100%', textAlign: 'left', cursor: 'pointer', border: '1px solid var(--gold-500)', boxShadow: 'var(--shadow-glow)', marginBottom: 18, padding: '14px 18px' }}>
-                <div className="row" style={{ gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ width: 44, height: 44, borderRadius: '50%', background: 'var(--foil)', color: 'var(--on-gold)', display: 'grid', placeItems: 'center', fontWeight: 800, fontFamily: 'var(--font-display)', fontSize: 16, flexShrink: 0 }}>{spotlight.fullName.charAt(0).toUpperCase()}</span>
-                  <div style={{ flex: 1, minWidth: 150 }}>
-                    <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-                      <span style={{ fontWeight: 750, fontSize: 16 }}>{spotlight.fullName}</span>
-                      <span className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{spotlight.referralCode}</span>
+              <div className="mt-[18px] mb-[7px] text-[11px] font-semibold text-muted-foreground/70">★ Top performer this month</div>
+              <button
+                onClick={() => openTree(spotlight.id, spotlight.fullName)}
+                className="w-full cursor-pointer rounded-2xl border border-primary bg-card px-[18px] py-4 text-left shadow-[0_0_0_1px_hsl(var(--primary)/0.4),0_18px_50px_-28px_hsl(var(--primary)/0.5)] transition-transform hover:-translate-y-0.5"
+              >
+                <div className="flex flex-wrap items-center gap-[15px]">
+                  <span className="grid size-[46px] shrink-0 place-items-center rounded-full bg-primary font-display text-[17px] font-extrabold text-primary-foreground">
+                    {spotlight.fullName.charAt(0).toUpperCase()}
+                  </span>
+                  <div className="min-w-[150px] flex-1">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-base font-bold text-foreground">{spotlight.fullName}</span>
+                      <span className="font-mono text-[11px] text-muted-foreground/70">{spotlight.referralCode}</span>
                       <StatusPill s={leaderStatus(spotlight)} />
                     </div>
-                    <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
+                    <div className="mt-1 text-xs text-muted-foreground/70">
                       ⬡ {spotlight.teamSize} team · {Math.round(activeRatioOf(spotlight) * 100)}% active
-                      {growthOf(spotlight) !== 0 && <> · {growthOf(spotlight) > 0 ? '▲' : '▼'} {compactMoney(Math.abs(growthOf(spotlight)))} vs last mo</>}
+                      {growthOf(spotlight) !== 0 && (
+                        <span className={growthOf(spotlight) > 0 ? 'text-emerald-400' : 'text-destructive'}>
+                          {' · '}{growthOf(spotlight) > 0 ? '▲' : '▼'} {compactMoney(Math.abs(growthOf(spotlight)))} vs last mo
+                        </span>
+                      )}
                     </div>
                   </div>
-                  <Sparkline data={spotlight.trend} color="var(--gold-500)" w={120} h={40} />
-                  <div style={{ textAlign: 'right', minWidth: 120 }}>
-                    <div className="faint" style={{ fontSize: 11 }}>Group volume (mo)</div>
-                    <div className="tnum" style={{ fontWeight: 800, fontSize: 22 }}>{money(spotlight.monthlyGroupVolumeCents)}</div>
-                    <div className="tnum" style={{ fontSize: 12, color: 'var(--gold-500)' }}>{money(spotlight.monthlyGroupCommissionCents)} commission</div>
+                  <Sparkline data={spotlight.trend} color="hsl(var(--primary))" w={120} h={40} />
+                  <div className="min-w-[120px] text-right">
+                    <div className="text-[11px] text-muted-foreground/70">Group volume (mo)</div>
+                    <div className="font-display text-[22px] font-extrabold tabular-nums text-foreground">{money(spotlight.monthlyGroupVolumeCents)}</div>
+                    <div className="text-xs tabular-nums text-primary">{money(spotlight.monthlyGroupCommissionCents)} commission</div>
                   </div>
                 </div>
               </button>
             </>
           )}
 
+          {/* toolbar: arama + siralama + gorunum */}
+          <div className="mt-5 mb-[14px] flex flex-wrap items-center gap-2.5">
+            <Input
+              aria-label="Search leaders by name or code"
+              placeholder="Search leader or code…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="h-9 max-w-[300px] flex-1 sm:min-w-[180px]"
+            />
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              aria-label="Sort leaders"
+              className="h-9 rounded-lg border border-border bg-card px-3 text-[12.5px] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="volume">Sort: group volume</option>
+              <option value="team">Team size</option>
+              <option value="growth">Growth</option>
+              <option value="active">Activity</option>
+            </select>
+            <Tabs value={view} onValueChange={(v) => setView(v as 'cards' | 'table')}>
+              <TabsList>
+                <TabsTrigger value="cards">▦ Cards</TabsTrigger>
+                <TabsTrigger value="table">☰ Table</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <span className="text-[12.5px] text-muted-foreground/70">{sortedLeaders.length} {sortedLeaders.length === 1 ? 'leader' : 'leaders'}</span>
+          </div>
+
           {/* leaderboard: kart ya da tablo */}
           {sortedLeaders.length === 0 ? (
-            <div className="muted" style={{ padding: '18px 0' }}>No leaders match “{query}”.</div>
+            <div className="py-[18px] text-sm text-muted-foreground">No leaders match “{query}”.</div>
           ) : view === 'cards' ? (
-            <div className="net-kpis" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-[14px]">
               {sortedLeaders.map((l) => {
                 const st = leaderStatus(l);
                 return (
-                  <button key={l.id} className="card hover" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => openTree(l.id, l.fullName)}>
-                    <div className="spread" style={{ alignItems: 'flex-start' }}>
-                      <div className="row" style={{ gap: 10, minWidth: 0 }}>
-                        <span style={{ width: 34, height: 34, borderRadius: 9, background: l.isOwnerRoot ? 'var(--foil)' : 'var(--panel-3)', color: l.isOwnerRoot ? 'var(--on-gold)' : 'var(--text)', display: 'grid', placeItems: 'center', fontWeight: 800, fontFamily: 'var(--font-display)', fontSize: 13, flexShrink: 0 }}>{l.fullName.charAt(0).toUpperCase()}</span>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 750, fontSize: 15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.fullName}</div>
-                          <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{l.referralCode}</div>
+                  <button
+                    key={l.id}
+                    onClick={() => openTree(l.id, l.fullName)}
+                    className="cursor-pointer text-left transition-transform hover:-translate-y-0.5"
+                  >
+                    <Card className="h-full p-4 shadow-lg transition-colors hover:border-primary/40">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <span className={cn(
+                            'grid size-[34px] shrink-0 place-items-center rounded-[9px] font-display text-[13px] font-extrabold',
+                            l.isOwnerRoot ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground',
+                          )}>
+                            {l.fullName.charAt(0).toUpperCase()}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="truncate text-[15px] font-bold text-foreground">{l.fullName}</div>
+                            <div className="font-mono text-[11px] text-muted-foreground/70">{l.referralCode}</div>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 gap-1.5">
+                          {l.isOwnerRoot
+                            ? <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[9px] font-semibold text-primary">owner</span>
+                            : <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[9px] font-semibold text-primary">🎖</span>}
+                          <StatusPill s={st} />
                         </div>
                       </div>
-                      <div className="row" style={{ gap: 6, flexShrink: 0 }}>
-                        {l.isOwnerRoot ? <span className="badge active" style={{ fontSize: 9 }}>owner</span> : <span className="badge payable" style={{ fontSize: 9 }}>🎖</span>}
-                        <StatusPill s={st} />
+                      <div className="mt-[13px] flex items-center gap-2">
+                        <span className="min-w-[38px] text-[10px] text-muted-foreground/70">⬡ {l.teamSize}</span>
+                        <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                          <div className={cn('h-full rounded-full', STATUS_META[st].bar)} style={{ width: `${Math.round(activeRatioOf(l) * 100)}%` }} />
+                        </div>
+                        <span className="text-[10px] text-muted-foreground/70">{Math.round(activeRatioOf(l) * 100)}%</span>
                       </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
-                      <span className="faint" style={{ fontSize: 10, minWidth: 40 }}>⬡ {l.teamSize}</span>
-                      <div style={{ flex: 1, height: 4, background: 'var(--panel-3)', borderRadius: 2 }}>
-                        <div style={{ width: `${Math.round(activeRatioOf(l) * 100)}%`, height: '100%', background: STATUS_META[st].color, borderRadius: 2 }} />
+                      <div className="mt-[13px] flex items-end justify-between">
+                        <div>
+                          <div className="text-[10px] text-muted-foreground/70">Volume (mo)</div>
+                          <div className="text-[15px] font-bold tabular-nums text-foreground">{money(l.monthlyGroupVolumeCents)}</div>
+                          <div className="text-[11px] tabular-nums text-primary">{money(l.monthlyGroupCommissionCents)}</div>
+                        </div>
+                        <Sparkline data={l.trend} color={STATUS_META[st].spark} w={80} h={30} />
                       </div>
-                      <span className="faint" style={{ fontSize: 10 }}>{Math.round(activeRatioOf(l) * 100)}%</span>
-                    </div>
-                    <div className="spread" style={{ marginTop: 12, alignItems: 'flex-end' }}>
-                      <div>
-                        <div className="faint" style={{ fontSize: 10 }}>Volume (mo)</div>
-                        <div className="tnum" style={{ fontWeight: 700, fontSize: 15 }}>{money(l.monthlyGroupVolumeCents)}</div>
-                        <div className="tnum" style={{ fontSize: 11, color: 'var(--gold-500)' }}>{money(l.monthlyGroupCommissionCents)}</div>
-                      </div>
-                      <Sparkline data={l.trend} color={STATUS_META[st].color} w={80} h={30} />
-                    </div>
+                    </Card>
                   </button>
                 );
               })}
             </div>
           ) : (
-            <div className="card" style={{ padding: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Leader</th>
-                    <th style={{ textAlign: 'right' }}>Team</th>
-                    <th style={{ textAlign: 'right' }}>Volume (mo)</th>
-                    <th style={{ textAlign: 'right' }}>Commission (mo)</th>
-                    <th>6-mo</th>
-                    <th>Status</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
+            <Card className="overflow-x-auto p-0 shadow-lg">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Leader</TableHead>
+                    <TableHead className="text-right">Team</TableHead>
+                    <TableHead className="text-right">Volume (mo)</TableHead>
+                    <TableHead className="text-right">Commission (mo)</TableHead>
+                    <TableHead>6-mo</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {sortedLeaders.map((l, i) => {
                     const st = leaderStatus(l);
                     return (
-                      <tr key={l.id} style={{ cursor: 'pointer' }} onClick={() => openTree(l.id, l.fullName)}>
-                        <td>
-                          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-                            <span className="faint tnum" style={{ fontSize: 11, minWidth: 16 }}>{i + 1}</span>
+                      <TableRow key={l.id} className="cursor-pointer" onClick={() => openTree(l.id, l.fullName)}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <span className="min-w-[16px] text-[11px] tabular-nums text-muted-foreground/70">{i + 1}</span>
                             <div>
-                              <div style={{ fontWeight: 600, fontSize: 13 }}>{l.fullName}{l.isOwnerRoot ? <span className="faint" style={{ fontWeight: 400 }}> · owner</span> : l.isTeamLeader ? ' 🎖' : ''}</div>
-                              <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{l.referralCode}</div>
+                              <div className="text-[13px] font-semibold text-foreground">
+                                {l.fullName}
+                                {l.isOwnerRoot ? <span className="font-normal text-muted-foreground/70"> · owner</span> : l.isTeamLeader ? ' 🎖' : ''}
+                              </div>
+                              <div className="font-mono text-[11px] text-muted-foreground/70">{l.referralCode}</div>
                             </div>
                           </div>
-                        </td>
-                        <td className="tnum" style={{ textAlign: 'right' }}>{l.teamSize}<div className="faint" style={{ fontSize: 10 }}>{Math.round(activeRatioOf(l) * 100)}% act</div></td>
-                        <td className="tnum" style={{ textAlign: 'right', fontWeight: 600 }}>{money(l.monthlyGroupVolumeCents)}</td>
-                        <td className="tnum" style={{ textAlign: 'right', color: 'var(--gold-500)' }}>{money(l.monthlyGroupCommissionCents)}</td>
-                        <td><Sparkline data={l.trend} color={STATUS_META[st].color} w={70} h={20} /></td>
-                        <td><StatusPill s={st} /></td>
-                        <td style={{ textAlign: 'right' }}><span className="faint" style={{ fontSize: 12 }}>Open →</span></td>
-                      </tr>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {l.teamSize}
+                          <div className="text-[10px] text-muted-foreground/70">{Math.round(activeRatioOf(l) * 100)}% act</div>
+                        </TableCell>
+                        <TableCell className="text-right font-semibold tabular-nums">{money(l.monthlyGroupVolumeCents)}</TableCell>
+                        <TableCell className="text-right tabular-nums text-primary">{money(l.monthlyGroupCommissionCents)}</TableCell>
+                        <TableCell><Sparkline data={l.trend} color={STATUS_META[st].spark} w={70} h={20} /></TableCell>
+                        <TableCell><StatusPill s={st} /></TableCell>
+                        <TableCell className="text-right"><span className="text-xs text-muted-foreground/70">Open →</span></TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
+                </TableBody>
+              </Table>
+            </Card>
           )}
         </>
       )}

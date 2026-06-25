@@ -8,6 +8,10 @@ import { TrendChart } from '@/components/TrendChart';
 import { useLiveRefresh } from '@/components/LiveIndicator';
 import { bps, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { ContinuousTabs } from '@/components/ui/continuous-tabs';
 
 interface Dashboard {
   month: string;
@@ -42,6 +46,10 @@ interface Todo {
 }
 const TODO_ICON: Record<string, string> = {
   sales_approval: '◇', payout_requests: '◆', checks_to_process: '🖶', fraud_review: '⚑',
+};
+const TODO_ICON_COLOR: Record<string, string> = {
+  sales_approval: 'text-muted-foreground', payout_requests: 'text-primary',
+  checks_to_process: 'text-muted-foreground', fraud_review: 'text-destructive',
 };
 
 interface Cohorts {
@@ -89,7 +97,7 @@ export default function DashboardPage() {
     api.get<Analytics>(`/admin/analytics?months=${months}`).then(setAnalytics).catch(() => {});
   }, [months]);
 
-  if (error) return <div className="error">{error}</div>;
+  if (error) return <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>;
   if (!data) return <Loading />;
 
   const c = data.currency;
@@ -97,159 +105,204 @@ export default function DashboardPage() {
   const commission = Number(data.thisMonth.commissionCents);
   const net = Math.max(0, revenue - commission);
 
+  // commission-owed stacked bar segments
+  const liaPending = Number(data.liability.pendingCents);
+  const liaPayable = Number(data.liability.payableCents);
+  const liaInPayout = Number(data.liability.inPayoutCents);
+  const liaTotal = Math.max(1, liaPending + liaPayable + liaInPayout);
+
   return (
-    <div>
-      <div className="spread">
+    <div className="mx-auto max-w-[1160px]">
+      {/* ---- header ---- */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="eyebrow fade-in">{t('nav.dashboard')} · {data.month}</div>
-          <h1 className="h1 fade-in">{t('dash.title')}</h1>
-          <p className="sub fade-in">{t('dash.sub')}</p>
+          <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-primary">{t('nav.dashboard')} · {data.month}</div>
+          <h1 className="mt-1 font-display text-[27px] font-extrabold tracking-tight text-foreground">{t('dash.title')}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t('dash.sub')}</p>
         </div>
-        <div className="row fade-in no-print" style={{ gap: 8 }}>
-          {fin && <span className={`badge ${fin.ok ? 'active' : 'failed'}`}>{fin.ok ? '✓ Books balanced' : `✗ ${fin.payoutMismatches.length + fin.summaryMismatches.length} issue(s)`}</span>}
-          <button className="btn ghost" onClick={verifyFinancials} disabled={finBusy}>{finBusy ? 'Checking…' : '⚖ Verify financials'}</button>
-          <button className="btn ghost" onClick={() => window.print()}>🖶 Print report</button>
+        <div className="flex items-center gap-2 no-print">
+          {fin && (
+            <Badge variant="outline" className={fin.ok ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400' : 'border-destructive/40 bg-destructive/10 text-destructive'}>
+              {fin.ok ? '✓ Books balanced' : `✗ ${fin.payoutMismatches.length + fin.summaryMismatches.length} issue(s)`}
+            </Badge>
+          )}
+          <Button variant="ghost" size="sm" onClick={verifyFinancials} disabled={finBusy}>{finBusy ? 'Checking…' : '⚖ Verify financials'}</Button>
+          <Button variant="ghost" size="sm" onClick={() => window.print()}>🖶 Print report</Button>
         </div>
       </div>
 
-      {/* ---- Yapilacaklar (C4): bekleyen eylemler ---- */}
+      {/* ---- Yapilacaklar (C4): bekleyen eylemler / Needs your attention ---- */}
       {todo && todo.total > 0 && (
-        <div className="card fade-in" style={{ marginTop: 16, marginBottom: 16, borderColor: 'color-mix(in srgb, var(--gold-500) 30%, transparent)' }}>
-          <div className="spread" style={{ marginBottom: 10 }}>
-            <strong style={{ fontSize: 15 }}>Needs your attention</strong>
-            <span className="badge pending" style={{ fontSize: 10 }}>{todo.total} item{todo.total === 1 ? '' : 's'}</span>
+        <Card className="mt-5 border-primary/30 bg-card p-4 shadow-lg sm:p-[18px]">
+          <div className="mb-3 flex items-center justify-between">
+            <strong className="text-sm text-foreground">Needs your attention</strong>
+            <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-400">{todo.total} item{todo.total === 1 ? '' : 's'}</Badge>
           </div>
-          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 10 }}>
+          <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
             {todo.items.map((it) => (
-              <Link key={it.key} href={it.href} className="card hover" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', padding: 14 }}>
-                <span style={{ fontSize: 20 }}>{TODO_ICON[it.key] ?? '•'}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 18, lineHeight: 1 }}>{it.count}</div>
-                  <div className="faint" style={{ fontSize: 12, marginTop: 3 }}>{it.label}</div>
+              <Link
+                key={it.key}
+                href={it.href}
+                className="flex items-center gap-3 rounded-xl border border-border bg-muted/40 p-[13px] transition-colors hover:border-input hover:bg-muted"
+              >
+                <span className={`text-lg ${TODO_ICON_COLOR[it.key] ?? 'text-muted-foreground'}`}>{TODO_ICON[it.key] ?? '•'}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="font-display text-[19px] font-bold leading-none text-foreground tabular-nums">{it.count}</div>
+                  <div className="mt-[3px] text-[11.5px] text-muted-foreground/70">{it.label}</div>
                 </div>
-                <span className="faint" style={{ fontSize: 16 }}>→</span>
+                <span className="text-muted-foreground/70">→</span>
               </Link>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
       {/* ---- ilk-kurulum rehberi: %100'de gizlenir ---- */}
       {onboarding && onboarding.percent < 100 && (
-        <div className="card fade-in" style={{ marginBottom: 18, border: '1px solid var(--gold-500)', boxShadow: 'var(--shadow-glow)' }}>
-          <div className="spread" style={{ alignItems: 'flex-start', marginBottom: 12 }}>
+        <Card className="mt-4 border-primary/50 bg-card p-[18px] shadow-lg ring-1 ring-primary/20">
+          <div className="mb-3 flex items-start justify-between">
             <div>
-              <strong style={{ fontSize: 16 }}>Get your referral program running</strong>
-              <div className="faint" style={{ fontSize: 13, marginTop: 2 }}>Finish setup to start tracking referrals and paying commissions.</div>
+              <strong className="text-base text-foreground">Get your referral program running</strong>
+              <div className="mt-0.5 text-[13px] text-muted-foreground/70">Finish setup to start tracking referrals and paying commissions.</div>
             </div>
-            <div style={{ textAlign: 'right', flexShrink: 0 }}>
-              <div style={{ fontWeight: 800, fontSize: 22 }}>{onboarding.percent}%</div>
-              <div className="faint" style={{ fontSize: 12 }}>{onboarding.done} of {onboarding.total}</div>
+            <div className="flex-shrink-0 text-right">
+              <div className="font-display text-[22px] font-extrabold text-foreground tabular-nums">{onboarding.percent}%</div>
+              <div className="text-xs text-muted-foreground/70">{onboarding.done} of {onboarding.total}</div>
             </div>
           </div>
-          <div style={{ height: 6, background: 'var(--panel-3)', borderRadius: 3, marginBottom: 14 }}>
-            <div style={{ height: '100%', width: `${onboarding.percent}%`, borderRadius: 3, background: 'var(--foil)', transition: 'width .7s' }} />
+          <div className="mb-3.5 h-1.5 overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-primary transition-[width] duration-700" style={{ width: `${onboarding.percent}%` }} />
           </div>
           <div>
             {onboarding.steps.map((s) => (
-              <div key={s.key} className="row" style={{ gap: 12, padding: '9px 0', borderTop: '1px solid var(--border)', alignItems: 'center' }}>
-                <span style={{ fontSize: 16, width: 18, textAlign: 'center', color: s.done ? 'var(--emerald)' : 'var(--faint)' }}>{s.done ? '✓' : '○'}</span>
-                <span style={{ flex: 1, fontSize: 14, color: s.done ? 'var(--muted)' : 'var(--text)' }}>{s.label}</span>
+              <div key={s.key} className="flex items-center gap-3 border-t border-border py-[9px]">
+                <span className={`w-[18px] text-center text-base ${s.done ? 'text-emerald-400' : 'text-muted-foreground/70'}`}>{s.done ? '✓' : '○'}</span>
+                <span className={`flex-1 text-sm ${s.done ? 'text-muted-foreground' : 'text-foreground'}`}>{s.label}</span>
                 {s.done
-                  ? <span className="faint" style={{ fontSize: 12 }}>Done</span>
+                  ? <span className="text-xs text-muted-foreground/70">Done</span>
                   : s.cta
-                    ? <Link href={s.cta} className="btn ghost sm">{CTA_LABEL[s.key] ?? 'Open'} →</Link>
-                    : <span className="faint" style={{ fontSize: 12 }}>Pending</span>}
+                    ? <Button asChild variant="ghost" size="sm"><Link href={s.cta}>{CTA_LABEL[s.key] ?? 'Open'} →</Link></Button>
+                    : <span className="text-xs text-muted-foreground/70">Pending</span>}
               </div>
             ))}
           </div>
-          <div className="faint" style={{ fontSize: 11, marginTop: 10 }}>This guide hides automatically once every step is done.</div>
-        </div>
+          <div className="mt-2.5 text-[11px] text-muted-foreground/70">This guide hides automatically once every step is done.</div>
+        </Card>
       )}
 
-      <div className="grid stack-sm fade-in delay-1" style={{ gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)' }}>
-        <div className="card hero">
-          <div className="faint" style={{ fontSize: 12 }}>{t('dash.revenue')}</div>
-          <div className="bignum gradient-text" style={{ marginTop: 6 }}><MoneyCounter cents={revenue} currency={c} /></div>
-          <div className="row" style={{ marginTop: 18, gap: 22 }}>
+      {/* ---- hero revenue + donut ---- */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
+        <Card className="relative overflow-hidden bg-card p-6 shadow-lg">
+          <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-primary to-transparent opacity-45" />
+          <div className="text-xs text-muted-foreground">{t('dash.revenue')}</div>
+          <div className="mt-1.5 font-display text-[46px] font-extrabold leading-[1.04] tracking-tight text-foreground tabular-nums">
+            <MoneyCounter cents={revenue} currency={c} />
+          </div>
+          <div className="mt-[22px] flex flex-wrap gap-x-8 gap-y-4">
             <div>
-              <div className="faint" style={{ fontSize: 11 }}>{t('dash.commission')}</div>
-              <div className="tnum" style={{ fontWeight: 700 }}>{money(commission, c)}</div>
+              <div className="text-[11px] text-muted-foreground/70">{t('dash.commission')}</div>
+              <div className="mt-[3px] text-[15px] font-bold text-foreground tabular-nums">{money(commission, c)}</div>
             </div>
             <div>
-              <div className="faint" style={{ fontSize: 11 }}>{t('dash.effRate')}</div>
-              <div className="tnum" style={{ fontWeight: 700 }}>{bps(data.thisMonth.effectiveRateBps)}</div>
+              <div className="text-[11px] text-muted-foreground/70">{t('dash.effRate')}</div>
+              <div className="mt-[3px] text-[15px] font-bold text-foreground tabular-nums">{bps(data.thisMonth.effectiveRateBps)}</div>
             </div>
             <div>
-              <div className="faint" style={{ fontSize: 11 }}>{t('dash.approvedSales')}</div>
-              <div className="tnum" style={{ fontWeight: 700 }}>{data.thisMonth.approvedSalesCount}</div>
+              <div className="text-[11px] text-muted-foreground/70">{t('dash.approvedSales')}</div>
+              <div className="mt-[3px] text-[15px] font-bold text-foreground tabular-nums">{data.thisMonth.approvedSalesCount}</div>
+            </div>
+            <div>
+              <div className="text-[11px] text-emerald-400">Net to company</div>
+              <div className="mt-[3px] text-[15px] font-bold text-emerald-400 tabular-nums">{money(net, c)}</div>
             </div>
           </div>
-        </div>
+        </Card>
 
-        <div className="card" style={{ display: 'grid', placeItems: 'center' }}>
+        <Card className="grid place-items-center bg-card p-[18px] shadow-lg">
           <Donut
             segments={[
-              { label: 'Net', value: net, color: 'var(--emerald)' },
+              { label: 'Net', value: net, color: 'var(--emerald, #34d399)' },
               { label: t('dash.commission'), value: commission, color: 'var(--primary)' },
             ]}
             center={
-              <div>
-                <div className="faint" style={{ fontSize: 11 }}>{t('dash.commissionShare')}</div>
-                <div style={{ fontWeight: 800, fontSize: 18 }}>{bps(data.thisMonth.effectiveRateBps)}</div>
+              <div className="text-center">
+                <div className="text-[11px] text-muted-foreground/70">{t('dash.commissionShare')}</div>
+                <div className="font-display text-lg font-extrabold text-foreground tabular-nums">{bps(data.thisMonth.effectiveRateBps)}</div>
               </div>
             }
           />
-        </div>
+        </Card>
       </div>
 
-      <div className="stat-grid fade-in delay-2" style={{ marginTop: 16 }}>
+      {/* ---- 3-up stat cards ---- */}
+      <div className="mt-4 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard label={t('dash.payable')} value={money(data.outstandingPayableCents, c)} icon="◆" hint={t('dash.payableHint')} />
         <StatCard label={t('dash.members')} value={`${data.members.active} / ${data.members.total}`} icon="⬡" hint={t('dash.membersHint')} />
         {data.pendingPayoutRequests > 0
-          ? <a href="/admin/payouts" style={{ textDecoration: 'none' }} title="Go to payouts"><StatCard label={`${t('dash.pendingReq')} →`} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} /></a>
+          ? <Link href="/admin/payouts" title="Go to payouts" className="block"><StatCard label={`${t('dash.pendingReq')} →`} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} /></Link>
           : <StatCard label={t('dash.pendingReq')} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} />}
       </div>
 
-      {/* ---- borc kirilimi + en cok kazananlar ---- */}
-      <div className="grid stack-sm fade-in delay-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.2fr)', gap: 16, marginTop: 16 }}>
-        <div className="card">
-          <strong style={{ fontSize: 13 }}>Commission owed (to members)</strong>
-          <div className="faint" style={{ fontSize: 11, marginBottom: 12 }}>What the company owes members — by maturation and payout state.</div>
-          <div className="grid" style={{ gap: 8 }}>
-            <div className="row spread"><span className="row" style={{ gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--amber)' }} />Pending (not yet matured)</span><strong className="tnum">{money(data.liability.pendingCents, c)}</strong></div>
-            <div className="row spread"><span className="row" style={{ gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--sky)' }} />Payable (ready)</span><strong className="tnum">{money(data.liability.payableCents, c)}</strong></div>
-            <div className="row spread"><span className="row" style={{ gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--emerald)' }} />In payout</span><strong className="tnum">{money(data.liability.inPayoutCents, c)}</strong></div>
+      {/* ---- borc kirilimi (stacked bar) + en cok kazananlar ---- */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+        <Card className="bg-card p-[18px] shadow-lg">
+          <strong className="text-[13px] text-foreground">Commission owed (to members)</strong>
+          <div className="mb-3.5 mt-[3px] text-[11px] text-muted-foreground/70">What the company owes members — by maturation and payout state.</div>
+          <div className="flex flex-col gap-[11px]">
+            <div className="flex items-center justify-between text-[13px]">
+              <span className="flex items-center gap-2 text-muted-foreground"><span className="h-2 w-2 rounded-full bg-amber-400" />Pending (not yet matured)</span>
+              <strong className="text-foreground tabular-nums">{money(data.liability.pendingCents, c)}</strong>
+            </div>
+            <div className="flex items-center justify-between text-[13px]">
+              <span className="flex items-center gap-2 text-muted-foreground"><span className="h-2 w-2 rounded-full bg-sky-400" />Payable (ready)</span>
+              <strong className="text-foreground tabular-nums">{money(data.liability.payableCents, c)}</strong>
+            </div>
+            <div className="flex items-center justify-between text-[13px]">
+              <span className="flex items-center gap-2 text-muted-foreground"><span className="h-2 w-2 rounded-full bg-emerald-400" />In payout</span>
+              <strong className="text-foreground tabular-nums">{money(data.liability.inPayoutCents, c)}</strong>
+            </div>
           </div>
-        </div>
-        <div className="card">
-          <strong style={{ fontSize: 13 }}>Top earners · {data.month}</strong>
-          <div className="faint" style={{ fontSize: 11, marginBottom: 10 }}>Members with the highest commission this month.</div>
-          {data.topEarners.length === 0 ? <span className="muted" style={{ fontSize: 13 }}>No commission yet this month.</span> : (
-            <div className="grid" style={{ gap: 6 }}>
+          <div className="mt-4 flex h-[9px] overflow-hidden rounded-md bg-muted">
+            <div className="bg-amber-400" style={{ width: `${(liaPending / liaTotal) * 100}%` }} />
+            <div className="bg-sky-400" style={{ width: `${(liaPayable / liaTotal) * 100}%` }} />
+            <div className="bg-emerald-400" style={{ width: `${(liaInPayout / liaTotal) * 100}%` }} />
+          </div>
+        </Card>
+
+        <Card className="bg-card p-[18px] shadow-lg">
+          <strong className="text-[13px] text-foreground">Top earners · {data.month}</strong>
+          <div className="mb-3 mt-[3px] text-[11px] text-muted-foreground/70">Members with the highest commission this month.</div>
+          {data.topEarners.length === 0 ? (
+            <span className="text-[13px] text-muted-foreground">No commission yet this month.</span>
+          ) : (
+            <div className="flex flex-col gap-[9px]">
               {data.topEarners.map((e, i) => (
-                <div key={e.membershipId} className="row spread" style={{ fontSize: 13 }}>
-                  <span className="row" style={{ gap: 8, minWidth: 0 }}><span className="faint tnum" style={{ width: 18 }}>{i + 1}.</span><span style={{ fontWeight: 600 }}>{e.fullName}</span><span className="faint" style={{ fontSize: 11 }}>{e.referralCode}</span></span>
-                  <strong className="tnum" style={{ color: 'var(--gold-500)' }}>{money(e.earnedCents, c)}</strong>
+                <div key={e.membershipId} className="flex items-center justify-between text-[13px]">
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <span className="w-[18px] text-[12px] text-muted-foreground/70 tabular-nums">{i + 1}.</span>
+                    <span className="truncate font-semibold text-foreground">{e.fullName}</span>
+                    <span className="text-[11px] text-muted-foreground/70">{e.referralCode}</span>
+                  </span>
+                  <strong className="text-primary tabular-nums">{money(e.earnedCents, c)}</strong>
                 </div>
               ))}
             </div>
           )}
-        </div>
+        </Card>
       </div>
 
       {/* ---- analitik: zaman serisi + karsilastirma + huni + top performers ---- */}
-      <div className="spread fade-in" style={{ marginTop: 28, marginBottom: 14, alignItems: 'flex-end' }}>
+      <div className="mb-3.5 mt-7 flex items-end justify-between">
         <div>
-          <h2 style={{ fontSize: 18, fontWeight: 750, margin: 0 }}>Performance</h2>
-          <span className="faint" style={{ fontSize: 12 }}>Trends and comparison vs the previous period.</span>
+          <h2 className="font-display text-lg font-[750] text-foreground">Performance</h2>
+          <span className="text-xs text-muted-foreground/70">Trends and comparison vs the previous period.</span>
         </div>
-        <div className="seg-tabs no-print" role="tablist">
-          {RANGES.map((r) => (
-            <button key={r} className={`seg-tab ${months === r ? 'on' : ''}`} onClick={() => setMonths(r)} role="tab" aria-selected={months === r}>
-              {r}M
-            </button>
-          ))}
+        <div className="no-print">
+          <ContinuousTabs
+            tabs={RANGES.map((r) => ({ id: String(r), label: `${r}M` }))}
+            defaultActiveId={String(months)}
+            onChange={(id) => setMonths(Number(id))}
+          />
         </div>
       </div>
 
@@ -257,100 +310,115 @@ export default function DashboardPage() {
         <Loading rows={3} />
       ) : (
         <>
-          <div className="card fade-in" style={{ marginBottom: 16 }}>
-            <div className="row" style={{ gap: 22, marginBottom: 14, flexWrap: 'wrap' }}>
+          <Card className="mb-4 bg-card p-[18px] shadow-lg">
+            <div className="mb-3.5 flex flex-wrap gap-x-8 gap-y-4">
               <Metric label="Revenue" value={money(analytics.totals.revenueCents, c)} delta={analytics.deltas.revenuePct} />
               <Metric label="Commission" value={money(analytics.totals.commissionCents, c)} delta={analytics.deltas.commissionPct} invertGood />
               <Metric label="Approved sales" value={String(analytics.totals.approvedSales)} delta={analytics.deltas.salesPct} />
               <Metric label="Effective rate" value={bps(analytics.totals.effectiveRateBps)} />
             </div>
             <TrendChart series={analytics.series} currency={c} />
-          </div>
+          </Card>
 
-          <div className="grid stack-sm fade-in" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.2fr)', gap: 16 }}>
-            <div className="card">
-              <strong style={{ fontSize: 14 }}>Sales funnel</strong>
-              <div className="faint" style={{ fontSize: 12, marginBottom: 14 }}>Status mix over the selected window.</div>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+            <Card className="bg-card p-[18px] shadow-lg">
+              <strong className="text-sm text-foreground">Sales funnel</strong>
+              <div className="mb-4 mt-[3px] text-xs text-muted-foreground/70">Status mix over the selected window.</div>
               <Funnel funnel={analytics.funnel} currency={c} />
-            </div>
+            </Card>
 
-            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-              <div style={{ padding: '16px 18px 10px' }}>
-                <strong style={{ fontSize: 14 }}>Top performers</strong>
-                <div className="faint" style={{ fontSize: 12 }}>By approved revenue in this window.</div>
+            <Card className="overflow-hidden bg-card p-0 shadow-lg">
+              <div className="px-[18px] pb-2 pt-4">
+                <strong className="text-sm text-foreground">Top performers</strong>
+                <div className="text-xs text-muted-foreground/70">By approved revenue in this window.</div>
               </div>
               {analytics.topPerformers.length === 0 ? (
-                <div className="muted" style={{ padding: 18 }}>No approved sales in this window.</div>
+                <div className="p-[18px] text-sm text-muted-foreground">No approved sales in this window.</div>
               ) : (
-                <table>
-                  <thead><tr><th>Member</th><th style={{ textAlign: 'right' }}>Sales</th><th style={{ textAlign: 'right' }}>Revenue</th></tr></thead>
+                <table className="w-full border-collapse text-[13px]">
+                  <thead>
+                    <tr className="text-left">
+                      <th className="px-[18px] py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">Member</th>
+                      <th className="px-[18px] py-2 text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">Sales</th>
+                      <th className="px-[18px] py-2 text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">Revenue</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {analytics.topPerformers.map((p, i) => (
-                      <tr key={p.membershipId}>
-                        <td>
-                          <div className="row" style={{ gap: 9 }}>
-                            <span style={{ width: 22, height: 22, borderRadius: 6, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, background: i === 0 ? 'var(--foil)' : 'var(--panel-2)', color: i === 0 ? 'var(--on-gold)' : 'var(--muted)' }}>{i + 1}</span>
+                      <tr key={p.membershipId} className="border-t border-border">
+                        <td className="px-[18px] py-2.5">
+                          <div className="flex items-center gap-2.5">
+                            <span className={`grid h-[22px] w-[22px] place-items-center rounded-md text-[11px] font-extrabold ${i === 0 ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>{i + 1}</span>
                             <div>
-                              <div style={{ fontWeight: 600, fontSize: 13 }}>{p.fullName}</div>
-                              <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{p.referralCode}</div>
+                              <div className="font-semibold text-foreground">{p.fullName}</div>
+                              <div className="font-mono text-[11px] text-muted-foreground/70">{p.referralCode}</div>
                             </div>
                           </div>
                         </td>
-                        <td className="tnum" style={{ textAlign: 'right' }}>{p.salesCount}</td>
-                        <td className="tnum" style={{ textAlign: 'right', fontWeight: 700 }}>{money(p.revenueCents, c)}</td>
+                        <td className="px-[18px] py-2.5 text-right text-muted-foreground tabular-nums">{p.salesCount}</td>
+                        <td className="px-[18px] py-2.5 text-right font-bold text-foreground tabular-nums">{money(p.revenueCents, c)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               )}
-            </div>
+            </Card>
           </div>
         </>
       )}
 
       {/* ---- Kohort retention/churn (D3) — yazdirilabilir ---- */}
       {cohorts && cohorts.cohorts.length > 0 && (
-        <div className="card fade-in" style={{ marginTop: 16 }}>
-          <div className="spread" style={{ marginBottom: 4 }}>
-            <strong style={{ fontSize: 15 }}>Member cohorts — retention &amp; churn</strong>
-            <span className="faint" style={{ fontSize: 12 }}>{cohorts.totals.retentionPct}% still active · {cohorts.totals.churned} churned</span>
+        <Card className="mt-4 bg-card p-[18px] shadow-lg">
+          <div className="mb-1 flex items-center justify-between">
+            <strong className="text-[15px] text-foreground">Member cohorts — retention &amp; churn</strong>
+            <span className="text-xs text-muted-foreground/70">{cohorts.totals.retentionPct}% still active · {cohorts.totals.churned} churned</span>
           </div>
-          <div className="faint" style={{ fontSize: 12, marginBottom: 12 }}>Members grouped by the month they joined. “Producing” = made an approved sale in the last 30 days.</div>
-          <div className="card" style={{ background: 'var(--panel-2)', padding: 0, overflowX: 'auto' }}>
-            <table>
-              <thead><tr><th>Joined</th><th style={{ textAlign: 'right' }}>Members</th><th style={{ textAlign: 'right' }}>Still active</th><th style={{ textAlign: 'right' }}>Retention</th><th style={{ textAlign: 'right' }}>Producing</th><th style={{ textAlign: 'right' }}>Churned</th></tr></thead>
+          <div className="mb-3 text-xs text-muted-foreground/70">Members grouped by the month they joined. “Producing” = made an approved sale in the last 30 days.</div>
+          <div className="overflow-x-auto rounded-xl border border-border bg-muted/40">
+            <table className="w-full border-collapse text-[13px]">
+              <thead>
+                <tr className="text-left">
+                  <th className="px-3 py-2.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">Joined</th>
+                  <th className="px-3 py-2.5 text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">Members</th>
+                  <th className="px-3 py-2.5 text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">Still active</th>
+                  <th className="px-3 py-2.5 text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">Retention</th>
+                  <th className="px-3 py-2.5 text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">Producing</th>
+                  <th className="px-3 py-2.5 text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">Churned</th>
+                </tr>
+              </thead>
               <tbody>
                 {cohorts.cohorts.map((co) => (
-                  <tr key={co.cohort}>
-                    <td>{co.cohort}</td>
-                    <td className="tnum" style={{ textAlign: 'right' }}>{co.joined}</td>
-                    <td className="tnum" style={{ textAlign: 'right' }}>{co.active}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
-                        <span style={{ width: 44, height: 6, borderRadius: 4, background: 'rgba(255,255,255,.08)', overflow: 'hidden', display: 'inline-block' }}>
-                          <span style={{ display: 'block', height: '100%', width: `${co.retentionPct}%`, background: co.retentionPct >= 60 ? 'var(--emerald)' : co.retentionPct >= 30 ? 'var(--gold-500)' : 'var(--rose, #e11d48)' }} />
+                  <tr key={co.cohort} className="border-t border-border">
+                    <td className="px-3 py-2.5 text-foreground">{co.cohort}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{co.joined}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{co.active}</td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className="inline-flex items-center justify-end gap-1.5">
+                        <span className="inline-block h-1.5 w-11 overflow-hidden rounded bg-muted">
+                          <span className={`block h-full ${co.retentionPct >= 60 ? 'bg-emerald-400' : co.retentionPct >= 30 ? 'bg-amber-400' : 'bg-destructive'}`} style={{ width: `${co.retentionPct}%` }} />
                         </span>
-                        <span className="tnum" style={{ fontWeight: 600, minWidth: 34 }}>{co.retentionPct}%</span>
+                        <span className="min-w-[34px] font-semibold tabular-nums">{co.retentionPct}%</span>
                       </span>
                     </td>
-                    <td className="tnum" style={{ textAlign: 'right', color: co.producing > 0 ? 'var(--emerald)' : 'var(--faint)' }}>{co.producing} <span className="faint">({co.activationPct}%)</span></td>
-                    <td className="tnum" style={{ textAlign: 'right', color: co.churned > 0 ? 'var(--faint)' : 'inherit' }}>{co.churned || '—'}</td>
+                    <td className={`px-3 py-2.5 text-right tabular-nums ${co.producing > 0 ? 'text-emerald-400' : 'text-muted-foreground/70'}`}>{co.producing} <span className="text-muted-foreground/70">({co.activationPct}%)</span></td>
+                    <td className={`px-3 py-2.5 text-right tabular-nums ${co.churned > 0 ? 'text-muted-foreground/70' : ''}`}>{co.churned || '—'}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
-                <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700 }}>
-                  <td>All</td>
-                  <td className="tnum" style={{ textAlign: 'right' }}>{cohorts.totals.joined}</td>
-                  <td className="tnum" style={{ textAlign: 'right' }}>{cohorts.totals.active}</td>
-                  <td className="tnum" style={{ textAlign: 'right' }}>{cohorts.totals.retentionPct}%</td>
-                  <td className="tnum" style={{ textAlign: 'right' }}>{cohorts.totals.producing}</td>
-                  <td className="tnum" style={{ textAlign: 'right' }}>{cohorts.totals.churned}</td>
+                <tr className="border-t-2 border-border font-bold">
+                  <td className="px-3 py-2.5">All</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{cohorts.totals.joined}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{cohorts.totals.active}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{cohorts.totals.retentionPct}%</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{cohorts.totals.producing}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{cohorts.totals.churned}</td>
                 </tr>
               </tfoot>
             </table>
           </div>
-        </div>
+        </Card>
       )}
     </div>
   );
@@ -359,48 +427,48 @@ export default function DashboardPage() {
 function Metric({ label, value, delta, invertGood }: { label: string; value: string; delta?: number | null; invertGood?: boolean }) {
   return (
     <div>
-      <div className="faint" style={{ fontSize: 11 }}>{label}</div>
-      <div className="tnum" style={{ fontWeight: 750, fontSize: 19, marginTop: 2 }}>{value}</div>
+      <div className="text-[11px] text-muted-foreground/70">{label}</div>
+      <div className="mt-0.5 text-[19px] font-[750] text-foreground tabular-nums">{value}</div>
       {delta !== undefined && <Delta pct={delta} invertGood={invertGood} />}
     </div>
   );
 }
 
 function Delta({ pct, invertGood }: { pct: number | null; invertGood?: boolean }) {
-  if (pct === null) return <span className="faint" style={{ fontSize: 11 }}>— new</span>;
+  if (pct === null) return <span className="text-[11px] text-muted-foreground/70">— new</span>;
   const up = pct > 0;
   const flat = pct === 0;
   const good = flat ? null : invertGood ? !up : up;
-  const color = good === null ? 'var(--muted)' : good ? 'var(--emerald)' : 'var(--rose)';
+  const color = good === null ? 'text-muted-foreground' : good ? 'text-emerald-400' : 'text-destructive';
   return (
-    <span className="row" style={{ gap: 4, fontSize: 11.5, color, marginTop: 3, fontWeight: 650 }}>
+    <span className={`mt-[3px] flex items-center gap-1 text-[11.5px] font-[650] ${color}`}>
       {flat ? '→' : up ? '▲' : '▼'} {Math.abs(pct)}%
-      <span className="faint" style={{ fontWeight: 400 }}>vs prev</span>
+      <span className="font-normal text-muted-foreground/70">vs prev</span>
     </span>
   );
 }
 
 function Funnel({ funnel, currency }: { funnel: Record<'draft' | 'approved' | 'void', { count: number; amountCents: string }>; currency: string }) {
   const rows: Array<{ k: 'draft' | 'approved' | 'void'; label: string; color: string }> = [
-    { k: 'draft', label: 'Draft', color: 'var(--muted)' },
-    { k: 'approved', label: 'Approved', color: 'var(--emerald)' },
-    { k: 'void', label: 'Void', color: 'var(--rose)' },
+    { k: 'draft', label: 'Draft', color: 'bg-muted-foreground' },
+    { k: 'approved', label: 'Approved', color: 'bg-emerald-400' },
+    { k: 'void', label: 'Void', color: 'bg-destructive' },
   ];
   const max = Math.max(1, ...rows.map((r) => funnel[r.k].count));
   return (
-    <div className="grid" style={{ gap: 12 }}>
+    <div className="flex flex-col gap-3.5">
       {rows.map((r) => {
         const f = funnel[r.k];
         return (
           <div key={r.k}>
-            <div className="spread" style={{ marginBottom: 5 }}>
-              <span className="row" style={{ gap: 7, fontSize: 12.5 }}>
-                <span style={{ width: 9, height: 9, borderRadius: 3, background: r.color }} /> {r.label}
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-[12.5px] text-foreground">
+                <span className={`h-[9px] w-[9px] rounded-sm ${r.color}`} /> {r.label}
               </span>
-              <span className="tnum" style={{ fontSize: 12.5 }}>{f.count} · {money(f.amountCents, currency)}</span>
+              <span className="text-[12.5px] text-muted-foreground tabular-nums">{f.count} · {money(f.amountCents, currency)}</span>
             </div>
-            <div style={{ height: 9, borderRadius: 6, background: 'rgba(255,255,255,.05)', overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${(f.count / max) * 100}%`, borderRadius: 6, background: r.color, transition: 'width .7s cubic-bezier(.2,.9,.3,1)' }} />
+            <div className="h-[9px] overflow-hidden rounded-md bg-muted">
+              <div className={`h-full rounded-md ${r.color} transition-[width] duration-700`} style={{ width: `${(f.count / max) * 100}%` }} />
             </div>
           </div>
         );

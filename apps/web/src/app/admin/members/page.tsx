@@ -3,12 +3,19 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
-import { ColumnsMenu, Confirm, Loading, Modal, Pagination, SortableTh, SortDir, TableColumn, useTablePrefs, useToast } from '@/components/ui';
+import { ColumnsMenu, Confirm, Loading, Modal, TableColumn, useTablePrefs, useToast } from '@/components/ui';
 import { Drawer } from '@/components/Drawer';
 import { PrintSheet, PrintHeader } from '@/components/PrintSheet';
 import { activeMembership, getSession, isAdminRole, startImpersonation, type Session } from '@/lib/auth';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { cn } from '@/lib/utils';
+
+type SortDir = 'asc' | 'desc';
 
 interface MemberItem {
   id: string;
@@ -41,6 +48,40 @@ const MEMBER_COLUMNS: TableColumn[] = [
   { key: 'status', label: 'Status' },
   { key: 'joined', label: 'Joined' },
 ];
+
+const initialsOf = (name: string): string =>
+  name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? '').join('') || '?';
+
+/* -------- inline indigo-theme sortable header -------- */
+function SortHead({ label, field, sort, dir, onSort, align, className }: {
+  label: string; field: string; sort: string; dir: SortDir;
+  onSort: (field: string, d: SortDir) => void; align?: 'left' | 'right'; className?: string;
+}) {
+  const active = sort === field;
+  return (
+    <th
+      className={cn(
+        'px-4 py-2.5 font-medium text-muted-foreground select-none cursor-pointer hover:text-foreground transition-colors',
+        align === 'right' ? 'text-right' : 'text-left',
+        className,
+      )}
+      aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      onClick={() => onSort(field, active && dir === 'desc' ? 'asc' : 'desc')}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {active && <span className="text-primary text-[10px]">{dir === 'asc' ? '▲' : '▼'}</span>}
+      </span>
+    </th>
+  );
+}
+
+/* -------- inline indigo-theme status / role pills -------- */
+function StatusPill({ status }: { status: 'active' | 'inactive' }) {
+  return status === 'active'
+    ? <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400">active</Badge>
+    : <Badge variant="outline" className="border-border bg-muted text-muted-foreground">inactive</Badge>;
+}
 
 export default function MembersPage() {
   const [list, setList] = useState<MembersList | null>(null);
@@ -199,141 +240,259 @@ export default function MembersPage() {
   const selActivatable = useMemo(() => list?.items.filter((m) => selected.has(m.id) && m.status === 'inactive' && m.role !== 'tenant_owner').length ?? 0, [list, selected]);
   const selDeactivatable = useMemo(() => list?.items.filter((m) => selected.has(m.id) && m.status === 'active' && m.role !== 'tenant_owner').length ?? 0, [list, selected]);
 
+  const pages = list ? Math.max(1, Math.ceil(list.total / list.pageSize)) : 1;
+  const firstRow = list ? (list.page - 1) * list.pageSize + 1 : 0;
+  const lastRow = list ? Math.min(list.page * list.pageSize, list.total) : 0;
+
   return (
-    <div>
-      <div className="spread">
+    <div className="mx-auto max-w-[1160px] px-7 pb-16 pt-6 text-foreground">
+      {/* header */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="eyebrow fade-in">{t('nav.members')}</div>
-          <h1 className="h1 fade-in">Member Management</h1>
-          <p className="sub fade-in">Invite members, assign roles, deactivate. Placement is permanent.
-            {nps && nps.total > 0 && nps.nps != null && <span className="badge active" style={{ marginLeft: 8 }}>NPS {nps.nps} · {nps.total} responses</span>}
-            {funnel && funnel.views > 0 && <span className="badge payable" style={{ marginLeft: 8 }}>Invite funnel: {funnel.views} views → {funnel.signups} signups{funnel.conversionPct != null ? ` (${funnel.conversionPct}%)` : ''}</span>}
+          <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-primary">{t('nav.members')}</div>
+          <h1 className="mt-1 font-display text-[27px] font-extrabold tracking-tight">Member Management</h1>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            Invite members, assign roles, deactivate. Placement is permanent.
+            {nps && nps.total > 0 && nps.nps != null && (
+              <Badge variant="outline" className="ml-2 border-emerald-500/30 bg-emerald-500/10 font-medium text-emerald-400">NPS {nps.nps} · {nps.total} responses</Badge>
+            )}
+            {funnel && funnel.views > 0 && (
+              <Badge variant="outline" className="ml-2 border-primary/30 bg-primary/10 font-medium text-primary">
+                Invite funnel: {funnel.views} views → {funnel.signups} signups{funnel.conversionPct != null ? ` (${funnel.conversionPct}%)` : ''}
+              </Badge>
+            )}
           </p>
         </div>
-        <div className="row fade-in no-print" style={{ gap: 8 }}>
-          <button className="btn ghost" onClick={exportCsv}>⇩ Export CSV</button>
-          <button className="btn ghost" onClick={() => { setError(''); setAddName(''); setAddEmail(''); setAddSponsor(''); setAddRole('member'); setAddAsLeader(false); setAddResult(null); setShowAdd(true); }}>＋ Add member</button>
-          <button className="btn" onClick={() => { setLatest(null); setShowInvite(true); }}>✦ {t('members.invite')}</button>
+        <div className="no-print flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={exportCsv}>⇩ Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => { setError(''); setAddName(''); setAddEmail(''); setAddSponsor(''); setAddRole('member'); setAddAsLeader(false); setAddResult(null); setShowAdd(true); }}>＋ Add member</Button>
+          <Button size="sm" onClick={() => { setLatest(null); setShowInvite(true); }}>✦ {t('members.invite')}</Button>
         </div>
       </div>
 
-      {error && <div className="error">{error}</div>}
+      {error && (
+        <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>
+      )}
 
-      <div className="row fade-in delay-1 no-print" style={{ margin: '14px 0', gap: 10, flexWrap: 'wrap' }}>
-        <input aria-label="Search members by name, email, or code" placeholder="🔍  Search name, email or code…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} style={{ flex: 1, maxWidth: 320 }} />
-        <div className="seg-tabs">
+      {/* filter bar */}
+      <div className="no-print my-[18px] flex flex-wrap items-center gap-[11px]">
+        <div className="flex h-9 max-w-[320px] flex-1 items-center gap-2 rounded-lg border border-border bg-card px-3 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground/70">
+            <circle cx="11" cy="11" r="7" /><path d="m20 20-3-3" />
+          </svg>
+          <input
+            aria-label="Search members by name, email, or code"
+            placeholder="Search name, email or code…"
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground/70 outline-none"
+          />
+        </div>
+        <div className="flex gap-1 rounded-lg border border-border bg-muted p-1">
           {STATUS_TABS.map(([v, lbl]) => (
-            <button key={v} className={`seg-tab ${status === v ? 'on' : ''}`} onClick={() => { setStatus(v); setPage(1); }}>{lbl}</button>
+            <button
+              key={v}
+              onClick={() => { setStatus(v); setPage(1); }}
+              className={cn(
+                'rounded-md px-3 py-1 text-sm font-medium transition-colors',
+                status === v ? 'bg-background text-foreground shadow' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {lbl}
+            </button>
           ))}
         </div>
-        <span style={{ flex: 1 }} />
+        <div className="flex-1" />
         <ColumnsMenu prefs={cols} />
       </div>
 
-      <div className="card fade-in delay-2">
-        <div className="spread" style={{ marginBottom: 12 }}>
-          <strong>Members {list && <span className="faint">({list.total})</span>}</strong>
+      {/* table card */}
+      <Card className="overflow-hidden rounded-2xl border-border bg-card shadow-lg">
+        <div className="flex items-center justify-between border-b border-border px-[18px] py-3.5">
+          <strong className="text-sm">Members {list && <span className="font-normal text-muted-foreground/70">({list.total})</span>}</strong>
         </div>
-        {!list ? <Loading rows={4} /> : (
-          <table className={cols.density === 'compact' ? 'dense' : undefined}>
-            <thead><tr>
-              <th className="no-print" style={{ width: 30 }}><input type="checkbox" checked={selected.size > 0 && selected.size === list.items.length} onChange={toggleAll} aria-label="Select all" /></th>
-              {cols.isVisible('member') && <SortableTh label="Member" field="fullName" sort={sort} dir={dir} onSort={onSort} />}
-              {cols.isVisible('code') && <th>Code</th>}
-              {cols.isVisible('sponsor') && <th>Sponsor</th>}
-              {cols.isVisible('level') && <SortableTh label="Lvl." field="depth" sort={sort} dir={dir} onSort={onSort} />}
-              {cols.isVisible('sold') && <th style={{ textAlign: 'right' }}>Sales $</th>}
-              {cols.isVisible('earned') && <th style={{ textAlign: 'right' }}>Earned $</th>}
-              {cols.isVisible('role') && <th>{t('members.role')}</th>}
-              {cols.isVisible('status') && <th>Status</th>}
-              {cols.isVisible('joined') && <SortableTh label="Joined" field="joinedAt" sort={sort} dir={dir} onSort={onSort} />}
-              <th className="no-print" style={{ textAlign: 'right' }}>{t('common.actions')}</th>
-            </tr></thead>
-            <tbody>
-              {list.items.map((m) => (
-                <tr key={m.id} style={{ cursor: 'pointer', background: selected.has(m.id) ? 'var(--panel-2)' : undefined }} onClick={() => setDetailId(m.id)}>
-                  <td className="no-print" onClick={(e) => e.stopPropagation()}>
-                    <input type="checkbox" checked={selected.has(m.id)} onChange={() => toggle(m.id)} aria-label={`Select ${m.fullName}`} />
-                  </td>
-                  {cols.isVisible('member') && <td>{m.fullName}<div className="faint" style={{ fontSize: 12 }}>{m.email}</div></td>}
-                  {cols.isVisible('code') && <td style={{ fontFamily: 'ui-monospace, monospace' }} onClick={(e) => e.stopPropagation()}><span className="row" style={{ gap: 4 }}>{m.referralCode}<button className="btn ghost sm" title="Copy code" style={{ padding: '1px 6px', fontSize: 11 }} onClick={() => { navigator.clipboard.writeText(m.referralCode).then(() => showToast('Copied ✓')).catch(() => {}); }}>⧉</button></span></td>}
-                  {cols.isVisible('sponsor') && (
-                    <td onClick={(e) => e.stopPropagation()}>
-                      {m.sponsorReferralCode
-                        ? <button className="btn ghost sm" style={{ fontFamily: 'ui-monospace, monospace', padding: '3px 8px' }} onClick={() => openSponsor(m.sponsorReferralCode!)}>{m.sponsorReferralCode}</button>
-                        : <span className="faint">—</span>}
-                    </td>
-                  )}
-                  {cols.isVisible('level') && <td>{m.depth}</td>}
-                  {cols.isVisible('sold') && <td className="tnum" style={{ textAlign: 'right', color: 'var(--muted)' }}>{Number(m.soldCents) > 0 ? money(m.soldCents) : '—'}</td>}
-                  {cols.isVisible('earned') && <td className="tnum" style={{ textAlign: 'right', fontWeight: 600, color: Number(m.earnedCents) > 0 ? 'var(--gold-500)' : 'var(--faint)' }}>{Number(m.earnedCents) > 0 ? money(m.earnedCents) : '—'}</td>}
-                  {cols.isVisible('role') && (
-                    <td onClick={(e) => e.stopPropagation()}>
-                      {m.role === 'tenant_owner' ? <span className="faint">Owner</span> : (
-                        <select value={m.role} disabled={roleBusyId === m.id} onChange={(e) => changeRole(m, e.target.value)} style={{ width: 134 }}>
-                          {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
-                        </select>
-                      )}
-                    </td>
-                  )}
-                  {cols.isVisible('status') && <td><span className={`badge ${m.status}`}>{m.status}</span></td>}
-                  {cols.isVisible('joined') && <td className="muted">{dateShort(m.joinedAt)}</td>}
-                  <td className="no-print" style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
-                    <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
-                      <button className="btn ghost sm" title="Edit profile" onClick={() => { setError(''); setEditM(m); setEditName(m.fullName); setEditEmail(m.email); }}>✎</button>
-                      {m.role !== 'tenant_owner' && (
-                        <button className="btn ghost sm" onClick={() => setConfirmM(m)}>
-                          {m.status === 'active' ? t('members.deactivate') : t('members.activate')}
-                        </button>
-                      )}
-                    </div>
-                  </td>
+        {!list ? (
+          <div className="p-5"><Loading rows={4} /></div>
+        ) : (
+          <div className="relative w-full overflow-auto">
+            <table className="w-full border-collapse text-[13px]">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="no-print w-[34px] px-[18px] py-2.5">
+                    <input type="checkbox" className="accent-primary" checked={selected.size > 0 && selected.size === list.items.length} onChange={toggleAll} aria-label="Select all" />
+                  </th>
+                  {cols.isVisible('member') && <SortHead label="Member" field="fullName" sort={sort} dir={dir} onSort={onSort} />}
+                  {cols.isVisible('code') && <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Code</th>}
+                  {cols.isVisible('sponsor') && <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Sponsor</th>}
+                  {cols.isVisible('level') && <SortHead label="Lvl." field="depth" sort={sort} dir={dir} onSort={onSort} className="text-center" />}
+                  {cols.isVisible('sold') && <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Sales $</th>}
+                  {cols.isVisible('earned') && <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Earned $</th>}
+                  {cols.isVisible('role') && <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">{t('members.role')}</th>}
+                  {cols.isVisible('status') && <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Status</th>}
+                  {cols.isVisible('joined') && <SortHead label="Joined" field="joinedAt" sort={sort} dir={dir} onSort={onSort} />}
+                  <th className="no-print px-4 py-2.5 text-right font-medium text-muted-foreground">{t('common.actions')}</th>
                 </tr>
-              ))}
-              {list.items.length === 0 && <tr><td colSpan={colCount} className="muted">No members found.</td></tr>}
-            </tbody>
-          </table>
-        )}
-
-        {list && <Pagination page={list.page} pageSize={list.pageSize} total={list.total} onPage={setPage} />}
-
-        {selected.size > 0 && (
-          <div className="bulkbar no-print">
-            <strong style={{ fontSize: 13 }}>{selected.size} selected</strong>
-            <span style={{ flex: 1 }} />
-            <button className="btn sm" disabled={selActivatable === 0} onClick={() => openBulk('activate')}>Activate {selActivatable || ''}</button>
-            <button className="btn sm danger" disabled={selDeactivatable === 0} onClick={() => openBulk('deactivate')}>Deactivate {selDeactivatable || ''}</button>
-            <span className="row" style={{ gap: 4 }}>
-              <select value={bulkRole} onChange={(e) => setBulkRole(e.target.value)} style={{ width: 'auto' }} aria-label="Bulk role">
-                {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
-              </select>
-              <button className="btn sm ghost" onClick={() => openBulk('set_role')}>Set role</button>
-            </span>
-            <button className="btn ghost sm" onClick={() => setSelected(new Set())}>Clear</button>
+              </thead>
+              <tbody>
+                {list.items.map((m) => (
+                  <tr
+                    key={m.id}
+                    className={cn(
+                      'cursor-pointer border-t border-border transition-colors hover:bg-muted/50',
+                      selected.has(m.id) && 'bg-primary/5',
+                    )}
+                    onClick={() => setDetailId(m.id)}
+                  >
+                    <td className="no-print px-[18px] py-2.5" onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" className="accent-primary" checked={selected.has(m.id)} onChange={() => toggle(m.id)} aria-label={`Select ${m.fullName}`} />
+                    </td>
+                    {cols.isVisible('member') && (
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/15 font-display text-[11px] font-bold text-primary">{initialsOf(m.fullName)}</span>
+                          <div className="min-w-0">
+                            <div className="font-semibold text-foreground">{m.fullName}</div>
+                            <div className="text-[11px] text-muted-foreground/70">{m.email}</div>
+                          </div>
+                        </div>
+                      </td>
+                    )}
+                    {cols.isVisible('code') && (
+                      <td className="px-4 py-2.5 font-mono text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+                        <span className="inline-flex items-center gap-1.5">
+                          {m.referralCode}
+                          <button
+                            title="Copy code"
+                            className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
+                            onClick={() => { navigator.clipboard.writeText(m.referralCode).then(() => showToast('Copied ✓')).catch(() => {}); }}
+                          >⧉</button>
+                        </span>
+                      </td>
+                    )}
+                    {cols.isVisible('sponsor') && (
+                      <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+                        {m.sponsorReferralCode
+                          ? <button className="rounded-md border border-border bg-muted px-2 py-1 font-mono text-xs text-foreground transition-colors hover:border-primary hover:text-primary" onClick={() => openSponsor(m.sponsorReferralCode!)}>{m.sponsorReferralCode}</button>
+                          : <span className="text-muted-foreground/70">—</span>}
+                      </td>
+                    )}
+                    {cols.isVisible('level') && <td className="px-4 py-2.5 text-center tabular-nums text-muted-foreground">{m.depth}</td>}
+                    {cols.isVisible('sold') && <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{Number(m.soldCents) > 0 ? money(m.soldCents) : '—'}</td>}
+                    {cols.isVisible('earned') && <td className={cn('px-4 py-2.5 text-right font-semibold tabular-nums', Number(m.earnedCents) > 0 ? 'text-emerald-400' : 'text-muted-foreground/70')}>{Number(m.earnedCents) > 0 ? money(m.earnedCents) : '—'}</td>}
+                    {cols.isVisible('role') && (
+                      <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+                        {m.role === 'tenant_owner' ? <span className="text-muted-foreground/70">Owner</span> : (
+                          <select
+                            value={m.role}
+                            disabled={roleBusyId === m.id}
+                            onChange={(e) => changeRole(m, e.target.value)}
+                            className="h-7 w-[120px] rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:border-primary disabled:opacity-50"
+                          >
+                            {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
+                          </select>
+                        )}
+                      </td>
+                    )}
+                    {cols.isVisible('status') && <td className="px-4 py-2.5"><StatusPill status={m.status} /></td>}
+                    {cols.isVisible('joined') && <td className="px-4 py-2.5 tabular-nums text-muted-foreground/70">{dateShort(m.joinedAt)}</td>}
+                    <td className="no-print px-4 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex justify-end gap-1.5">
+                        <button
+                          title="Edit profile"
+                          className="rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+                          onClick={() => { setError(''); setEditM(m); setEditName(m.fullName); setEditEmail(m.email); }}
+                        >✎</button>
+                        {m.role !== 'tenant_owner' && (
+                          <button
+                            className="rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+                            onClick={() => setConfirmM(m)}
+                          >
+                            {m.status === 'active' ? t('members.deactivate') : t('members.activate')}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {list.items.length === 0 && (
+                  <tr><td colSpan={colCount} className="px-4 py-10 text-center text-muted-foreground">No members found.</td></tr>
+                )}
+              </tbody>
+            </table>
           </div>
         )}
-      </div>
+
+        {/* pager */}
+        {list && list.total > 0 && pages > 1 && (
+          <div className="no-print flex items-center justify-between border-t border-border px-[18px] py-3 text-xs text-muted-foreground/70">
+            <span className="tabular-nums">Showing {firstRow}–{lastRow} of {list.total}</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                className="grid h-7 w-7 place-items-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:border-primary hover:text-foreground disabled:opacity-40"
+                disabled={list.page <= 1}
+                onClick={() => setPage(list.page - 1)}
+                aria-label="Previous page"
+              >‹</button>
+              <span className="tabular-nums px-1.5 text-foreground">{list.page} / {pages}</span>
+              <button
+                className="grid h-7 w-7 place-items-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:border-primary hover:text-foreground disabled:opacity-40"
+                disabled={list.page >= pages}
+                onClick={() => setPage(list.page + 1)}
+                aria-label="Next page"
+              >›</button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* sticky bulk-action bar */}
+      {selected.size > 0 && (
+        <div className="no-print sticky bottom-[18px] z-30 mx-auto mt-4 flex max-w-[680px] items-center gap-3 rounded-xl border border-input bg-popover px-3.5 py-2.5 shadow-[0_18px_50px_-22px_rgba(0,0,0,.7)]">
+          <strong className="text-[13px]">{selected.size} selected</strong>
+          <div className="flex-1" />
+          <Button size="sm" disabled={selActivatable === 0} onClick={() => openBulk('activate')}>Activate {selActivatable || ''}</Button>
+          <Button size="sm" variant="destructive" disabled={selDeactivatable === 0} onClick={() => openBulk('deactivate')}>Deactivate {selDeactivatable || ''}</Button>
+          <span className="flex items-center gap-1.5">
+            <select
+              value={bulkRole}
+              onChange={(e) => setBulkRole(e.target.value)}
+              aria-label="Bulk role"
+              className="h-8 rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:border-primary"
+            >
+              {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
+            </select>
+            <Button size="sm" variant="outline" onClick={() => openBulk('set_role')}>Set role</Button>
+          </span>
+          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
+        </div>
+      )}
 
       {showInvite && (
         <Modal title="Invite a member" onClose={() => setShowInvite(false)}>
-          <form onSubmit={invite} style={{ width: 'min(440px, 88vw)' }}>
-            <div className="field">
-              <label>Sponsor referral code (blank = yourself)</label>
-              <input value={sponsor} onChange={(e) => setSponsor(e.target.value)} placeholder="e.g. ALICE1" autoFocus />
+          <form onSubmit={invite} className="w-[min(440px,88vw)]">
+            <div className="mb-3">
+              <label className="mb-1.5 block text-xs text-muted-foreground">Sponsor referral code (blank = yourself)</label>
+              <input
+                value={sponsor}
+                onChange={(e) => setSponsor(e.target.value)}
+                placeholder="e.g. ALICE1"
+                autoFocus
+                className="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+              />
             </div>
-            {error && <div className="error">{error}</div>}
+            {error && <div className="mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
             {latest ? (
-              <div className="card" style={{ background: 'rgba(124,139,255,.08)', padding: 12, marginTop: 4 }}>
-                <div className="faint" style={{ fontSize: 11, marginBottom: 6 }}>Invite link — share it:</div>
-                <div className="row spread" style={{ gap: 8 }}>
-                  <span style={{ color: 'var(--sky)', wordBreak: 'break-all', fontSize: 12.5 }}>{inviteUrl}</span>
-                  <button type="button" className="btn ghost sm" onClick={() => { navigator.clipboard.writeText(inviteUrl); showToast('Copied ✓'); }}>Copy</button>
+              <div className="mt-1 rounded-xl border border-primary/20 bg-primary/[0.08] p-3">
+                <div className="mb-1.5 text-[11px] text-muted-foreground/70">Invite link — share it:</div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="break-all text-[12.5px] text-primary">{inviteUrl}</span>
+                  <Button type="button" variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(inviteUrl); showToast('Copied ✓'); }}>Copy</Button>
                 </div>
               </div>
             ) : null}
-            <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
-              <button type="button" className="btn ghost" onClick={() => setShowInvite(false)}>{latest ? 'Done' : 'Cancel'}</button>
-              <button className="btn">✦ {latest ? 'New invite' : t('members.invite')}</button>
+            <div className="mt-3.5 flex justify-end gap-2.5">
+              <Button type="button" variant="ghost" onClick={() => setShowInvite(false)}>{latest ? 'Done' : 'Cancel'}</Button>
+              <Button type="submit">✦ {latest ? 'New invite' : t('members.invite')}</Button>
             </div>
           </form>
         </Modal>
@@ -341,44 +500,58 @@ export default function MembersPage() {
 
       {showAdd && (
         <Modal title="Add member" onClose={() => setShowAdd(false)}>
-          <div style={{ width: 'min(460px, 100%)' }}>
+          <div className="w-[min(460px,100%)]">
             {addResult ? (
               <div>
-                <div className="card" style={{ background: 'color-mix(in srgb, var(--emerald) 10%, transparent)', borderColor: 'color-mix(in srgb, var(--emerald) 30%, transparent)', padding: 14 }}>
-                  <div style={{ fontWeight: 700, marginBottom: 6 }}>✓ Member added</div>
-                  <div className="row spread" style={{ fontSize: 13 }}><span className="muted">Referral code</span><strong className="tnum">{addResult.referralCode}</strong></div>
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5">
+                  <div className="mb-1.5 font-bold text-foreground">✓ Member added</div>
+                  <div className="flex items-center justify-between text-[13px]"><span className="text-muted-foreground">Referral code</span><strong className="font-mono tabular-nums">{addResult.referralCode}</strong></div>
                   {addResult.tempPassword ? (
-                    <div style={{ marginTop: 8 }}>
-                      <div className="faint" style={{ fontSize: 11, marginBottom: 4 }}>Temporary password (share it with them — shown only once):</div>
-                      <div className="row spread" style={{ gap: 8 }}>
-                        <span style={{ color: 'var(--gold-500)', fontFamily: 'var(--mono, monospace)', fontWeight: 700 }}>{addResult.tempPassword}</span>
-                        <button className="btn ghost sm" onClick={() => { navigator.clipboard.writeText(addResult.tempPassword!).then(() => showToast('Copied ✓')).catch(() => {}); }}>Copy</button>
+                    <div className="mt-2">
+                      <div className="mb-1 text-[11px] text-muted-foreground/70">Temporary password (share it with them — shown only once):</div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono font-bold text-emerald-400">{addResult.tempPassword}</span>
+                        <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(addResult.tempPassword!).then(() => showToast('Copied ✓')).catch(() => {}); }}>Copy</Button>
                       </div>
                     </div>
-                  ) : <div className="faint" style={{ fontSize: 12, marginTop: 8 }}>This email already exists — the person signs in with their existing password (a new membership was added).</div>}
+                  ) : <div className="mt-2 text-xs text-muted-foreground/70">This email already exists — the person signs in with their existing password (a new membership was added).</div>}
                 </div>
-                <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
-                  <button type="button" className="btn ghost" onClick={() => { setAddResult(null); setAddName(''); setAddEmail(''); setAddSponsor(''); }}>Add another</button>
-                  <button type="button" className="btn" onClick={() => setShowAdd(false)}>Done</button>
+                <div className="mt-3.5 flex justify-end gap-2.5">
+                  <Button type="button" variant="ghost" onClick={() => { setAddResult(null); setAddName(''); setAddEmail(''); setAddSponsor(''); }}>Add another</Button>
+                  <Button type="button" onClick={() => setShowAdd(false)}>Done</Button>
                 </div>
               </div>
             ) : (
               <form onSubmit={createMember}>
-                <div className="field"><label>Full name</label><input value={addName} onChange={(e) => setAddName(e.target.value)} required minLength={2} autoFocus placeholder="e.g. Jane Smith" /></div>
-                <div className="field"><label>Email</label><input type="email" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} required placeholder="name@company.com" /></div>
-                <div className="row" style={{ gap: 12 }}>
-                  <div className="field" style={{ flex: 2, margin: 0 }}><label>Sponsor code {addAsLeader ? '(leader — no sponsor)' : '(blank = owner)'}</label><input value={addSponsor} onChange={(e) => setAddSponsor(e.target.value)} placeholder="e.g. ALICE1" disabled={addAsLeader} /></div>
-                  <div className="field" style={{ flex: 1, margin: 0 }}><label>Role</label><select value={addRole} onChange={(e) => setAddRole(e.target.value)}>{ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}</select></div>
+                <div className="mb-3">
+                  <label className="mb-1.5 block text-xs text-muted-foreground">Full name</label>
+                  <input value={addName} onChange={(e) => setAddName(e.target.value)} required minLength={2} autoFocus placeholder="e.g. Jane Smith" className="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary" />
                 </div>
-                <label className="row" style={{ gap: 8, cursor: 'pointer', fontSize: 13, margin: '4px 0 8px' }}>
-                  <input type="checkbox" checked={addAsLeader} onChange={(e) => setAddAsLeader(e.target.checked)} style={{ width: 'auto' }} />
+                <div className="mb-3">
+                  <label className="mb-1.5 block text-xs text-muted-foreground">Email</label>
+                  <input type="email" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} required placeholder="name@company.com" className="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary" />
+                </div>
+                <div className="flex gap-3">
+                  <div className="flex-[2]">
+                    <label className="mb-1.5 block text-xs text-muted-foreground">Sponsor code {addAsLeader ? '(leader — no sponsor)' : '(blank = owner)'}</label>
+                    <input value={addSponsor} onChange={(e) => setAddSponsor(e.target.value)} placeholder="e.g. ALICE1" disabled={addAsLeader} className="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary disabled:opacity-50" />
+                  </div>
+                  <div className="flex-1">
+                    <label className="mb-1.5 block text-xs text-muted-foreground">Role</label>
+                    <select value={addRole} onChange={(e) => setAddRole(e.target.value)} className="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary">
+                      {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <label className="my-2 flex cursor-pointer items-center gap-2 text-[13px]">
+                  <input type="checkbox" className="accent-primary" checked={addAsLeader} onChange={(e) => setAddAsLeader(e.target.checked)} />
                   🎖 Add as a new team leader (top of the tree, no sponsor)
                 </label>
-                <div className="faint" style={{ fontSize: 12 }}>A temporary password is generated; the person signs in with it and changes it. (Placement is permanent.)</div>
-                {error && <div className="error">{error}</div>}
-                <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
-                  <button type="button" className="btn ghost" onClick={() => setShowAdd(false)} disabled={busy}>Cancel</button>
-                  <button className="btn" disabled={busy}>{busy ? 'Adding…' : '＋ Add member'}</button>
+                <div className="text-xs text-muted-foreground/70">A temporary password is generated; the person signs in with it and changes it. (Placement is permanent.)</div>
+                {error && <div className="mt-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+                <div className="mt-3.5 flex justify-end gap-2.5">
+                  <Button type="button" variant="ghost" onClick={() => setShowAdd(false)} disabled={busy}>Cancel</Button>
+                  <Button type="submit" disabled={busy}>{busy ? 'Adding…' : '＋ Add member'}</Button>
                 </div>
               </form>
             )}
@@ -388,14 +561,20 @@ export default function MembersPage() {
 
       {editM && (
         <Modal title={`Edit profile — ${editM.fullName}`} onClose={() => setEditM(null)}>
-          <form onSubmit={saveProfile} style={{ width: 'min(420px, 100%)' }}>
-            <div className="field"><label>Full name</label><input value={editName} onChange={(e) => setEditName(e.target.value)} required minLength={2} autoFocus /></div>
-            <div className="field"><label>Email</label><input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} required /></div>
-            <div className="faint" style={{ fontSize: 12 }}>Changing the email requires the person to re-verify. Placement (sponsor) does not change.</div>
-            {error && <div className="error">{error}</div>}
-            <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
-              <button type="button" className="btn ghost" onClick={() => setEditM(null)} disabled={busy}>Cancel</button>
-              <button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+          <form onSubmit={saveProfile} className="w-[min(420px,100%)]">
+            <div className="mb-3">
+              <label className="mb-1.5 block text-xs text-muted-foreground">Full name</label>
+              <input value={editName} onChange={(e) => setEditName(e.target.value)} required minLength={2} autoFocus className="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary" />
+            </div>
+            <div className="mb-3">
+              <label className="mb-1.5 block text-xs text-muted-foreground">Email</label>
+              <input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} required className="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary" />
+            </div>
+            <div className="text-xs text-muted-foreground/70">Changing the email requires the person to re-verify. Placement (sponsor) does not change.</div>
+            {error && <div className="mt-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+            <div className="mt-3.5 flex justify-end gap-2.5">
+              <Button type="button" variant="ghost" onClick={() => setEditM(null)} disabled={busy}>Cancel</Button>
+              <Button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save'}</Button>
             </div>
           </form>
         </Modal>
@@ -417,24 +596,24 @@ export default function MembersPage() {
 
       {pendingBulk && preview && (
         <Modal title="Review bulk change" onClose={() => { setPendingBulk(null); setPreview(null); }}>
-          <div style={{ width: 'min(420px, 88vw)' }}>
-            <p className="muted" style={{ marginTop: 0 }}>
+          <div className="w-[min(420px,88vw)]">
+            <p className="mt-0 text-sm text-muted-foreground">
               {pendingBulk.action === 'set_role' ? `Set role to "${pendingBulk.role}" for selected members.`
                 : pendingBulk.action === 'activate' ? 'Activate selected members.' : 'Deactivate selected members.'}
             </p>
-            <div className="grid" style={{ gap: 8, margin: '12px 0' }}>
-              <div className="spread"><span className="muted" style={{ fontSize: 13 }}>Selected</span><b className="tnum">{preview.total}</b></div>
-              <div className="spread"><span className="muted" style={{ fontSize: 13 }}>Will change</span><b className="tnum" style={{ color: 'var(--emerald)' }}>{preview.willChange}</b></div>
-              <div className="spread"><span className="muted" style={{ fontSize: 13 }}>Skipped (no-op / protected)</span><b className="tnum faint">{preview.skipped.length}</b></div>
+            <div className="my-3 grid gap-2 rounded-xl border border-border bg-muted/40 p-3">
+              <div className="flex items-center justify-between"><span className="text-[13px] text-muted-foreground">Selected</span><b className="tabular-nums">{preview.total}</b></div>
+              <div className="flex items-center justify-between"><span className="text-[13px] text-muted-foreground">Will change</span><b className="tabular-nums text-emerald-400">{preview.willChange}</b></div>
+              <div className="flex items-center justify-between"><span className="text-[13px] text-muted-foreground">Skipped (no-op / protected)</span><b className="tabular-nums text-muted-foreground/70">{preview.skipped.length}</b></div>
               {preview.openPayoutRequests > 0 && (
-                <div className="spread" style={{ color: 'var(--amber)' }}><span style={{ fontSize: 13 }}>⚠ In open payout request</span><b className="tnum">{preview.openPayoutRequests}</b></div>
+                <div className="flex items-center justify-between text-amber-400"><span className="text-[13px]">⚠ In open payout request</span><b className="tabular-nums">{preview.openPayoutRequests}</b></div>
               )}
             </div>
-            <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
-              <button className="btn ghost" onClick={() => { setPendingBulk(null); setPreview(null); }} disabled={busy}>Cancel</button>
-              <button className={`btn ${pendingBulk.action === 'deactivate' ? 'danger' : ''}`} onClick={applyBulk} disabled={busy || preview.willChange === 0}>
+            <div className="mt-3.5 flex justify-end gap-2.5">
+              <Button variant="ghost" onClick={() => { setPendingBulk(null); setPreview(null); }} disabled={busy}>Cancel</Button>
+              <Button variant={pendingBulk.action === 'deactivate' ? 'destructive' : 'default'} onClick={applyBulk} disabled={busy || preview.willChange === 0}>
                 {busy ? 'Applying…' : `Apply to ${preview.willChange}`}
-              </button>
+              </Button>
             </div>
           </div>
         </Modal>
@@ -442,7 +621,9 @@ export default function MembersPage() {
 
       {detailId && <MemberDrawer id={detailId} onClose={() => setDetailId(null)} onNavigate={setDetailId} onChanged={load} onToast={showToast} />}
 
-      {toast && <div className="toast" role="status">{toast}</div>}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-border bg-popover px-4 py-2 text-sm text-foreground shadow-lg" role="status">{toast}</div>
+      )}
     </div>
   );
 }
@@ -471,6 +652,7 @@ function MemberDrawer({ id, onClose, onNavigate, onChanged, onToast }: {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [tab, setTab] = useState('overview');
   const tenantName = (() => { const s = getSession(); return (s ? activeMembership(s)?.tenantName : null) ?? 'Refearn'; })();
   const meIsAdmin = (() => { const s = getSession(); return s ? isAdminRole(activeMembership(s)?.role) : false; })();
 
@@ -527,90 +709,125 @@ function MemberDrawer({ id, onClose, onNavigate, onChanged, onToast }: {
       subtitle={p ? `${p.referralCode} · ${p.email}` : undefined}
       onClose={onClose}
       footer={p && (
-        <>
-          <button className="btn ghost" disabled={busy} onClick={() => setPrinting(true)}>🖶 Print summary</button>
-          {meIsAdmin && <button className="btn ghost" disabled={busy} onClick={exportData}>⇩ Export data</button>}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => setPrinting(true)}>🖶 Print</Button>
+          {meIsAdmin && <Button variant="outline" size="sm" disabled={busy} onClick={exportData}>⇩ Export</Button>}
           {meIsAdmin && p.role !== 'tenant_owner' && p.role !== 'tenant_admin' && (
-            <button className="btn ghost" disabled={busy} onClick={viewAsMember}>👁 View as member</button>
+            <Button variant="outline" size="sm" disabled={busy} onClick={viewAsMember}>👁 View as member</Button>
           )}
+          <div className="flex-1" />
           {p.role !== 'tenant_owner' && (
-            <select value={p.role} disabled={busy} onChange={(e) => changeRole(e.target.value)} style={{ width: 140 }}>
+            <select
+              value={p.role}
+              disabled={busy}
+              onChange={(e) => changeRole(e.target.value)}
+              className="h-8 w-[140px] rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:border-primary disabled:opacity-50"
+            >
               {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           )}
           {p.role !== 'tenant_owner' && (
-            <button className={`btn ${p.status === 'active' ? 'danger' : ''}`} disabled={busy} onClick={() => setStatus(p.status === 'active' ? 'deactivate' : 'activate')}>
+            <Button
+              variant={p.status === 'active' ? 'destructive' : 'default'}
+              size="sm"
+              disabled={busy}
+              onClick={() => setStatus(p.status === 'active' ? 'deactivate' : 'activate')}
+            >
               {p.status === 'active' ? 'Deactivate' : 'Activate'}
-            </button>
+            </Button>
           )}
-        </>
+        </div>
       )}
     >
-      {err && <div className="error">{err}</div>}
+      {err && <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</div>}
       {!d || !p ? <Loading rows={4} /> : (
-        <div className="grid" style={{ gap: 18 }}>
-          <div className="row" style={{ gap: 6 }}>
-            <span className={`badge ${p.status}`}>{p.status}</span>
-            <span className="badge active" style={{ background: 'color-mix(in srgb, var(--sky) 14%, transparent)', color: 'var(--sky)' }}>{p.role.replace('tenant_', '')}</span>
-            {p.emailVerified && <span className="badge active">email verified</span>}
-            <span className="faint" style={{ fontSize: 12 }}>· level {p.depth} · joined {dateShort(p.joinedAt)}</span>
+        <div className="flex flex-col gap-[18px]">
+          {/* status / role chips */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <StatusPill status={p.status} />
+            <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">{p.role.replace('tenant_', '')}</Badge>
+            {p.emailVerified && <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400">email verified</Badge>}
+            <span className="text-xs text-muted-foreground/70">· level {p.depth} · joined {dateShort(p.joinedAt)}</span>
           </div>
 
-          {/* 4 mini stat */}
-          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Mini label="Direct referrals" value={String(d.stats.directs)} hint={`${d.stats.invites.used}/${d.stats.invites.total} invites used`} />
-            <Mini label="Sales this month" value={String(d.stats.sales.thisMonth.count)} hint={money(d.stats.sales.thisMonth.cents, cur)} />
-            <Mini label="All-time revenue" value={money(d.stats.sales.allTime.cents, cur)} hint={`${d.stats.sales.allTime.count} approved`} />
-            <Mini label="Commission paid" value={money(d.stats.commission.paidCents, cur)} hint="lifetime" />
-          </div>
+          <Tabs value={tab} onValueChange={setTab}>
+            <TabsList className="w-full justify-start">
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="sales">Sales</TabsTrigger>
+              <TabsTrigger value="activity">Activity</TabsTrigger>
+            </TabsList>
 
-          {/* bakiye cipleri */}
-          <div className="row" style={{ gap: 8 }}>
-            <Chip label="Pending" value={money(d.stats.commission.pendingCents, cur)} cls="pending" />
-            <Chip label="Payable" value={money(d.stats.commission.payableCents, cur)} cls="payable" />
-            <Chip label="Paid" value={money(d.stats.commission.paidCents, cur)} cls="paid" />
-          </div>
+            <TabsContent value="overview" className="mt-3 flex flex-col gap-[18px]">
+              {/* 4 mini stat */}
+              <div className="grid grid-cols-2 gap-3">
+                <Mini label="Direct referrals" value={String(d.stats.directs)} hint={`${d.stats.invites.used}/${d.stats.invites.total} invites used`} />
+                <Mini label="Sales this month" value={String(d.stats.sales.thisMonth.count)} hint={money(d.stats.sales.thisMonth.cents, cur)} />
+                <Mini label="All-time revenue" value={money(d.stats.sales.allTime.cents, cur)} hint={`${d.stats.sales.allTime.count} approved`} />
+                <Mini label="Commission paid" value={money(d.stats.commission.paidCents, cur)} hint="lifetime" />
+              </div>
 
-          {p.sponsor && (
-            <div>
-              <div className="faint" style={{ fontSize: 11, marginBottom: 4 }}>Sponsor</div>
-              <button className="btn ghost sm" onClick={() => onNavigate(p.sponsor!.membershipId)}>
-                {p.sponsor.name} · {p.sponsor.code} ↗
-              </button>
-            </div>
-          )}
+              {/* bakiye cipleri */}
+              <div className="flex flex-wrap gap-2">
+                <Chip label="Pending" value={money(d.stats.commission.pendingCents, cur)} tone="pending" />
+                <Chip label="Payable" value={money(d.stats.commission.payableCents, cur)} tone="payable" />
+                <Chip label="Paid" value={money(d.stats.commission.paidCents, cur)} tone="paid" />
+              </div>
 
-          <Section title="Recent sales">
-            {d.recentSales.length === 0 ? <Empty /> : (
-              <table>
-                <thead><tr><th>Date</th><th>Amount</th><th>Status</th></tr></thead>
-                <tbody>
-                  {d.recentSales.map((s) => (
-                    <tr key={s.id}><td className="muted">{dateShort(s.saleDate)}</td><td className="tnum">{money(s.amountCents, cur)}</td><td><span className={`badge ${s.status}`}>{s.status}</span></td></tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </Section>
+              {p.sponsor && (
+                <div>
+                  <div className="mb-1.5 text-[11px] text-muted-foreground/70">Sponsor</div>
+                  <button
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-[12.5px] font-semibold text-foreground transition-colors hover:border-primary hover:text-primary"
+                    onClick={() => onNavigate(p.sponsor!.membershipId)}
+                  >
+                    {p.sponsor.name} · {p.sponsor.code} ↗
+                  </button>
+                </div>
+              )}
+            </TabsContent>
 
-          <Section title="Recent activity">
-            {d.recentLedger.length === 0 ? <Empty /> : (
-              <table>
-                <thead><tr><th>Date</th><th>Lvl</th><th>Type</th><th>Status</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
-                <tbody>
-                  {d.recentLedger.map((e) => (
-                    <tr key={e.id}>
-                      <td className="muted">{dateShort(e.createdAt)}</td>
-                      <td className="tnum">{e.level}</td>
-                      <td className="faint">{e.type}</td>
-                      <td><span className={`badge ${e.status}`}>{e.status}</span></td>
-                      <td className="tnum" style={{ textAlign: 'right', color: e.type === 'reversal' ? 'var(--rose)' : undefined }}>{money(e.amountCents, cur)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </Section>
+            <TabsContent value="sales" className="mt-3">
+              <strong className="mb-2.5 block text-[13px]">Recent sales</strong>
+              {d.recentSales.length === 0 ? <Empty /> : (
+                <table className="w-full border-collapse text-[12.5px]">
+                  <thead><tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="py-2 font-medium">Date</th><th className="py-2 font-medium">Amount</th><th className="py-2 font-medium">Status</th>
+                  </tr></thead>
+                  <tbody>
+                    {d.recentSales.map((s) => (
+                      <tr key={s.id} className="border-t border-border">
+                        <td className="py-2 text-muted-foreground/70">{dateShort(s.saleDate)}</td>
+                        <td className="py-2 tabular-nums text-foreground">{money(s.amountCents, cur)}</td>
+                        <td className="py-2"><LedgerBadge status={s.status} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </TabsContent>
+
+            <TabsContent value="activity" className="mt-3">
+              <strong className="mb-2.5 block text-[13px]">Recent activity</strong>
+              {d.recentLedger.length === 0 ? <Empty /> : (
+                <table className="w-full border-collapse text-[12.5px]">
+                  <thead><tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="py-2 font-medium">Date</th><th className="py-2 font-medium">Lvl</th><th className="py-2 font-medium">Type</th><th className="py-2 font-medium">Status</th><th className="py-2 text-right font-medium">Amount</th>
+                  </tr></thead>
+                  <tbody>
+                    {d.recentLedger.map((e) => (
+                      <tr key={e.id} className="border-t border-border">
+                        <td className="py-2 text-muted-foreground/70">{dateShort(e.createdAt)}</td>
+                        <td className="py-2 tabular-nums text-muted-foreground">{e.level}</td>
+                        <td className="py-2 text-muted-foreground/70">{e.type}</td>
+                        <td className="py-2"><LedgerBadge status={e.status} /></td>
+                        <td className={cn('py-2 text-right tabular-nums', e.type === 'reversal' ? 'text-destructive' : 'text-foreground')}>{money(e.amountCents, cur)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </TabsContent>
+          </Tabs>
         </div>
       )}
 
@@ -655,22 +872,35 @@ function MemberDrawer({ id, onClose, onNavigate, onChanged, onToast }: {
 
 function Mini({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="card" style={{ padding: 12 }}>
-      <div className="faint" style={{ fontSize: 11 }}>{label}</div>
-      <div className="tnum" style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>{value}</div>
-      {hint && <div className="faint" style={{ fontSize: 11, marginTop: 2 }}>{hint}</div>}
+    <div className="rounded-xl border border-border bg-muted/40 p-3">
+      <div className="text-[11px] text-muted-foreground/70">{label}</div>
+      <div className="mt-1 font-display text-lg font-bold tabular-nums text-foreground">{value}</div>
+      {hint && <div className="mt-0.5 text-[11px] text-muted-foreground/70">{hint}</div>}
     </div>
   );
 }
-function Chip({ label, value, cls }: { label: string; value: string; cls: string }) {
-  return <span className={`badge ${cls}`} style={{ fontSize: 12 }}>{label}: {value}</span>;
+
+function Chip({ label, value, tone }: { label: string; value: string; tone: 'pending' | 'payable' | 'paid' }) {
+  const cls = tone === 'pending'
+    ? 'border-amber-500/30 bg-amber-500/10 text-amber-400'
+    : tone === 'payable'
+      ? 'border-primary/30 bg-primary/10 text-primary'
+      : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400';
+  return <span className={cn('rounded-lg border px-2.5 py-1 text-xs font-semibold tabular-nums', cls)}>{label}: {value}</span>;
 }
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>{title}</strong>
-      {children}
-    </div>
-  );
+
+function LedgerBadge({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    approved: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400',
+    paid: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400',
+    payable: 'border-primary/30 bg-primary/10 text-primary',
+    pending: 'border-amber-500/30 bg-amber-500/10 text-amber-400',
+    draft: 'border-amber-500/30 bg-amber-500/10 text-amber-400',
+    void: 'border-destructive/30 bg-destructive/10 text-destructive',
+    reversed: 'border-destructive/30 bg-destructive/10 text-destructive',
+  };
+  const cls = map[status] ?? 'border-border bg-muted text-muted-foreground';
+  return <span className={cn('inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold', cls)}>{status}</span>;
 }
-function Empty() { return <div className="muted" style={{ fontSize: 13 }}>Nothing yet.</div>; }
+
+function Empty() { return <div className="text-[13px] text-muted-foreground">Nothing yet.</div>; }
