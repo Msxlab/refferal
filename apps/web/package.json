@@ -9,19 +9,33 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.17",
+    "@radix-ui/react-separator": "^1.1.10",
+    "@radix-ui/react-slot": "^1.3.0",
+    "@radix-ui/react-tabs": "^1.1.15",
     "@xyflow/react": "^12.3.5",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "d3-hierarchy": "^3.1.2",
     "html-to-image": "^1.11.13",
+    "lucide-react": "^1.21.0",
+    "motion": "^12.42.0",
     "next": "^15.1.6",
     "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-use-measure": "^2.1.7",
+    "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
     "@types/d3-hierarchy": "^3.1.7",
     "@types/node": "^22.13.0",
     "@types/react": "19.0.7",
     "@types/react-dom": "19.0.3",
+    "autoprefixer": "^10.5.2",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^3.4.19",
+    "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.8.3"
   }
 }

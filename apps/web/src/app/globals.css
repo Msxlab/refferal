@@ -1,3 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+   shadcn/ui token katmani — "Obsidian & Indigo" (Refearn Admin redesign).
+   shadcn bilesenleri hsl(var(--x)) okur; degerler HSL triplet.
+   Mevcut "Obsidian & Champagne" custom CSS ile yan yana yasar (preflight kapali).
+   ============================================================================ */
+:root {
+  --background: 228 24% 5%;
+  --foreground: 228 24% 94%;
+  --card: 230 19% 9%;
+  --card-foreground: 228 24% 94%;
+  --popover: 230 21% 12%;
+  --popover-foreground: 228 24% 94%;
+  --primary: 232 82% 69%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 228 18% 16%;
+  --secondary-foreground: 228 24% 94%;
+  --muted: 230 21% 12%;
+  --muted-foreground: 225 13% 66%;
+  --accent: 228 18% 16%;
+  --accent-foreground: 228 24% 94%;
+  --destructive: 9 84% 62%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 228 12% 18%;
+  --input: 228 12% 24%;
+  --ring: 232 82% 69%;
+  --radius: 0.85rem;
+}
+[data-theme='light'] {
+  --background: 228 30% 98%;
+  --foreground: 228 28% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 228 28% 12%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 228 28% 12%;
+  --primary: 230 73% 53%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 228 24% 94%;
+  --secondary-foreground: 228 28% 16%;
+  --muted: 228 24% 94%;
+  --muted-foreground: 228 12% 42%;
+  --accent: 228 24% 92%;
+  --accent-foreground: 228 28% 16%;
+  --destructive: 9 72% 48%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 228 18% 88%;
+  --input: 228 18% 84%;
+  --ring: 230 73% 53%;
+}
+
 /* ============================================================================
    Refearn — "Obsidian & Champagne" tasarim sistemi (docs/DESIGN-VISION.md)
    Iki tam tema: [data-theme="dark"] (varsayilan) + [data-theme="light"].
