@@ -90,8 +90,11 @@ export function landingPath(role: string | undefined): string {
   return isAdminRole(role) ? '/admin' : '/app';
 }
 
-/** Oturum bazli inis: platform admin /platform, aksi halde role gore. */
+/** Oturum bazli inis: platform admin'in bir isyeri (uyelik) varsa dogrudan /admin,
+ *  yoksa /platform (sirket listesi). Diger roller role gore (admin → /admin, uye → /app). */
 export function landingForSession(s: Session): string {
-  if (s.user.isPlatformAdmin) return '/platform';
+  if (s.user.isPlatformAdmin) {
+    return activeMembership(s) ? '/admin' : '/platform';
+  }
   return landingPath(activeMembership(s)?.role);
 }

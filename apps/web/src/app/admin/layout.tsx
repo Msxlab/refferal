@@ -37,6 +37,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   if (!session) return <div className="center muted">{t('common.loading')}</div>;
   const active = activeMembership(session);
   const isStaff = active?.role === 'tenant_staff';
+  const isPlatform = session.user.isPlatformAdmin === true;
 
   function logout() {
     clearSession();
@@ -48,6 +49,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <aside className="side">
         <div className="brand"><span className="dot">{APP_MONOGRAM}</span> {APP_NAME}</div>
         <nav>
+          {isPlatform && (
+            <Link href="/platform" className={pathname.startsWith('/platform') ? 'active' : ''}>
+              <span className="ic">◳</span>Platform
+            </Link>
+          )}
           {NAV.filter((n) => !(n.adminOnly && isStaff)).map((n) => (
             <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
               <span className="ic">{n.ic}</span>{t(n.key)}
@@ -77,6 +83,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         </div>
         <nav>
+          {isPlatform && (
+            <Link href="/platform" className={pathname.startsWith('/platform') ? 'active' : ''}>
+              <span className="ic">◳</span>Platform
+            </Link>
+          )}
           {NAV.filter((n) => !(n.adminOnly && isStaff)).map((n) => (
             <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
               <span className="ic">{n.ic}</span>{t(n.key)}
