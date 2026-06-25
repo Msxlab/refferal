@@ -60,12 +60,12 @@
 
 :root {
   /* ham palet — sampanya altini rampasi */
-  --gold-200: #f0dca8;
-  --gold-400: #e4c266;
-  --gold-500: #d4af37;
-  --gold-600: #b8922e;
-  --gold-800: #6b5414;
-  --foil: linear-gradient(135deg, #f0dca8 0%, #d4af37 45%, #b8922e 100%);
+  --gold-200: #c7ccff;
+  --gold-400: #9aa2ff;
+  --gold-500: #6e7af0;
+  --gold-600: #5560e0;
+  --gold-800: #3c3a8f;
+  --foil: linear-gradient(135deg, #9aa2ff 0%, #6e7af0 45%, #5560e0 100%);
 
   /* semantik para (her iki tema) */
   --emerald: #23a981; /* money-positive: payable->paid, kazanc */
