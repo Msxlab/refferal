@@ -36,7 +36,7 @@ export default function AuditPage() {
   const [detail, setDetail] = useState<AuditItem | null>(null);
 
   useEffect(() => {
-    api.get<AuditList>('/admin/audit?pageSize=120').then(setList).catch((e) => setError(String((e as ApiError).message)));
+    api.get<AuditList>('/admin/audit?pageSize=100').then(setList).catch((e) => setError(String((e as ApiError).message)));
   }, []);
 
   const allEntities = useMemo(() => Array.from(new Set((list?.items ?? []).map((a) => a.entity))).sort(), [list]);
