@@ -7,6 +7,7 @@ import { activeMembership, clearSession, getSession, isAdminRole, type Session }
 import { ThemeToggle } from '@/components/ui';
 import { NotificationBell } from '@/components/NotificationBell';
 import { t } from '@/lib/i18n';
+import { APP_MONOGRAM, APP_NAME } from '@/lib/brand';
 
 const NAV: Array<{ href: string; key: Parameters<typeof t>[0]; ic: string; adminOnly?: boolean }> = [
   { href: '/admin', key: 'nav.dashboard', ic: '◈' },
@@ -45,7 +46,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <div className="shell">
       <aside className="side">
-        <div className="brand"><span className="dot">R</span> Refearn</div>
+        <div className="brand"><span className="dot">{APP_MONOGRAM}</span> {APP_NAME}</div>
         <nav>
           {NAV.filter((n) => !(n.adminOnly && isStaff)).map((n) => (
             <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
@@ -66,6 +67,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         </div>
       </aside>
+      <header className="admin-mobilebar">
+        <div className="admin-mobilebar-head">
+          <div className="brand"><span className="dot">{APP_MONOGRAM}</span> {APP_NAME}</div>
+          <div className="row" style={{ gap: 6 }}>
+            <NotificationBell />
+            <ThemeToggle />
+            <button className="btn ghost sm" onClick={logout}>{t('nav.logout')}</button>
+          </div>
+        </div>
+        <nav>
+          {NAV.filter((n) => !(n.adminOnly && isStaff)).map((n) => (
+            <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
+              <span className="ic">{n.ic}</span>{t(n.key)}
+            </Link>
+          ))}
+        </nav>
+      </header>
       <main className="main">{children}</main>
     </div>
   );

@@ -1,4 +1,4 @@
-import { LedgerStatus, LedgerType, MaturationRule, SaleStatus } from '@prisma/client';
+import { LedgerStatus, LedgerType, MaturationRule, MembershipStatus, SaleStatus } from '@prisma/client';
 import { EngineService } from '../src/engine/engine.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import {
@@ -371,5 +371,49 @@ describe('komisyon motoru (entegrasyon)', () => {
     // 14 gun sonrasi simulasyonu: job gelecekteki "now" ile kosulur
     const matured = await engine.matureCommissions(new Date(expected + 1000));
     expect(matured.matured).toBe(1);
+  });
+
+  it('pasif upline + compression kapali: seviye boslugu korunur ve pasif pay sirkette kalir', async () => {
+    const tenant = await createTenant(prisma);
+    await prisma.tenant.update({
+      where: { id: tenant.id },
+      data: { inactiveMembersEarn: false, compressionEnabled: false },
+    });
+    await createPlan(prisma, tenant.id);
+    const chain = await createChain(prisma, tenant.id, 6);
+    await prisma.membership.update({ where: { id: chain[4].id }, data: { status: MembershipStatus.inactive } });
+
+    const sale = await createSale(prisma, tenant.id, chain[5].id, 10_000_000n);
+    await engine.approveSale(sale.id);
+
+    const entries = await prisma.ledgerEntry.findMany({
+      where: { saleId: sale.id },
+      orderBy: { level: 'asc' },
+    });
+    expect(entries.map((e) => e.level)).toEqual([0, 2, 3, 4]);
+    expect(entries.map((e) => e.beneficiaryMembershipId)).toEqual([chain[5].id, chain[3].id, chain[2].id, chain[1].id]);
+    expect(entries.map((e) => e.amountCents)).toEqual([500_000n, 150_000n, 100_000n, 50_000n]);
+  });
+
+  it('pasif upline + compression acik: aktif sponsorlar yukari sikistirilir', async () => {
+    const tenant = await createTenant(prisma);
+    await prisma.tenant.update({
+      where: { id: tenant.id },
+      data: { inactiveMembersEarn: false, compressionEnabled: true },
+    });
+    await createPlan(prisma, tenant.id);
+    const chain = await createChain(prisma, tenant.id, 6);
+    await prisma.membership.update({ where: { id: chain[4].id }, data: { status: MembershipStatus.inactive } });
+
+    const sale = await createSale(prisma, tenant.id, chain[5].id, 10_000_000n);
+    await engine.approveSale(sale.id);
+
+    const entries = await prisma.ledgerEntry.findMany({
+      where: { saleId: sale.id },
+      orderBy: { level: 'asc' },
+    });
+    expect(entries.map((e) => e.level)).toEqual([0, 1, 2, 3, 4]);
+    expect(entries.map((e) => e.beneficiaryMembershipId)).toEqual([chain[5].id, chain[3].id, chain[2].id, chain[1].id, chain[0].id]);
+    expect(entries.map((e) => e.amountCents)).toEqual([500_000n, 200_000n, 150_000n, 100_000n, 50_000n]);
   });
 });

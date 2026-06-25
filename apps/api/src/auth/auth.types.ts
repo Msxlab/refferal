@@ -10,6 +10,10 @@ export interface AccessTokenPayload {
   tid: string | null;
   role: Role | null;
   perms?: string[];
+  // Authorization freshness hints. Guard still rehydrates from DB.
+  mver?: number;
+  rver?: number;
+  mfa?: boolean;
   // platform sahibi (kiracci-ustu) — yalnizca true iken gomulur.
   plat?: boolean;
 }
@@ -37,6 +41,14 @@ export interface AuthSession {
   memberships: MembershipSummary[];
 }
 
+export interface LoginMfaChallenge {
+  mfaRequired: true;
+  challengeToken: string;
+  expiresAt: string;
+}
+
+export type LoginResult = AuthSession | LoginMfaChallenge;
+
 export const registerByInviteSchema = z.object({
   inviteCode: z.string().trim().min(4).max(64),
   email: z.string().trim().toLowerCase().email().max(254),
@@ -51,6 +63,12 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(128),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
+
+export const loginMfaSchema = z.object({
+  challengeToken: z.string().min(16).max(256),
+  code: z.string().trim().min(6).max(32),
+});
+export type LoginMfaInput = z.infer<typeof loginMfaSchema>;
 
 export const refreshSchema = z.object({
   refreshToken: z.string().min(16).max(256),
@@ -77,3 +95,8 @@ export const passwordResetConfirmSchema = z.object({
   newPassword: z.string().min(10).max(128),
 });
 export type PasswordResetConfirmInput = z.infer<typeof passwordResetConfirmSchema>;
+
+export const mfaCodeSchema = z.object({
+  code: z.string().trim().min(6).max(32),
+});
+export type MfaCodeInput = z.infer<typeof mfaCodeSchema>;

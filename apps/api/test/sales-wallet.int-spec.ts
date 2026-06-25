@@ -6,6 +6,7 @@ import { AppModule } from '../src/app.module';
 import { authConfig } from '../src/auth/auth.config';
 import { JwtService } from '@nestjs/jwt';
 import { AccessTokenPayload } from '../src/auth/auth.types';
+import { defaultPermissionsForTier } from '../src/common/permissions';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createChain, createPlan, createTenant, truncateAll } from './helpers';
 
@@ -42,6 +43,7 @@ describe('sales + wallet (entegrasyon)', () => {
       mid: opts.membershipId,
       tid: opts.tenantId,
       role: opts.role,
+      perms: defaultPermissionsForTier(opts.role),
     };
     return jwt.sign(payload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
   }
@@ -52,6 +54,7 @@ describe('sales + wallet (entegrasyon)', () => {
 
   it('admin satis girer → onaylar → motor calisir; staff onaylayamaz', async () => {
     const tenant = await createTenant(prisma); // on_approval
+    await prisma.tenant.update({ where: { id: tenant.id }, data: { currency: 'EUR' } });
     await createPlan(prisma, tenant.id);
     const chain = await createChain(prisma, tenant.id, 6);
     const owner = chain[0];
@@ -64,11 +67,21 @@ describe('sales + wallet (entegrasyon)', () => {
     const created = await request(app.getHttpServer())
       .post('/v1/admin/sales')
       .set('Authorization', `Bearer ${ownerTok}`)
-      .send({ sellerReferralCode: seller.referralCode, amountCents: 10_000_000 })
+      .send({ sellerReferralCode: seller.referralCode, amountCents: 10_000_000, externalRef: 'ORDER-1000' })
       .expect(201);
     expect(created.body.status).toBe('draft');
     expect(created.body.amountCents).toBe('10000000');
+    expect(created.body.currency).toBe('EUR');
     const saleId = created.body.id;
+
+    const duplicate = await request(app.getHttpServer())
+      .post('/v1/admin/sales')
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ sellerReferralCode: seller.referralCode, amountCents: 99_999_999, externalRef: 'ORDER-1000' })
+      .expect(201);
+    expect(duplicate.body.id).toBe(saleId);
+    expect(duplicate.body.amountCents).toBe('10000000');
+    await expect(prisma.sale.count({ where: { tenantId: tenant.id, externalRef: 'ORDER-1000' } })).resolves.toBe(1);
 
     // staff onaylayamaz (rol kisidi)
     const staffUser = chain[3];
@@ -120,6 +133,7 @@ describe('sales + wallet (entegrasyon)', () => {
 
   it('CSV import: draft satislar olusur, hatali satirlar raporlanir', async () => {
     const tenant = await createTenant(prisma);
+    await prisma.tenant.update({ where: { id: tenant.id }, data: { currency: 'EUR' } });
     await createPlan(prisma, tenant.id);
     const chain = await createChain(prisma, tenant.id, 3);
     const owner = chain[0];
@@ -146,6 +160,7 @@ describe('sales + wallet (entegrasyon)', () => {
     // tirnakli alan icindeki virgul korundu
     const b = await prisma.sale.findFirstOrThrow({ where: { customerRef: 'Musteri, B' } });
     expect(b.amountCents).toBe(7_500_000n);
+    expect(b.currency).toBe('EUR');
   });
 
   it('uye dashboard + wallet: onay sonrasi dogru tutarlar, KENDI verisi', async () => {

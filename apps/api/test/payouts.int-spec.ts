@@ -6,6 +6,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { authConfig } from '../src/auth/auth.config';
 import { AccessTokenPayload } from '../src/auth/auth.types';
+import { defaultPermissionsForTier } from '../src/common/permissions';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createChain, createPlan, createSale, createTenant, summaryTotals, truncateAll } from './helpers';
 
@@ -41,6 +42,7 @@ describe('payouts (entegrasyon)', () => {
       mid: opts.membershipId,
       tid: opts.tenantId,
       role: opts.role,
+      perms: defaultPermissionsForTier(opts.role),
     };
     return jwt.sign(payload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
   }
@@ -100,7 +102,12 @@ describe('payouts (entegrasyon)', () => {
     expect(paidEntries).toHaveLength(2);
     expect(paidEntries.every((e) => e.payoutId === sellerPaid.payoutId)).toBe(true);
 
-    // CSV export: payout satiri var
+    await prisma.user.update({
+      where: { id: seller.userId },
+      data: { fullName: '=cmd', email: '+payee@example.test' },
+    });
+
+    // CSV export: payout satiri var ve spreadsheet formula injection neutralize edilir
     const csv = await request(app.getHttpServer())
       .get('/v1/admin/payouts/export.csv')
       .set('Authorization', `Bearer ${ownerTok}`)
@@ -108,6 +115,7 @@ describe('payouts (entegrasyon)', () => {
     expect(csv.headers['content-type']).toContain('text/csv');
     expect(csv.text).toContain(seller.referralCode);
     expect(csv.text).toContain('1000000');
+    expect(csv.text).toContain(",'=cmd,'+payee@example.test,");
 
     // VOID: odenmis satis s2 void edilir → reversal payable NEGATIF (mahsup)
     await request(app.getHttpServer())
@@ -198,6 +206,59 @@ describe('payouts (entegrasyon)', () => {
       .set('Authorization', `Bearer ${sellerTok}`)
       .expect(200);
     expect(mine.body).toHaveLength(1);
+  });
+
+  it('admin requested payout talebini ayni satir uzerinden approve eder', async () => {
+    const { tenant, seller, owner } = await scenario();
+    const sellerTok = token({ userId: seller.userId, membershipId: seller.id, tenantId: tenant.id, role: Role.member });
+    const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
+
+    const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
+    const { EngineService } = await import('../src/engine/engine.service');
+    await new EngineService(prisma).approveSale(sale.id);
+
+    const req1 = await request(app.getHttpServer())
+      .post('/v1/app/payout-requests')
+      .set('Authorization', `Bearer ${sellerTok}`)
+      .expect(200);
+
+    const approved = await request(app.getHttpServer())
+      .post(`/v1/admin/payouts/${req1.body.id}/approve`)
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ method: 'csv' })
+      .expect(200);
+
+    expect(approved.body).toMatchObject({ paid: true, payoutId: req1.body.id, totalCents: '500000' });
+    const payout = await prisma.payout.findUniqueOrThrow({ where: { id: req1.body.id } });
+    expect(payout.status).toBe(PayoutStatus.paid);
+    expect(payout.method).toBe('csv');
+    expect(payout.paidAt).not.toBeNull();
+    expect(await prisma.ledgerEntry.count({ where: { payoutId: req1.body.id } })).toBe(1);
+  });
+
+  it('admin requested payout talebini reject edebilir', async () => {
+    const { tenant, seller, owner } = await scenario();
+    const sellerTok = token({ userId: seller.userId, membershipId: seller.id, tenantId: tenant.id, role: Role.member });
+    const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
+
+    const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
+    const { EngineService } = await import('../src/engine/engine.service');
+    await new EngineService(prisma).approveSale(sale.id);
+
+    const req1 = await request(app.getHttpServer())
+      .post('/v1/app/payout-requests')
+      .set('Authorization', `Bearer ${sellerTok}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(`/v1/admin/payouts/${req1.body.id}/reject`)
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ reason: 'missing bank details' })
+      .expect(200);
+
+    const payout = await prisma.payout.findUniqueOrThrow({ where: { id: req1.body.id } });
+    expect(payout.status).toBe(PayoutStatus.rejected);
+    expect(payout.ref).toContain('missing bank details');
   });
 
   it('staff payout goremez/calistiramaz (403)', async () => {

@@ -1,0 +1,14 @@
+# cPanel/WHM deployment override.
+# Apache owns :80/:443, so the app binds only to localhost ports and Caddy is disabled.
+services:
+  api:
+    ports:
+      - "127.0.0.1:${API_HOST_PORT:-3101}:3001"
+
+  web:
+    ports:
+      - "127.0.0.1:${WEB_HOST_PORT:-3100}:3000"
+
+  caddy:
+    profiles: !override ["disabled-on-cpanel"]
+    ports: !reset []

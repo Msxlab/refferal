@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { LedgerStatus, LedgerType } from '@prisma/client';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
+import { TenantContextService } from '../prisma/tenant-context.service';
 
 /**
  * Uye cuzdan/ozet servisleri (SPEC 8/9). GIZLILIK: alt ekip icin yalnizca AGREGAT
@@ -9,10 +10,14 @@ import { PrismaService } from '../prisma/prisma.service';
  */
 @Injectable()
 export class WalletService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantContext: TenantContextService,
+  ) {}
 
   /** Bakiye = payable toplam (odenebilir). pending ve paid ayri gosterilir. */
   async wallet(membershipId: string, q: { page: number; pageSize: number }) {
+    this.tenantContext.assertMembership(membershipId);
     const grouped = await this.prisma.ledgerEntry.groupBy({
       by: ['status'],
       where: { beneficiaryMembershipId: membershipId, status: { not: LedgerStatus.reversed } },
@@ -70,6 +75,8 @@ export class WalletService {
 
   /** Ay ozeti + seviye dokumu (pending/payable/paid). */
   async dashboard(membershipId: string, tenantId: string, month?: string) {
+    this.tenantContext.assertTenant(tenantId);
+    this.tenantContext.assertMembership(membershipId);
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const targetMonth = month ?? monthKey(new Date(), tenant.timezone);
 
@@ -104,6 +111,8 @@ export class WalletService {
    * Pencere plan derinligiyle sinirli (kayan pencere — daha derini gosterilmez).
    */
   async team(membershipId: string, tenantId: string) {
+    this.tenantContext.assertTenant(tenantId);
+    this.tenantContext.assertMembership(membershipId);
     const me = await this.prisma.membership.findFirst({
       where: { id: membershipId, tenantId },
       select: { path: true, depth: true },

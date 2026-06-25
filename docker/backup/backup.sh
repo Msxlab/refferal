@@ -8,6 +8,7 @@
 set -euo pipefail
 
 DIR=/backups
+PREFIX="${BACKUP_PREFIX:-refearn}"
 RETENTION_DAYS="${RETENTION_DAYS:-30}"
 INTERVAL="${BACKUP_INTERVAL_SECONDS:-86400}"
 MIN_KEEP="${BACKUP_MIN_KEEP:-3}"
@@ -22,7 +23,7 @@ backup_once() {
   local ts ext file part
   ts=$(date +%Y%m%d_%H%M%S)
   ext="sql.gz"; [ -n "${BACKUP_AGE_RECIPIENT:-}" ] && ext="sql.gz.age"
-  file="$DIR/refearn_${ts}.${ext}"
+  file="$DIR/${PREFIX}_${ts}.${ext}"
   part="${file}.part"
 
   if [ -n "${BACKUP_AGE_RECIPIENT:-}" ]; then
@@ -34,6 +35,10 @@ backup_once() {
   if [ ! -s "$part" ]; then rm -f "$part"; echo "[backup] HATA: bos/bozuk dump" >&2; return 1; fi
   mv "$part" "$file"
   echo "[backup] olusturuldu: $file ($(du -h "$file" | cut -f1))"
+  printf '{"file":"%s","createdAt":"%s","encrypted":%s}\n' \
+    "$(basename "$file")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "$([ -n "${BACKUP_AGE_RECIPIENT:-}" ] && echo true || echo false)" \
+    > "$DIR/latest.json"
 
   if [ -n "${BACKUP_OFFSITE_CMD:-}" ]; then
     if sh -c "$BACKUP_OFFSITE_CMD" offsite "$file"; then
@@ -45,13 +50,21 @@ backup_once() {
 
   # retention: yalniz saglam yedek sayisi MIN_KEEP'ten fazlaysa eski sil
   local count
-  count=$(find "$DIR" -maxdepth 1 -name 'refearn_*' ! -name '*.part' -type f | wc -l)
+  count=$(find "$DIR" -maxdepth 1 -name "${PREFIX}_*" ! -name '*.part' -type f | wc -l)
   if [ "$count" -gt "$MIN_KEEP" ]; then
-    find "$DIR" -maxdepth 1 -name 'refearn_*' ! -name '*.part' -type f -mtime "+${RETENTION_DAYS}" -delete
+    find "$DIR" -maxdepth 1 -name "${PREFIX}_*" ! -name '*.part' -type f -mtime "+${RETENTION_DAYS}" -delete
+  fi
+
+  if [ -n "${BACKUP_OFFSITE_RETENTION_CMD:-}" ]; then
+    if sh -c "$BACKUP_OFFSITE_RETENTION_CMD" offsite-retention "$file"; then
+      echo "[backup] offsite retention tamam"
+    else
+      alert "offsite retention basarisiz"
+    fi
   fi
 }
 
-echo "[backup] basladi; her ${INTERVAL}s, ${RETENTION_DAYS}g saklama, sifreleme=${BACKUP_AGE_RECIPIENT:+acik}, offsite=${BACKUP_OFFSITE_CMD:+acik}"
+echo "[backup] basladi; prefix=${PREFIX}, her ${INTERVAL}s, ${RETENTION_DAYS}g saklama, sifreleme=${BACKUP_AGE_RECIPIENT:+acik}, offsite=${BACKUP_OFFSITE_CMD:+acik}"
 while true; do
   if ! backup_once; then alert "yedek alinamadi (pg_dump/gzip/age zinciri hata)"; fi
   sleep "$INTERVAL"

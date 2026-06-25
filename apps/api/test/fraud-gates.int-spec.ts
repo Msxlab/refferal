@@ -6,6 +6,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { authConfig } from '../src/auth/auth.config';
 import { AccessTokenPayload } from '../src/auth/auth.types';
+import { defaultPermissionsForTier } from '../src/common/permissions';
 import { EngineService } from '../src/engine/engine.service';
 import { InvitesService } from '../src/invites/invites.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -32,7 +33,13 @@ describe('dolandiricilik kapilari (entegrasyon)', () => {
   beforeEach(async () => await truncateAll(prisma));
 
   function token(o: { userId: string; membershipId: string; tenantId: string; role: Role }): string {
-    const p: AccessTokenPayload = { sub: o.userId, mid: o.membershipId, tid: o.tenantId, role: o.role };
+    const p: AccessTokenPayload = {
+      sub: o.userId,
+      mid: o.membershipId,
+      tid: o.tenantId,
+      role: o.role,
+      perms: defaultPermissionsForTier(o.role),
+    };
     return jwt.sign(p, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
   }
 

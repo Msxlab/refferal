@@ -1,15 +1,18 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { LedgerStatus, PayoutMethod, PayoutStatus, Prisma } from '@prisma/client';
 import { EngineService } from '../engine/engine.service';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
+import { TenantContextService } from '../prisma/tenant-context.service';
 import { ActorContext } from '../common/actor';
+import { csvCell } from '../sales/csv';
 
 @Injectable()
 export class PayoutsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly engine: EngineService,
+    private readonly tenantContext: TenantContextService,
   ) {}
 
   private async currentPeriod(tenantId: string): Promise<string> {
@@ -19,6 +22,7 @@ export class PayoutsService {
 
   /** Esigi gecen (net payable >= payout_min) uyeler — admin payable listesi (SPEC 9). */
   async payable(tenantId: string) {
+    this.tenantContext.assertTenant(tenantId);
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
 
     const rows = await this.prisma.$queryRaw<
@@ -54,6 +58,7 @@ export class PayoutsService {
    * (EngineService.payoutMember) — biri atlanirsa digerleri etkilenmez.
    */
   async run(actor: ActorContext, input: { membershipIds?: string[]; period?: string; method: 'manual' | 'csv' }) {
+    this.tenantContext.assertActor(actor);
     const period = input.period ?? (await this.currentPeriod(actor.tenantId));
     const method = input.method === 'csv' ? PayoutMethod.csv : PayoutMethod.manual;
 
@@ -83,6 +88,7 @@ export class PayoutsService {
         period,
         method,
         actorUserId: actor.userId,
+        requestedPayoutId: await this.openRequestId(actor.tenantId, membershipId, period),
       });
       if (result.paid) {
         paid.push({ membershipId, payoutId: result.payoutId, totalCents: result.totalCents.toString() });
@@ -94,7 +100,69 @@ export class PayoutsService {
     return { period, method, paidCount: paid.length, skippedCount: skipped.length, paid, skipped };
   }
 
+  private async openRequestId(tenantId: string, membershipId: string, period: string): Promise<string | undefined> {
+    const request = await this.prisma.payout.findFirst({
+      where: { tenantId, membershipId, period, status: PayoutStatus.requested },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return request?.id;
+  }
+
+  async approveRequest(actor: ActorContext, payoutId: string, methodInput: 'manual' | 'csv' = 'manual') {
+    this.tenantContext.assertActor(actor);
+    const request = await this.prisma.payout.findFirst({
+      where: { id: payoutId, tenantId: actor.tenantId, status: PayoutStatus.requested },
+      select: { id: true, membershipId: true, period: true },
+    });
+    if (!request) throw new NotFoundException('acik payout talebi bulunamadi');
+    const result = await this.engine.payoutMember({
+      tenantId: actor.tenantId,
+      membershipId: request.membershipId,
+      period: request.period,
+      method: methodInput === 'csv' ? PayoutMethod.csv : PayoutMethod.manual,
+      actorUserId: actor.userId,
+      requestedPayoutId: request.id,
+    });
+    return result.paid
+      ? {
+          paid: true as const,
+          payoutId: result.payoutId,
+          totalCents: result.totalCents.toString(),
+          entryCount: result.entryCount,
+        }
+      : {
+          paid: false as const,
+          reason: result.reason,
+          netCents: result.netCents.toString(),
+        };
+  }
+
+  async rejectRequest(actor: ActorContext, payoutId: string, reason?: string) {
+    this.tenantContext.assertActor(actor);
+    const updated = await this.prisma.payout.updateMany({
+      where: { id: payoutId, tenantId: actor.tenantId, status: PayoutStatus.requested },
+      data: {
+        status: PayoutStatus.rejected,
+        ref: reason ? reason.slice(0, 180) : null,
+      },
+    });
+    if (updated.count === 0) throw new NotFoundException('acik payout talebi bulunamadi');
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId: actor.tenantId,
+        actorUserId: actor.userId,
+        action: 'payout.rejected',
+        entity: 'payout',
+        entityId: payoutId,
+        after: { reason: reason ?? null },
+      },
+    });
+    return { ok: true as const };
+  }
+
   async list(tenantId: string, q: { status?: PayoutStatus; period?: string; page: number; pageSize: number }) {
+    this.tenantContext.assertTenant(tenantId);
     const where: Prisma.PayoutWhereInput = { tenantId, status: q.status, period: q.period };
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.payout.count({ where }),
@@ -127,6 +195,7 @@ export class PayoutsService {
 
   /** Banka CSV exportu (SPEC 9): odenmis payout'lar. */
   async exportCsv(tenantId: string, period?: string): Promise<string> {
+    this.tenantContext.assertTenant(tenantId);
     const payouts = await this.prisma.payout.findMany({
       where: { tenantId, status: PayoutStatus.paid, period },
       orderBy: { paidAt: 'asc' },
@@ -137,14 +206,14 @@ export class PayoutsService {
     const lines = payouts.map((p) => {
       const amount = (Number(p.totalCents) / 100).toFixed(2);
       return [
-        p.id,
-        p.period,
-        p.membership.referralCode,
+        csvCell(p.id),
+        csvCell(p.period),
+        csvCell(p.membership.referralCode),
         csvCell(p.membership.user.fullName),
-        p.membership.user.email,
-        p.totalCents.toString(),
-        amount,
-        p.paidAt?.toISOString() ?? '',
+        csvCell(p.membership.user.email),
+        csvCell(p.totalCents.toString()),
+        csvCell(amount),
+        csvCell(p.paidAt?.toISOString() ?? ''),
       ].join(',');
     });
     return [header, ...lines].join('\n') + '\n';
@@ -152,6 +221,8 @@ export class PayoutsService {
 
   /** Uye payout talebi (SPEC 8): net payable >= esik ise 'requested' kayit. */
   async requestPayout(membershipId: string, tenantId: string) {
+    this.tenantContext.assertTenant(tenantId);
+    this.tenantContext.assertMembership(membershipId);
     // Dolandiricilik kapisi: dogrulanmamis (sybil) hesap kazanc cekemesin.
     const membership = await this.prisma.membership.findFirst({
       where: { id: membershipId, tenantId },
@@ -182,7 +253,11 @@ export class PayoutsService {
       where: { tenantId, membershipId, period, status: PayoutStatus.requested },
     });
     if (existing) {
-      return { id: existing.id, status: existing.status, period, requestedCents: existing.totalCents.toString() };
+      const updated = await this.prisma.payout.update({
+        where: { id: existing.id },
+        data: { totalCents: net },
+      });
+      return { id: updated.id, status: updated.status, period, requestedCents: updated.totalCents.toString() };
     }
 
     const payout = await this.prisma.payout.create({
@@ -199,6 +274,7 @@ export class PayoutsService {
   }
 
   async listMine(membershipId: string) {
+    this.tenantContext.assertMembership(membershipId);
     const rows = await this.prisma.payout.findMany({
       where: { membershipId },
       orderBy: { createdAt: 'desc' },
@@ -213,12 +289,4 @@ export class PayoutsService {
       paidAt: p.paidAt,
     }));
   }
-}
-
-/** CSV hucresi: virgul/tirnak/yeni satir varsa tirnakla ve "" kacisla. */
-function csvCell(value: string): string {
-  if (/[",\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
 }

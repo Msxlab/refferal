@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { login } from '@/lib/api';
+import { isMfaChallenge, login, loginMfa } from '@/lib/api';
 import { landingForSession, setSession } from '@/lib/auth';
 import { Brand } from '@/components/ui';
 import { t } from '@/lib/i18n';
@@ -11,6 +11,8 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [mfaCode, setMfaCode] = useState('');
+  const [challengeToken, setChallengeToken] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -19,7 +21,13 @@ export default function LoginPage() {
     setError('');
     setBusy(true);
     try {
-      const session = await login(email.trim(), password);
+      const session = challengeToken ? await loginMfa(challengeToken, mfaCode) : await login(email.trim(), password);
+      if (isMfaChallenge(session)) {
+        setChallengeToken(session.challengeToken);
+        setMfaCode('');
+        setBusy(false);
+        return;
+      }
       if (!session.user.isPlatformAdmin && session.memberships.length === 0) {
         setError('This account has no active membership.');
         setBusy(false);
@@ -51,6 +59,12 @@ export default function LoginPage() {
             <label>{t('login.password')}</label>
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" />
           </div>
+          {challengeToken && (
+            <div className="field">
+              <label>Authenticator or recovery code</label>
+              <input value={mfaCode} onChange={(e) => setMfaCode(e.target.value)} required autoFocus inputMode="numeric" placeholder="123456" />
+            </div>
+          )}
           {error && <div className="error">{error}</div>}
           <button className="btn block" style={{ marginTop: 6 }} disabled={busy}>
             {busy ? t('common.loading') : t('login.submit')} {!busy && <span>→</span>}

@@ -25,6 +25,8 @@ pnpm dev:web                                    # Admin web → http://localhost
 Demo giriş (seed): `owner@oppein.test` / `Refearn-Demo-2026!`. Portlar bu makinede
 kaydırıldı (Postgres 5434, Redis 6380, API 3101) — bkz. docs/DECISIONS.md.
 
+Port note: `apps/api/src/main.ts` defaults to `3001` when `PORT` is unset; local development uses `PORT=3101` from `.env` / `apps/api/.env.example`.
+
 ### Mobil (Expo)
 
 ```bash

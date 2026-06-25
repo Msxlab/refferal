@@ -1,7 +1,11 @@
+import type { ComponentType, PropsWithChildren } from 'react';
 import { Tabs } from 'expo-router';
 import { Text } from 'react-native';
 import { colors } from '@/theme';
 import { t } from '@/lib/i18n';
+
+const TabsNavigator = Tabs as unknown as ComponentType<PropsWithChildren<Record<string, unknown>>>;
+const TabsScreen = Tabs.Screen as unknown as ComponentType<Record<string, unknown>>;
 
 function Icon({ glyph, color }: { glyph: string; color: string }) {
   return <Text style={{ fontSize: 17, color }}>{glyph}</Text>;
@@ -9,7 +13,7 @@ function Icon({ glyph, color }: { glyph: string; color: string }) {
 
 export default function TabsLayout() {
   return (
-    <Tabs
+    <TabsNavigator
       screenOptions={{
         headerShown: false,
         sceneStyle: { backgroundColor: colors.bg0 },
@@ -21,22 +25,22 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: colors.faint,
       }}
     >
-      <Tabs.Screen
+      <TabsScreen
         name="index"
-        options={{ title: t('tab.home'), tabBarIcon: ({ color }) => <Icon glyph="◈" color={color} /> }}
+        options={{ title: t('tab.home'), tabBarIcon: ({ color }: { color: string }) => <Icon glyph="o" color={color} /> }}
       />
-      <Tabs.Screen
+      <TabsScreen
         name="wallet"
-        options={{ title: t('tab.wallet'), tabBarIcon: ({ color }) => <Icon glyph="◇" color={color} /> }}
+        options={{ title: t('tab.wallet'), tabBarIcon: ({ color }: { color: string }) => <Icon glyph="$" color={color} /> }}
       />
-      <Tabs.Screen
+      <TabsScreen
         name="team"
-        options={{ title: t('tab.team'), tabBarIcon: ({ color }) => <Icon glyph="⬡" color={color} /> }}
+        options={{ title: t('tab.team'), tabBarIcon: ({ color }: { color: string }) => <Icon glyph="+" color={color} /> }}
       />
-      <Tabs.Screen
+      <TabsScreen
         name="invite"
-        options={{ title: t('tab.invite'), tabBarIcon: ({ color }) => <Icon glyph="✦" color={color} /> }}
+        options={{ title: t('tab.invite'), tabBarIcon: ({ color }: { color: string }) => <Icon glyph="*" color={color} /> }}
       />
-    </Tabs>
+    </TabsNavigator>
   );
 }

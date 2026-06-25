@@ -1,12 +1,18 @@
-import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { ZodValidationPipe } from '../common/zod.pipe';
-import { Public } from './auth.guard';
+import { MfaExempt, Public } from './auth.guard';
+import { CurrentUser } from './auth.guard';
+import { RequestUser } from './auth.types';
 import { AuthService, RequestMeta } from './auth.service';
 import {
+  loginMfaSchema,
+  LoginMfaInput,
   loginSchema,
   LoginInput,
+  mfaCodeSchema,
+  MfaCodeInput,
   passwordResetConfirmSchema,
   PasswordResetConfirmInput,
   passwordResetRequestSchema,
@@ -46,6 +52,12 @@ export class AuthController {
   }
 
   @HttpCode(200)
+  @Post('login/2fa')
+  loginMfa(@Body(new ZodValidationPipe(loginMfaSchema)) body: LoginMfaInput, @Req() req: Request) {
+    return this.auth.completeLoginMfa(body.challengeToken, body.code, meta(req));
+  }
+
+  @HttpCode(200)
   @Post('refresh')
   refresh(@Body(new ZodValidationPipe(refreshSchema)) body: RefreshInput, @Req() req: Request) {
     return this.auth.refresh(body.refreshToken, meta(req));
@@ -73,5 +85,56 @@ export class AuthController {
   @Post('password-reset/confirm')
   confirmReset(@Body(new ZodValidationPipe(passwordResetConfirmSchema)) body: PasswordResetConfirmInput) {
     return this.auth.confirmPasswordReset(body.token, body.newPassword);
+  }
+}
+
+@MfaExempt()
+@Controller('auth/2fa')
+export class MfaController {
+  constructor(private readonly auth: AuthService) {}
+
+  @Get('status')
+  status(@CurrentUser() user: RequestUser) {
+    return this.auth.mfaStatus(user.sub);
+  }
+
+  @HttpCode(200)
+  @Post('setup')
+  setup(@CurrentUser() user: RequestUser) {
+    return this.auth.setupMfa(user.sub);
+  }
+
+  @HttpCode(200)
+  @Post('enable')
+  enable(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(mfaCodeSchema)) body: MfaCodeInput) {
+    return this.auth.enableMfa(user.sub, body.code);
+  }
+
+  @HttpCode(200)
+  @Post('disable')
+  disable(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(mfaCodeSchema)) body: MfaCodeInput) {
+    return this.auth.disableMfa(user.sub, body.code);
+  }
+}
+
+@Controller('auth/sessions')
+export class SessionsController {
+  constructor(private readonly auth: AuthService) {}
+
+  @Get()
+  list(@CurrentUser() user: RequestUser) {
+    return this.auth.listSessions(user.sub);
+  }
+
+  @HttpCode(200)
+  @Delete(':id')
+  revoke(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.auth.revokeSession(user.sub, id);
+  }
+
+  @HttpCode(200)
+  @Post('revoke-all')
+  revokeAll(@CurrentUser() user: RequestUser) {
+    return this.auth.revokeAllSessions(user.sub);
   }
 }

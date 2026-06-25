@@ -5,7 +5,8 @@
 set -euo pipefail
 
 DIR=/backups
-latest=$(find "$DIR" -maxdepth 1 -name 'refearn_*' ! -name '*.part' -type f -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)
+PREFIX="${BACKUP_PREFIX:-refearn}"
+latest=$(find "$DIR" -maxdepth 1 -name "${PREFIX}_*" ! -name '*.part' -type f -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)
 [ -z "$latest" ] && { echo "yedek bulunamadi"; exit 1; }
 echo "[restore-test] en son yedek: $latest"
 

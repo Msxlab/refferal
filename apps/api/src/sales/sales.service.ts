@@ -3,6 +3,7 @@ import { MembershipStatus, Prisma, SaleStatus } from '@prisma/client';
 import { ActorContext } from '../common/actor';
 import { EngineService } from '../engine/engine.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { TenantContextService } from '../prisma/tenant-context.service';
 import { parseCsv } from './csv';
 import { CreateSaleInput, ImportMapping, ListSalesInput } from './sales.types';
 
@@ -11,6 +12,7 @@ export class SalesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly engine: EngineService,
+    private readonly tenantContext: TenantContextService,
   ) {}
 
   /** Satici uyeligini tenant icinde cozer (id veya referral kod). */
@@ -31,27 +33,33 @@ export class SalesService {
   }
 
   async create(actor: ActorContext, input: CreateSaleInput) {
+    this.tenantContext.assertActor(actor);
+    if (input.externalRef) {
+      const existing = await this.findByExternalRef(actor.tenantId, input.externalRef);
+      if (existing) return this.serialize(existing);
+    }
     const seller = await this.resolveSeller(actor.tenantId, input);
     if (seller.status !== MembershipStatus.active) {
       throw new BadRequestException('pasif uye adina satis girilemez');
     }
-    const sale = await this.prisma.sale.create({
-      data: {
-        tenantId: actor.tenantId,
-        sellerMembershipId: seller.id,
-        amountCents: BigInt(input.amountCents),
-        saleDate: input.saleDate ?? new Date(),
-        customerRef: input.customerRef,
-        externalRef: input.externalRef,
-        createdBy: actor.userId, // gorevler ayrimi: onaylayan bu kisi olamaz
-        status: SaleStatus.draft,
-      },
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({
+      where: { id: actor.tenantId },
+      select: { currency: true },
+    });
+    const sale = await this.createDraftSale(actor, {
+      sellerMembershipId: seller.id,
+      amountCents: BigInt(input.amountCents),
+      currency: tenant.currency,
+      saleDate: input.saleDate ?? new Date(),
+      customerRef: input.customerRef,
+      externalRef: input.externalRef,
     });
     await this.audit(actor, 'sale.create', sale.id, { amountCents: sale.amountCents.toString() });
     return this.serialize(sale);
   }
 
   async list(actor: ActorContext, q: ListSalesInput) {
+    this.tenantContext.assertActor(actor);
     const where: Prisma.SaleWhereInput = { tenantId: actor.tenantId, status: q.status };
 
     // tarih araligi
@@ -100,22 +108,26 @@ export class SalesService {
 
   /** Tenant'a ait oldugunu dogrula, sonra motoru tetikle (idempotent). */
   async approve(actor: ActorContext, saleId: string) {
+    this.tenantContext.assertActor(actor);
     await this.assertInTenant(actor.tenantId, saleId);
     return this.engine.approveSale(saleId, actor.userId);
   }
 
   async void(actor: ActorContext, saleId: string) {
+    this.tenantContext.assertActor(actor);
     await this.assertInTenant(actor.tenantId, saleId);
     return this.engine.voidSale(saleId, actor.userId);
   }
 
   async deliver(actor: ActorContext, saleId: string, deliveredAt?: Date) {
+    this.tenantContext.assertActor(actor);
     await this.assertInTenant(actor.tenantId, saleId);
     return this.engine.markDelivered(saleId, deliveredAt);
   }
 
   /** Toplu approve/void: her satis kendi transaction'inda; tek tek hata toplanir (kismi basari). */
   async bulk(actor: ActorContext, action: 'approve' | 'void', ids: string[]) {
+    this.tenantContext.assertActor(actor);
     const succeeded: string[] = [];
     const failed: Array<{ id: string; reason: string }> = [];
     for (const id of ids) {
@@ -132,6 +144,7 @@ export class SalesService {
 
   /** Satis detayi (cekmece): satici + bu satisin komisyon dokumu (ledger, seviye/lehdar). */
   async detail(actor: ActorContext, saleId: string) {
+    this.tenantContext.assertActor(actor);
     const sale = await this.prisma.sale.findFirst({
       where: { id: saleId, tenantId: actor.tenantId },
       include: {
@@ -170,6 +183,7 @@ export class SalesService {
    * preview=true ise HICBIR SEY yazilmaz; her satir icin dogrulama + cozulen satici donulur.
    */
   async importCsv(actor: ActorContext, csv: string, mapping?: ImportMapping, preview = false) {
+    this.tenantContext.assertActor(actor);
     const rows = parseCsv(csv);
     if (rows.length < 2) {
       throw new BadRequestException('CSV bos veya yalnizca baslik iceriyor');
@@ -191,11 +205,16 @@ export class SalesService {
     }
 
     const created: string[] = [];
+    const skipped: Array<{ line: number; reason: string; saleId?: string }> = [];
     const errors: Array<{ line: number; reason: string }> = [];
     const previewRows: Array<{
       line: number; ok: boolean; code: string; amountCents?: string; saleDate?: string;
       customerRef?: string; sellerName?: string; reason?: string;
     }> = [];
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({
+      where: { id: actor.tenantId },
+      select: { currency: true },
+    });
 
     for (let r = 1; r < rows.length; r++) {
       const cells = rows[r];
@@ -218,26 +237,29 @@ export class SalesService {
         if (Number.isNaN(saleDate.getTime())) throw new Error('gecersiz sale_date');
         const customerRef = idx.customer >= 0 ? cells[idx.customer]?.trim() || undefined : undefined;
         const externalRef = idx.external >= 0 ? cells[idx.external]?.trim() || undefined : undefined;
+        const existing = externalRef ? await this.findByExternalRef(actor.tenantId, externalRef) : null;
 
         if (preview) {
           previewRows.push({
             line: r + 1, ok: true, code, amountCents: String(amount),
             saleDate: saleDate.toISOString(), customerRef, sellerName: sellerInfo?.user.fullName,
+            reason: existing ? 'external_ref already exists' : undefined,
           });
           continue;
         }
 
-        const sale = await this.prisma.sale.create({
-          data: {
-            tenantId: actor.tenantId,
-            sellerMembershipId: seller.id,
-            amountCents: BigInt(amount),
-            saleDate,
-            customerRef,
-            externalRef,
-            createdBy: actor.userId,
-            status: SaleStatus.draft,
-          },
+        if (existing) {
+          skipped.push({ line: r + 1, reason: 'external_ref already exists', saleId: existing.id });
+          continue;
+        }
+
+        const sale = await this.createDraftSale(actor, {
+          sellerMembershipId: seller.id,
+          amountCents: BigInt(amount),
+          currency: tenant.currency,
+          saleDate,
+          customerRef,
+          externalRef,
         });
         created.push(sale.id);
       } catch (e) {
@@ -256,8 +278,46 @@ export class SalesService {
       };
     }
 
-    await this.audit(actor, 'sale.import', undefined, { created: created.length, errors: errors.length });
-    return { created: created.length, errors };
+    await this.audit(actor, 'sale.import', undefined, { created: created.length, skipped: skipped.length, errors: errors.length });
+    return { created: created.length, skipped, errors };
+  }
+
+  private async findByExternalRef(tenantId: string, externalRef: string) {
+    return this.prisma.sale.findFirst({ where: { tenantId, externalRef } });
+  }
+
+  private async createDraftSale(
+    actor: ActorContext,
+    input: {
+      sellerMembershipId: string;
+      amountCents: bigint;
+      currency: string;
+      saleDate: Date;
+      customerRef?: string;
+      externalRef?: string;
+    },
+  ) {
+    try {
+      return await this.prisma.sale.create({
+        data: {
+          tenantId: actor.tenantId,
+          sellerMembershipId: input.sellerMembershipId,
+          amountCents: input.amountCents,
+          currency: input.currency,
+          saleDate: input.saleDate,
+          customerRef: input.customerRef,
+          externalRef: input.externalRef,
+          createdBy: actor.userId,
+          status: SaleStatus.draft,
+        },
+      });
+    } catch (e) {
+      if (input.externalRef && e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const existing = await this.findByExternalRef(actor.tenantId, input.externalRef);
+        if (existing) return existing;
+      }
+      throw e;
+    }
   }
 
   private async assertInTenant(tenantId: string, saleId: string): Promise<void> {

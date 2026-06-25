@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { login } from '@/lib/api';
+import { isMfaChallenge, login, loginMfa } from '@/lib/api';
 import { saveSession } from '@/lib/auth';
 import { registerPushToken } from '@/lib/push';
 import { Button, Card, ErrorText, Field, MutedText } from '@/components/ui';
@@ -12,6 +12,8 @@ export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [mfaCode, setMfaCode] = useState('');
+  const [challengeToken, setChallengeToken] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -19,7 +21,14 @@ export default function LoginScreen() {
     setError('');
     setBusy(true);
     try {
-      const session = await login(email.trim().toLowerCase(), password);
+      const session = challengeToken
+        ? await loginMfa(challengeToken, mfaCode)
+        : await login(email.trim().toLowerCase(), password);
+      if (isMfaChallenge(session)) {
+        setChallengeToken(session.challengeToken);
+        setMfaCode('');
+        return;
+      }
       if (session.memberships.length === 0) {
         setError('Bu hesabin aktif uyeligi yok.');
         return;
@@ -68,6 +77,15 @@ export default function LoginScreen() {
             secureTextEntry
             placeholder="••••••••"
           />
+          {challengeToken ? (
+            <Field
+              label="Authenticator or recovery code"
+              value={mfaCode}
+              onChangeText={setMfaCode}
+              autoCapitalize="characters"
+              placeholder="123456"
+            />
+          ) : null}
           {error ? <ErrorText>{error}</ErrorText> : null}
           <Button title={busy ? t('common.loading') : t('login.submit')} onPress={onSubmit} busy={busy} />
         </Card>

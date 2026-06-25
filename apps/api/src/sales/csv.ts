@@ -44,3 +44,15 @@ export function parseCsv(text: string): string[][] {
   // tamamen bos satirlari ele
   return rows.filter((r) => r.some((cell) => cell.trim() !== ''));
 }
+
+/** Spreadsheet formula injection guard for CSV exports. */
+export function csvCell(value: string | number | bigint | null | undefined): string {
+  let text = String(value ?? '');
+  if (/^[=+\-@]/.test(text)) {
+    text = `'${text}`;
+  }
+  if (/[",\n\r]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}

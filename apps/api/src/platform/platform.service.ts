@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { MembershipStatus, SaleStatus } from '@prisma/client';
+import { MembershipStatus, SaleStatus, TenantStatus } from '@prisma/client';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -116,5 +116,35 @@ export class PlatformService {
       status: m.status,
       depth: m.depth,
     }));
+  }
+
+  async setStatus(id: string, status: TenantStatus, actorUserId: string, reason?: string) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id } });
+    if (!tenant) throw new NotFoundException('sirket bulunamadi');
+    if (tenant.status === status) return { id, status, revokedSessions: 0 };
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.tenant.update({ where: { id }, data: { status } });
+      const users = await tx.membership.findMany({ where: { tenantId: id }, select: { userId: true } });
+      const revoked =
+        status === TenantStatus.suspended
+          ? await tx.refreshToken.updateMany({
+              where: { userId: { in: [...new Set(users.map((u) => u.userId))] }, revokedAt: null },
+              data: { revokedAt: new Date() },
+            })
+          : { count: 0 };
+      await tx.auditLog.create({
+        data: {
+          tenantId: id,
+          actorUserId,
+          action: status === TenantStatus.suspended ? 'tenant.suspend' : 'tenant.reactivate',
+          entity: 'tenant',
+          entityId: id,
+          before: { status: tenant.status },
+          after: { status: updated.status, reason: reason ?? null, revokedSessions: revoked.count },
+        },
+      });
+      return { id, status: updated.status, revokedSessions: revoked.count };
+    });
   }
 }

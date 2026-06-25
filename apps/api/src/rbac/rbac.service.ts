@@ -16,13 +16,17 @@ import {
   defaultPermissionsForTier,
 } from '../common/permissions';
 import { PrismaService } from '../prisma/prisma.service';
+import { TenantContextService } from '../prisma/tenant-context.service';
 import { AssignRoleInput, CreateRoleInput, UpdateRoleInput } from './rbac.types';
 
 @Injectable()
 export class RbacService implements OnModuleInit {
   private readonly logger = new Logger(RbacService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantContext: TenantContextService,
+  ) {}
 
   /** Acilista: tum kiraccilarda sistem rolleri var et + bos role_id'leri katmandan geri-doldur. */
   async onModuleInit(): Promise<void> {
@@ -84,6 +88,7 @@ export class RbacService implements OnModuleInit {
   // ----------------------------------------------------------------- roller
 
   async listRoles(tenantId: string) {
+    this.tenantContext.assertTenant(tenantId);
     const roles = await this.prisma.tenantRole.findMany({
       where: { tenantId },
       orderBy: [{ isSystem: 'desc' }, { name: 'asc' }],
@@ -113,6 +118,7 @@ export class RbacService implements OnModuleInit {
   }
 
   async createRole(actor: ActorContext, input: CreateRoleInput, actorPerms: string[]) {
+    this.tenantContext.assertActor(actor);
     this.assertGrantable(actorPerms, input.permissions);
     const key = await this.uniqueKey(actor.tenantId, input.name);
     const role = await this.prisma.tenantRole.create({
@@ -134,6 +140,7 @@ export class RbacService implements OnModuleInit {
   }
 
   async updateRole(actor: ActorContext, roleId: string, input: UpdateRoleInput, actorPerms: string[]) {
+    this.tenantContext.assertActor(actor);
     if (input.permissions) this.assertGrantable(actorPerms, input.permissions);
     const role = await this.prisma.tenantRole.findFirst({
       where: { id: roleId, tenantId: actor.tenantId },
@@ -162,6 +169,7 @@ export class RbacService implements OnModuleInit {
   }
 
   async deleteRole(actor: ActorContext, roleId: string) {
+    this.tenantContext.assertActor(actor);
     const role = await this.prisma.tenantRole.findFirst({
       where: { id: roleId, tenantId: actor.tenantId },
       include: { _count: { select: { memberships: true } } },
@@ -180,6 +188,7 @@ export class RbacService implements OnModuleInit {
 
   /** Yonetim yuzeyi kullanicilari (member olmayan + ozel rol atanmis dahil degil). */
   async listPeople(tenantId: string) {
+    this.tenantContext.assertTenant(tenantId);
     const people = await this.prisma.membership.findMany({
       where: { tenantId },
       include: {
@@ -210,6 +219,7 @@ export class RbacService implements OnModuleInit {
     actorPerms: string[],
     actorMembershipId: string | null,
   ) {
+    this.tenantContext.assertActor(actor);
     // gorevler ayrimi: kendi rolunu/iznini bu ekrandan degistiremezsin (self-escalation onleme)
     if (actorMembershipId && membershipId === actorMembershipId) {
       throw new ForbiddenException('kendi rolunuzu bu ekrandan degistiremezsiniz');
@@ -229,12 +239,32 @@ export class RbacService implements OnModuleInit {
       // tavan: sahip olmadigin izinleri tasiyan bir rolu baskasina da atayamazsin
       this.assertGrantable(actorPerms, role.permissions);
     }
+    if (input.tier && input.tier !== Role.member) {
+      this.assertGrantable(actorPerms, defaultPermissionsForTier(input.tier));
+    }
+
+    const nextTier = (input.tier ?? m.role) as Role;
+    let nextRoleId: string | null | undefined =
+      input.roleId === undefined ? undefined : input.roleId;
+    if (nextTier === Role.member) {
+      nextRoleId = null;
+    } else if (input.tier !== undefined && input.roleId === undefined) {
+      const key = TIER_TO_SYSTEM_ROLE[nextTier];
+      if (key) {
+        const systemRole = await this.prisma.tenantRole.findUnique({
+          where: { tenantId_key: { tenantId: actor.tenantId, key } },
+          select: { id: true },
+        });
+        nextRoleId = systemRole?.id ?? null;
+      }
+    }
+
     const before = { tier: m.role, roleId: m.roleId };
     const updated = await this.prisma.membership.update({
       where: { id: membershipId },
       data: {
         role: input.tier ?? undefined,
-        roleId: input.roleId === undefined ? undefined : input.roleId,
+        roleId: nextRoleId,
       },
     });
     await this.audit(actor, 'membership.assign_role', membershipId, before, {
@@ -255,7 +285,10 @@ export class RbacService implements OnModuleInit {
       // guard owner/platform'u zaten gecirir; yine de tutarlilik icin tam kume
       return defaultPermissionsForTier(membership.role);
     }
-    return membership.roleRefPermissions ?? defaultPermissionsForTier(membership.role);
+    if (membership.role === Role.tenant_admin || membership.role === Role.tenant_staff) {
+      return membership.roleRefPermissions ?? defaultPermissionsForTier(membership.role);
+    }
+    return defaultPermissionsForTier(membership.role);
   }
 
   private async uniqueKey(tenantId: string, name: string): Promise<string> {

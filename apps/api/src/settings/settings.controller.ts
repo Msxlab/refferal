@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Patch } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Patch } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { z } from 'zod';
-import { CurrentUser, RequireMembership, Roles } from '../auth/auth.guard';
+import { CurrentUser, RequireMembership, RequirePermission, Roles } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
 import { ActorContext } from '../common/actor';
 import { ZodValidationPipe } from '../common/zod.pipe';
@@ -35,15 +35,50 @@ type UpdateBody = z.infer<typeof updateSchema>;
 export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
 
+  private assertSettingsPermissions(user: RequestUser, body: UpdateBody): void {
+    if (user.role === Role.tenant_owner || user.role === Role.platform_admin) return;
+
+    const needed = new Set<string>();
+    if (
+      body.maturationRule !== undefined ||
+      body.maturationDays !== undefined ||
+      body.timezone !== undefined ||
+      body.compressionEnabled !== undefined ||
+      body.inactiveMembersEarn !== undefined
+    ) {
+      needed.add('settings.general');
+    }
+    if (body.payoutMinCents !== undefined) needed.add('settings.payments');
+    if (body.notifyNewMemberName !== undefined) needed.add('settings.notifications');
+    if (body.requireSeparateApprover !== undefined) needed.add('settings.security');
+    if (body.branding !== undefined) needed.add('settings.branding');
+
+    const held = new Set(user.perms ?? []);
+    const missing = [...needed].filter((p) => !held.has(p));
+    if (missing.length > 0) {
+      throw new ForbiddenException(`bu islem icin yetkiniz yok: ${missing.join(', ')}`);
+    }
+  }
+
   @Roles(...STAFF)
+  @RequirePermission('settings.view')
   @Get()
   get(@CurrentUser() user: RequestUser) {
     return this.settings.get(user.tid as string);
   }
 
   @Roles(...ADMIN)
+  @RequirePermission('settings.data')
+  @Get('data-status')
+  dataStatus(@CurrentUser() user: RequestUser) {
+    return this.settings.dataStatus(user.tid as string);
+  }
+
+  @Roles(...ADMIN)
+  @RequirePermission('settings.view')
   @Patch()
   update(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(updateSchema)) body: UpdateBody) {
+    this.assertSettingsPermissions(user, body);
     const actor: ActorContext = { userId: user.sub, tenantId: user.tid as string };
     const input: UpdateSettingsInput = {
       ...body,

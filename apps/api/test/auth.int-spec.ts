@@ -4,6 +4,8 @@ import { InviteStatus, MembershipStatus } from '@prisma/client';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { authConfig } from '../src/auth/auth.config';
+import { totpCode } from '../src/auth/mfa';
+import { decryptSecret } from '../src/common/crypto';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createChain, createPlan, createTenant, truncateAll } from './helpers';
 
@@ -174,6 +176,46 @@ describe('auth + davet akisi (entegrasyon)', () => {
       .expect(401);
   });
 
+  it('2FA: setup/enable sonrasi login challenge ister ve TOTP ile session verir', async () => {
+    const { invite } = await setupTenantWithInvite();
+    const reg = await request(app.getHttpServer())
+      .post('/v1/auth/register-by-invite')
+      .send(registerBody(invite))
+      .expect(201);
+    const auth = { Authorization: `Bearer ${reg.body.accessToken}` };
+
+    const setup = await request(app.getHttpServer()).post('/v1/auth/2fa/setup').set(auth).expect(200);
+    expect(setup.body.secret).toBeDefined();
+    expect(setup.body.otpauthUrl).toContain('otpauth://totp/');
+
+    const code = totpCode(setup.body.secret);
+    const enabled = await request(app.getHttpServer())
+      .post('/v1/auth/2fa/enable')
+      .set(auth)
+      .send({ code })
+      .expect(200);
+    expect(enabled.body.recoveryCodes).toHaveLength(8);
+
+    const challenge = await request(app.getHttpServer())
+      .post('/v1/auth/login')
+      .send({ email: 'yeni@uye.test', password: PASSWORD })
+      .expect(200);
+    expect(challenge.body.mfaRequired).toBe(true);
+    expect(challenge.body.challengeToken).toBeDefined();
+
+    await request(app.getHttpServer())
+      .post('/v1/auth/login/2fa')
+      .send({ challengeToken: challenge.body.challengeToken, code: '000000' })
+      .expect(401);
+
+    const session = await request(app.getHttpServer())
+      .post('/v1/auth/login/2fa')
+      .send({ challengeToken: challenge.body.challengeToken, code: totpCode(setup.body.secret) })
+      .expect(200);
+    expect(session.body.accessToken).toBeDefined();
+    expect(session.body.activeMembershipId).toBe(reg.body.activeMembershipId);
+  });
+
   it('korumali rotalar tokensiz 401; davet olustur/listele calisir', async () => {
     const { invite } = await setupTenantWithInvite();
     await request(app.getHttpServer()).get('/v1/app/invites').expect(401);
@@ -320,7 +362,7 @@ describe('auth + davet akisi (entegrasyon)', () => {
       .expect(409);
   });
 
-  it('e-posta dogrulama: token outbox`a yazilir ve dogrulama calisir', async () => {
+  it('e-posta dogrulama: token outbox`ta encrypted tutulur ve dogrulama calisir', async () => {
     const { invite } = await setupTenantWithInvite();
     await request(app.getHttpServer())
       .post('/v1/auth/register-by-invite')
@@ -330,7 +372,9 @@ describe('auth + davet akisi (entegrasyon)', () => {
     const notif = await prisma.notification.findFirstOrThrow({
       where: { template: 'verify_email' },
     });
-    const token = (notif.payload as { token: string }).token;
+    const payload = notif.payload as { token?: string; tokenCiphertext: string };
+    expect(payload.token).toBeUndefined();
+    const token = decryptSecret(payload.tokenCiphertext, authConfig.accessSecret());
 
     await request(app.getHttpServer()).post('/v1/auth/verify-email').send({ token }).expect(200);
 
@@ -361,7 +405,9 @@ describe('auth + davet akisi (entegrasyon)', () => {
     const notif = await prisma.notification.findFirstOrThrow({
       where: { template: 'password_reset' },
     });
-    const token = (notif.payload as { token: string }).token;
+    const payload = notif.payload as { token?: string; tokenCiphertext: string };
+    expect(payload.token).toBeUndefined();
+    const token = decryptSecret(payload.tokenCiphertext, authConfig.accessSecret());
 
     const newPassword = 'Yepyeni-Sifre-2026!';
     await request(app.getHttpServer())

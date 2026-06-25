@@ -23,8 +23,12 @@ export interface PushMessage {
   data?: Record<string, unknown>;
 }
 
+export interface PushResult {
+  invalidTokens?: string[];
+}
+
 export interface PushAdapter {
-  send(msg: PushMessage): Promise<void>;
+  send(msg: PushMessage): Promise<PushResult | void>;
 }
 
 /**
@@ -118,16 +122,16 @@ export function createEmailAdapter(): EmailAdapter {
   return new SmtpEmailAdapter();
 }
 
-/** Expo Push; token yoksa no-op. Gecersiz token'lari yutar (best-effort). */
+/** Expo Push; token yoksa no-op. Kalici gecersiz token'lari raporlar. */
 export class ExpoPushAdapter implements PushAdapter {
   private readonly logger = new Logger('PushAdapter');
   private readonly expo = new Expo();
 
-  async send(msg: PushMessage): Promise<void> {
+  async send(msg: PushMessage): Promise<PushResult> {
     const valid = msg.tokens.filter((tok) => Expo.isExpoPushToken(tok));
     if (valid.length === 0) {
       this.logger.debug(`[push] gecerli token yok (${msg.title})`);
-      return;
+      return {};
     }
     const messages: ExpoPushMessage[] = valid.map((to) => ({
       to,
@@ -137,8 +141,19 @@ export class ExpoPushAdapter implements PushAdapter {
       sound: 'default',
     }));
     const chunks = this.expo.chunkPushNotifications(messages);
+    const invalidTokens: string[] = [];
     for (const chunk of chunks) {
-      await this.expo.sendPushNotificationsAsync(chunk);
+      const tickets = await this.expo.sendPushNotificationsAsync(chunk);
+      tickets.forEach((ticket, index) => {
+        if (
+          ticket.status === 'error' &&
+          ticket.details?.error === 'DeviceNotRegistered' &&
+          typeof chunk[index]?.to === 'string'
+        ) {
+          invalidTokens.push(chunk[index].to as string);
+        }
+      });
     }
+    return { invalidTokens };
   }
 }

@@ -19,7 +19,7 @@ import {
   User,
   UserTokenPurpose,
 } from '@prisma/client';
-import { randomToken, sha256 } from '../common/crypto';
+import { encryptSecret, randomToken, sha256 } from '../common/crypto';
 import { defaultPermissionsForTier } from '../common/permissions';
 import { MembershipsService } from '../memberships/memberships.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -28,9 +28,19 @@ import {
   AccessTokenPayload,
   AuthSession,
   LoginInput,
+  LoginMfaChallenge,
   MembershipSummary,
   RegisterByInviteInput,
 } from './auth.types';
+import {
+  generateRecoveryCodes,
+  generateTotpSecret,
+  hashRecoveryCode,
+  normalizeRecoveryCode,
+  otpauthUrl,
+  safeHashEqual,
+  verifyTotp,
+} from './mfa';
 
 // argon2id parametreleri (OWASP onerisi)
 const ARGON2_OPTS = { memoryCost: 19_456, timeCost: 2, parallelism: 1 };
@@ -58,7 +68,7 @@ export interface RequestMeta {
 
 type ActiveMembership = Membership & {
   tenant: { id: string; slug: string; name: string };
-  roleRef?: { permissions: string[] } | null;
+  roleRef?: { permissions: string[]; updatedAt: Date } | null;
 };
 
 @Injectable()
@@ -176,7 +186,7 @@ export class AuthService {
             recipientMembershipId: membership.id,
             channel: NotificationChannel.email,
             template: 'verify_email',
-            payload: { token: raw },
+            payload: { tokenCiphertext: encryptSecret(raw, authConfig.accessSecret()) },
           },
         });
       }
@@ -199,14 +209,90 @@ export class AuthService {
     return this.issueSession(userId, meta);
   }
 
-  async login(input: LoginInput, meta: RequestMeta = {}): Promise<AuthSession> {
+  async login(input: LoginInput, meta: RequestMeta = {}): Promise<AuthSession | LoginMfaChallenge> {
     const user = await this.prisma.user.findUnique({ where: { email: input.email } });
     const ok = await safeVerify(user?.passwordHash ?? (await dummyHash()), input.password);
     if (!user || !ok) {
       await this.securityEvent('security.login_failed', { email: input.email, ip: meta.ip }, user?.id);
       throw new UnauthorizedException('e-posta veya sifre hatali');
     }
+    if (user.totpEnabledAt) {
+      return this.createLoginMfaChallenge(user.id);
+    }
     return this.issueSession(user.id, meta);
+  }
+
+  async completeLoginMfa(challengeToken: string, code: string, meta: RequestMeta = {}): Promise<AuthSession> {
+    const token = await this.prisma.userToken.findUnique({
+      where: { tokenHash: sha256(challengeToken) },
+      include: { user: true },
+    });
+    if (!token || token.purpose !== UserTokenPurpose.login_otp || token.usedAt || token.expiresAt < new Date()) {
+      throw new UnauthorizedException('2FA oturumu gecersiz veya suresi dolmus');
+    }
+    const verified = await this.verifyMfaCode(token.user, code, true);
+    if (!verified.ok) {
+      await this.securityEvent('security.mfa_failed', { ip: meta.ip }, token.userId);
+      throw new UnauthorizedException('2FA kodu gecersiz');
+    }
+    await this.prisma.$transaction([
+      this.prisma.userToken.update({ where: { id: token.id }, data: { usedAt: new Date() } }),
+      ...(verified.nextRecoveryHashes
+        ? [this.prisma.user.update({ where: { id: token.userId }, data: { mfaRecoveryCodes: verified.nextRecoveryHashes } })]
+        : []),
+    ]);
+    return this.issueSession(token.userId, meta);
+  }
+
+  async mfaStatus(userId: string): Promise<{ enabled: boolean; recoveryCodeCount: number }> {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { totpEnabledAt: true, mfaRecoveryCodes: true },
+    });
+    return {
+      enabled: user.totpEnabledAt !== null,
+      recoveryCodeCount: this.recoveryHashes(user.mfaRecoveryCodes).length,
+    };
+  }
+
+  async setupMfa(userId: string): Promise<{ secret: string; otpauthUrl: string }> {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { email: true, totpEnabledAt: true },
+    });
+    if (user.totpEnabledAt) {
+      throw new ConflictException('2FA zaten etkin');
+    }
+    const secret = generateTotpSecret();
+    await this.prisma.user.update({ where: { id: userId }, data: { totpSecret: secret } });
+    return { secret, otpauthUrl: otpauthUrl(secret, user.email) };
+  }
+
+  async enableMfa(userId: string, code: string): Promise<{ enabled: true; recoveryCodes: string[] }> {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    if (!user.totpSecret) throw new BadRequestException('once 2FA setup baslatin');
+    if (!verifyTotp(user.totpSecret, code)) throw new BadRequestException('2FA kodu gecersiz');
+    const recoveryCodes = generateRecoveryCodes();
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        totpEnabledAt: new Date(),
+        mfaRecoveryCodes: recoveryCodes.map(hashRecoveryCode),
+      },
+    });
+    return { enabled: true, recoveryCodes };
+  }
+
+  async disableMfa(userId: string, code: string): Promise<{ enabled: false }> {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    if (!user.totpEnabledAt) throw new BadRequestException('2FA etkin degil');
+    const verified = await this.verifyMfaCode(user, code, false);
+    if (!verified.ok) throw new BadRequestException('2FA kodu gecersiz');
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { totpSecret: null, totpEnabledAt: null, mfaRecoveryCodes: Prisma.JsonNull },
+    });
+    return { enabled: false };
   }
 
   /** Rotasyonlu refresh: eski token iptal, yenisi verilir. Reuse → tum oturumlar kapanir. */
@@ -261,6 +347,38 @@ export class AuthService {
     return { ok: true };
   }
 
+  async listSessions(userId: string) {
+    const rows = await this.prisma.refreshToken.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, createdAt: true, expiresAt: true, ip: true, userAgent: true },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      createdAt: r.createdAt,
+      expiresAt: r.expiresAt,
+      ip: r.ip,
+      userAgent: r.userAgent,
+    }));
+  }
+
+  async revokeSession(userId: string, sessionId: string): Promise<{ ok: true }> {
+    const updated = await this.prisma.refreshToken.updateMany({
+      where: { id: sessionId, userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    if (updated.count === 0) throw new NotFoundException('oturum bulunamadi');
+    return { ok: true };
+  }
+
+  async revokeAllSessions(userId: string): Promise<{ revoked: number }> {
+    const updated = await this.prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return { revoked: updated.count };
+  }
+
   /** Coklu uyelikte tenant secimi; "son secim hatirlanir" (SPEC 4.1). */
   async switchTenant(userId: string, membershipId: string): Promise<{ accessToken: string; activeMembershipId: string }> {
     const membership = await this.prisma.membership.findFirst({
@@ -272,7 +390,7 @@ export class AuthService {
       },
       include: {
         tenant: { select: { id: true, slug: true, name: true } },
-        roleRef: { select: { permissions: true } },
+        roleRef: { select: { permissions: true, updatedAt: true } },
       },
     });
     if (!membership) {
@@ -326,7 +444,7 @@ export class AuthService {
               recipientMembershipId: recipient,
               channel: NotificationChannel.email,
               template: 'password_reset',
-              payload: { token: raw },
+              payload: { tokenCiphertext: encryptSecret(raw, authConfig.accessSecret()) },
             },
           });
         }
@@ -354,6 +472,47 @@ export class AuthService {
   }
 
   // ---------------------------------------------------------------- internals
+
+  private async createLoginMfaChallenge(userId: string): Promise<LoginMfaChallenge> {
+    const raw = randomToken(32);
+    const expiresAt = new Date(Date.now() + 5 * 60_000);
+    await this.prisma.$transaction([
+      this.prisma.userToken.updateMany({
+        where: { userId, purpose: UserTokenPurpose.login_otp, usedAt: null },
+        data: { usedAt: new Date() },
+      }),
+      this.prisma.userToken.create({
+        data: {
+          userId,
+          purpose: UserTokenPurpose.login_otp,
+          tokenHash: sha256(raw),
+          expiresAt,
+        },
+      }),
+    ]);
+    return { mfaRequired: true, challengeToken: raw, expiresAt: expiresAt.toISOString() };
+  }
+
+  private recoveryHashes(value: Prisma.JsonValue | null): string[] {
+    return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+  }
+
+  private async verifyMfaCode(
+    user: Pick<User, 'id' | 'totpSecret' | 'mfaRecoveryCodes'>,
+    code: string,
+    consumeRecovery: boolean,
+  ): Promise<{ ok: boolean; nextRecoveryHashes?: string[] }> {
+    if (user.totpSecret && verifyTotp(user.totpSecret, code)) return { ok: true };
+
+    const normalized = normalizeRecoveryCode(code);
+    if (!normalized) return { ok: false };
+    const candidate = hashRecoveryCode(normalized);
+    const hashes = this.recoveryHashes(user.mfaRecoveryCodes);
+    const index = hashes.findIndex((h) => safeHashEqual(h, candidate));
+    if (index < 0) return { ok: false };
+    if (!consumeRecovery) return { ok: true };
+    return { ok: true, nextRecoveryHashes: hashes.filter((_, i) => i !== index) };
+  }
 
   private async issueSession(userId: string, meta: RequestMeta): Promise<AuthSession> {
     const raw = randomToken();
@@ -383,7 +542,7 @@ export class AuthService {
           where: { status: MembershipStatus.active, tenant: { status: TenantStatus.active } },
           include: {
             tenant: { select: { id: true, slug: true, name: true } },
-            roleRef: { select: { permissions: true } },
+            roleRef: { select: { permissions: true, updatedAt: true } },
           },
           orderBy: { joinedAt: 'asc' },
         },
@@ -424,19 +583,31 @@ export class AuthService {
     };
   }
 
-  private signAccess(user: Pick<User, 'id' | 'isPlatformAdmin'>, membership: ActiveMembership | null): Promise<string> {
+  private signAccess(
+    user: Pick<User, 'id' | 'isPlatformAdmin' | 'totpEnabledAt'>,
+    membership: ActiveMembership | null,
+  ): Promise<string> {
     const payload: AccessTokenPayload = {
       sub: user.id,
       mid: membership?.id ?? null,
       tid: membership?.tenant.id ?? null,
       role: membership?.role ?? null,
     };
+    if (membership) {
+      payload.mver = membership.updatedAt.getTime();
+      if (membership.roleRef?.updatedAt) payload.rver = membership.roleRef.updatedAt.getTime();
+    }
+    if (user.totpEnabledAt) payload.mfa = true;
     if (user.isPlatformAdmin) payload.plat = true;
     // owner/platform → perms gomulmez (guard tum-izinli sayar). Diger katmanlarda
     // ozel rolun izinleri, yoksa enum katmaninin varsayilanlari token'a yazilir.
     const tier = membership?.role;
     if (membership && tier && tier !== Role.tenant_owner && tier !== Role.platform_admin) {
-      payload.perms = membership.roleRef?.permissions ?? defaultPermissionsForTier(tier);
+      const roleRefPerms =
+        tier === Role.tenant_admin || tier === Role.tenant_staff
+          ? membership.roleRef?.permissions
+          : undefined;
+      payload.perms = roleRefPerms ?? defaultPermissionsForTier(tier);
     }
     return this.jwt.signAsync(payload, {
       secret: authConfig.accessSecret(),

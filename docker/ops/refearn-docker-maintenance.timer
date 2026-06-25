@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly Refearn Docker maintenance
+
+[Timer]
+OnCalendar=Sun 03:30
+Persistent=true
+Unit=refearn-docker-maintenance.service
+
+[Install]
+WantedBy=timers.target

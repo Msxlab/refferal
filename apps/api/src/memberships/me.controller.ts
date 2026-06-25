@@ -6,6 +6,7 @@ import { AuthService } from '../auth/auth.service';
 import { RequestUser, switchTenantSchema, SwitchTenantInput } from '../auth/auth.types';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { PrismaService } from '../prisma/prisma.service';
+import { notificationPreferenceRows, notificationPrefsJson } from '../notifications/preferences';
 import { render } from '../notifications/templates';
 
 // Gelen kutusunda gosterilen kanallar: e-posta haric (token/sir tasiyabilir).
@@ -24,6 +25,18 @@ const deviceSchema = z.object({
   platform: z.enum(['ios', 'android', 'web']),
 });
 type DeviceInput = z.infer<typeof deviceSchema>;
+
+const channelPreferenceSchema = z
+  .object({
+    in_app: z.boolean().optional(),
+    email: z.boolean().optional(),
+    push: z.boolean().optional(),
+  })
+  .strict();
+const notificationPreferencesSchema = z.object({
+  preferences: z.record(channelPreferenceSchema).default({}),
+});
+type NotificationPreferencesInput = z.infer<typeof notificationPreferencesSchema>;
 
 @Controller('me')
 export class MeController {
@@ -100,6 +113,33 @@ export class MeController {
     return device;
   }
 
+  @Get('notification-preferences')
+  async notificationPreferences(@CurrentUser() user: RequestUser) {
+    if (!user.mid) return { events: notificationPreferenceRows({}) };
+    const membership = await this.prisma.membership.findFirst({
+      where: { id: user.mid, userId: user.sub },
+      select: { notificationPrefs: true },
+    });
+    if (!membership) throw new NotFoundException('uyelik bulunamadi');
+    return { events: notificationPreferenceRows(membership.notificationPrefs) };
+  }
+
+  @HttpCode(200)
+  @Post('notification-preferences')
+  async updateNotificationPreferences(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(notificationPreferencesSchema)) body: NotificationPreferencesInput,
+  ) {
+    if (!user.mid) return { events: notificationPreferenceRows({}) };
+    const prefs = notificationPrefsJson(body.preferences);
+    const updated = await this.prisma.membership.updateMany({
+      where: { id: user.mid, userId: user.sub },
+      data: { notificationPrefs: prefs },
+    });
+    if (updated.count === 0) throw new NotFoundException('uyelik bulunamadi');
+    return { events: notificationPreferenceRows(prefs) };
+  }
+
   // ----------------------------------------------------- gelen kutusu (in-app inbox)
 
   /** Aktif uyeligin bildirimleri (en yeni once) + okunmamis sayisi. */
@@ -119,14 +159,16 @@ export class MeController {
       channel: { in: INBOX_CHANNELS },
       ...(validBefore ? { createdAt: { lt: validBefore } } : {}),
     };
-    const [rows, unreadCount] = await Promise.all([
+    const [rows, unreadCount, tenant] = await Promise.all([
       this.prisma.notification.findMany({ where, orderBy: { createdAt: 'desc' }, take }),
       this.prisma.notification.count({
         where: { recipientMembershipId: user.mid, channel: { in: INBOX_CHANNELS }, readAt: null },
       }),
+      this.prisma.tenant.findUnique({ where: { id: user.tid as string }, select: { currency: true } }),
     ]);
+    const currency = tenant?.currency ?? 'USD';
     const items = rows.map((n) => {
-      const { subject, body } = render(n.template, (n.payload ?? {}) as Record<string, unknown>);
+      const { subject, body } = render(n.template, (n.payload ?? {}) as Record<string, unknown>, currency);
       return {
         id: n.id,
         template: n.template,

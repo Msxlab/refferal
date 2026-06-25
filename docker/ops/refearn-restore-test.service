@@ -1,0 +1,8 @@
+[Unit]
+Description=Refearn backup restore drill
+Documentation=file:/opt/refearn/docker/ops/README.md
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/refearn
+ExecStart=/usr/bin/docker compose --profile app exec -T backup bash /restore-test.sh

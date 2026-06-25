@@ -159,7 +159,10 @@ export default function PeopleRoles() {
                       ) : (
                         <select
                           value={p.tier}
-                          onChange={(e) => assign(p.membershipId, { tier: e.target.value })}
+                          onChange={(e) => {
+                            const tier = e.target.value;
+                            assign(p.membershipId, tier === 'member' ? { tier, roleId: null } : { tier });
+                          }}
                           style={{ padding: '5px 8px', fontSize: 12 }}
                         >
                           {ASSIGNABLE_TIERS.map((tr) => <option key={tr.v} value={tr.v}>{tr.l}</option>)}

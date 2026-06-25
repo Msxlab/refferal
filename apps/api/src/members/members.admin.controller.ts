@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { MembershipStatus, Role } from '@prisma/client';
 import { z } from 'zod';
-import { CurrentUser, RequireMembership, Roles } from '../auth/auth.guard';
+import { CurrentUser, RequireMembership, RequirePermission, Roles } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { ActorContext } from '../common/actor';
@@ -33,12 +33,14 @@ export class MembersAdminController {
   }
 
   @Roles(...STAFF)
+  @RequirePermission('members.view')
   @Get()
   list(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(listSchema)) q: z.infer<typeof listSchema>) {
     return this.members.list(user.tid as string, { ...q, status: q.status as MembershipStatus | undefined });
   }
 
   @Roles(...STAFF)
+  @RequirePermission('network.view')
   @Get('tree')
   tree(@CurrentUser() user: RequestUser) {
     return this.members.tree(user.tid as string);
@@ -46,6 +48,7 @@ export class MembersAdminController {
 
   // davet/pasiflestir/rol → admin+ (audit'li)
   @Roles(...ADMIN)
+  @RequirePermission('invites.create')
   @HttpCode(200)
   @Post('invite')
   invite(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(inviteSchema)) body: z.infer<typeof inviteSchema>) {
@@ -53,6 +56,7 @@ export class MembersAdminController {
   }
 
   @Roles(...ADMIN)
+  @RequirePermission('members.suspend')
   @HttpCode(200)
   @Post(':id/deactivate')
   deactivate(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
@@ -60,6 +64,7 @@ export class MembersAdminController {
   }
 
   @Roles(...ADMIN)
+  @RequirePermission('members.suspend')
   @HttpCode(200)
   @Post(':id/activate')
   activate(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
@@ -67,6 +72,7 @@ export class MembersAdminController {
   }
 
   @Roles(...ADMIN)
+  @RequirePermission('settings.roles')
   @HttpCode(200)
   @Post(':id/role')
   setRole(

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InviteStatus, MembershipStatus, Prisma, TenantStatus } from '@prisma/client';
 import { randomCode } from '../common/crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { TenantContextService } from '../prisma/tenant-context.service';
 import { authConfig } from '../auth/auth.config';
 
 // Davet limitleri (sybil/spam onleme) — uye basina
@@ -10,10 +11,14 @@ const MAX_INVITES_PER_DAY = 20;
 
 @Injectable()
 export class InvitesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantContext?: TenantContextService,
+  ) {}
 
   /** Her aktif uye davet olusturabilir (agac davetle buyur — SPEC 1). */
   async create(inviterMembershipId: string, opts: { email?: string } = {}) {
+    this.tenantContext?.assertMembership(inviterMembershipId);
     const inviter = await this.prisma.membership.findUnique({
       where: { id: inviterMembershipId },
       include: { tenant: { select: { status: true } } },
@@ -66,6 +71,7 @@ export class InvitesService {
 
   /** Uyenin kendi davetleri + durumlari (satis verisi yok — gizlilik). */
   async listMine(inviterMembershipId: string) {
+    this.tenantContext?.assertMembership(inviterMembershipId);
     const invites = await this.prisma.invite.findMany({
       where: { inviterMembershipId },
       orderBy: { createdAt: 'desc' },

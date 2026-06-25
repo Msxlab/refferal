@@ -2,13 +2,18 @@ import { Injectable } from '@nestjs/common';
 import { LedgerType, MembershipStatus, PayoutStatus, SaleStatus } from '@prisma/client';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
+import { TenantContextService } from '../prisma/tenant-context.service';
 
 @Injectable()
 export class ReportsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantContext: TenantContextService,
+  ) {}
 
   /** Admin dashboard (SPEC 9): ciro, komisyon, uye, payable — secili ay (varsayilan bu ay). */
   async dashboard(tenantId: string, month?: string) {
+    this.tenantContext.assertTenant(tenantId);
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const targetMonth = month ?? monthKey(new Date(), tenant.timezone);
 
@@ -67,6 +72,7 @@ export class ReportsService {
    * Ciro/sayim approved sales'in DONDURULMUS summary_month'una gore — dashboard ile tutarli.
    */
   async analytics(tenantId: string, months: number) {
+    this.tenantContext.assertTenant(tenantId);
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const anchor = monthKey(new Date(), tenant.timezone);
     const range = this.monthsBack(anchor, months, 0);
@@ -213,6 +219,7 @@ export class ReportsService {
 
   /** Tenant audit log (SPEC 9). */
   async audit(tenantId: string, q: { page: number; pageSize: number }) {
+    this.tenantContext.assertTenant(tenantId);
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.auditLog.count({ where: { tenantId } }),
       this.prisma.auditLog.findMany({

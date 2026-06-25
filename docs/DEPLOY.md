@@ -77,10 +77,11 @@ docker compose exec backup ls -lh /backups
    GDRIVE_FOLDER_ID=<klasör ID>
    BACKUP_AGE_RECIPIENT=age1...
    BACKUP_OFFSITE_CMD=rclone copyto "$1" gdrive:$(basename "$1")
+   BACKUP_OFFSITE_RETENTION_CMD=rclone delete gdrive: --include "${BACKUP_PREFIX:-refearn}_*.sql.gz*" --min-age 30d --drive-use-trash=false
    # opsiyonel dead-man's-switch:
    BACKUP_ALERT_CMD=curl -fsS -m10 https://hc-ping.com/<uuid>/fail -d "$1"
    ```
-5. `docker compose --profile app up -d --build backup` → yedekler artık `refearn_*.sql.gz.age`
+5. `docker compose --profile app up -d --build backup` → yedekler artık `${BACKUP_PREFIX:-refearn}_*.sql.gz.age`
    olarak hem yerelde hem Drive'da, **şifreli**.
 
 > `.env`/secrets'in de ayrı bir Drive klasörüne (DB'den **farklı** age anahtarıyla) şifreli
@@ -104,7 +105,7 @@ orta vadede WAL arşivleme (pgBackRest/wal-g).
 
 ```bash
 # 1) En son yedeği seç
-docker compose exec backup sh -c 'ls -t /backups/refearn_*.sql.gz | head -1'
+docker compose exec backup sh -c 'ls -t /backups/${BACKUP_PREFIX:-refearn}_*.sql.gz | head -1'
 
 # 2) (Önerilir) API'yi durdur ki yazma olmasın
 docker compose stop api web
@@ -113,7 +114,7 @@ docker compose stop api web
 docker compose exec postgres psql -U refearn -d postgres -c \
   "DROP DATABASE IF EXISTS refearn; CREATE DATABASE refearn;"
 docker compose exec backup sh -c \
-  'gunzip -c "$(ls -t /backups/refearn_*.sql.gz | head -1)" | psql "$DATABASE_URL"'
+  'gunzip -c "$(ls -t /backups/${BACKUP_PREFIX:-refearn}_*.sql.gz | head -1)" | psql "$DATABASE_URL"'
 
 # 4) Servisleri başlat
 docker compose start api web
@@ -129,9 +130,37 @@ git pull
 docker compose --profile app up -d --build   # migrate deploy otomatik koşar
 ```
 
+## Host disk bakimi
+
+Compose servislerinde Docker JSON log rotation aktiftir (`20m x 5`). Build cache ve eski
+unused image sismesini sinirlamak icin host'ta haftalik bakim timer'i kurulabilir:
+
+```bash
+chmod +x docker/ops/docker-maintenance.sh
+sudo cp docker/ops/refearn-docker-maintenance.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now refearn-docker-maintenance.timer
+```
+
+Bakim scripti yalniz build cache ve eski unused image temizler. `docker volume prune` veya
+`docker system prune --volumes` calistirmayin; `pgdata` ve `backups` volume'lari veri tasir.
+
+## Restore-test otomasyonu
+
+Systemd ile otomatik haftalik restore drill ornegi:
+
+```bash
+# repo /opt/refearn altindaysa
+sudo cp docker/ops/refearn-restore-test.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now refearn-restore-test.timer
+```
+
 ## Operasyon
 
 - Loglar: `docker compose logs -f api` / `web` / `caddy` / `backup`
+- Backup healthcheck: `/backups` altinda `BACKUP_MAX_AGE_MINUTES` icinde basarili `${BACKUP_PREFIX:-refearn}_*`
+  dosyasi yoksa `backup` servisi unhealthy olur.
 - Sağlık: `GET /healthz` (auth'suz, rate-limit muaf)
 - Olgunlaşma job'ı (`matureCommissions`) ve bildirim relay'i `api` içinde `@Cron`/`@Interval`
   ile çalışır (ayrı worker gerekmez).

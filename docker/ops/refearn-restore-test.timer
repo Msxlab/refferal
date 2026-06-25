@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly Refearn restore drill
+
+[Timer]
+OnCalendar=Sun 04:00
+Persistent=true
+Unit=refearn-restore-test.service
+
+[Install]
+WantedBy=timers.target

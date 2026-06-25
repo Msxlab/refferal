@@ -47,10 +47,9 @@ export default function General() {
       const res = await api.patch<Settings>('/admin/settings', {
         maturationRule: s.maturationRule,
         maturationDays: s.maturationRule === 'days_after_approval' ? Number(s.maturationDays ?? 0) : null,
-        payoutMinCents: Number(s.payoutMinCents),
         timezone: s.timezone,
         notifyNewMemberName: s.notifyNewMemberName,
-        compressionEnabled: s.compressionEnabled,
+        compressionEnabled: s.inactiveMembersEarn ? false : s.compressionEnabled,
         inactiveMembersEarn: s.inactiveMembersEarn,
         requireSeparateApprover: s.requireSeparateApprover,
       });
@@ -82,7 +81,7 @@ export default function General() {
       </div>
 
       <div className="card">
-        <strong style={{ fontSize: 14 }}>Commissions & payouts</strong>
+        <strong style={{ fontSize: 14 }}>Commissions</strong>
         <div className="field" style={{ marginTop: 12 }}>
           <label>Commission maturation rule</label>
           <select value={s.maturationRule} onChange={(e) => setS({ ...s, maturationRule: e.target.value as Settings['maturationRule'] })}>
@@ -97,7 +96,7 @@ export default function General() {
         )}
         <div className="field">
           <label>Payout threshold — currently {money(s.payoutMinCents, s.currency)}</label>
-          <input type="number" min={0} value={s.payoutMinCents} onChange={(e) => setS({ ...s, payoutMinCents: e.target.value })} />
+          <input type="number" min={0} value={s.payoutMinCents} disabled />
         </div>
       </div>
 
@@ -106,8 +105,14 @@ export default function General() {
         <div style={{ marginTop: 4 }}>
           <Toggle label="Separation of duties — the seller can't approve their own sale (maker-checker)" checked={s.requireSeparateApprover} onChange={(v) => setS({ ...s, requireSeparateApprover: v })} />
           <Toggle label="Show member name in join notifications" checked={s.notifyNewMemberName} onChange={(v) => setS({ ...s, notifyNewMemberName: v })} />
-          <Toggle label="Inactive members keep earning commissions" checked={s.inactiveMembersEarn} onChange={(v) => setS({ ...s, inactiveMembersEarn: v })} />
+          <Toggle
+            label="Inactive members keep earning commissions"
+            checked={s.inactiveMembersEarn}
+            onChange={(v) => setS({ ...s, inactiveMembersEarn: v, compressionEnabled: v ? false : s.compressionEnabled })}
+          />
+          {!s.inactiveMembersEarn && (
           <Toggle label="Compression — skip inactive uplines (advanced)" checked={s.compressionEnabled} onChange={(v) => setS({ ...s, compressionEnabled: v })} />
+          )}
         </div>
       </div>
 

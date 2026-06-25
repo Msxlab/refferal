@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Header, HttpCode, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Param, ParseUUIDPipe, Post, Query, Res } from '@nestjs/common';
 import { PayoutStatus, Role } from '@prisma/client';
 import { Response } from 'express';
-import { CurrentUser, RequireMembership, Roles } from '../auth/auth.guard';
+import { CurrentUser, RequireMembership, RequirePermission, Roles } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { ActorContext } from '../common/actor';
@@ -9,8 +9,12 @@ import { PayoutsService } from './payouts.service';
 import {
   exportPayoutsSchema,
   ExportPayoutsInput,
+  approvePayoutRequestSchema,
+  ApprovePayoutRequestInput,
   listPayoutsSchema,
   ListPayoutsInput,
+  rejectPayoutRequestSchema,
+  RejectPayoutRequestInput,
   runPayoutSchema,
   RunPayoutInput,
 } from './payouts.types';
@@ -29,22 +33,48 @@ export class AdminPayoutsController {
   }
 
   @Get('payable')
+  @RequirePermission('payouts.view')
   payable(@CurrentUser() user: RequestUser) {
     return this.payouts.payable(user.tid as string);
   }
 
   @HttpCode(200)
   @Post('run')
+  @RequirePermission('payouts.process')
   run(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(runPayoutSchema)) body: RunPayoutInput) {
     return this.payouts.run(this.actor(user), body);
   }
 
   @Get()
+  @RequirePermission('payouts.view')
   list(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(listPayoutsSchema)) q: ListPayoutsInput) {
     return this.payouts.list(user.tid as string, { ...q, status: q.status as PayoutStatus | undefined });
   }
 
+  @HttpCode(200)
+  @Post(':id/approve')
+  @RequirePermission('payouts.process')
+  approveRequest(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(approvePayoutRequestSchema)) body: ApprovePayoutRequestInput,
+  ) {
+    return this.payouts.approveRequest(this.actor(user), id, body.method);
+  }
+
+  @HttpCode(200)
+  @Post(':id/reject')
+  @RequirePermission('payouts.process')
+  rejectRequest(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(rejectPayoutRequestSchema)) body: RejectPayoutRequestInput,
+  ) {
+    return this.payouts.rejectRequest(this.actor(user), id, body.reason);
+  }
+
   @Get('export.csv')
+  @RequirePermission('payouts.export')
   @Header('Content-Type', 'text/csv; charset=utf-8')
   @Header('Content-Disposition', 'attachment; filename="payouts.csv"')
   async export(

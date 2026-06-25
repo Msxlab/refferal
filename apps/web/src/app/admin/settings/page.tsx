@@ -9,8 +9,10 @@ import PeopleRoles from './sections/PeopleRoles';
 import Security from './sections/Security';
 import Notifications from './sections/Notifications';
 import Data from './sections/Data';
+import Plans from './sections/Plans';
+import Payments from './sections/Payments';
 
-type TabKey = 'general' | 'brand' | 'people' | 'security' | 'notifications' | 'data';
+type TabKey = 'general' | 'brand' | 'people' | 'plans' | 'payments' | 'security' | 'notifications' | 'data';
 
 interface Tab { key: TabKey; label: string; icon: string; perm?: string; render: () => ReactNode }
 
@@ -21,6 +23,8 @@ const TABS: Tab[] = [
   { key: 'security', label: 'Security', icon: '⛉', render: () => <Security /> },
   { key: 'notifications', label: 'Notifications', icon: '◔', render: () => <Notifications /> },
   { key: 'data', label: 'Data & Backup', icon: '☷', render: () => <Data /> },
+  { key: 'plans', label: 'Plans', icon: '%', perm: 'settings.plan', render: () => <Plans /> },
+  { key: 'payments', label: 'Payments', icon: '$', perm: 'settings.payments', render: () => <Payments /> },
 ];
 
 export default function SettingsPage() {

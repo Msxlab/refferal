@@ -1,4 +1,6 @@
 import { NotificationChannel, NotificationStatus } from '@prisma/client';
+import { authConfig } from '../src/auth/auth.config';
+import { encryptSecret } from '../src/common/crypto';
 import { EmailAdapter, EmailMessage, PushAdapter, PushMessage } from '../src/notifications/adapters';
 import { NotificationRelayService } from '../src/notifications/notification-relay.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -49,7 +51,13 @@ describe('bildirim relay (entegrasyon)', () => {
     const r = await recipient();
     await prisma.notification.createMany({
       data: [
-        { tenantId: r.tenantId, recipientMembershipId: r.membershipId, channel: NotificationChannel.email, template: 'verify_email', payload: { token: 'abc' } },
+        {
+          tenantId: r.tenantId,
+          recipientMembershipId: r.membershipId,
+          channel: NotificationChannel.email,
+          template: 'verify_email',
+          payload: { tokenCiphertext: encryptSecret('abc', authConfig.accessSecret()) },
+        },
         { tenantId: r.tenantId, recipientMembershipId: r.membershipId, channel: NotificationChannel.push, template: 'commission_earned', payload: { amountCents: '500000', level: 0 } },
       ],
     });
@@ -63,6 +71,9 @@ describe('bildirim relay (entegrasyon)', () => {
 
     expect(sentEmails).toHaveLength(1);
     expect(sentEmails[0].subject).toContain('Verify');
+    expect(sentEmails[0].text).toContain('token=abc');
+    const emailRow = all.find((n) => n.template === 'verify_email');
+    expect(emailRow?.payload).toEqual({ tokenRedacted: true });
     // push: token yok ama dispatch cagrildi (best-effort)
     expect(sentPush).toHaveLength(1);
     expect(sentPush[0].tokens).toHaveLength(0);
@@ -85,7 +96,13 @@ describe('bildirim relay (entegrasyon)', () => {
     const r = await recipient();
     emailShouldFail = true;
     const n = await prisma.notification.create({
-      data: { tenantId: r.tenantId, recipientMembershipId: r.membershipId, channel: NotificationChannel.email, template: 'password_reset', payload: { token: 't' } },
+      data: {
+        tenantId: r.tenantId,
+        recipientMembershipId: r.membershipId,
+        channel: NotificationChannel.email,
+        template: 'password_reset',
+        payload: { tokenCiphertext: encryptSecret('t', authConfig.accessSecret()) },
+      },
     });
 
     // 5 deneme: her biri pending birakir, 5.'te failed

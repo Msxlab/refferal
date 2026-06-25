@@ -73,11 +73,38 @@ export const api = {
     request<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }),
 };
 
+export interface MfaChallenge {
+  mfaRequired: true;
+  challengeToken: string;
+  expiresAt: string;
+}
+
+export function isMfaChallenge(value: Session | MfaChallenge): value is MfaChallenge {
+  return 'mfaRequired' in value && value.mfaRequired === true;
+}
+
 /** Login ozel: token henuz yok. */
-export async function login(email: string, password: string): Promise<Session> {
+export async function login(email: string, password: string): Promise<Session | MfaChallenge> {
   const res = await rawFetch('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = { message: res.statusText };
+    }
+    throw new ApiError(res.status, body);
+  }
+  return (await res.json()) as Session | MfaChallenge;
+}
+
+export async function loginMfa(challengeToken: string, code: string): Promise<Session> {
+  const res = await rawFetch('/auth/login/2fa', {
+    method: 'POST',
+    body: JSON.stringify({ challengeToken, code }),
   });
   if (!res.ok) {
     let body: unknown = null;

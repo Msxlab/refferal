@@ -3,6 +3,7 @@ import { MembershipStatus, Prisma, Role, TenantStatus } from '@prisma/client';
 import { randomCode } from '../common/crypto';
 import { authConfig } from '../auth/auth.config';
 import { PrismaService } from '../prisma/prisma.service';
+import { TenantContextService } from '../prisma/tenant-context.service';
 import { ActorContext } from '../common/actor';
 
 // Admin'in atayabilecegi roller (owner devri ve platform_admin bu uctan YAPILMAZ)
@@ -10,9 +11,13 @@ const ASSIGNABLE_ROLES: Role[] = [Role.tenant_admin, Role.tenant_staff, Role.mem
 
 @Injectable()
 export class MembersAdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantContext: TenantContextService,
+  ) {}
 
   async list(tenantId: string, q: { search?: string; status?: MembershipStatus; page: number; pageSize: number }) {
+    this.tenantContext.assertTenant(tenantId);
     const where: Prisma.MembershipWhereInput = {
       tenantId,
       status: q.status,
@@ -60,6 +65,8 @@ export class MembersAdminService {
 
   /** Admin davet olusturur: sponsor (kod veya id) tenant icinde olmali; varsayilan = admin kendisi. */
   async invite(actor: ActorContext, actorMembershipId: string, input: { sponsorReferralCode?: string; sponsorMembershipId?: string; email?: string }) {
+    this.tenantContext.assertActor(actor);
+    this.tenantContext.assertMembership(actorMembershipId);
     let sponsorId = actorMembershipId;
     if (input.sponsorMembershipId || input.sponsorReferralCode) {
       const sponsor = await this.prisma.membership.findFirst({
@@ -100,6 +107,7 @@ export class MembersAdminService {
   }
 
   async setStatus(actor: ActorContext, membershipId: string, status: MembershipStatus) {
+    this.tenantContext.assertActor(actor);
     const m = await this.requireInTenant(actor.tenantId, membershipId);
     // owner pasife alinamaz: tenant'i aktif owner'siz birakmayi onler (setRole owner-guard'i ile simetrik)
     if (m.role === Role.tenant_owner && status === MembershipStatus.inactive) {
@@ -115,6 +123,7 @@ export class MembersAdminService {
   }
 
   async setRole(actor: ActorContext, membershipId: string, role: Role) {
+    this.tenantContext.assertActor(actor);
     if (!ASSIGNABLE_ROLES.includes(role)) {
       throw new BadRequestException('bu rol bu uctan atanamaz');
     }
@@ -129,6 +138,7 @@ export class MembersAdminService {
 
   /** Agac gorunumu (SPEC 9): tenant'taki tum uyeler + parent/depth (gorsellestirme icin). */
   async tree(tenantId: string) {
+    this.tenantContext.assertTenant(tenantId);
     const nodes = await this.prisma.membership.findMany({
       where: { tenantId },
       orderBy: [{ depth: 'asc' }, { joinedAt: 'asc' }],

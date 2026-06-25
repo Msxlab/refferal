@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
 import { Loading } from '@/components/ui';
 import { money } from '@/lib/format';
+import { APP_NAME } from '@/lib/brand';
 
 interface Company {
   id: string;
@@ -50,7 +51,7 @@ export default function CompaniesPage() {
     <div>
       <div className="eyebrow fade-in">Platform</div>
       <h1 className="h1 fade-in">Companies</h1>
-      <p className="sub fade-in" style={{ marginBottom: 16 }}>Every workspace on Refearn. Open one to manage its network and settings.</p>
+      <p className="sub fade-in" style={{ marginBottom: 16 }}>Every workspace on {APP_NAME}. Open one to manage its network and settings.</p>
 
       <div className="stat-grid fade-in delay-1" style={{ marginBottom: 18 }}>
         <Kpi label="Companies" value={String(totals.companies)} icon="◳" />

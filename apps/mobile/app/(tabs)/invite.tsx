@@ -1,3 +1,4 @@
+import type { ComponentType } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { RefreshControl, ScrollView, Share, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
@@ -18,6 +19,7 @@ interface InviteItem {
 /** Davet linki web kayit sayfasina gider (tek app + deep link ayni yolu acar). */
 const WEB_URL = process.env.EXPO_PUBLIC_WEB_URL ?? 'http://localhost:3000';
 const linkFor = (code: string) => `${WEB_URL}/i/${code}`;
+const QRCodeView = QRCode as unknown as ComponentType<{ value: string; size: number }>;
 
 export default function InviteScreen() {
   const [invites, setInvites] = useState<InviteItem[] | null>(null);
@@ -75,7 +77,7 @@ export default function InviteScreen() {
         {latest ? (
           <>
             <View style={{ backgroundColor: '#fff', padding: space.s3, borderRadius: radius.md }}>
-              <QRCode value={linkFor(latest)} size={170} />
+              <QRCodeView value={linkFor(latest)} size={170} />
             </View>
             <Text
               selectable

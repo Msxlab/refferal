@@ -14,7 +14,7 @@ async function bootstrap(): Promise<void> {
   // Guvenlik basliklari (API JSON ucları). Web basliklari Caddy'de.
   app.use(helmet());
 
-  app.setGlobalPrefix('v1', { exclude: ['healthz'] });
+  app.setGlobalPrefix('v1', { exclude: ['healthz', 'metrics'] });
   const origins = (process.env.CORS_ORIGINS ?? 'http://localhost:3000').split(',').map((o) => o.trim());
   app.enableCors({ origin: origins, credentials: true });
   app.enableShutdownHooks();

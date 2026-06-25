@@ -2,29 +2,37 @@
 #   Lokal gelistirme:  docker compose up -d postgres redis   (api/web'i pnpm ile kos)
 #   Tam yigin (prod):  docker compose --profile app up -d --build   (Caddy :80/:443)
 # Ayarlar .env'den okunur (DOMAIN, JWT_ACCESS_SECRET, PUBLIC_ORIGIN, SMTP_*).
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:17
+    logging: *default-logging
     environment:
-      POSTGRES_USER: refearn
-      POSTGRES_PASSWORD: refearn
-      POSTGRES_DB: refearn
+      POSTGRES_USER: ${POSTGRES_USER:-refearn}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-refearn}
+      POSTGRES_DB: ${POSTGRES_DB:-refearn}
     ports:
       # 5432/6379 bu makinede baska projelerde dolu; Refearn 5434/6380 kullanir
-      - "5434:5432"
+      - "127.0.0.1:5434:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/postgres-init:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U refearn -d refearn"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-refearn} -d ${POSTGRES_DB:-refearn}"]
       interval: 5s
       timeout: 3s
       retries: 30
 
   redis:
     image: redis:7
+    logging: *default-logging
     ports:
-      - "6380:6379"
+      - "127.0.0.1:6380:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -35,17 +43,21 @@ services:
 
   api:
     profiles: ["app"]
+    logging: *default-logging
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     environment:
       NODE_ENV: production
       PORT: 3001
-      DATABASE_URL: postgresql://refearn:refearn@postgres:5432/refearn
+      DATABASE_URL: postgresql://${POSTGRES_USER:-refearn}:${POSTGRES_PASSWORD:-refearn}@postgres:5432/${POSTGRES_DB:-refearn}
       REDIS_URL: redis://redis:6379
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET .env'de tanimli olmali}
       CORS_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost}
       WEB_URL: ${PUBLIC_ORIGIN:-http://localhost}
+      APP_NAME: ${APP_NAME:-Refearn}
+      APP_MONOGRAM: ${APP_MONOGRAM:-R}
+      MFA_REQUIRED_ROLES: ${MFA_REQUIRED_ROLES:-tenant_owner,tenant_admin,platform_admin}
       THROTTLE_LIMIT: ${THROTTLE_LIMIT:-120}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -66,12 +78,18 @@ services:
 
   web:
     profiles: ["app"]
+    logging: *default-logging
     build:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
         # Tarayici ayni origin'den /v1 cagirir (Caddy proxy) → CORS yok
         NEXT_PUBLIC_API_URL: /v1
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-${APP_NAME:-Refearn}}
+        NEXT_PUBLIC_APP_MONOGRAM: ${NEXT_PUBLIC_APP_MONOGRAM:-${APP_MONOGRAM:-R}}
+    environment:
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-${APP_NAME:-Refearn}}
+      NEXT_PUBLIC_APP_MONOGRAM: ${NEXT_PUBLIC_APP_MONOGRAM:-${APP_MONOGRAM:-R}}
     depends_on:
       - api
     restart: unless-stopped
@@ -79,6 +97,7 @@ services:
   caddy:
     profiles: ["app"]
     image: caddy:2
+    logging: *default-logging
     environment:
       # Bos → ":80" (lokal HTTP). Gercek alan adi → Caddy otomatik HTTPS.
       DOMAIN: ${DOMAIN:-:80}
@@ -96,17 +115,23 @@ services:
 
   backup:
     profiles: ["app"]
+    logging: *default-logging
     build:
       context: .
       dockerfile: docker/backup/Dockerfile
     environment:
-      DATABASE_URL: postgresql://refearn:refearn@postgres:5432/refearn
+      DATABASE_URL: postgresql://${POSTGRES_USER:-refearn}:${POSTGRES_PASSWORD:-refearn}@postgres:5432/${POSTGRES_DB:-refearn}
       RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_PREFIX: ${BACKUP_PREFIX:-refearn}
+      BACKUP_MIN_KEEP: ${BACKUP_MIN_KEEP:-3}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
       # age public key — set edilirse yedek SIFRELI yazilir (offsite'e sifreli cikar)
       BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
       # offsite kopya komutu; $1 = yedek dosya yolu (orn. rclone copyto "$1" gdrive:)
       BACKUP_OFFSITE_CMD: ${BACKUP_OFFSITE_CMD:-}
+      BACKUP_OFFSITE_RETENTION_CMD: ${BACKUP_OFFSITE_RETENTION_CMD:-}
       BACKUP_ALERT_CMD: ${BACKUP_ALERT_CMD:-}
+      BACKUP_MAX_AGE_MINUTES: ${BACKUP_MAX_AGE_MINUTES:-1800}
       # rclone Google Drive remote'u env ile (rclone.conf dosyasi gerekmez)
       RCLONE_CONFIG_GDRIVE_TYPE: drive
       RCLONE_CONFIG_GDRIVE_SCOPE: drive.file
@@ -120,6 +145,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "find /backups -maxdepth 1 -name \"$${BACKUP_PREFIX:-refearn}_*\" ! -name '*.part' -type f -mmin -${BACKUP_MAX_AGE_MINUTES:-1800} | grep -q ."]
+      interval: 5m
+      timeout: 10s
+      retries: 3
     restart: unless-stopped
 
 volumes:

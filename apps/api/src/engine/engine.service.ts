@@ -2,6 +2,7 @@ import { ConflictException, ForbiddenException, Injectable, NotFoundException } 
 import {
   LedgerStatus,
   LedgerType,
+  MembershipStatus,
   MaturationRule,
   NotificationChannel,
   PayoutMethod,
@@ -21,6 +22,7 @@ interface LockedSale {
   tenantId: string;
   sellerMembershipId: string;
   amountCents: bigint;
+  currency: string;
   status: SaleStatus;
   saleDate: Date;
   summaryMonth: string | null;
@@ -205,7 +207,7 @@ export class EngineService {
             recipientMembershipId: entry.beneficiaryMembershipId,
             channel: NotificationChannel.push,
             template: 'commission_reversed',
-            payload: { saleId, level: entry.level, amountCents: (-entry.amountCents).toString() },
+            payload: { saleId, level: entry.level, amountCents: (-entry.amountCents).toString(), currency: sale.currency },
           },
         });
       }
@@ -291,12 +293,30 @@ export class EngineService {
     period: string;
     method?: PayoutMethod;
     actorUserId?: string;
+    requestedPayoutId?: string;
   }): Promise<
     | { paid: true; payoutId: string; totalCents: bigint; entryCount: number }
     | { paid: false; reason: 'below_min' | 'nothing_payable'; netCents: bigint }
   > {
     return this.tx(async (tx) => {
       const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: params.tenantId } });
+      let requestedPayout: { id: string } | null = null;
+      if (params.requestedPayoutId) {
+        const rows = await tx.$queryRaw<Array<{ id: string; membershipId: string; status: PayoutStatus }>>`
+          SELECT id,
+                 membership_id AS "membershipId",
+                 status
+          FROM payouts
+          WHERE id = ${params.requestedPayoutId}::uuid
+            AND tenant_id = ${params.tenantId}::uuid
+            AND membership_id = ${params.membershipId}::uuid
+            AND period = ${params.period}
+          FOR UPDATE`;
+        if (rows.length === 0 || rows[0].status !== PayoutStatus.requested) {
+          throw new ConflictException('acik payout talebi bulunamadi');
+        }
+        requestedPayout = { id: rows[0].id };
+      }
 
       const rows = await tx.$queryRaw<
         Array<{ id: string; level: number; amountCents: bigint; month: string }>
@@ -316,24 +336,47 @@ export class EngineService {
         FOR UPDATE OF le`;
 
       if (rows.length === 0) {
+        if (requestedPayout) {
+          await tx.payout.update({
+            where: { id: requestedPayout.id },
+            data: { status: PayoutStatus.failed, ref: 'nothing_payable' },
+          });
+        }
         return { paid: false as const, reason: 'nothing_payable' as const, netCents: 0n };
       }
       const net = rows.reduce((a, r) => a + r.amountCents, 0n);
       if (net < tenant.payoutMinCents) {
+        if (requestedPayout) {
+          await tx.payout.update({
+            where: { id: requestedPayout.id },
+            data: { totalCents: net, status: PayoutStatus.failed, ref: 'below_min' },
+          });
+        }
         return { paid: false as const, reason: 'below_min' as const, netCents: net };
       }
 
-      const payout = await tx.payout.create({
-        data: {
-          tenantId: params.tenantId,
-          membershipId: params.membershipId,
-          totalCents: net,
-          method: params.method ?? PayoutMethod.manual,
-          status: PayoutStatus.paid,
-          period: params.period,
-          paidAt: new Date(),
-        },
-      });
+      const payout = requestedPayout
+        ? await tx.payout.update({
+            where: { id: requestedPayout.id },
+            data: {
+              totalCents: net,
+              method: params.method ?? PayoutMethod.manual,
+              status: PayoutStatus.paid,
+              paidAt: new Date(),
+              ref: null,
+            },
+          })
+        : await tx.payout.create({
+            data: {
+              tenantId: params.tenantId,
+              membershipId: params.membershipId,
+              totalCents: net,
+              method: params.method ?? PayoutMethod.manual,
+              status: PayoutStatus.paid,
+              period: params.period,
+              paidAt: new Date(),
+            },
+          });
 
       await tx.ledgerEntry.updateMany({
         where: { id: { in: rows.map((r) => r.id) } },
@@ -361,7 +404,7 @@ export class EngineService {
           recipientMembershipId: params.membershipId,
           channel: NotificationChannel.push,
           template: 'payout_sent',
-          payload: { payoutId: payout.id, totalCents: net.toString(), period: params.period },
+          payload: { payoutId: payout.id, totalCents: net.toString(), period: params.period, currency: tenant.currency },
         },
       });
       await this.audit(tx, params.tenantId, params.actorUserId, 'payout.paid', payout.id, {}, {
@@ -392,7 +435,7 @@ export class EngineService {
 
     const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: sale.tenantId } });
     const plan = await this.resolvePlan(tx, sale.tenantId, sale.saleDate);
-    const chain = await this.uplineChain(tx, sale.sellerMembershipId, plan.depth);
+    const chain = await this.uplineChain(tx, sale.sellerMembershipId, plan.depth, tenant);
     const lines = computeCommissionLines(sale.amountCents, plan.levels, chain);
 
     const { status, maturesAt } = this.maturation(tenant, sale);
@@ -430,7 +473,7 @@ export class EngineService {
           recipientMembershipId: line.beneficiaryMembershipId,
           channel: NotificationChannel.push,
           template: 'commission_earned',
-          payload: { saleId: sale.id, level: line.level, amountCents: line.amountCents.toString() },
+          payload: { saleId: sale.id, level: line.level, amountCents: line.amountCents.toString(), currency: sale.currency },
         },
       });
     }
@@ -444,6 +487,7 @@ export class EngineService {
              tenant_id            AS "tenantId",
              seller_membership_id AS "sellerMembershipId",
              amount_cents         AS "amountCents",
+             currency,
              status,
              sale_date            AS "saleDate",
              summary_month        AS "summaryMonth",
@@ -490,17 +534,22 @@ export class EngineService {
    * chain[0] = satici. Pasif uye MVP'de payini almaya devam eder — filtre yok;
    * compression tenant ayari semada var, varsayilan kapali.
    */
-  private async uplineChain(tx: Tx, sellerMembershipId: string, depth: number): Promise<string[]> {
+  private async uplineChain(tx: Tx, sellerMembershipId: string, depth: number, tenant: Tenant): Promise<string[]> {
     const chain: string[] = [];
     let currentId: string | null = sellerMembershipId;
-    for (let level = 0; level < depth && currentId; level++) {
-      chain.push(currentId);
-      const m: { sponsorMembershipId: string | null } | null = await tx.membership.findUnique({
+    while (chain.length < depth && currentId) {
+      const m: { sponsorMembershipId: string | null; status: MembershipStatus } | null = await tx.membership.findUnique({
         where: { id: currentId },
-        select: { sponsorMembershipId: true },
+        select: { sponsorMembershipId: true, status: true },
       });
       if (!m) {
         throw new NotFoundException(`uyelik bulunamadi: ${currentId}`);
+      }
+      const active = m.status === MembershipStatus.active;
+      if (active || tenant.inactiveMembersEarn) {
+        chain.push(currentId);
+      } else if (!tenant.compressionEnabled) {
+        chain.push(''); // preserve the level gap; computeCommissionLines skips empty beneficiaries
       }
       currentId = m.sponsorMembershipId;
     }

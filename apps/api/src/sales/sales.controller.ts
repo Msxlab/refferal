@@ -1,7 +1,8 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { Role } from '@prisma/client';
-import { CurrentUser, RequireMembership, Roles } from '../auth/auth.guard';
+import { CurrentUser, RequireMembership, RequirePermission, Roles } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
+import { ALL_PERMISSIONS } from '../common/permissions';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { ActorContext } from '../common/actor';
 import { SalesService } from './sales.service';
@@ -31,20 +32,30 @@ export class SalesController {
     return { userId: user.sub, tenantId: user.tid as string };
   }
 
+  private assertPermission(user: RequestUser, permission: string): void {
+    if (user.role === Role.tenant_owner || user.role === Role.platform_admin) return;
+    if (!ALL_PERMISSIONS.includes(permission) || !user.perms?.includes(permission)) {
+      throw new ForbiddenException('bu islem icin yetkiniz yok');
+    }
+  }
+
   // staff satis girebilir; payout/plan goremez (SPEC 4.2)
   @Roles(...STAFF)
+  @RequirePermission('sales.create')
   @Post()
   create(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(createSaleSchema)) body: CreateSaleInput) {
     return this.sales.create(this.actor(user), body);
   }
 
   @Roles(...STAFF)
+  @RequirePermission('sales.view')
   @Get()
   list(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(listSalesSchema)) q: ListSalesInput) {
     return this.sales.list(this.actor(user), q);
   }
 
   @Roles(...STAFF)
+  @RequirePermission('sales.import')
   @HttpCode(200)
   @Post('import')
   import(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(importSchema)) body: ImportInput) {
@@ -56,10 +67,12 @@ export class SalesController {
   @HttpCode(200)
   @Post('bulk')
   bulk(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(bulkSchema)) body: BulkInput) {
+    this.assertPermission(user, body.action === 'approve' ? 'sales.approve' : 'sales.void');
     return this.sales.bulk(this.actor(user), body.action, body.ids);
   }
 
   @Roles(...STAFF)
+  @RequirePermission('sales.view')
   @Get(':id')
   detail(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.sales.detail(this.actor(user), id);
@@ -67,6 +80,7 @@ export class SalesController {
 
   // para etkileyen aksiyonlar yalnizca admin+ (SPEC 4.2, audit'li)
   @Roles(...ADMIN)
+  @RequirePermission('sales.approve')
   @HttpCode(200)
   @Post(':id/approve')
   approve(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
@@ -74,6 +88,7 @@ export class SalesController {
   }
 
   @Roles(...ADMIN)
+  @RequirePermission('sales.void')
   @HttpCode(200)
   @Post(':id/void')
   void(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
@@ -81,6 +96,7 @@ export class SalesController {
   }
 
   @Roles(...ADMIN)
+  @RequirePermission('sales.approve')
   @HttpCode(200)
   @Post(':id/deliver')
   deliver(

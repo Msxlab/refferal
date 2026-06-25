@@ -11,8 +11,10 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { Role } from '@prisma/client';
+import { MembershipStatus, Role, TenantStatus } from '@prisma/client';
 import { Request } from 'express';
+import { defaultPermissionsForTier } from '../common/permissions';
+import { PrismaService } from '../prisma/prisma.service';
 import { authConfig } from './auth.config';
 import { RequestUser } from './auth.types';
 
@@ -31,8 +33,23 @@ export const RequirePermission = (permission: string): CustomDecorator =>
 export const PLATFORM_KEY = 'platformOnly';
 export const PlatformAdmin = (): CustomDecorator => SetMetadata(PLATFORM_KEY, true);
 
+export const MFA_EXEMPT_KEY = 'mfaExempt';
+export const MfaExempt = (): CustomDecorator => SetMetadata(MFA_EXEMPT_KEY, true);
+
 // enum katmani → guard'da tum-izinli sayilan roller (perms claim'i gomulmez)
 const GOD_TIERS: ReadonlySet<Role> = new Set([Role.platform_admin, Role.tenant_owner]);
+const DEFAULT_MFA_REQUIRED_ROLES = process.env.NODE_ENV === 'test' ? '' : 'tenant_owner,tenant_admin,platform_admin';
+const VALID_ROLES = new Set<string>(Object.values(Role));
+
+function mfaRequiredRoles(): ReadonlySet<Role> {
+  const raw = process.env.MFA_REQUIRED_ROLES ?? DEFAULT_MFA_REQUIRED_ROLES;
+  return new Set(
+    raw
+      .split(',')
+      .map((r) => r.trim())
+      .filter((r): r is Role => VALID_ROLES.has(r)),
+  );
+}
 
 /** Aktif uyelik (mid claim) gerektiren rotalar icin — /app ve /admin yuzeyleri. */
 export const REQUIRE_MEMBERSHIP_KEY = 'requireMembership';
@@ -54,6 +71,7 @@ export class AccessTokenGuard implements CanActivate {
   constructor(
     private readonly jwt: JwtService,
     private readonly reflector: Reflector,
+    private readonly prisma: PrismaService,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -61,6 +79,11 @@ export class AccessTokenGuard implements CanActivate {
     if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, targets)) {
       return true;
     }
+    const requireMembership = this.reflector.getAllAndOverride<boolean>(REQUIRE_MEMBERSHIP_KEY, targets);
+    const roles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, targets);
+    const platformOnly = this.reflector.getAllAndOverride<boolean>(PLATFORM_KEY, targets);
+    const permission = this.reflector.getAllAndOverride<string>(PERMISSION_KEY, targets);
+    const mfaExempt = this.reflector.getAllAndOverride<boolean>(MFA_EXEMPT_KEY, targets);
 
     const req = ctx.switchToHttp().getRequest<Request & { user?: RequestUser }>();
     const header = req.headers.authorization;
@@ -77,12 +100,48 @@ export class AccessTokenGuard implements CanActivate {
       throw new UnauthorizedException('erisim tokeni gecersiz veya suresi dolmus');
     }
     req.user = payload;
+    let userMfaEnabled = payload.mfa === true;
 
-    if (this.reflector.getAllAndOverride<boolean>(REQUIRE_MEMBERSHIP_KEY, targets) && !payload.mid) {
+    if (requireMembership && !payload.mid) {
       throw new ForbiddenException('aktif uyelik secimi gerekli (switch-tenant)');
     }
 
-    const roles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, targets);
+    if (payload.mid) {
+      const membership = await this.prisma.membership.findFirst({
+        where: { id: payload.mid, userId: payload.sub, tenantId: payload.tid ?? undefined },
+        select: {
+          role: true,
+          status: true,
+          updatedAt: true,
+          roleRef: { select: { permissions: true, updatedAt: true } },
+          tenant: { select: { status: true } },
+          user: { select: { totpEnabledAt: true } },
+        },
+      });
+      if (!membership || membership.status !== MembershipStatus.active || membership.tenant.status !== TenantStatus.active) {
+        this.logger.warn(`[security] inactive_membership user=${payload.sub} mid=${payload.mid} ${req.method} ${req.url}`);
+        throw new ForbiddenException('aktif uyelik bulunamadi');
+      }
+      const membershipVersion = membership.updatedAt.getTime();
+      const roleVersion = membership.roleRef?.updatedAt.getTime() ?? null;
+      const tokenHasVersion = payload.mver !== undefined || payload.rver !== undefined;
+      if (tokenHasVersion && (payload.mver !== membershipVersion || (payload.rver ?? null) !== roleVersion)) {
+        this.logger.warn(`[security] stale_authz_token user=${payload.sub} mid=${payload.mid} ${req.method} ${req.url}`);
+      }
+      payload.role = membership.role;
+      payload.perms =
+        membership.role === Role.tenant_admin || membership.role === Role.tenant_staff
+          ? membership.roleRef?.permissions ?? defaultPermissionsForTier(membership.role)
+          : defaultPermissionsForTier(membership.role);
+      payload.mver = membershipVersion;
+      if (roleVersion === null) delete payload.rver;
+      else payload.rver = roleVersion;
+      userMfaEnabled = membership.user.totpEnabledAt !== null;
+      if (userMfaEnabled) payload.mfa = true;
+      else delete payload.mfa;
+      req.user = payload;
+    }
+
     if (roles?.length) {
       if (!payload.role || !roles.includes(payload.role)) {
         // yetki ihlali: tespit/forensics icin logla (DB yazimi guard'da agir, structured log yeterli)
@@ -93,12 +152,44 @@ export class AccessTokenGuard implements CanActivate {
       }
     }
 
-    if (this.reflector.getAllAndOverride<boolean>(PLATFORM_KEY, targets) && !payload.plat) {
+    if (platformOnly) {
+      if (!payload.plat) {
+        this.logger.warn(`[security] platform_denied user=${payload.sub} ${req.method} ${req.url}`);
+        throw new ForbiddenException('platform yetkisi gerekli');
+      }
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { isPlatformAdmin: true, totpEnabledAt: true },
+      });
+      if (!user?.isPlatformAdmin) {
+        this.logger.warn(`[security] platform_revoked user=${payload.sub} ${req.method} ${req.url}`);
+        throw new ForbiddenException('platform yetkisi gerekli');
+      }
+      userMfaEnabled = user.totpEnabledAt !== null;
+      if (userMfaEnabled) payload.mfa = true;
+      else delete payload.mfa;
+    } else if (payload.plat) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { isPlatformAdmin: true, totpEnabledAt: true },
+      });
+      if (!user?.isPlatformAdmin) {
+        payload.plat = false;
+      }
+      userMfaEnabled = user?.totpEnabledAt != null;
+      if (userMfaEnabled) payload.mfa = true;
+      else delete payload.mfa;
+    }
+
+    if (platformOnly && !payload.plat) {
       this.logger.warn(`[security] platform_denied user=${payload.sub} ${req.method} ${req.url}`);
       throw new ForbiddenException('platform yetkisi gerekli');
     }
 
-    const permission = this.reflector.getAllAndOverride<string>(PERMISSION_KEY, targets);
+    if (!mfaExempt) {
+      this.enforceMfa(payload, userMfaEnabled, req);
+    }
+
     if (permission) {
       const granted = !!payload.role && GOD_TIERS.has(payload.role);
       if (!granted && !payload.perms?.includes(permission)) {
@@ -110,5 +201,15 @@ export class AccessTokenGuard implements CanActivate {
     }
 
     return true;
+  }
+
+  private enforceMfa(payload: RequestUser, userMfaEnabled: boolean, req: Request): void {
+    const required = mfaRequiredRoles();
+    const roleRequiresMfa = !!payload.role && required.has(payload.role);
+    const platformRequiresMfa = !!payload.plat && required.has(Role.platform_admin);
+    if ((roleRequiresMfa || platformRequiresMfa) && !userMfaEnabled) {
+      this.logger.warn(`[security] mfa_required user=${payload.sub} role=${payload.role} ${req.method} ${req.url}`);
+      throw new ForbiddenException('2FA required for this account');
+    }
   }
 }

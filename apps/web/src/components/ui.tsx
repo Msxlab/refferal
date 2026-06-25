@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode, useEffect, useRef, useState } from 'react';
+import { APP_MONOGRAM, APP_NAME } from '@/lib/brand';
 
 /* ----------------------------------------------------- animasyonlu sayac */
 function easeOut(t: number): number {
@@ -196,10 +197,10 @@ export function Brand({ size = 'md' }: { size?: 'md' | 'lg' }) {
           boxShadow: '0 8px 20px -8px rgba(212,175,55,.7)',
         }}
       >
-        R
+        {APP_MONOGRAM}
       </span>
       <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: size === 'lg' ? 22 : 17, letterSpacing: '-.01em' }}>
-        Refearn
+        {APP_NAME}
       </span>
     </span>
   );

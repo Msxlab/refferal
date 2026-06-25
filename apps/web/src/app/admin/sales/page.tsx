@@ -20,7 +20,8 @@ interface SaleItem {
   sellerName: string;
 }
 interface SalesList { total: number; items: SaleItem[] }
-type Pending = { ids: string[]; action: 'approve' | 'void' };
+type SaleAction = 'approve' | 'void' | 'deliver';
+type Pending = { ids: string[]; action: SaleAction };
 
 interface Filters { status: string; q: string; from: string; to: string; minCents: string; maxCents: string }
 const EMPTY: Filters = { status: '', q: '', from: '', to: '', minCents: '', maxCents: '' };
@@ -28,6 +29,25 @@ const STATUSES = ['', 'draft', 'approved', 'void'] as const;
 const VIEWS_KEY = 'refearn.sales.views';
 
 interface SavedView { name: string; filters: Filters }
+
+function saleActionLabel(action: SaleAction): string {
+  if (action === 'approve') return t('sales.approve');
+  if (action === 'void') return t('sales.void');
+  return t('sales.deliver');
+}
+
+function saleActionTitle(action: SaleAction, count: number): string {
+  const suffix = count > 1 ? 's' : '';
+  if (action === 'approve') return `Approve ${count} sale${suffix}`;
+  if (action === 'void') return `Void ${count} sale${suffix}`;
+  return 'Mark sale delivered';
+}
+
+function saleActionMessage(action: SaleAction): string {
+  if (action === 'approve') return 'On approval, commissions are distributed across the tree. This action cannot be undone.';
+  if (action === 'void') return 'Voiding creates reversing entries and reduces balances.';
+  return 'Delivery can release pending commissions when the tenant maturation rule is on delivery.';
+}
 
 export default function SalesPage() {
   const [list, setList] = useState<SalesList | null>(null);
@@ -86,7 +106,10 @@ export default function SalesPage() {
   async function act(p: Pending) {
     setBusy(true);
     try {
-      if (p.ids.length === 1) {
+      if (p.action === 'deliver') {
+        await api.post(`/admin/sales/${p.ids[0]}/deliver`, {});
+        showToast('Marked as delivered');
+      } else if (p.ids.length === 1) {
         await api.post(`/admin/sales/${p.ids[0]}/${p.action}`);
         showToast(p.action === 'approve' ? 'Approved, commissions distributed ✓' : 'Voided');
       } else {
@@ -96,11 +119,6 @@ export default function SalesPage() {
       setConfirm(null);
       await load();
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
-  }
-
-  async function deliver(id: string) {
-    try { await api.post(`/admin/sales/${id}/deliver`, {}); showToast('Marked as delivered'); await load(); }
-    catch (e) { setError(String((e as ApiError).message)); }
   }
 
   function toggle(id: string) {
@@ -212,7 +230,7 @@ export default function SalesPage() {
                   <td onClick={(e) => e.stopPropagation()}>
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
                       {s.status === 'draft' && <button className="btn sm" onClick={() => setConfirm({ ids: [s.id], action: 'approve' })}>{t('sales.approve')}</button>}
-                      {s.status === 'approved' && !s.deliveredAt && <button className="btn sm ghost" onClick={() => deliver(s.id)}>{t('sales.deliver')}</button>}
+                      {s.status === 'approved' && !s.deliveredAt && <button className="btn sm ghost" onClick={() => setConfirm({ ids: [s.id], action: 'deliver' })}>{t('sales.deliver')}</button>}
                       {s.status !== 'void' && <button className="btn sm danger" onClick={() => setConfirm({ ids: [s.id], action: 'void' })}>{t('sales.void')}</button>}
                     </div>
                   </td>
@@ -236,11 +254,9 @@ export default function SalesPage() {
 
       {confirm && (
         <Confirm
-          title={confirm.action === 'approve' ? `Approve ${confirm.ids.length} sale${confirm.ids.length > 1 ? 's' : ''}` : `Void ${confirm.ids.length} sale${confirm.ids.length > 1 ? 's' : ''}`}
-          message={confirm.action === 'approve'
-            ? 'On approval, commissions are distributed across the tree. This action cannot be undone.'
-            : 'Voiding creates reversing entries and reduces balances.'}
-          confirmLabel={confirm.action === 'approve' ? t('sales.approve') : t('sales.void')}
+          title={saleActionTitle(confirm.action, confirm.ids.length)}
+          message={saleActionMessage(confirm.action)}
+          confirmLabel={saleActionLabel(confirm.action)}
           danger={confirm.action === 'void'}
           busy={busy}
           onConfirm={() => act(confirm)}
@@ -286,6 +302,7 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
   const [d, setD] = useState<SaleDetail | null>(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<SaleAction | null>(null);
 
   const load = useCallback(() => {
     api.get<SaleDetail>(`/admin/sales/${id}`).then(setD).catch((e) => setErr(String((e as ApiError).message)));
@@ -296,6 +313,7 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
     setBusy(true);
     try {
       await api.post(`/admin/sales/${id}/${a}`, a === 'deliver' ? {} : undefined);
+      setConfirmAction(null);
       onToast(a === 'approve' ? 'Approved ✓' : a === 'void' ? 'Voided' : 'Delivered');
       load(); onChanged();
     } catch (e) { setErr(String((e as ApiError).message)); } finally { setBusy(false); }
@@ -304,15 +322,16 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
   const totalCommission = d?.ledger.filter((l) => l.type === 'commission').reduce((a, l) => a + Number(l.amountCents), 0) ?? 0;
 
   return (
+    <>
     <Drawer
       title={d ? money(d.amountCents, d.currency) : 'Sale'}
       subtitle={d ? `${d.sellerName} · ${d.sellerReferralCode}` : undefined}
       onClose={onClose}
       footer={d && (
         <>
-          {d.status === 'draft' && <button className="btn" disabled={busy} onClick={() => action('approve')}>Approve</button>}
-          {d.status === 'approved' && !d.deliveredAt && <button className="btn ghost" disabled={busy} onClick={() => action('deliver')}>Mark delivered</button>}
-          {d.status !== 'void' && <button className="btn danger" disabled={busy} onClick={() => action('void')}>Void</button>}
+          {d.status === 'draft' && <button className="btn" disabled={busy} onClick={() => setConfirmAction('approve')}>Approve</button>}
+          {d.status === 'approved' && !d.deliveredAt && <button className="btn ghost" disabled={busy} onClick={() => setConfirmAction('deliver')}>Mark delivered</button>}
+          {d.status !== 'void' && <button className="btn danger" disabled={busy} onClick={() => setConfirmAction('void')}>Void</button>}
         </>
       )}
     >
@@ -357,6 +376,18 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
         </div>
       )}
     </Drawer>
+    {confirmAction && (
+      <Confirm
+        title={saleActionTitle(confirmAction, 1)}
+        message={saleActionMessage(confirmAction)}
+        confirmLabel={saleActionLabel(confirmAction)}
+        danger={confirmAction === 'void'}
+        busy={busy}
+        onConfirm={() => action(confirmAction)}
+        onClose={() => setConfirmAction(null)}
+      />
+    )}
+    </>
   );
 }
 

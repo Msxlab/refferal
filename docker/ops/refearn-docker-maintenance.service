@@ -1,0 +1,8 @@
+[Unit]
+Description=Refearn Docker build cache and image maintenance
+Documentation=file:/opt/refearn/docker/ops/README.md
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/refearn
+ExecStart=/opt/refearn/docker/ops/docker-maintenance.sh

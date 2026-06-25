@@ -39,6 +39,9 @@ buradaki kararlar spec'in "acik karar" boslugunu doldurur, spec'i ezmez.
   `matureCommissions` job'i `payable` yapar. `days_after_approval(N)` → `pending`,
   `matures_at = approved_at + N gun`.
 - **monthly_summaries ay anahtari**: `sale_date`'in tenant timezone'undaki `YYYY-MM` degeri.
+- **team_stats snapshot stratejisi**: `team_stats` tablosu gelecekte buyuk agaclar icin snapshot/cache
+  alanidir. Mevcut MVP'de uye ekip ozeti `memberships.path`/depth uzerinden canli hesaplanir; snapshot
+  job ancak performans testi veya buyuk tenant ihtiyaci dogurursa etkinlestirilir.
 - **Plan toplam kontrolu**: `SUM(level_rates) ≤ pool_rate` hem zod (API katmani) hem
   Postgres DEFERRABLE constraint trigger (DB katmani) ile.
 - **RLS**: kritik tablolara ikinci kilit olarak auth fazinda (Faz 1 sonu) eklenecek;

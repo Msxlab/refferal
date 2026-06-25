@@ -18,8 +18,8 @@ export interface CommissionLine {
  * uplineChain[0] = satici, uplineChain[i] = i. ust sponsor (en fazla plan derinligi kadar).
  * - Zincirde olmayan seviyeye satir YAZILMAZ — pay sirkette kalir (SPEC 3.3).
  * - Tutar floor(amount * rate / 10000); 0-cent sonuc icin de satir yazilmaz (docs/DECISIONS.md).
- * - Pasif uye filtrelemesi YOK: MVP'de pasif uye payini almaya devam eder;
- *   compression tenant ayari olarak semada var, varsayilan kapali (SPEC 3.3 / 7).
+ * - Pasif uye/compression karari engine'de zincir bu fonksiyona gelmeden once verilir.
+ *   Bu fonksiyon yalnizca kendisine verilen pencereyi dagitir.
  *
  * Bu fonksiyon DB'den tamamen bagimsizdir: plan simulatoru (POST /admin/plans/simulate)
  * ve landing'deki interaktif demo da ayni fonksiyonu kullanir.

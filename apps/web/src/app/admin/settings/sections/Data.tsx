@@ -1,10 +1,33 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+import { api, ApiError } from '@/lib/api';
+
 /**
  * Veri & yedekleme politikasi paneli — uygulanan yedek/saklama akisini yuzeye cikarir
  * (sifreli Google Drive offsite, audit saklama cron'u task #7 ile baglanacak).
  */
 interface Item { title: string; desc: string; state: 'on' | 'soon' }
+
+interface DataStatus {
+  checkedAt: string;
+  database: { ok: boolean; activeTenants: number };
+  notifications: { pending: number; processing: number; failed: number };
+  backup: {
+    directory: string;
+    readable: boolean;
+    latest: null | { name: string; modifiedAt: string; sizeBytes: number; encrypted: boolean };
+  };
+  config: {
+    encryptionConfigured: boolean;
+    offsiteConfigured: boolean;
+    alertConfigured: boolean;
+    retentionDays: number;
+    minKeep: number;
+    intervalSeconds: number;
+  };
+  restoreTest: { backupScriptPresent: boolean; restoreTestScriptPresent: boolean };
+}
 
 const BACKUP: Item[] = [
   { title: 'Nightly encrypted dumps', desc: 'pg_dump captured every night, encrypted at rest with age before it ever leaves the host.', state: 'on' },
@@ -21,13 +44,30 @@ const RETENTION: Item[] = [
 ];
 
 export default function Data() {
+  const [status, setStatus] = useState<DataStatus | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.get<DataStatus>('/admin/settings/data-status').then(setStatus).catch((e) => setError(String((e as ApiError).message)));
+  }, []);
+
   return (
     <div className="grid" style={{ gap: 20 }}>
       <div className="card" style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-        <Stat label="Backup cadence" value="Nightly" hint="pg_dump + age encryption" />
-        <Stat label="Offsite target" value="Google Drive" hint="rclone, encrypted" />
-        <Stat label="Money integrity" value="Integer cents" hint="No floats, ever" />
+        <Stat label="Database" value={status?.database.ok ? 'Connected' : status ? 'Unavailable' : 'Loading'} hint={`${status?.database.activeTenants ?? 0} tenants`} />
+        <Stat label="Latest backup" value={status?.backup.latest ? new Date(status.backup.latest.modifiedAt).toLocaleString() : 'Not visible'} hint={status?.backup.readable ? status.backup.directory : 'Backup dir not readable'} />
+        <Stat label="Restore drill" value={status?.restoreTest.restoreTestScriptPresent ? 'Script ready' : status ? 'Script missing' : 'Loading'} hint="docker backup restore-test.sh" />
+        <Stat label="Offsite" value={status?.config.offsiteConfigured ? 'Configured' : 'Not configured'} hint={status?.config.encryptionConfigured ? 'Encryption on' : 'Encryption not configured'} />
       </div>
+      {error && <div className="error">{error}</div>}
+      {status && (
+        <div className="card" style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          <Stat label="Retention" value={`${status.config.retentionDays} days`} hint={`minimum keep ${status.config.minKeep}`} />
+          <Stat label="Backup interval" value={`${Math.round(status.config.intervalSeconds / 3600)}h`} hint={status.restoreTest.backupScriptPresent ? 'backup.sh present' : 'backup.sh missing'} />
+          <Stat label="Notification queue" value={`${status.notifications.pending} pending`} hint={`${status.notifications.processing} processing, ${status.notifications.failed} failed`} />
+          <Stat label="Alert hook" value={status.config.alertConfigured ? 'Configured' : 'Not configured'} hint={`checked ${new Date(status.checkedAt).toLocaleTimeString()}`} />
+        </div>
+      )}
       <Panel title="Backup & disaster recovery" items={BACKUP} />
       <Panel title="Retention & data lifecycle" items={RETENTION} />
     </div>
