@@ -1,4 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put } from '@nestjs/common';
+import { z } from 'zod';
 import { CurrentUser, PlatformAdmin } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
 import { ZodValidationPipe } from '../common/zod.pipe';
@@ -12,6 +13,20 @@ import {
   setStatusSchema, SetStatusInput,
 } from './platform.types';
 
+const createCompanySchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  // subdomain-guvenli slug (ileride sirket-basi subdomain icin de uygun)
+  slug: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/, 'gecersiz slug (a-z, 0-9, tire)'),
+  currency: z.string().trim().toUpperCase().length(3).default('USD'),
+  timezone: z.string().trim().min(1).max(64).default('America/New_York'),
+  ownerEmail: z.string().trim().email(),
+  ownerName: z.string().trim().min(1).max(120),
+});
+
 /** /platform — kiracci-ustu yuzey. @RequireMembership YOK (platform admin uyelik tasimaz). */
 @PlatformAdmin()
 @Controller('platform')
@@ -24,6 +39,16 @@ export class PlatformController {
   @Get('companies')
   companies() {
     return this.platform.companies();
+  }
+
+  // ---- Company onboarding: yeni sirket (tenant + plan + owner) ----
+  @HttpCode(201)
+  @Post('companies')
+  createCompany(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(createCompanySchema)) body: z.infer<typeof createCompanySchema>,
+  ) {
+    return this.platform.createCompany(user.sub, body);
   }
 
   @Get('companies/:id')

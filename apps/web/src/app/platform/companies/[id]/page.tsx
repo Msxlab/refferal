@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, switchTenant } from '@/lib/api';
+import { applyTenantSwitch, getSession, membershipForTenant } from '@/lib/auth';
 import { Confirm, Loading, Modal, useToast } from '@/components/ui';
 import { NetworkExplorer, type ApiNode } from '@/components/NetworkExplorer';
 import { bps, money, dateShort } from '@/lib/format';
@@ -22,10 +23,15 @@ const INV_BADGE: Record<string, string> = { open: 'pending', paid: 'active', voi
 
 export default function CompanyPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [company, setCompany] = useState<Company | null>(null);
   const [nodes, setNodes] = useState<ApiNode[] | null>(null);
   const [error, setError] = useState('');
   const [toast, showToast] = useToast();
+
+  // platform → isyeri kopru (prod)
+  const [entering, setEntering] = useState(false);
+  const [enterMsg, setEnterMsg] = useState('');
 
   // billing (C2) + suspend (C1)
   const [billing, setBilling] = useState<Billing | null>(null);
@@ -81,6 +87,27 @@ export default function CompanyPage() {
     try { await api.post(`/platform/invoices/${inv.id}/void`); loadBilling(); showToast('Invoice voided'); }
     catch (e) { showToast(String((e as ApiError).message)); } finally { setBusy(false); }
   }
+  /** Platform → bu sirketin yonetim isyerine gir: uyeligi aktif yap (token'i tenant'a scope et) ve /admin'e gec. */
+  async function enterWorkspace() {
+    if (!company) return;
+    const session = getSession();
+    if (!session) { router.replace('/login'); return; }
+    const membership = membershipForTenant(session, company.id);
+    if (!membership) {
+      setEnterMsg('You have no membership in this company yet, so its workspace can’t be opened.');
+      return;
+    }
+    setEntering(true); setEnterMsg('');
+    try {
+      const res = await switchTenant(membership.id);
+      applyTenantSwitch(res.accessToken, res.activeMembershipId);
+      router.push('/admin');
+    } catch (e) {
+      setEntering(false);
+      setEnterMsg(String((e as ApiError).message));
+    }
+  }
+
   async function toggleStatus() {
     if (!company) return;
     setBusy(true);
@@ -110,11 +137,15 @@ export default function CompanyPage() {
         </div>
         <div className="row" style={{ gap: 8, alignItems: 'center' }}>
           <span className={`badge ${company.status === 'active' ? 'active' : 'inactive'}`}>{company.status}</span>
+          <button className="btn sm" onClick={enterWorkspace} disabled={entering}>
+            {entering ? 'Opening…' : 'Enter workspace →'}
+          </button>
           <button className={`btn ${company.status === 'active' ? 'ghost danger' : 'ghost'} sm`} onClick={() => setConfirmStatus(true)} disabled={busy}>
             {company.status === 'active' ? 'Suspend' : 'Reactivate'}
           </button>
         </div>
       </div>
+      {enterMsg && <div className="error" style={{ marginTop: 10 }}>{enterMsg}</div>}
 
       <div className="stat-grid fade-in delay-1" style={{ margin: '18px 0' }}>
         <Kpi label="Members" value={`${company.kpis.activeMembers} / ${company.kpis.members}`} icon="⬡" hint="active / total" />

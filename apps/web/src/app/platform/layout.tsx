@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { clearSession, getSession, type Session } from '@/lib/auth';
 import { ThemeToggle } from '@/components/ui';
+import { APP_MONOGRAM, APP_NAME } from '@/lib/brand';
 
 const NAV = [{ href: '/platform', label: 'Companies', ic: '◳' }];
 
@@ -37,12 +38,12 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
     <div className={`shell${navOpen ? ' nav-open' : ''}`}>
       <div className="mobile-topbar no-print">
         <button className="hamburger" aria-label="Menu" aria-expanded={navOpen} onClick={() => setNavOpen((v) => !v)}>☰</button>
-        <div className="brand"><span className="dot">R</span> Refearn</div>
+        <div className="brand"><span className="dot">{APP_MONOGRAM}</span> {APP_NAME}</div>
         <div className="row" style={{ gap: 6, marginLeft: 'auto' }}><ThemeToggle /></div>
       </div>
       {navOpen && <div className="nav-backdrop no-print" onClick={() => setNavOpen(false)} aria-hidden="true" />}
       <aside className="side">
-        <div className="brand"><span className="dot">R</span> Refearn</div>
+        <div className="brand"><span className="dot">{APP_MONOGRAM}</span> {APP_NAME}</div>
         <div className="faint" style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', margin: '0 0 10px 4px' }}>Platform</div>
         <nav>
           {NAV.map((n) => (

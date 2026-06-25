@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
+import { APP_NAME } from '@/lib/brand';
 
 interface Branding {
   logoText?: string;
@@ -81,7 +82,7 @@ export default function Brand() {
                 background: `linear-gradient(135deg, ${b.primaryColor}, ${shade(b.primaryColor)})`,
                 color: '#1a1404', fontWeight: 800, fontFamily: 'var(--font-display)', fontSize: 17,
               }}>{(b.logoText || 'R').slice(0, 2)}</span>
-              <span style={{ color: '#f4f6fb', fontWeight: 800, fontFamily: 'var(--font-display)', fontSize: 17 }}>{name || 'Refearn'}</span>
+              <span style={{ color: '#f4f6fb', fontWeight: 800, fontFamily: 'var(--font-display)', fontSize: 17 }}>{name || APP_NAME}</span>
             </div>
             <div style={{ color: '#9aa3b2', fontSize: 12.5, marginTop: 12, lineHeight: 1.5 }}>{b.tagline}</div>
             <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>

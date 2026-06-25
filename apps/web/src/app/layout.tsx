@@ -3,15 +3,16 @@ import { Inter, Sora } from 'next/font/google';
 import './globals.css';
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister';
 import { OfflineBanner } from '@/components/OfflineBanner';
+import { APP_NAME } from '@/lib/brand';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
 const sora = Sora({ subsets: ['latin'], weight: ['600', '700', '800'], variable: '--font-sora', display: 'swap' });
 
 export const metadata: Metadata = {
-  title: 'Refearn — Referral commission platform',
+  title: `${APP_NAME} — Referral commission platform`,
   description: 'Grow your referral network, distribute commissions automatically.',
   manifest: '/manifest.webmanifest',
-  appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'Refearn' },
+  appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: APP_NAME },
   icons: { icon: '/icon.svg', apple: '/icon.svg' },
 };
 

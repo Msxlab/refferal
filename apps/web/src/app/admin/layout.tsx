@@ -9,6 +9,7 @@ import { NotificationBell } from '@/components/NotificationBell';
 import { CommandPalette } from '@/components/CommandPalette';
 import { LiveIndicator } from '@/components/LiveIndicator';
 import { t } from '@/lib/i18n';
+import { APP_MONOGRAM, APP_NAME } from '@/lib/brand';
 
 const NAV: Array<{ href: string; key: Parameters<typeof t>[0]; ic: string; adminOnly?: boolean }> = [
   { href: '/admin', key: 'nav.dashboard', ic: '◈' },
@@ -54,6 +55,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   if (!session) return <div className="center muted">{t('common.loading')}</div>;
   const active = activeMembership(session);
   const isStaff = active?.role === 'tenant_staff';
+  const isPlatform = session.user.isPlatformAdmin === true;
 
   function logout() {
     clearSession();
@@ -64,7 +66,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className={`shell${navOpen ? ' nav-open' : ''}`}>
       <div className="mobile-topbar no-print">
         <button className="hamburger" aria-label={t('nav.menu')} aria-expanded={navOpen} onClick={() => setNavOpen((v) => !v)}>☰</button>
-        <div className="brand"><span className="dot">R</span> Refearn</div>
+        <div className="brand"><span className="dot">{APP_MONOGRAM}</span> {APP_NAME}</div>
         <div className="row" style={{ gap: 6, marginLeft: 'auto' }}>
           <NotificationBell />
           <ThemeToggle />
@@ -72,8 +74,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       </div>
       {navOpen && <div className="nav-backdrop no-print" onClick={() => setNavOpen(false)} aria-hidden="true" />}
       <aside className="side">
-        <div className="brand"><span className="dot">R</span> Refearn</div>
+        <div className="brand"><span className="dot">{APP_MONOGRAM}</span> {APP_NAME}</div>
         <nav>
+          {isPlatform && (
+            <Link href="/platform" className={pathname.startsWith('/platform') ? 'active' : ''} onClick={() => setNavOpen(false)}>
+              <span className="ic">◳</span>Platform
+            </Link>
+          )}
           {NAV.filter((n) => !(n.adminOnly && isStaff)).map((n) => (
             <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''} onClick={() => setNavOpen(false)}>
               <span className="ic">{n.ic}</span>{t(n.key)}
