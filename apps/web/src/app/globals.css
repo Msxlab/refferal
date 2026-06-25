@@ -97,6 +97,11 @@ html, body {
   font-size: 14px; line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
+/* form elemanlari color/font'u UA'dan alir, body'den DEGIL — miras ettir.
+   (Aksi halde renk set etmeyen <button class="card"> gibi kapsayicilar koyu temada
+   UA varsayilan koyu metniyle SOLUK cikar; .btn vb. kendi rengini set ettiginden etkilenmez.) */
+button, input, select, textarea { font-family: inherit; }
+button, select { color: inherit; }
 /* cok hafif grain — plastik hissi kirar (dark'ta) */
 body::before {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
@@ -201,11 +206,11 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 .drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 20px; border-bottom: 1px solid var(--border); }
 .drawer-body { flex: 1; overflow: auto; padding: 20px; }
-.drawer-foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
+.drawer-foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
 
 /* ---------------------------------------------------- bulk action bar */
 .bulkbar {
-  position: sticky; bottom: 16px; z-index: 5; display: flex; align-items: center; gap: 14px;
+  position: sticky; bottom: 16px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 14px;
   padding: 10px 16px; margin-top: 14px; border-radius: 14px;
   background: var(--panel-solid, var(--panel)); border: 1px solid var(--gold-500);
   box-shadow: var(--shadow-lg), 0 0 0 4px color-mix(in srgb, var(--gold-500) 12%, transparent);
@@ -229,6 +234,11 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px
 
 /* ---------------------------------------------------------------- tables */
 table { width: 100%; border-collapse: collapse; }
+/* Genis veri tablolari, kapsayici kartin icinde yatay KAYDIRILIR — herhangi bir
+   ekran genisliginde (dar laptop/tablet/mobil) sayfa yana kaymaz, Role/Status/Actions
+   gibi sag kolonlar ekran disinda kirpilmaz, parmakla/trackpad'le kaydirilir.
+   Yalniz tablo iceren kartlar hedeflenir (acilir menulu/popover'li kartlar etkilenmez). */
+.card:has(table) { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
 th { color: var(--faint); font-weight: 650; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
 tbody tr { transition: background var(--dur-fast) ease; }
@@ -243,6 +253,20 @@ tr:last-child td { border-bottom: none; }
 .badge.void, .badge.failed, .badge.revoked { color: var(--rose); background: color-mix(in srgb, var(--rose) 14%, transparent); }
 .badge.payable { color: var(--sky); background: color-mix(in srgb, var(--sky) 14%, transparent); }
 .badge.pending, .badge.requested, .badge.processing { color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); }
+
+/* ag analitigi seridi (network KPI) */
+.net-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.net-kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+.net-kpi-ic { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font-size: 11px; background: color-mix(in srgb, var(--gold-500) 16%, transparent); color: var(--gold-500); flex: none; }
+
+/* canli SSE gostergesi */
+.live { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.live-dot.on { background: var(--emerald); box-shadow: 0 0 0 0 color-mix(in srgb, var(--emerald) 60%, transparent); animation: live-pulse 2s ease-out infinite; }
+.live-dot.off { background: var(--rose); opacity: 0.6; }
+.live-msg { color: var(--emerald); font-weight: 700; white-space: nowrap; animation: live-fade 0.3s ease; }
+@keyframes live-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--emerald) 55%, transparent); } 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+@keyframes live-fade { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
 
 /* ---------------------------------------------------------------- helpers */
 .muted { color: var(--muted); }
@@ -294,7 +318,18 @@ tr:last-child td { border-bottom: none; }
 .side nav a .ic { width: 18px; text-align: center; opacity: .9; }
 .side nav a.active .ic { color: var(--brand); }
 .side .foot { margin-top: 26px; padding: 14px 12px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--border); }
-.main { padding: 30px 34px; max-width: 1140px; }
+/* min-width:0: grid 1fr kolonu, icindeki genis tablonun min-content'i yuzunden viewport'u
+   ASMASIN; kolon kendi payinda kalir, genis tablo .card icinde yatay kaydirilir (bkz. .card:has(table)). */
+.main { padding: 30px 34px; max-width: 1140px; min-width: 0; }
+
+/* mobil ust bar + off-canvas sidebar drawer — base'te gizli, yalniz <=720px gorunur.
+   Masaustunde sidebar normal grid kolonu kalir; mobilde hamburger ile acilan drawer'a doner. */
+.mobile-topbar { display: none; align-items: center; gap: 12px; padding: 11px 16px; border-bottom: 1px solid var(--border); background: var(--bg-1); position: sticky; top: 0; z-index: 50; }
+.mobile-topbar .brand { display: flex; align-items: center; gap: 9px; font-family: var(--font-display); font-weight: 800; font-size: 16px; }
+.mobile-topbar .brand .dot { width: 26px; height: 26px; border-radius: 8px; background: var(--foil); display: grid; place-items: center; color: var(--on-gold); font-family: var(--font-display); font-weight: 800; font-size: 14px; }
+.hamburger { width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--panel-2); color: var(--text); display: grid; place-items: center; cursor: pointer; font-size: 18px; line-height: 1; }
+.hamburger:hover { background: var(--panel-3); }
+.nav-backdrop { display: none; }
 
 .topbar { position: sticky; top: 0; z-index: 40; border-bottom: 1px solid var(--border); background: var(--bg-1); }
 .topbar .inner { max-width: 860px; margin: 0 auto; display: flex; align-items: center; gap: 18px; padding: 14px 18px; }
@@ -320,6 +355,73 @@ tr:last-child td { border-bottom: none; }
 
 @media (max-width: 720px) {
   .shell { grid-template-columns: 1fr; }
-  .side { display: none; }
-  .main { padding: 20px 16px; }
+  .mobile-topbar { display: flex; }
+  /* sidebar off-canvas drawer'a donusur: hamburger ile sol kenardan kayar */
+  .side {
+    display: flex; flex-direction: column; overflow-y: auto;
+    position: fixed; top: 0; left: 0; bottom: 0; height: 100vh;
+    width: 264px; max-width: 86vw; z-index: 60;
+    transform: translateX(-100%); transition: transform .22s ease;
+    box-shadow: 0 0 40px -8px rgba(0,0,0,.55);
+  }
+  .shell.nav-open .side { transform: translateX(0); }
+  .nav-backdrop { display: block; position: fixed; inset: 0; z-index: 55; background: rgba(0,0,0,.5); }
+  .main { padding: 20px 16px; max-width: 100%; }
+  .modal { max-width: 100%; }
+  /* inline gridTemplateColumns ile tanimli 2-kolonlu yerlesimleri mobilde tek kolona indir
+     (asimetrik minmax oranlari masaustunde korunur; !important inline stili bilerek ezer). */
+  .stack-sm { grid-template-columns: 1fr !important; }
+  /* member topbar: dar ekranda nav kendi satirina dussun, sarmasin/kirpilmasin.
+     NOT: flex-basis'i flex:none RESET'lemesin diye tek 'flex: 0 0 100%' kullaniyoruz. */
+  .topbar .inner { flex-wrap: wrap; gap: 10px 12px; padding: 11px 14px; }
+  .topbar nav { order: 5; flex: 0 0 100%; min-width: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  /* mobil: dokunma hedefi >= 44px (iOS); dar ekranda nav linkleri rahat tiklanir */
+  .topbar nav a { white-space: nowrap; flex: 0 0 auto; padding-top: 11px; padding-bottom: 11px; }
+}
+
+/* ------------------------------------------------- yogunluk (compact tablo) */
+table.dense th, table.dense td { padding: 6px 10px; font-size: 12px; }
+
+/* ------------------------------------------------- siralanabilir basliklar */
+th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+th.sortable:hover { color: var(--text); }
+th .sort-ind { margin-left: 4px; color: var(--brand); font-size: 9px; }
+
+/* ---------------------------------------------------------------- print
+   Iki mod:
+   1) Duz sayfa yazdirma (window.print): nav/butonlar gizlenir, acik palet zorlanir.
+   2) Makbuz modu (PrintSheet): body.print-mode iken yalnizca .print-sheet basilir. */
+.print-sheet { display: none; }
+
+@media print {
+  :root, [data-theme="dark"], [data-theme="light"] {
+    --bg-0: #fff; --bg-1: #fff; --panel: #fff; --panel-solid: #fff;
+    --panel-2: #f6f7f9; --panel-3: #eef0f3;
+    --border: rgba(20,22,30,.18); --border-strong: rgba(20,22,30,.3);
+    --text: #15171e; --muted: #444a58; --faint: #6b7180;
+    --brand: var(--gold-800); --shadow-lg: none; --shadow-glow: none;
+    --inset: none; --grain: 0; --on-gold: #1a1404;
+  }
+  html, body { background: #fff; }
+  body::before { display: none; }
+  .badge, .badge::before { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+
+  /* ekran arayuzu: nav, etkilesim ve animasyon gizle */
+  .side, .topbar, .bulkbar, .toast, .theme-toggle, .no-print,
+  .modal-backdrop, .drawer-backdrop, .popover-panel, .inbox-pop,
+  button, input, select, textarea { display: none !important; }
+  .shell { display: block; }
+  .main, .appmain { max-width: none; padding: 0; }
+  .card { box-shadow: none; border: 1px solid #d8dbe2; break-inside: avoid; }
+  .fade-in { animation: none; }
+  table { font-size: 11px; }
+  a { color: inherit; }
+
+  /* makbuz modu: yalnizca print-sheet gorunur */
+  body.print-mode > :not(.print-sheet) { display: none !important; }
+  body.print-mode .print-sheet { display: block; color: #15171e; }
+  body.print-mode .print-sheet table { width: 100%; border-collapse: collapse; }
+  body.print-mode .print-sheet th, body.print-mode .print-sheet td {
+    text-align: left; padding: 8px 10px; border-bottom: 1px solid #d8dbe2; font-size: 11px;
+  }
 }

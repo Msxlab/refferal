@@ -9,19 +9,31 @@ import PeopleRoles from './sections/PeopleRoles';
 import Security from './sections/Security';
 import Notifications from './sections/Notifications';
 import Data from './sections/Data';
+import Ranks from './sections/Ranks';
+import Reports from './sections/Reports';
+import Integrations from './sections/Integrations';
+import Announcements from './sections/Announcements';
+import Plan from './sections/Plan';
 
-type TabKey = 'general' | 'brand' | 'people' | 'security' | 'notifications' | 'data';
+type TabKey = 'general' | 'brand' | 'plan' | 'people' | 'ranks' | 'security' | 'notifications' | 'reports' | 'integrations' | 'announcements' | 'data';
 
-interface Tab { key: TabKey; label: string; icon: string; perm?: string; render: () => ReactNode }
+type TabGroup = 'Business' | 'System';
+interface Tab { key: TabKey; label: string; icon: string; group: TabGroup; perm?: string; render: () => ReactNode }
 
 const TABS: Tab[] = [
-  { key: 'general', label: 'General', icon: '⚙', render: () => <General /> },
-  { key: 'brand', label: 'Brand', icon: '◆', perm: 'settings.branding', render: () => <Brand /> },
-  { key: 'people', label: 'People & Roles', icon: '⬡', perm: 'settings.roles', render: () => <PeopleRoles /> },
-  { key: 'security', label: 'Security', icon: '⛉', render: () => <Security /> },
-  { key: 'notifications', label: 'Notifications', icon: '◔', render: () => <Notifications /> },
-  { key: 'data', label: 'Data & Backup', icon: '☷', render: () => <Data /> },
+  { key: 'general', label: 'General', icon: '⚙', group: 'Business', render: () => <General /> },
+  { key: 'plan', label: 'Commission plan', icon: '⚡', group: 'Business', render: () => <Plan /> },
+  { key: 'ranks', label: 'Ranks', icon: '🏅', group: 'Business', render: () => <Ranks /> },
+  { key: 'people', label: 'People & Roles', icon: '⬡', group: 'Business', perm: 'settings.roles', render: () => <PeopleRoles /> },
+  { key: 'brand', label: 'Brand', icon: '◆', group: 'Business', perm: 'settings.branding', render: () => <Brand /> },
+  { key: 'announcements', label: 'Announcements', icon: '📣', group: 'Business', render: () => <Announcements /> },
+  { key: 'security', label: 'Security', icon: '⛉', group: 'System', render: () => <Security /> },
+  { key: 'integrations', label: 'Integrations', icon: '⚯', group: 'System', render: () => <Integrations /> },
+  { key: 'notifications', label: 'Notifications', icon: '◔', group: 'System', render: () => <Notifications /> },
+  { key: 'reports', label: 'Reports', icon: '✉', group: 'System', render: () => <Reports /> },
+  { key: 'data', label: 'Data & Backup', icon: '☷', group: 'System', render: () => <Data /> },
 ];
+const TAB_GROUPS: TabGroup[] = ['Business', 'System'];
 
 export default function SettingsPage() {
   const [active, setActive] = useState<TabKey>('general');
@@ -49,17 +61,24 @@ export default function SettingsPage() {
       <h1 className="h1 fade-in">Settings</h1>
       <p className="sub fade-in" style={{ marginBottom: 18 }}>Workspace configuration, people, security and data.</p>
 
-      <div className="seg-tabs fade-in delay-1" role="tablist">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            role="tab"
-            aria-selected={active === tab.key}
-            className={`seg-tab ${active === tab.key ? 'on' : ''}`}
-            onClick={() => select(tab.key)}
-          >
-            <span style={{ opacity: 0.8 }}>{tab.icon}</span> {tab.label}
-          </button>
+      <div className="fade-in delay-1" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {TAB_GROUPS.filter((g) => tabs.some((t) => t.group === g)).map((g) => (
+          <div key={g} className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className="faint" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.08em', minWidth: 64 }}>{g}</span>
+            <div className="seg-tabs" role="tablist">
+              {tabs.filter((t) => t.group === g).map((tab) => (
+                <button
+                  key={tab.key}
+                  role="tab"
+                  aria-selected={active === tab.key}
+                  className={`seg-tab ${active === tab.key ? 'on' : ''}`}
+                  onClick={() => select(tab.key)}
+                >
+                  <span style={{ opacity: 0.8 }}>{tab.icon}</span> {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
 

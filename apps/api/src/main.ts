@@ -3,8 +3,11 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { initSentry } from './observability/sentry';
 
 async function bootstrap(): Promise<void> {
+  // Faz B4: hata takibi — app olusmadan ONCE (SENTRY_DSN yoksa no-op)
+  initSentry();
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // Caddy/reverse-proxy arkasinda: gercek istemci IP'si X-Forwarded-For'dan cozulsun.

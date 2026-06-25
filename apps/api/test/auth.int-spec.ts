@@ -54,6 +54,8 @@ describe('auth + davet akisi (entegrasyon)', () => {
       email,
       password: PASSWORD,
       fullName: 'Yeni Uye',
+      // Faz A1: kayit disclaimer onayi zorunlu (acceptDisclaimer z.literal(true))
+      acceptDisclaimer: true as const,
     };
   }
 

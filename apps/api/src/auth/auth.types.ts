@@ -12,6 +12,11 @@ export interface AccessTokenPayload {
   perms?: string[];
   // platform sahibi (kiracci-ustu) — yalnizca true iken gomulur.
   plat?: boolean;
+  // oturum (cihaz) kimligi = refresh-token familyId. "aktif oturumlar"da current'i isaretler.
+  sid?: string;
+  // impersonation: dolu ise bu token bir admin'in (imp = admin userId) uye adina actigi
+  // SALT-OKUNUR oturumdur. Guard GET disi tum istekleri reddeder.
+  imp?: string;
 }
 
 export interface RequestUser extends AccessTokenPayload {
@@ -43,6 +48,8 @@ export const registerByInviteSchema = z.object({
   password: z.string().min(10).max(128),
   fullName: z.string().trim().min(2).max(120),
   locale: z.enum(['en', 'tr']).default('en'),
+  // Faz A1: sorumluluk metni onayi ZORUNLU (true degilse zod reddeder). Hukuki kayit.
+  acceptDisclaimer: z.literal(true),
 });
 export type RegisterByInviteInput = z.infer<typeof registerByInviteSchema>;
 
@@ -51,6 +58,13 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(128),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
+
+/** Login 2. adim: MFA challenge token + 6 haneli TOTP veya kurtarma kodu. */
+export const loginTwoFactorSchema = z.object({
+  mfaToken: z.string().min(10).max(1024),
+  code: z.string().trim().min(6).max(20),
+});
+export type LoginTwoFactorInput = z.infer<typeof loginTwoFactorSchema>;
 
 export const refreshSchema = z.object({
   refreshToken: z.string().min(16).max(256),

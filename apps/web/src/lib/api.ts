@@ -2,6 +2,9 @@ import { clearSession, getSession, setSession, type Session } from './auth';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1';
 
+/** SSE/EventSource gibi fetch disi tuketiciler icin API kok adresi. */
+export const API_BASE = BASE;
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -40,6 +43,10 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   if (res.status === 401 && session && retry) {
     const refreshed = await refresh(session);
     if (refreshed) return request<T>(path, init, false);
+    // refresh basarisiz -> oturum temizlendi; bayat ekranda kalmak yerine login'e dondur
+    if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+      window.location.href = '/login';
+    }
     throw new ApiError(401, { message: 'oturum suresi doldu' });
   }
 
@@ -63,13 +70,20 @@ export const api = {
     request<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }),
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined }),
+  put: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined }),
   del: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'DELETE', body: body !== undefined ? JSON.stringify(body) : undefined }),
 };
 
 /** Login ozel: token henuz yok. */
-export async function login(email: string, password: string): Promise<Session> {
-  const res = await rawFetch('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+/** 2FA etkin hesapta login 1. adimin donusu (tam oturum YERINE). */
+export interface MfaChallenge {
+  mfaRequired: true;
+  mfaToken: string;
+}
+
+async function readOrThrow(res: Response): Promise<unknown> {
   if (!res.ok) {
     let body: unknown = null;
     try {
@@ -79,7 +93,36 @@ export async function login(email: string, password: string): Promise<Session> {
     }
     throw new ApiError(res.status, body);
   }
-  return (await res.json()) as Session;
+  return res.json();
+}
+
+export async function login(email: string, password: string): Promise<Session | MfaChallenge> {
+  const res = await rawFetch('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+  return (await readOrThrow(res)) as Session | MfaChallenge;
+}
+
+/** Login 2. adim: challenge token + TOTP/kurtarma kodu -> tam oturum. */
+export async function loginTwoFactor(mfaToken: string, code: string): Promise<Session> {
+  const res = await rawFetch('/auth/login/2fa', { method: 'POST', body: JSON.stringify({ mfaToken, code }) });
+  return (await readOrThrow(res)) as Session;
+}
+
+/** Binary (PDF) indirme: POST + Bearer -> Blob. 401'de bir kez refresh dener. */
+export async function postBlob(path: string, body?: unknown): Promise<Blob> {
+  const session = getSession();
+  const init: RequestInit = { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined };
+  let res = await rawFetch(path, init, session?.accessToken);
+  if (res.status === 401 && session) {
+    const refreshed = await refresh(session);
+    if (!refreshed) throw new ApiError(401, { message: 'oturum suresi doldu' });
+    res = await rawFetch(path, init, refreshed.accessToken);
+  }
+  if (!res.ok) {
+    let body2: unknown = null;
+    try { body2 = await res.json(); } catch { body2 = { message: res.statusText }; }
+    throw new ApiError(res.status, body2);
+  }
+  return res.blob();
 }
 
 /** CSV indirme: metin doner, Bearer ekler. */

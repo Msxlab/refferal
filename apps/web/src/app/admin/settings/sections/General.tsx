@@ -9,20 +9,25 @@ interface Settings {
   slug: string;
   currency: string;
   timezone: string;
-  maturationRule: 'on_approval' | 'on_delivery' | 'days_after_approval';
+  maturationRule: 'on_approval' | 'on_delivery' | 'days_after_approval' | 'days_after_delivery';
   maturationDays: number | null;
   payoutMinCents: string;
   notifyNewMemberName: boolean;
   compressionEnabled: boolean;
   inactiveMembersEarn: boolean;
   requireSeparateApprover: boolean;
+  requireKycForPayout: boolean;
+  requirePayoutApproval: boolean;
+  autoRequestPayouts: boolean;
 }
 
 const MATURATION = [
   { v: 'on_approval', l: 'On approval — payable immediately' },
   { v: 'on_delivery', l: 'On delivery — matures after delivery' },
   { v: 'days_after_approval', l: 'N days after approval' },
+  { v: 'days_after_delivery', l: 'N days after delivery (return window)' },
 ];
+const USES_DAYS = (r: string) => r === 'days_after_approval' || r === 'days_after_delivery';
 
 const TIMEZONES = [
   'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
@@ -46,13 +51,16 @@ export default function General() {
     try {
       const res = await api.patch<Settings>('/admin/settings', {
         maturationRule: s.maturationRule,
-        maturationDays: s.maturationRule === 'days_after_approval' ? Number(s.maturationDays ?? 0) : null,
+        maturationDays: USES_DAYS(s.maturationRule) ? Number(s.maturationDays ?? 0) : null,
         payoutMinCents: Number(s.payoutMinCents),
         timezone: s.timezone,
         notifyNewMemberName: s.notifyNewMemberName,
         compressionEnabled: s.compressionEnabled,
         inactiveMembersEarn: s.inactiveMembersEarn,
         requireSeparateApprover: s.requireSeparateApprover,
+        requireKycForPayout: s.requireKycForPayout,
+        requirePayoutApproval: s.requirePayoutApproval,
+        autoRequestPayouts: s.autoRequestPayouts,
       });
       setS(res);
       showToast('Settings saved ✓');
@@ -89,21 +97,24 @@ export default function General() {
             {MATURATION.map((m) => <option key={m.v} value={m.v}>{m.l}</option>)}
           </select>
         </div>
-        {s.maturationRule === 'days_after_approval' && (
+        {USES_DAYS(s.maturationRule) && (
           <div className="field">
-            <label>Days (N)</label>
+            <label>Days (N){s.maturationRule === 'days_after_delivery' ? ' — return window' : ''}</label>
             <input type="number" min={0} max={365} value={s.maturationDays ?? 0} onChange={(e) => setS({ ...s, maturationDays: Number(e.target.value) })} />
           </div>
         )}
         <div className="field">
           <label>Payout threshold — currently {money(s.payoutMinCents, s.currency)}</label>
-          <input type="number" min={0} value={s.payoutMinCents} onChange={(e) => setS({ ...s, payoutMinCents: e.target.value })} />
+          <input type="number" min={0} step="0.01" value={Number(s.payoutMinCents) / 100} onChange={(e) => setS({ ...s, payoutMinCents: String(Math.round(Number(e.target.value) * 100)) })} />
         </div>
       </div>
 
       <div className="card">
         <strong style={{ fontSize: 14 }}>Policy & privacy</strong>
         <div style={{ marginTop: 4 }}>
+          <Toggle label="Require a verified payout profile (KYC) before paying members" checked={s.requireKycForPayout} onChange={(v) => setS({ ...s, requireKycForPayout: v })} />
+          <Toggle label="Maker-checker — a payout run must be approved by a second admin (4-eyes)" checked={s.requirePayoutApproval} onChange={(v) => setS({ ...s, requirePayoutApproval: v })} />
+          <Toggle label="Auto-request payouts — nightly, create a check request for members who reach the threshold (admin still approves)" checked={s.autoRequestPayouts} onChange={(v) => setS({ ...s, autoRequestPayouts: v })} />
           <Toggle label="Separation of duties — the seller can't approve their own sale (maker-checker)" checked={s.requireSeparateApprover} onChange={(v) => setS({ ...s, requireSeparateApprover: v })} />
           <Toggle label="Show member name in join notifications" checked={s.notifyNewMemberName} onChange={(v) => setS({ ...s, notifyNewMemberName: v })} />
           <Toggle label="Inactive members keep earning commissions" checked={s.inactiveMembersEarn} onChange={(v) => setS({ ...s, inactiveMembersEarn: v })} />

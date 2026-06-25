@@ -1,6 +1,8 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter, Sora } from 'next/font/google';
 import './globals.css';
+import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister';
+import { OfflineBanner } from '@/components/OfflineBanner';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
 const sora = Sora({ subsets: ['latin'], weight: ['600', '700', '800'], variable: '--font-sora', display: 'swap' });
@@ -8,6 +10,15 @@ const sora = Sora({ subsets: ['latin'], weight: ['600', '700', '800'], variable:
 export const metadata: Metadata = {
   title: 'Refearn — Referral commission platform',
   description: 'Grow your referral network, distribute commissions automatically.',
+  manifest: '/manifest.webmanifest',
+  appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'Refearn' },
+  icons: { icon: '/icon.svg', apple: '/icon.svg' },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#05060a',
+  width: 'device-width',
+  initialScale: 1,
 };
 
 // FOUC'suz tema: ilk boyamadan once data-theme'i ayarla (localStorage / sistem tercihi, varsayilan dark).
@@ -19,7 +30,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInit }} />
       </head>
-      <body>{children}</body>
+      <body>
+        <OfflineBanner />
+        {children}
+        <ServiceWorkerRegister />
+      </body>
     </html>
   );
 }

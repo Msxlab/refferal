@@ -3,6 +3,7 @@ import {
   LedgerStatus,
   LedgerType,
   MaturationRule,
+  MembershipStatus,
   NotificationChannel,
   PayoutMethod,
   PayoutStatus,
@@ -10,8 +11,9 @@ import {
   SaleStatus,
   Tenant,
 } from '@prisma/client';
-import { computeCommissionLines, PlanLevelRate } from '@refearn/shared';
+import { bpsAmount, computeCommissionLines, PlanLevelRate } from '@refearn/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { RanksService } from '../ranks/ranks.service';
 import { monthKey } from './month';
 
 type Tx = Prisma.TransactionClient;
@@ -85,7 +87,10 @@ async function withTxRetry<T>(fn: () => Promise<T>): Promise<T> {
  */
 @Injectable()
 export class EngineService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ranks: RanksService,
+  ) {}
 
   /** Tum motor mutasyonlari icin ortak sarmalayici: tek transaction + deadlock retry. */
   private tx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
@@ -169,6 +174,7 @@ export class EngineService {
       }
 
       const month = sale.summaryMonth ?? (await this.fallbackMonth(tx, sale));
+      await this.assertPeriodsOpen(tx, sale.tenantId, [month]); // kilitli aya ters kayit yazilamaz
 
       for (const entry of entries) {
         // paid satirin reversal'i payable kalir (eksiye duser, sonraki kazanclardan
@@ -225,9 +231,16 @@ export class EngineService {
         return { delivered: false };
       }
       await tx.sale.update({ where: { id: saleId }, data: { deliveredAt } });
+      // teslime bagli olgunlasma: on_delivery → hemen; days_after_delivery → teslim + N gun
+      // (iade penceresi). Diger kurallarda teslim-bekleyen pending satir yok (no-op).
+      const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: sale.tenantId } });
+      const maturesAt =
+        tenant.maturationRule === MaturationRule.days_after_delivery
+          ? new Date(deliveredAt.getTime() + (tenant.maturationDays ?? 0) * 86_400_000)
+          : deliveredAt;
       await tx.ledgerEntry.updateMany({
         where: { saleId, type: LedgerType.commission, status: LedgerStatus.pending, maturesAt: null },
-        data: { maturesAt: deliveredAt },
+        data: { maturesAt },
       });
       return { delivered: true };
     });
@@ -298,6 +311,8 @@ export class EngineService {
     return this.tx(async (tx) => {
       const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: params.tenantId } });
 
+      // LEFT JOIN: satisa bagli olmayan satirlar (kampanya bonusu vb.) da dahil; ay
+      // bucket'i once le.summary_month'tan (bonus), sonra sale'den turetilir.
       const rows = await tx.$queryRaw<
         Array<{ id: string; level: number; amountCents: bigint; month: string }>
       >`
@@ -305,11 +320,12 @@ export class EngineService {
                le.level,
                le.amount_cents AS "amountCents",
                COALESCE(
+                 le.summary_month,
                  s.summary_month,
                  to_char(s.sale_date AT TIME ZONE ${tenant.timezone}, 'YYYY-MM')
                ) AS "month"
         FROM ledger_entries le
-        JOIN sales s ON s.id = le.sale_id
+        LEFT JOIN sales s ON s.id = le.sale_id
         WHERE le.tenant_id = ${params.tenantId}::uuid
           AND le.beneficiary_membership_id = ${params.membershipId}::uuid
           AND le.status = 'payable'
@@ -319,9 +335,13 @@ export class EngineService {
         return { paid: false as const, reason: 'nothing_payable' as const, netCents: 0n };
       }
       const net = rows.reduce((a, r) => a + r.amountCents, 0n);
-      if (net < tenant.payoutMinCents) {
+      // pozitif olmayan net ASLA odenmez (payoutMinCents=0 ayarinda 0/negatif cek kesilmesin).
+      if (net <= 0n || net < tenant.payoutMinCents) {
         return { paid: false as const, reason: 'below_min' as const, netCents: net };
       }
+
+      // kilitli aya ait payable payout edilemez (o ayin summary'sini degistirir)
+      await this.assertPeriodsOpen(tx, params.tenantId, rows.map((r) => r.month));
 
       const payout = await tx.payout.create({
         data: {
@@ -374,6 +394,77 @@ export class EngineService {
     });
   }
 
+  /**
+   * Satisa bagli OLMAYAN bonus/ayarlama satiri (kampanya odulu vb.): tek transaction'da
+   * ledger 'adjustment' (payable) satiri + summary (level 0) + bildirim + audit. Satir
+   * summaryMonth'u kendisi tasir; mevcut payout akisi (payoutMember/decide/retry) LEFT JOIN
+   * ile bunu da oder. Negatif amountCents = clawback/ceza (ileride).
+   */
+  async awardBonus(
+    params: {
+      tenantId: string;
+      membershipId: string;
+      amountCents: bigint;
+      month: string;
+      reason: string;
+      actorUserId?: string;
+      meta?: Record<string, unknown>;
+    },
+    // Cagiran kendi transaction'ini verirse (orn. kampanya finalize: claim + odul + results
+    // ATOMIK olmali) o tx uzerinde calisir — yoksa kendi tek-tx'ini acar.
+    externalTx?: Tx,
+  ): Promise<{ ledgerId: string }> {
+    if (externalTx) return this.awardBonusInTx(externalTx, params);
+    return this.tx((tx) => this.awardBonusInTx(tx, params));
+  }
+
+  private async awardBonusInTx(
+    tx: Tx,
+    params: {
+      tenantId: string;
+      membershipId: string;
+      amountCents: bigint;
+      month: string;
+      reason: string;
+      actorUserId?: string;
+      meta?: Record<string, unknown>;
+    },
+  ): Promise<{ ledgerId: string }> {
+    await this.assertPeriodsOpen(tx, params.tenantId, [params.month]); // kilitli aya bonus yazilamaz
+    const entry = await tx.ledgerEntry.create({
+      data: {
+        tenantId: params.tenantId,
+        saleId: null,
+        beneficiaryMembershipId: params.membershipId,
+        level: 0,
+        rateBpsUsed: 0,
+        amountCents: params.amountCents,
+        type: LedgerType.adjustment,
+        status: LedgerStatus.payable,
+        summaryMonth: params.month,
+      },
+    });
+    await this.bumpSummary(tx, params.tenantId, params.membershipId, params.month, 0, {
+      payable: params.amountCents,
+    });
+    await tx.notification.create({
+      data: {
+        tenantId: params.tenantId,
+        recipientMembershipId: params.membershipId,
+        channel: NotificationChannel.push,
+        template: 'bonus_awarded',
+        payload: { amountCents: params.amountCents.toString(), reason: params.reason },
+      },
+    });
+    await this.audit(tx, params.tenantId, params.actorUserId, 'campaign.bonus', entry.id, {}, {
+      membershipId: params.membershipId,
+      amountCents: params.amountCents.toString(),
+      reason: params.reason,
+      ...(params.meta ?? {}),
+    });
+    return { ledgerId: entry.id };
+  }
+
   // ---------------------------------------------------------------- internals
 
   /**
@@ -392,7 +483,9 @@ export class EngineService {
 
     const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: sale.tenantId } });
     const plan = await this.resolvePlan(tx, sale.tenantId, sale.saleDate);
-    const chain = await this.uplineChain(tx, sale.sellerMembershipId, plan.depth);
+    const rawChain = await this.uplineChain(tx, sale.sellerMembershipId, plan.depth);
+    // base unilevel: tenant ayarlarina gore etkin zincir (compression / inactive-earn)
+    const chain = this.effectiveBaseChain(rawChain, tenant);
     const lines = computeCommissionLines(sale.amountCents, plan.levels, chain);
 
     const { status, maturesAt } = this.maturation(tenant, sale);
@@ -400,6 +493,7 @@ export class EngineService {
     // Ay anahtarini DONDUR: ilk apply'da hesapla ve satista sakla; void/mature ayni
     // degeri kullanir (tenant.timezone sonradan degisse bile tutarli bucket).
     const month = sale.summaryMonth ?? monthKey(sale.saleDate, tenant.timezone);
+    await this.assertPeriodsOpen(tx, sale.tenantId, [month]); // kilitli aya komisyon yazilamaz
     if (!sale.summaryMonth) {
       await tx.sale.update({ where: { id: sale.id }, data: { summaryMonth: month } });
       sale.summaryMonth = month;
@@ -435,7 +529,79 @@ export class EngineService {
       });
     }
 
-    return { applied: true, entryCount: lines.length };
+    // ---- MLM bonus katmanlari (unilevel+): direkt sponsora fast-start + matching ----
+    // Sentetik seviye numaralari (1000/1001) base seviyelerle cakismaz; type=commission
+    // oldugu icin void/payout/summary/maturation akisindan dogal gecer.
+    let bonusCount = 0;
+    // Toplam dagitim izleyicisi (Model B tavani icin): base + tum bonuslar.
+    let distributedCents = lines.reduce((a, l) => a + l.amountCents, 0n);
+    // bonuslar GERCEK direkt sponsora (compression base zincirini kaydirabilir ama "direkt sponsor"
+    // anlami degismez). inactiveMembersEarn=false ise inaktif sponsor bonus da almaz.
+    const directSponsor = rawChain[1];
+    const sponsorEarns = !!directSponsor && (tenant.inactiveMembersEarn || directSponsor.status === MembershipStatus.active);
+    const sponsorId = sponsorEarns ? directSponsor!.id : undefined;
+    if (sponsorId && (plan.fastStartBps > 0 || plan.matchingBps > 0)) {
+      const addBonus = async (level: number, rateBps: number, amountCents: bigint, template: string) => {
+        if (amountCents <= 0n) return;
+        await tx.ledgerEntry.create({
+          data: { tenantId: sale.tenantId, saleId: sale.id, beneficiaryMembershipId: sponsorId, level, rateBpsUsed: rateBps, amountCents, type: LedgerType.commission, status, maturesAt },
+        });
+        const delta: SummaryDelta = status === LedgerStatus.payable ? { payable: amountCents } : { pending: amountCents };
+        await this.bumpSummary(tx, sale.tenantId, sponsorId, month, level, delta);
+        await tx.notification.create({
+          data: { tenantId: sale.tenantId, recipientMembershipId: sponsorId, channel: NotificationChannel.push, template, payload: { saleId: sale.id, amountCents: amountCents.toString() } },
+        });
+        distributedCents += amountCents;
+        bonusCount++;
+      };
+
+      // fast-start: satici fastStartDays icinde katildiysa, amount * fastStartBps
+      if (plan.fastStartBps > 0 && plan.fastStartDays > 0) {
+        const seller = await tx.membership.findUnique({ where: { id: sale.sellerMembershipId }, select: { joinedAt: true } });
+        if (seller && sale.saleDate.getTime() - seller.joinedAt.getTime() <= plan.fastStartDays * 86_400_000) {
+          await addBonus(1000, plan.fastStartBps, bpsAmount(sale.amountCents, plan.fastStartBps), 'commission_earned');
+        }
+      }
+      // matching: saticinin level-0 komisyonunun matchingBps'i (sponsor eslestirme)
+      if (plan.matchingBps > 0 && lines.length > 0) {
+        await addBonus(1001, plan.matchingBps, bpsAmount(lines[0].amountCents, plan.matchingBps), 'commission_earned');
+      }
+    }
+
+    // ---- rutbe override (sentetik seviye 1002): satici, ulastigi rutbenin overrideBps'i
+    // kadar KENDI satisinda ek bonus alir. Rutbe = team + kazanc esikleri (RanksService). ----
+    const overrideBps = await this.ranks.overrideBpsFor(tx, sale.tenantId, sale.sellerMembershipId);
+    if (overrideBps > 0) {
+      const overrideAmount = bpsAmount(sale.amountCents, overrideBps);
+      if (overrideAmount > 0n) {
+        const seller = sale.sellerMembershipId;
+        await tx.ledgerEntry.create({
+          data: { tenantId: sale.tenantId, saleId: sale.id, beneficiaryMembershipId: seller, level: 1002, rateBpsUsed: overrideBps, amountCents: overrideAmount, type: LedgerType.commission, status, maturesAt },
+        });
+        const delta: SummaryDelta = status === LedgerStatus.payable ? { payable: overrideAmount } : { pending: overrideAmount };
+        await this.bumpSummary(tx, sale.tenantId, seller, month, 1002, delta);
+        await tx.notification.create({
+          data: { tenantId: sale.tenantId, recipientMembershipId: seller, channel: NotificationChannel.push, template: 'rank_override_earned', payload: { saleId: sale.id, amountCents: overrideAmount.toString(), overrideBps } },
+        });
+        distributedCents += overrideAmount;
+        bonusCount++;
+      }
+    }
+
+    // ---- Toplam dagitim tavani (Model B): bonuslar havuzun USTUNE odenir, ama bu satisin TOPLAM
+    // dagitimi acikca hesaplanan tavani — pool + fastStart + matching + max(rutbe override) — ASLA
+    // asamaz. Dogru hesapta her bilesen kendi bps'iyle sinirli oldugundan bu invariant hep saglanir;
+    // asilmasi = bir bug (cift-yazim / hatali tutar) demektir → tx geri alinir, bozuk para yazilmaz.
+    const maxOverrideBps = await this.ranks.maxOverrideBps(tx, sale.tenantId);
+    const ceilingBps = plan.poolRateBps + plan.fastStartBps + plan.matchingBps + maxOverrideBps;
+    const ceilingCents = (sale.amountCents * BigInt(ceilingBps)) / 10000n;
+    if (distributedCents > ceilingCents) {
+      throw new ConflictException(
+        `komisyon dagitim tavani asildi (sale=${sale.id}): dagitilan ${distributedCents} > tavan ${ceilingCents} (${ceilingBps} bps)`,
+      );
+    }
+
+    return { applied: true, entryCount: lines.length + bonusCount };
   }
 
   private async lockSale(tx: Tx, saleId: string): Promise<LockedSale> {
@@ -465,12 +631,34 @@ export class EngineService {
     return monthKey(sale.saleDate, tenant.timezone);
   }
 
+  /**
+   * Donem kilidi (muhasebe kapanisi): verilen ay(lar) kilitliyse para etkileyen yazimi reddet.
+   * Ledger yazimi / void reversal / payout, kilitli bir ayin summary'sine dokunamaz.
+   *
+   * TOCTOU kapanisi: kilit okumasindan ONCE (tenant, period) basina tx-scope advisory lock al.
+   * PeriodsService.lock/unlock AYNI advisory anahtarini alir; boylece "oku→yaz" ile kilit
+   * olusturma birbirine seri olur — okuduktan sonra commit'e kadar acilan pencerede kilitli aya
+   * para yazilmasi engellenir. pg_advisory_xact_lock tx sonunda (commit/rollback) otomatik birakilir.
+   * Anahtarlar SIRALI alinir (deadlock'a karsi: cok-donemli payout'lar ayni kuresel sirayla kilitler).
+   */
+  private async assertPeriodsOpen(tx: Tx, tenantId: string, periods: string[]): Promise<void> {
+    const unique = [...new Set(periods)].sort();
+    if (unique.length === 0) return;
+    for (const period of unique) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${period}))`;
+    }
+    const lock = await tx.periodLock.findFirst({ where: { tenantId, period: { in: unique } } });
+    if (lock) {
+      throw new ConflictException(`donem kilitli (${lock.period}) — once muhasebe kilidini acin`);
+    }
+  }
+
   /** Satis tarihinde gecerli plan: effective_from <= sale_date, en yeni (SPEC 3.2 / T6). */
   private async resolvePlan(
     tx: Tx,
     tenantId: string,
     saleDate: Date,
-  ): Promise<{ depth: number; levels: PlanLevelRate[] }> {
+  ): Promise<{ depth: number; levels: PlanLevelRate[]; poolRateBps: number; fastStartBps: number; fastStartDays: number; matchingBps: number }> {
     const plan = await tx.commissionPlan.findFirst({
       where: { tenantId, effectiveFrom: { lte: saleDate } },
       orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
@@ -482,6 +670,10 @@ export class EngineService {
     return {
       depth: plan.depth,
       levels: plan.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })),
+      poolRateBps: plan.poolRateBps,
+      fastStartBps: plan.fastStartBps,
+      fastStartDays: plan.fastStartDays,
+      matchingBps: plan.matchingBps,
     };
   }
 
@@ -490,21 +682,42 @@ export class EngineService {
    * chain[0] = satici. Pasif uye MVP'de payini almaya devam eder — filtre yok;
    * compression tenant ayari semada var, varsayilan kapali.
    */
-  private async uplineChain(tx: Tx, sellerMembershipId: string, depth: number): Promise<string[]> {
-    const chain: string[] = [];
+  private async uplineChain(tx: Tx, sellerMembershipId: string, depth: number): Promise<Array<{ id: string; status: MembershipStatus }>> {
+    const chain: Array<{ id: string; status: MembershipStatus }> = [];
     let currentId: string | null = sellerMembershipId;
     for (let level = 0; level < depth && currentId; level++) {
-      chain.push(currentId);
-      const m: { sponsorMembershipId: string | null } | null = await tx.membership.findUnique({
+      const m: { sponsorMembershipId: string | null; status: MembershipStatus } | null = await tx.membership.findUnique({
         where: { id: currentId },
-        select: { sponsorMembershipId: true },
+        select: { sponsorMembershipId: true, status: true },
       });
       if (!m) {
         throw new NotFoundException(`uyelik bulunamadi: ${currentId}`);
       }
+      chain.push({ id: currentId, status: m.status });
       currentId = m.sponsorMembershipId;
     }
     return chain;
+  }
+
+  /**
+   * Tenant ayarlarina gore ETKIN base zincir (Dalga 5 — atil toggle'lari gercege cevirir):
+   * - compressionEnabled: inaktif upline'lari ATLA, aktifleri yukari kaydir (roll-up).
+   * - inactiveMembersEarn=false (compression kapali): inaktif upline o seviyede pay ALMAZ, yeri
+   *   bos birakilir ('') — pay sirkette kalir, roll-up YOK.
+   * - varsayilan (inactiveMembersEarn=true): herkes kazanir (mevcut davranis — degismez).
+   * Satici (level 0) her zaman dahildir (satis zaten aktif uye adina girilir).
+   */
+  private effectiveBaseChain(raw: Array<{ id: string; status: MembershipStatus }>, tenant: Tenant): string[] {
+    if (raw.length === 0) return [];
+    const seller = raw[0].id;
+    const uplines = raw.slice(1);
+    if (tenant.compressionEnabled) {
+      return [seller, ...uplines.filter((u) => u.status === MembershipStatus.active).map((u) => u.id)];
+    }
+    if (!tenant.inactiveMembersEarn) {
+      return [seller, ...uplines.map((u) => (u.status === MembershipStatus.active ? u.id : ''))];
+    }
+    return raw.map((r) => r.id);
   }
 
   /** Olgunlasma kurali (SPEC 3.4): satirin baslangic statusu + matures_at. */
@@ -522,6 +735,14 @@ export class EngineService {
         const base = sale.approvedAt ?? new Date();
         const days = tenant.maturationDays ?? 0;
         return { status: LedgerStatus.pending, maturesAt: new Date(base.getTime() + days * 86_400_000) };
+      }
+      case MaturationRule.days_after_delivery: {
+        // iade penceresi: teslime kadar matures_at bos; markDelivered teslim+N ile doldurur
+        const days = tenant.maturationDays ?? 0;
+        return {
+          status: LedgerStatus.pending,
+          maturesAt: sale.deliveredAt ? new Date(sale.deliveredAt.getTime() + days * 86_400_000) : null,
+        };
       }
     }
   }

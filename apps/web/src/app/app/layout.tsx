@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { activeMembership, clearSession, getSession, type Session } from '@/lib/auth';
+import { activeMembership, clearSession, getSession, isImpersonating, setSession, stopImpersonation, type Session } from '@/lib/auth';
+import { api } from '@/lib/api';
 import { Brand, ThemeToggle } from '@/components/ui';
 import { NotificationBell } from '@/components/NotificationBell';
 import { t } from '@/lib/i18n';
@@ -11,6 +12,7 @@ import { t } from '@/lib/i18n';
 const NAV: Array<{ href: string; key: Parameters<typeof t>[0]; ic: string }> = [
   { href: '/app', key: 'anav.home', ic: '◈' },
   { href: '/app/wallet', key: 'anav.wallet', ic: '◇' },
+  { href: '/app/sales', key: 'anav.sales', ic: '◆' },
   { href: '/app/team', key: 'anav.team', ic: '⬡' },
   { href: '/app/invite', key: 'anav.invite', ic: '✦' },
 ];
@@ -19,6 +21,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [session, setSessionState] = useState<Session | null>(null);
+  const [imp, setImp] = useState(false);
 
   useEffect(() => {
     const s = getSession();
@@ -27,6 +30,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       return;
     }
     setSessionState(s);
+    setImp(isImpersonating());
+  }, [router]);
+
+  // sekmeler-arasi senkron: baska sekmede cikis yapilirsa (refearn.session silinir) burada da login'e don
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'refearn.session' && !e.newValue) router.replace('/login');
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, [router]);
 
   if (!session) return <div className="center muted">{t('common.loading')}</div>;
@@ -37,8 +50,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     router.replace('/login');
   }
 
+  async function exitImpersonation() {
+    const mid = getSession()?.activeMembershipId;
+    const admin = stopImpersonation();
+    if (!admin) { router.replace('/login'); return; }
+    setSession(admin);
+    if (mid) { try { await api.post(`/admin/members/${mid}/impersonate/end`); } catch { /* yok say */ } }
+    window.location.href = '/admin';
+  }
+
   return (
     <div>
+      {imp && (
+        <div className="no-print" style={{ background: 'var(--amber)', color: '#1a1404', padding: '8px 18px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, fontSize: 13, fontWeight: 600 }}>
+          <span>👁 Viewing as <b>{session.user.fullName}</b> — read only</span>
+          <button className="btn sm" style={{ background: '#1a1404', color: 'var(--amber)' }} onClick={exitImpersonation}>Exit impersonation</button>
+        </div>
+      )}
       <header className="topbar">
         <div className="inner">
           <Brand />
@@ -52,6 +80,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <span className="faint" style={{ fontSize: 12 }}>{active?.tenantName}</span>
           <NotificationBell />
           <ThemeToggle />
+          <Link href="/account" className="btn ghost sm" title="Account settings">Account</Link>
           <button className="btn ghost sm" onClick={logout}>{t('nav.logout')}</button>
         </div>
       </header>

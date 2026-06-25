@@ -1,5 +1,6 @@
 import { LedgerStatus, LedgerType, MaturationRule, SaleStatus } from '@prisma/client';
 import { EngineService } from '../src/engine/engine.service';
+import { RanksService } from '../src/ranks/ranks.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import {
   createChain,
@@ -22,7 +23,7 @@ describe('motor — inceleme bulgu regresyonlari', () => {
   beforeAll(async () => {
     prisma = new PrismaService();
     await prisma.$connect();
-    engine = new EngineService(prisma);
+    engine = new EngineService(prisma, new RanksService(prisma));
   });
 
   afterAll(async () => {

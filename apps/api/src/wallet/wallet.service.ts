@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { LedgerStatus, LedgerType } from '@prisma/client';
+import { LedgerStatus, LedgerType, MembershipStatus, SaleStatus } from '@prisma/client';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -11,8 +11,16 @@ import { PrismaService } from '../prisma/prisma.service';
 export class WalletService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Bakiye = payable toplam (odenebilir). pending ve paid ayri gosterilir. */
-  async wallet(membershipId: string, q: { page: number; pageSize: number }) {
+  /**
+   * Bakiye = payable toplam (odenebilir). pending ve paid ayri gosterilir.
+   * type/status filtreleri YALNIZ ledger listesine uygulanir; balance her zaman tum kayitlardan.
+   */
+  async wallet(
+    membershipId: string,
+    tenantId: string,
+    q: { page: number; pageSize: number; type?: LedgerType; status?: LedgerStatus },
+  ) {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const grouped = await this.prisma.ledgerEntry.groupBy({
       by: ['status'],
       where: { beneficiaryMembershipId: membershipId, status: { not: LedgerStatus.reversed } },
@@ -20,10 +28,15 @@ export class WalletService {
     });
     const bucket = (s: LedgerStatus) => grouped.find((g) => g.status === s)?._sum.amountCents ?? 0n;
 
+    const ledgerWhere = {
+      beneficiaryMembershipId: membershipId,
+      ...(q.type ? { type: q.type } : {}),
+      ...(q.status ? { status: q.status } : {}),
+    };
     const [total, entries] = await this.prisma.$transaction([
-      this.prisma.ledgerEntry.count({ where: { beneficiaryMembershipId: membershipId } }),
+      this.prisma.ledgerEntry.count({ where: ledgerWhere }),
       this.prisma.ledgerEntry.findMany({
-        where: { beneficiaryMembershipId: membershipId },
+        where: ledgerWhere,
         orderBy: { createdAt: 'desc' },
         skip: (q.page - 1) * q.pageSize,
         take: q.pageSize,
@@ -43,6 +56,9 @@ export class WalletService {
     ]);
 
     return {
+      currency: tenant.currency,
+      // Esik ilerleme cubugu icin: payable >= payoutMinCents olunca odeme istenebilir
+      payoutMinCents: tenant.payoutMinCents.toString(),
       balance: {
         pendingCents: bucket(LedgerStatus.pending).toString(),
         payableCents: bucket(LedgerStatus.payable).toString(),
@@ -68,15 +84,108 @@ export class WalletService {
     };
   }
 
+  /**
+   * Aylik kazanc serisi (son N ay, icinde bulunulan ay dahil, eskiden yeniye).
+   * Kaynak: monthly_summaries (membership_id iceriyor; engine her ledger mutasyonunda
+   * ayni transaction'da gunceller — reversal'lar bucket'i dusurur, yani NET degerler).
+   * Ay anahtari tenant.timezone'a gore (engine monthKey ile ayni kural).
+   */
+  async earnings(membershipId: string, tenantId: string, months: number) {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    const anchor = monthKey(new Date(), tenant.timezone);
+    const range = this.monthsBack(anchor, months);
+
+    const rows = await this.prisma.monthlySummary.groupBy({
+      by: ['month'],
+      where: { tenantId, membershipId, month: { in: range } },
+      _sum: { pendingCents: true, payableCents: true, paidCents: true },
+      orderBy: { month: 'asc' },
+    });
+    const byMonth = new Map(rows.map((r) => [r.month, r._sum]));
+
+    const series = range.map((m) => {
+      const s = byMonth.get(m);
+      const pending = s?.pendingCents ?? 0n;
+      const payable = s?.payableCents ?? 0n;
+      const paid = s?.paidCents ?? 0n;
+      return {
+        month: m,
+        pendingCents: pending.toString(),
+        payableCents: payable.toString(),
+        paidCents: paid.toString(),
+        totalCents: (pending + payable + paid).toString(),
+      };
+    });
+
+    return { months, currency: tenant.currency, series };
+  }
+
+  /** anchor ('YYYY-MM') dahil son n ayin anahtarlari, eskiden yeniye (reports.service.ts kalibi). */
+  private monthsBack(anchor: string, n: number): string[] {
+    const [y, m] = anchor.split('-').map(Number);
+    const out: string[] = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const d = new Date(Date.UTC(y, m - 1 - i, 1));
+      out.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+    }
+    return out;
+  }
+
+  /** Aktivasyon checklist'i (#22): mevcut veriden turetilir, yeni tablo yok. */
+  async onboarding(membershipId: string, userId: string, tenantId: string) {
+    const [user, profile, invites, sales, devices] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: userId }, select: { emailVerifiedAt: true } }),
+      this.prisma.payoutProfile.findUnique({ where: { membershipId }, select: { id: true } }),
+      this.prisma.invite.count({ where: { tenantId, inviterMembershipId: membershipId } }),
+      this.prisma.sale.count({ where: { tenantId, sellerMembershipId: membershipId } }),
+      this.prisma.device.count({ where: { userId } }),
+    ]);
+    const steps = [
+      { key: 'verify_email', label: 'Verify your email', done: !!user?.emailVerifiedAt },
+      { key: 'payout_profile', label: 'Add your payout details', done: !!profile },
+      { key: 'first_invite', label: 'Send your first invite', done: invites > 0 },
+      { key: 'first_sale', label: 'Record your first sale', done: sales > 0 },
+      { key: 'enable_push', label: 'Enable push notifications', done: devices > 0 },
+    ];
+    const done = steps.filter((s) => s.done).length;
+    return { steps, done, total: steps.length, percent: Math.round((done / steps.length) * 100) };
+  }
+
+  /**
+   * Gizlilik-uyumlu liderlik: uyeye YALNIZ kendi sirasi + yuzdelik dilim doner.
+   * Baska uyenin adi/tutari ASLA donmez (mevcut gizlilik modeli). Bu ay toplam kazanca gore.
+   */
+  async leaderboard(membershipId: string, tenantId: string) {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    const month = monthKey(new Date(), tenant.timezone);
+    const rows = await this.prisma.monthlySummary.groupBy({
+      by: ['membershipId'],
+      where: { tenantId, month },
+      _sum: { pendingCents: true, payableCents: true, paidCents: true },
+    });
+    const totals = rows
+      .map((r) => ({ id: r.membershipId, total: (r._sum.pendingCents ?? 0n) + (r._sum.payableCents ?? 0n) + (r._sum.paidCents ?? 0n) }))
+      .filter((t) => t.total > 0n)
+      .sort((a, b) => (b.total > a.total ? 1 : b.total < a.total ? -1 : 0));
+    const total = totals.length;
+    const idx = totals.findIndex((t) => t.id === membershipId);
+    if (idx < 0) return { month, rank: null, total, topPercent: null };
+    const rank = idx + 1;
+    const topPercent = total > 0 ? Math.max(1, Math.round((rank / total) * 100)) : null;
+    return { month, rank, total, topPercent };
+  }
+
   /** Ay ozeti + seviye dokumu (pending/payable/paid). */
   async dashboard(membershipId: string, tenantId: string, month?: string) {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const targetMonth = month ?? monthKey(new Date(), tenant.timezone);
 
-    const rows = await this.prisma.monthlySummary.findMany({
-      where: { membershipId, month: targetMonth },
-      orderBy: { level: 'asc' },
-    });
+    const [rows, soldThisMonth, soldLifetime] = await Promise.all([
+      this.prisma.monthlySummary.findMany({ where: { membershipId, month: targetMonth }, orderBy: { level: 'asc' } }),
+      // KENDI cirosu (sattigi): bu ay onayli satislari
+      this.prisma.sale.aggregate({ where: { tenantId, sellerMembershipId: membershipId, status: SaleStatus.approved, summaryMonth: targetMonth }, _sum: { amountCents: true }, _count: { _all: true } }),
+      this.prisma.sale.aggregate({ where: { tenantId, sellerMembershipId: membershipId, status: SaleStatus.approved }, _sum: { amountCents: true } }),
+    ]);
 
     const levels = rows.map((r) => ({
       level: r.level,
@@ -85,10 +194,19 @@ export class WalletService {
       paidCents: r.paidCents.toString(),
     }));
     const sum = (pick: (r: (typeof rows)[number]) => bigint) => rows.reduce((a, r) => a + pick(r), 0n);
+    const earnedThisMonth = sum((r) => r.pendingCents) + sum((r) => r.payableCents) + sum((r) => r.paidCents);
+    const soldCents = soldThisMonth._sum.amountCents ?? 0n;
 
     return {
       month: targetMonth,
       currency: tenant.currency,
+      // "sattigi vs kazandigi" — urunun uye tarafindaki cekirdek vaadi
+      soldThisMonthCents: soldCents.toString(),
+      salesThisMonth: soldThisMonth._count._all,
+      soldLifetimeCents: (soldLifetime._sum.amountCents ?? 0n).toString(),
+      earnedThisMonthCents: earnedThisMonth.toString(),
+      // etkin oran (kazanc/ciro) bps — yalniz kendi satislarindan degil tum komisyon dahil; bilgi amacli
+      effectiveRateBps: soldCents > 0n ? Number((earnedThisMonth * 10000n) / soldCents) : 0,
       totals: {
         pendingCents: sum((r) => r.pendingCents).toString(),
         payableCents: sum((r) => r.payableCents).toString(),
@@ -152,5 +270,91 @@ export class WalletService {
     }
 
     return { totalMembers, totalActive, levels };
+  }
+
+  /**
+   * DIREKT recruit'ler: uyenin KENDI davet ettigi 1. seviye uyeler (sponsorMembershipId = me).
+   * GIZLILIK: bu yuzey team()'den FARKLI — burada isim donebilir cunku uye onlari kendisi davet etti
+   * (gizlilik kisiti DERIN downline icindir, direkt recruit'ler degil). 2+ seviye derin ASLA isimle
+   * donmez; bunun icin team() agregati kullanilir. Tum sorgular SALT-OKUNUR (yerlesim/path'e dokunmaz).
+   */
+  async recruits(membershipId: string, tenantId: string) {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    const month = monthKey(new Date(), tenant.timezone);
+
+    const me = await this.prisma.membership.findFirst({ where: { id: membershipId, tenantId }, select: { id: true } });
+    if (!me) {
+      throw new NotFoundException('uyelik bulunamadi');
+    }
+
+    // 1. seviye: [tenantId, sponsorMembershipId] index'i (schema.prisma) kullanilir.
+    const directs = await this.prisma.membership.findMany({
+      where: { tenantId, sponsorMembershipId: membershipId },
+      select: {
+        id: true,
+        referralCode: true,
+        status: true,
+        joinedAt: true,
+        user: { select: { fullName: true, email: true } },
+      },
+      orderBy: { joinedAt: 'asc' },
+    });
+
+    if (directs.length === 0) {
+      return {
+        month, currency: tenant.currency, recruits: [],
+        summary: { total: 0, active: 0, needsNudgeCount: 0, joinedThisMonth: 0 },
+        growthTrend: this.monthsBack(month, 6).map((m) => ({ month: m, joined: 0 })),
+      };
+    }
+
+    // Bu ay onayli satis (recruit'in KENDI sattigi): tek groupBy (dashboard() ile birebir ayni kalip).
+    const ids = directs.map((d) => d.id);
+    const salesRows = await this.prisma.sale.groupBy({
+      by: ['sellerMembershipId'],
+      where: { tenantId, status: SaleStatus.approved, summaryMonth: month, sellerMembershipId: { in: ids } },
+      _sum: { amountCents: true },
+      _count: { _all: true },
+    });
+    const salesById = new Map(salesRows.map((r) => [r.sellerMembershipId, r]));
+
+    let active = 0;
+    let needsNudgeCount = 0;
+    let joinedThisMonth = 0;
+    const joinByMonth = new Map<string, number>();
+    const recruits = directs.map((d) => {
+      const s = salesById.get(d.id);
+      const salesThisMonth = s?._count._all ?? 0;
+      const isActive = d.status === MembershipStatus.active;
+      if (isActive) active++;
+      // nudge sinyali: AKTIF ama bu ay henuz satis yapmamis recruit (pasif=inactive ayri durum).
+      const needsNudge = isActive && salesThisMonth === 0;
+      if (needsNudge) needsNudgeCount++;
+      const jm = monthKey(d.joinedAt, tenant.timezone);
+      if (jm === month) joinedThisMonth++;
+      joinByMonth.set(jm, (joinByMonth.get(jm) ?? 0) + 1);
+      return {
+        id: d.id,
+        fullName: d.user.fullName,
+        email: d.user.email,
+        referralCode: d.referralCode,
+        status: d.status,
+        joinedAt: d.joinedAt,
+        salesThisMonth,
+        soldThisMonthCents: (s?._sum.amountCents ?? 0n).toString(),
+        needsNudge,
+      };
+    });
+
+    // son 6 ay katilim trendi (1. seviye recruit'lerin joinedAt'i — gizlilik-guvenli sayim)
+    const growthTrend = this.monthsBack(month, 6).map((m) => ({ month: m, joined: joinByMonth.get(m) ?? 0 }));
+
+    return {
+      month,
+      currency: tenant.currency,
+      recruits,
+      summary: { total: recruits.length, active, needsNudgeCount, joinedThisMonth },
+      growthTrend,
+    };
   }
 }

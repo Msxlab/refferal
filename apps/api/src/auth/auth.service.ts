@@ -6,8 +6,10 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { JwtService } from '@nestjs/jwt';
 import { hash, verify } from '@node-rs/argon2';
+import { authenticator } from 'otplib';
 import {
   InviteStatus,
   Membership,
@@ -19,7 +21,7 @@ import {
   User,
   UserTokenPurpose,
 } from '@prisma/client';
-import { randomToken, sha256 } from '../common/crypto';
+import { decryptSecret, randomToken, sha256 } from '../common/crypto';
 import { defaultPermissionsForTier } from '../common/permissions';
 import { MembershipsService } from '../memberships/memberships.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -33,7 +35,20 @@ import {
 } from './auth.types';
 
 // argon2id parametreleri (OWASP onerisi)
-const ARGON2_OPTS = { memoryCost: 19_456, timeCost: 2, parallelism: 1 };
+export const ARGON2_OPTS = { memoryCost: 19_456, timeCost: 2, parallelism: 1 };
+
+// Kayit disclaimer'inin surumu — FE'deki metin degisirse artir; hangi metnin kabul edildigini izler.
+export const DISCLAIMER_VERSION = 'v1';
+
+// 2FA: TOTP saat kaymasi toleransi (+-1 adim) + login 2. adim challenge token omru (5 dk)
+authenticator.options = { window: 1 };
+const MFA_CHALLENGE_TTL_SECONDS = 300;
+
+/** Login 2FA istiyorsa donen yanit (tam oturum YERINE). */
+export interface MfaChallenge {
+  mfaRequired: true;
+  mfaToken: string;
+}
 
 // Kullanici yokken de sifre dogrulamasi kosulur (timing esitligi icin)
 let dummyHashPromise: Promise<string> | null = null;
@@ -142,6 +157,15 @@ export class AuthService {
         userId: user.id,
         sponsor: invite.inviter,
       });
+      // sybil sinyali (#16): kayit IP'si + Faz A1 disclaimer onayi (zod true zorunlu kildi).
+      await tx.membership.update({
+        where: { id: membership.id },
+        data: {
+          ...(meta.ip ? { signupIp: meta.ip } : {}),
+          disclaimerAcceptedAt: new Date(),
+          disclaimerVersion: DISCLAIMER_VERSION,
+        },
+      });
 
       await tx.invite.update({
         where: { id: invite.id },
@@ -199,14 +223,72 @@ export class AuthService {
     return this.issueSession(userId, meta);
   }
 
-  async login(input: LoginInput, meta: RequestMeta = {}): Promise<AuthSession> {
+  async login(input: LoginInput, meta: RequestMeta = {}): Promise<AuthSession | MfaChallenge> {
     const user = await this.prisma.user.findUnique({ where: { email: input.email } });
     const ok = await safeVerify(user?.passwordHash ?? (await dummyHash()), input.password);
     if (!user || !ok) {
       await this.securityEvent('security.login_failed', { email: input.email, ip: meta.ip }, user?.id);
       throw new UnauthorizedException('e-posta veya sifre hatali');
     }
+    // 2FA etkinse: tam oturum yerine kisa-omurlu MFA challenge token'i don. Bu token AYRI
+    // secret ile imzalidir -> AccessTokenGuard (accessSecret) onu gecerli access-token SAYMAZ.
+    if (user.totpEnabledAt) {
+      const mfaToken = await this.jwt.signAsync(
+        { sub: user.id, mfa: true },
+        { secret: this.mfaSecret(), expiresIn: MFA_CHALLENGE_TTL_SECONDS },
+      );
+      return { mfaRequired: true, mfaToken };
+    }
     return this.issueSession(user.id, meta);
+  }
+
+  /** Login 2. adim: MFA challenge token + (6 haneli TOTP | kurtarma kodu) -> tam oturum. */
+  async loginTwoFactor(mfaToken: string, code: string, meta: RequestMeta = {}): Promise<AuthSession> {
+    let claims: { sub?: string; mfa?: boolean };
+    try {
+      claims = await this.jwt.verifyAsync(mfaToken, { secret: this.mfaSecret() });
+    } catch {
+      throw new UnauthorizedException('2fa oturumu suresi doldu, tekrar giris yapin');
+    }
+    if (!claims?.mfa || !claims.sub) {
+      throw new UnauthorizedException('gecersiz 2fa oturumu');
+    }
+    const user = await this.prisma.user.findUnique({ where: { id: claims.sub } });
+    if (!user || !user.totpEnabledAt || !user.totpSecret) {
+      throw new UnauthorizedException('2fa etkin degil');
+    }
+    if (!(await this.verifyTotpOrRecovery(user, code))) {
+      await this.securityEvent('security.login_2fa_failed', { ip: meta.ip }, user.id);
+      throw new UnauthorizedException('dogrulama kodu hatali');
+    }
+    return this.issueSession(user.id, meta);
+  }
+
+  /** access secret'tan TUREYEN ayri anahtar: guard bu token'i access-token saymaz (2FA-oncesi sizma onlenir). */
+  private mfaSecret(): string {
+    return authConfig.accessSecret() + ':mfa-challenge';
+  }
+
+  /** 6 haneli TOTP VEYA tek-kullanimlik kurtarma kodu dogrula (recovery eslesirse TUKETILIR). */
+  private async verifyTotpOrRecovery(
+    user: { id: string; totpSecret: string | null; mfaRecoveryCodes: Prisma.JsonValue },
+    code: string,
+  ): Promise<boolean> {
+    const clean = code.replace(/\s/g, '');
+    if (/^\d{6}$/.test(clean) && user.totpSecret) {
+      const secret = decryptSecret(user.totpSecret);
+      if (authenticator.verify({ token: clean, secret })) return true;
+    }
+    // kurtarma kodu: dash/uppercase normalize edilip sha256 — enable2fa ile AYNI kalip
+    const codes = Array.isArray(user.mfaRecoveryCodes) ? (user.mfaRecoveryCodes as string[]) : [];
+    const h = sha256(clean.replace(/-/g, '').toUpperCase());
+    const idx = codes.indexOf(h);
+    if (idx >= 0) {
+      const remaining = codes.filter((_, i) => i !== idx);
+      await this.prisma.user.update({ where: { id: user.id }, data: { mfaRecoveryCodes: remaining } });
+      return true;
+    }
+    return false;
   }
 
   /** Rotasyonlu refresh: eski token iptal, yenisi verilir. Reuse → tum oturumlar kapanir. */
@@ -230,12 +312,14 @@ export class AuthService {
       throw new UnauthorizedException('refresh token suresi dolmus');
     }
 
+    const familyId = token.familyId ?? randomUUID(); // ayni oturum (cihaz) — eski token'da yoksa (migration oncesi) yeni ata
     return this.prisma.$transaction(async (tx) => {
       const newRaw = randomToken();
       const newToken = await tx.refreshToken.create({
         data: {
           userId: token.userId,
           tokenHash: sha256(newRaw),
+          familyId,
           expiresAt: new Date(Date.now() + authConfig.refreshTtlMs),
           ip: meta.ip,
           userAgent: meta.userAgent,
@@ -249,7 +333,7 @@ export class AuthService {
       if (rotated.count === 0) {
         throw new UnauthorizedException('refresh token zaten kullanilmis');
       }
-      return this.buildSession(tx, token.userId, newRaw);
+      return this.buildSession(tx, token.userId, newRaw, familyId);
     });
   }
 
@@ -262,7 +346,7 @@ export class AuthService {
   }
 
   /** Coklu uyelikte tenant secimi; "son secim hatirlanir" (SPEC 4.1). */
-  async switchTenant(userId: string, membershipId: string): Promise<{ accessToken: string; activeMembershipId: string }> {
+  async switchTenant(userId: string, membershipId: string, sid?: string): Promise<{ accessToken: string; activeMembershipId: string }> {
     const membership = await this.prisma.membership.findFirst({
       where: {
         id: membershipId,
@@ -282,7 +366,7 @@ export class AuthService {
       where: { id: userId },
       data: { lastMembershipId: membership.id },
     });
-    const accessToken = await this.signAccess(user, membership);
+    const accessToken = await this.signAccess(user, membership, sid);
     return { accessToken, activeMembershipId: membership.id };
   }
 
@@ -307,6 +391,16 @@ export class AuthService {
     if (user) {
       const raw = randomToken(32);
       const recipient = user.lastMembershipId ?? user.memberships[0]?.id;
+      // Bildirim hangi uyelige gidiyorsa o uyeligin tenant'ina ait olmali. lastMembershipId
+      // include edilen (aktif, take:1) listede olmayabilir; tenantId'yi dogrudan cozeriz.
+      const recipientTenantId = recipient
+        ? (
+            await this.prisma.membership.findUnique({
+              where: { id: recipient },
+              select: { tenantId: true },
+            })
+          )?.tenantId ?? null
+        : null;
       await this.prisma.$transaction(async (tx) => {
         await tx.userToken.updateMany({
           where: { userId: user.id, purpose: UserTokenPurpose.password_reset, usedAt: null },
@@ -323,6 +417,7 @@ export class AuthService {
         if (recipient) {
           await tx.notification.create({
             data: {
+              tenantId: recipientTenantId,
               recipientMembershipId: recipient,
               channel: NotificationChannel.email,
               template: 'password_reset',
@@ -357,17 +452,19 @@ export class AuthService {
 
   private async issueSession(userId: string, meta: RequestMeta): Promise<AuthSession> {
     const raw = randomToken();
+    const familyId = randomUUID(); // yeni oturum (cihaz) — rotasyon boyunca sabit kalir
     return this.prisma.$transaction(async (tx) => {
       await tx.refreshToken.create({
         data: {
           userId,
           tokenHash: sha256(raw),
+          familyId,
           expiresAt: new Date(Date.now() + authConfig.refreshTtlMs),
           ip: meta.ip,
           userAgent: meta.userAgent,
         },
       });
-      return this.buildSession(tx, userId, raw);
+      return this.buildSession(tx, userId, raw, familyId);
     });
   }
 
@@ -375,6 +472,7 @@ export class AuthService {
     tx: Prisma.TransactionClient,
     userId: string,
     refreshTokenRaw: string,
+    familyId: string,
   ): Promise<AuthSession> {
     const user = await tx.user.findUniqueOrThrow({
       where: { id: userId },
@@ -397,7 +495,7 @@ export class AuthService {
       await tx.user.update({ where: { id: user.id }, data: { lastMembershipId: active.id } });
     }
 
-    const accessToken = await this.signAccess(user, active);
+    const accessToken = await this.signAccess(user, active, familyId);
     const memberships: MembershipSummary[] = list.map((m) => ({
       id: m.id,
       tenantId: m.tenant.id,
@@ -424,13 +522,14 @@ export class AuthService {
     };
   }
 
-  private signAccess(user: Pick<User, 'id' | 'isPlatformAdmin'>, membership: ActiveMembership | null): Promise<string> {
+  private signAccess(user: Pick<User, 'id' | 'isPlatformAdmin'>, membership: ActiveMembership | null, familyId?: string): Promise<string> {
     const payload: AccessTokenPayload = {
       sub: user.id,
       mid: membership?.id ?? null,
       tid: membership?.tenant.id ?? null,
       role: membership?.role ?? null,
     };
+    if (familyId) payload.sid = familyId; // oturum (cihaz) kimligi — switchTenant'ta mevcut sid korunur
     if (user.isPlatformAdmin) payload.plat = true;
     // owner/platform → perms gomulmez (guard tum-izinli sayar). Diger katmanlarda
     // ozel rolun izinleri, yoksa enum katmaninin varsayilanlari token'a yazilir.

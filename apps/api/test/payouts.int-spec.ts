@@ -1,4 +1,5 @@
 import { INestApplication } from '@nestjs/common';
+import { RanksService } from '../src/ranks/ranks.service';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import { LedgerStatus, PayoutStatus, Role } from '@prisma/client';
@@ -62,7 +63,7 @@ describe('payouts (entegrasyon)', () => {
     const s1 = await createSale(prisma, tenant.id, seller.id, 10_000_000n); // L0 = 500.000
     const s2 = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
     const { EngineService } = await import('../src/engine/engine.service');
-    const engine = new EngineService(prisma);
+    const engine = new EngineService(prisma, new RanksService(prisma));
     await engine.approveSale(s1.id);
     await engine.approveSale(s2.id);
 
@@ -144,7 +145,7 @@ describe('payouts (entegrasyon)', () => {
     // kucuk satis: L0 = $5 (< $1000 esik)
     const sale = await createSale(prisma, tenant.id, seller.id, 10_000n);
     const { EngineService } = await import('../src/engine/engine.service');
-    await new EngineService(prisma).approveSale(sale.id);
+    await new EngineService(prisma, new RanksService(prisma)).approveSale(sale.id);
 
     // payable liste bos (esik altinda)
     const payable = await request(app.getHttpServer())
@@ -177,7 +178,8 @@ describe('payouts (entegrasyon)', () => {
     // payable olustur ($5000)
     const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
     const { EngineService } = await import('../src/engine/engine.service');
-    await new EngineService(prisma).approveSale(sale.id);
+    await new EngineService(prisma, new RanksService(prisma)).approveSale(sale.id);
+    // not: cek-odeme adresi (Faz A2 kapisi) createChain helper'inda varsayilan dolu gelir
 
     const req1 = await request(app.getHttpServer())
       .post('/v1/app/payout-requests')

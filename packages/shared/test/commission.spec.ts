@@ -6,6 +6,7 @@ import {
   totalDistributed,
   DEFAULT_LEVEL_RATES_BPS,
   DEFAULT_POOL_RATE_BPS,
+  type CommissionLine,
 } from '../src';
 
 const PLAN = DEFAULT_LEVEL_RATES_BPS.map((rateBps, level) => ({ level, rateBps }));
@@ -142,5 +143,34 @@ describe('computeCommissionLines — saf cekirdek (SPEC 11)', () => {
     const lines = computeCommissionLines(10_000_000n, PLAN, chain(10));
     expect(lines).toHaveLength(5);
     expect(Math.max(...lines.map((l) => l.level))).toBe(4);
+  });
+});
+
+describe('yerlesim degismezi: komisyon SPONSOR zinciriyle akar, ltree path DEGIL (docs/DECISIONS.md 2026-06-16)', () => {
+  // Urun karari kilidi: tek sponsor agaci; spillover/binary/matrix YOK (SPEC.md:40 "asla").
+  // computeCommissionLines imzasi YALNIZ uplineChain alir — path/placement parametresi YOKTUR,
+  // yani ltree path komisyonu YAPISAL OLARAK etkileyemez. Motor (engine.service.ts uplineChain)
+  // bu zinciri sponsorMembershipId'den kurar. Biri ileride 'placement_path' ekleyip motoru ona
+  // gore degistirirse bu testler kirilir (kasitli mimari regresyon kilidi).
+
+  it('beneficiary her zaman SPONSOR-zincirindeki o seviyenin uyesidir (uplineChain[level])', () => {
+    const sponsorChain = ['seller', 'sponsorL1', 'sponsorL2', 'sponsorL3', 'sponsorL4'];
+    const lines = computeCommissionLines(10_000_000n, PLAN, sponsorChain);
+    for (const l of lines) {
+      expect(l.beneficiaryMembershipId).toBe(sponsorChain[l.level]);
+    }
+  });
+
+  it('ayni uyeler farkli SPONSOR sirasinda farkli dagilir — para sponsor sirasini izler, sabit yerlesimi degil', () => {
+    const amount = 10_000_000n;
+    // Ayni 3 uye, ters sponsor zinciri. Fonksiyon hicbir 'path' gormez; tek belirleyici sira.
+    const a = computeCommissionLines(amount, PLAN, ['x', 'y', 'z']);
+    const b = computeCommissionLines(amount, PLAN, ['z', 'y', 'x']);
+    expect(a.find((l) => l.level === 0)!.beneficiaryMembershipId).toBe('x');
+    expect(b.find((l) => l.level === 0)!.beneficiaryMembershipId).toBe('z');
+    const earn = (lines: CommissionLine[], m: string) =>
+      lines.filter((l) => l.beneficiaryMembershipId === m).reduce((s, l) => s + l.amountCents, 0n);
+    // x: A'da L0 (en yuksek pay), B'de L2 (daha dusuk) -> toplam kazanc FARKLI
+    expect(earn(a, 'x')).not.toBe(earn(b, 'x'));
   });
 });

@@ -46,7 +46,7 @@ export default function Brand() {
   if (!b) return <Loading rows={3} />;
 
   return (
-    <div className="grid" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,360px)', gap: 20, alignItems: 'start' }}>
+    <div className="grid stack-sm" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,360px)', gap: 20, alignItems: 'start' }}>
       <div className="card">
         <strong style={{ fontSize: 14 }}>Brand identity</strong>
         <div className="faint" style={{ fontSize: 12, marginBottom: 12 }}>Shown on the member portal, emails and invitations.</div>

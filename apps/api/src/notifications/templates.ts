@@ -41,10 +41,27 @@ export function render(template: string, payload: Record<string, unknown>): Rend
         subject: 'Your payout was sent',
         body: `Your payout of ${money(payload.totalCents)} was processed for the ${payload.period} period.`,
       };
+    case 'payout_auto_requested':
+      // Faz A3: esik dolunca otomatik talep acildi — para henuz cikmadi (onay bekler).
+      return {
+        subject: 'Your commission check is being prepared',
+        body: `Good news! Your balance reached the payout threshold, so a check for ${money(payload.totalCents)} is being prepared for the ${payload.period} period. It's pending review and will be mailed to your address on file once approved. Make sure your mailing address is up to date in your account.`,
+      };
     case 'team_member_joined':
       return {
         subject: 'New member joined your team',
         body: payload.memberName ? `${payload.memberName} joined your team.` : 'A new member joined your team.',
+      };
+    case 'rank_up':
+      // Faz D5: rutbe atlama kutlamasi
+      return {
+        subject: `You reached ${payload.rankName ?? 'a new rank'}! 🏆`,
+        body: `Congratulations! You've climbed to the ${payload.rankName ?? 'next'} rank. Keep selling and growing your team to reach the next tier.`,
+      };
+    case 'bonus_awarded':
+      return {
+        subject: 'You won a campaign bonus! 🎉',
+        body: `Congratulations! A ${money(payload.amountCents)} bonus${payload.reason ? ` (${payload.reason})` : ''} was added to your payable balance.`,
       };
     default:
       return { subject: 'Refearn notification', body: `Notification: ${template}` };

@@ -7,6 +7,8 @@ import { AuthService, RequestMeta } from './auth.service';
 import {
   loginSchema,
   LoginInput,
+  loginTwoFactorSchema,
+  LoginTwoFactorInput,
   passwordResetConfirmSchema,
   PasswordResetConfirmInput,
   passwordResetRequestSchema,
@@ -43,6 +45,13 @@ export class AuthController {
   @Post('login')
   login(@Body(new ZodValidationPipe(loginSchema)) body: LoginInput, @Req() req: Request) {
     return this.auth.login(body, meta(req));
+  }
+
+  // Login 2. adim (2FA etkinse): challenge token + TOTP/kurtarma kodu -> tam oturum.
+  @HttpCode(200)
+  @Post('login/2fa')
+  loginTwoFactor(@Body(new ZodValidationPipe(loginTwoFactorSchema)) body: LoginTwoFactorInput, @Req() req: Request) {
+    return this.auth.loginTwoFactor(body.mfaToken, body.code, meta(req));
   }
 
   @HttpCode(200)

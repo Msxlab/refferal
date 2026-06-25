@@ -94,6 +94,13 @@ export async function createChain(
         referralCode: `RC${k}`,
         depth: parent ? parent.depth + 1 : 0,
         path: '', // path asagida kendi id'siyle guncellenir (ltree-uyumlu format)
+        // test uyeleri tam posta adresli sayilir (Faz A2 cek-odeme kapisi) — emailVerifiedAt gibi
+        mailingName: `User ${k}`,
+        mailingLine1: '1 Test St',
+        mailingCity: 'Austin',
+        mailingState: 'TX',
+        mailingPostal: '73301',
+        mailingCountry: 'US',
       },
     });
     const ownLabel = member.id.replace(/-/g, '_');

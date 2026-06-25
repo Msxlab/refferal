@@ -81,7 +81,7 @@ export class MeController {
     @CurrentUser() user: RequestUser,
     @Body(new ZodValidationPipe(switchTenantSchema)) body: SwitchTenantInput,
   ) {
-    return this.auth.switchTenant(user.sub, body.membershipId);
+    return this.auth.switchTenant(user.sub, body.membershipId, user.sid);
   }
 
   /** Expo push token kaydi (mobil); token'a gore upsert, last_seen guncellenir. */

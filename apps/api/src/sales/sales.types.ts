@@ -20,7 +20,8 @@ export const createSaleSchema = z.object({
 });
 export type CreateSaleInput = z.infer<typeof createSaleSchema>;
 
-export const listSalesSchema = z.object({
+// Ortak filtre seti: liste + summary + export ayni paramlari paylasir (page'siz).
+export const salesFilterSchema = z.object({
   status: z.enum(['draft', 'approved', 'void']).optional(),
   // serbest arama: satici adi/kodu + customer_ref/external_ref
   q: z.string().trim().max(120).optional(),
@@ -28,16 +29,38 @@ export const listSalesSchema = z.object({
   to: z.coerce.date().optional(),
   minCents: z.coerce.number().int().min(0).optional(),
   maxCents: z.coerce.number().int().min(0).optional(),
+});
+export type SalesFilterInput = z.infer<typeof salesFilterSchema>;
+
+export const listSalesSchema = salesFilterSchema.extend({
+  sort: z.enum(['saleDate', 'amountCents', 'status', 'createdAt']).default('saleDate'),
+  dir: z.enum(['asc', 'desc']).default('desc'),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
 export type ListSalesInput = z.infer<typeof listSalesSchema>;
 
 export const bulkSchema = z.object({
-  action: z.enum(['approve', 'void']),
+  action: z.enum(['approve', 'void', 'delete', 'deliver']),
   ids: z.array(z.string().uuid()).min(1).max(200),
 });
 export type BulkInput = z.infer<typeof bulkSchema>;
+
+// Uye self-servis satis girisi (app/sales): satici = aktif uyelik (mid), satici secimi yok.
+export const selfCreateSaleSchema = z.object({
+  amountCents,
+  saleDate: saleDate.optional(),
+  customerRef: z.string().trim().max(200).optional(),
+});
+export type SelfCreateSaleInput = z.infer<typeof selfCreateSaleSchema>;
+
+// Uyenin kendi satis listesi (app/sales)
+export const listMySalesSchema = z.object({
+  status: z.enum(['draft', 'approved', 'void']).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
+});
+export type ListMySalesInput = z.infer<typeof listMySalesSchema>;
 
 export const deliverSchema = z.object({
   deliveredAt: saleDate.optional(),

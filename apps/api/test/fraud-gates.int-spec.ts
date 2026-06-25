@@ -117,6 +117,49 @@ describe('dolandiricilik kapilari (entegrasyon)', () => {
       .expect(200);
   });
 
+  it('B2: payout ONAYINDA (decide) fraud kapisi CANLI dogrulanir — talepten sonra flag`lanan uye odenmez', async () => {
+    const tenant = await createTenant(prisma); // on_approval → payable
+    await createPlan(prisma, tenant.id);
+    const chain = await createChain(prisma, tenant.id, 6);
+    const seller = chain[5];
+    const owner = chain[0];
+    await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
+
+    const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
+    await engine.approveSale(sale.id);
+
+    // seller TEMIZ iken payout talebi acar → requested
+    const sellerTok = token({ userId: seller.userId, membershipId: seller.id, tenantId: tenant.id, role: Role.member });
+    const reqRes = await request(app.getHttpServer())
+      .post('/v1/app/payout-requests')
+      .set('Authorization', `Bearer ${sellerTok}`)
+      .expect(200);
+    const payoutId = reqRes.body.id;
+
+    // talepten SONRA fraud flag (skor >= esik) — onaya kadar durum degisti
+    await prisma.fraudFlag.create({ data: { tenantId: tenant.id, membershipId: seller.id, score: 80, status: 'open' } });
+
+    const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
+    // admin onaylamak isteyince CANLI fraud kapisi parayi durdurur → 403
+    await request(app.getHttpServer())
+      .post(`/v1/admin/payouts/${payoutId}/decide`)
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ action: 'approve' })
+      .expect(403);
+
+    // odeme hala requested (para cikmadi)
+    const stillReq = await prisma.payout.findUniqueOrThrow({ where: { id: payoutId } });
+    expect(stillReq.status).toBe('requested');
+
+    // flag temizlenince onay gecer → 200
+    await prisma.fraudFlag.update({ where: { membershipId: seller.id }, data: { status: 'cleared' } });
+    await request(app.getHttpServer())
+      .post(`/v1/admin/payouts/${payoutId}/decide`)
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ action: 'approve' })
+      .expect(200);
+  });
+
   it('davet cap: gunluk limit asilinca reddedilir', async () => {
     const tenant = await createTenant(prisma);
     const [member] = await createChain(prisma, tenant.id, 1);

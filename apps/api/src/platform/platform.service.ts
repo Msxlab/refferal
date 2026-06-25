@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { MembershipStatus, SaleStatus } from '@prisma/client';
+import { MembershipStatus, SaleStatus, TenantStatus, Prisma } from '@prisma/client';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -95,6 +95,23 @@ export class PlatformService {
       },
       plan: plan ? { name: plan.name, poolRateBps: plan.poolRateBps, depth: plan.depth } : null,
     };
+  }
+
+  /**
+   * Sirketi askiya al / yeniden aktive et (Faz C1 kill-switch). suspended → guard tum yazma/erisimi
+   * keser (B1 ile uyumlu: yazmada aninda, api-key aninda, JWT okuma ~15dk). Audit'li.
+   */
+  async setStatus(actorUserId: string, id: string, status: TenantStatus) {
+    const t = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true, status: true } });
+    if (!t) throw new NotFoundException('sirket bulunamadi');
+    await this.prisma.tenant.update({ where: { id }, data: { status } });
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId: id, actorUserId, action: `platform.tenant_${status}`, entity: 'tenant', entityId: id,
+        before: { status: t.status } as Prisma.InputJsonValue, after: { status } as Prisma.InputJsonValue,
+      },
+    });
+    return { id, status };
   }
 
   /** Sirketin uye agi (flat node listesi — Ağaç/Liste gorunumu icin). */

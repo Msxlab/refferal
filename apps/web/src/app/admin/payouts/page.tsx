@@ -1,60 +1,215 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { api, ApiError, getCsv } from '@/lib/api';
-import { Confirm, Loading, MoneyCounter, useToast } from '@/components/ui';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { api, ApiError } from '@/lib/api';
+import { downloadCsv } from '@/lib/download';
+import { Confirm, Loading, Modal, MoneyCounter, Pagination, useToast } from '@/components/ui';
+import { Drawer } from '@/components/Drawer';
+import { PrintSheet, PrintHeader, PrintSignatures } from '@/components/PrintSheet';
+import { activeMembership, getSession } from '@/lib/auth';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
-interface PayableMember { membershipId: string; referralCode: string; fullName: string; netCents: string }
+interface PayableMember { membershipId: string; referralCode: string; fullName: string; netCents: string; soldThisMonthCents: string }
 interface PayableList { payoutMinCents: string; currency: string; members: PayableMember[] }
-interface PayoutItem { id: string; referralCode: string; fullName: string; totalCents: string; method: string; status: string; period: string; paidAt: string | null }
-interface RunResult { paidCount: number; skippedCount: number; paid: { totalCents: string }[] }
+interface PayoutItem { id: string; membershipId: string; referralCode: string; fullName: string; totalCents: string; method: string; status: string; period: string; paidAt: string | null; ref: string | null; clearedAt?: string | null; bankRef?: string | null }
+interface PayoutListResp { total: number; page: number; pageSize: number; items: PayoutItem[] }
+interface RunResult { proposed?: boolean; paidCount?: number; skippedCount?: number; count?: number; estimateCents?: string }
+interface Batch { id: string; period: string; method: string; count: number; estimateCents: string; createdAt: string }
+interface KycProfile {
+  membershipId: string; fullName: string; referralCode: string; email: string;
+  legalName: string; taxIdType: string; taxIdLast4: string; bankName: string | null;
+  routingNumber: string; accountType: string; accountLast4: string; lastChangedAt: string; sanctionsHit: boolean;
+}
+interface FraudFlag {
+  membershipId: string; fullName: string; referralCode: string; email: string;
+  score: number; reasons: string[]; status: string; note: string | null; blocked: boolean;
+}
+
+const HISTORY_STATUS = ['', 'requested', 'processing', 'paid', 'failed'] as const;
 
 export default function PayoutsPage() {
   const [payable, setPayable] = useState<PayableList | null>(null);
-  const [history, setHistory] = useState<PayoutItem[] | null>(null);
+  const [requests, setRequests] = useState<PayoutItem[] | null>(null);
+  const [kyc, setKyc] = useState<KycProfile[]>([]);
+  const [fraud, setFraud] = useState<FraudFlag[]>([]);
+  const [clawbacks, setClawbacks] = useState<{ totalOwedCents: string; members: { membershipId: string; name: string; referralCode: string; owedCents: string }[] } | null>(null);
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const [scanning, setScanning] = useState(false);
+  const [history, setHistory] = useState<PayoutListResp | null>(null);
   const [error, setError] = useState('');
   const [toast, showToast] = useToast();
   const [busy, setBusy] = useState(false);
-  const [confirmRun, setConfirmRun] = useState(false);
+  // in-flight guard keyed by batch id / membershipId - double-click double-action onler
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirmRun, setConfirmRun] = useState<'all' | 'selected' | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [decide, setDecide] = useState<{ p: PayoutItem; action: 'approve' | 'reject' } | null>(null);
+  const [decideRef, setDecideRef] = useState('');
+  const [detailId, setDetailId] = useState<string | null>(null);
+  // generic reason modal (replaces window.prompt for fraud/KYC)
+  const [reasonModal, setReasonModal] = useState<{ title: string; label: string; run: (text: string) => Promise<void> } | null>(null);
+  const [reasonText, setReasonText] = useState('');
+  // banka mutabakati
+  const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [reconcileText, setReconcileText] = useState('');
+  const [reconcileResult, setReconcileResult] = useState<{ clearedCount: number; unmatched: { amountCents: number; ref?: string }[]; remainingUncleared: number } | null>(null);
+  // history filtreleri
+  const [hStatus, setHStatus] = useState('');
+  const [hPeriod, setHPeriod] = useState('');
+  const [hPage, setHPage] = useState(1);
 
-  const load = useCallback(async () => {
+  const historyQuery = useMemo(() => {
+    const p = new URLSearchParams({ page: String(hPage), pageSize: '25' });
+    if (hStatus) p.set('status', hStatus);
+    if (hPeriod) p.set('period', hPeriod);
+    return p.toString();
+  }, [hStatus, hPeriod, hPage]);
+
+  const loadCore = useCallback(async () => {
     try {
-      const [p, h] = await Promise.all([api.get<PayableList>('/admin/payouts/payable'), api.get<{ items: PayoutItem[] }>('/admin/payouts?pageSize=50')]);
-      setPayable(p); setHistory(h.items);
+      const [p, r, k, f] = await Promise.all([
+        api.get<PayableList>('/admin/payouts/payable'),
+        api.get<PayoutListResp>('/admin/payouts?status=requested&pageSize=100'),
+        api.get<KycProfile[]>('/admin/payout-profiles?status=pending_review'),
+        api.get<FraudFlag[]>('/admin/fraud?status=open'),
+      ]);
+      setPayable(p); setRequests(r.items); setKyc(k); setFraud(f); setSelected(new Set());
+      api.get<{ totalOwedCents: string; members: { membershipId: string; name: string; referralCode: string; owedCents: string }[] }>('/admin/clawbacks').then(setClawbacks).catch(() => {});
+      api.get<Batch[]>('/admin/payouts/batches').then(setBatches).catch(() => {});
     } catch (e) { setError(String((e as ApiError).message)); }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
-
-  async function runAll() {
-    setBusy(true); setError('');
+  async function decideBatch(id: string, action: 'approve' | 'reject') {
+    if (busyId) return;
+    setBusyId(id);
     try {
-      const res = await api.post<RunResult>('/admin/payouts/run', { method: 'csv' });
-      showToast(`${res.paidCount} payouts processed, ${res.skippedCount} skipped`);
-      setConfirmRun(false);
-      await load();
+      await api.post(`/admin/payouts/batches/${id}/${action}`);
+      showToast(action === 'approve' ? 'Batch approved & paid ✓' : 'Batch rejected');
+      await refreshAll();
+    } catch (e) { setError(String((e as ApiError).message)); } finally { setBusyId(null); }
+  }
+
+  // dolar tutarini float'siz cent'e cevir: $ / bosluk / binlik ayraci temizle,
+  // ondaliktan once/sonrayi ayir, 2 haneye kadar kesirden tam sayi cent kur.
+  // Bozuk girdi NaN doner ve asagidaki >0 filtresinde elenir. (1.005 -> 100, float yok)
+  function dollarsToCents(amt: string): number {
+    const s = amt.replace(/[$\s,]/g, '');
+    if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(s)) return NaN; // gecersiz tutar
+    const dot = s.indexOf('.');
+    const whole = dot === -1 ? s : s.slice(0, dot);
+    const frac = dot === -1 ? '' : s.slice(dot + 1);
+    return parseInt(whole || '0', 10) * 100 + parseInt((frac + '00').slice(0, 2), 10);
+  }
+
+  async function runReconcile() {
+    // "tutar[,referans]" satirlari — tutar dolar; cent'e cevir
+    const rows = reconcileText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((line) => {
+      const [amt, ...rest] = line.split(',');
+      return { amountCents: dollarsToCents(amt), ref: rest.join(',').trim() || undefined };
+    }).filter((r) => Number.isFinite(r.amountCents) && r.amountCents > 0);
+    if (rows.length === 0) { setError('No valid rows (format: amount or amount,reference)'); return; }
+    setBusy(true);
+    try {
+      const res = await api.post<{ clearedCount: number; unmatched: { amountCents: number; ref?: string }[]; remainingUncleared: number }>('/admin/payouts/reconcile', { rows });
+      setReconcileResult(res);
+      showToast(`${res.clearedCount} payouts cleared ✓`);
+      await refreshAll();
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
   }
 
-  async function downloadCsv() {
+  async function runFraudScan() {
+    setScanning(true);
+    try { const r = await api.post<{ flagged: number; blocked: number }>('/admin/fraud/scan'); showToast(`Scan done — ${r.flagged} flagged, ${r.blocked} blocked`); await loadCore(); }
+    catch (e) { setError(String((e as ApiError).message)); } finally { setScanning(false); }
+  }
+  async function decideFraud(membershipId: string, action: 'clear' | 'confirm') {
+    if (action === 'confirm') {
+      setReasonText('');
+      setReasonModal({ title: 'Confirm fraud', label: 'Note (optional)', run: async (note) => {
+        await api.post(`/admin/fraud/${membershipId}/decide`, { action, ...(note.trim() ? { note: note.trim() } : {}) }); showToast('Confirmed'); await loadCore();
+      } });
+      return;
+    }
+    if (busyId) return;
+    setBusyId(membershipId);
+    try { await api.post(`/admin/fraud/${membershipId}/decide`, { action }); showToast('Cleared ✓'); await loadCore(); }
+    catch (e) { setError(String((e as ApiError).message)); } finally { setBusyId(null); }
+  }
+
+  async function decideKyc(membershipId: string, action: 'verify' | 'reject') {
+    if (action === 'reject') {
+      setReasonText('');
+      setReasonModal({ title: 'Reject payout profile', label: 'Reason (optional)', run: async (reason) => {
+        await api.post(`/admin/payout-profiles/${membershipId}/decide`, { action, ...(reason.trim() ? { reason: reason.trim() } : {}) }); showToast('Payout profile rejected'); await loadCore();
+      } });
+      return;
+    }
+    if (busyId) return;
+    setBusyId(membershipId);
     try {
-      const csv = await getCsv('/admin/payouts/export.csv');
-      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-      const a = document.createElement('a'); a.href = url; a.download = 'payouts.csv'; a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) { setError(String((e as ApiError).message)); }
+      await api.post(`/admin/payout-profiles/${membershipId}/decide`, { action });
+      showToast(action === 'verify' ? 'Payout profile verified ✓' : 'Payout profile rejected');
+      await loadCore();
+    } catch (e) { setError(String((e as ApiError).message)); } finally { setBusyId(null); }
+  }
+
+  const loadHistory = useCallback(async () => {
+    try { setHistory(await api.get<PayoutListResp>(`/admin/payouts?${historyQuery}`)); }
+    catch (e) { setError(String((e as ApiError).message)); }
+  }, [historyQuery]);
+
+  useEffect(() => { void loadCore(); }, [loadCore]);
+  useEffect(() => { void loadHistory(); }, [loadHistory]);
+
+  async function refreshAll() { await Promise.all([loadCore(), loadHistory()]); }
+
+  async function run(which: 'all' | 'selected') {
+    setBusy(true); setError('');
+    try {
+      const body = which === 'selected' ? { method: 'csv', membershipIds: [...selected] } : { method: 'csv' };
+      const res = await api.post<RunResult>('/admin/payouts/run', body);
+      showToast(res.proposed
+        ? `Proposed ${res.count} payout(s) — awaiting a second admin's approval`
+        : `${res.paidCount} payouts processed, ${res.skippedCount} skipped`);
+      setConfirmRun(null);
+      await refreshAll();
+    } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
+  }
+
+  async function submitDecide() {
+    if (!decide) return;
+    setBusy(true);
+    try {
+      await api.post(`/admin/payouts/${decide.p.id}/decide`, { action: decide.action, ...(decideRef.trim() ? { ref: decideRef.trim() } : {}) });
+      showToast(decide.action === 'approve' ? 'Request approved — marked paid ✓' : 'Request rejected, balance returned');
+      setDecide(null); setDecideRef('');
+      await refreshAll();
+    } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
+  }
+
+  async function downloadExport() {
+    try { await downloadCsv('/admin/payouts/export.csv', 'payouts.csv'); }
+    catch (e) { setError(String((e as ApiError).message)); }
+  }
+
+  function toggle(id: string) {
+    setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+  function toggleAll() {
+    if (!payable) return;
+    setSelected((prev) => prev.size === payable.members.length ? new Set() : new Set(payable.members.map((m) => m.membershipId)));
   }
 
   const c = payable?.currency ?? 'USD';
   const totalPayable = payable?.members.reduce((a, m) => a + Number(m.netCents), 0) ?? 0;
+  const selTotal = payable?.members.filter((m) => selected.has(m.membershipId)).reduce((a, m) => a + Number(m.netCents), 0) ?? 0;
 
   return (
     <div>
       <div className="eyebrow fade-in">{t('nav.payouts')}</div>
       <h1 className="h1 fade-in">Payout Management</h1>
-      <p className="sub fade-in">Pay members above the threshold with one click and download the bank CSV.</p>
+      <p className="sub fade-in">Approve member requests, pay members above the threshold, and download the bank CSV.</p>
       {error && <div className="error">{error}</div>}
 
       <div className="card hero fade-in delay-1" style={{ marginBottom: 16 }}>
@@ -64,66 +219,414 @@ export default function PayoutsPage() {
             <div className="bignum gradient-text" style={{ marginTop: 6 }}><MoneyCounter cents={totalPayable} currency={c} /></div>
             <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>Min threshold: {payable ? money(payable.payoutMinCents, c) : '—'}</div>
           </div>
-          <div className="row">
-            <button className="btn success" onClick={() => setConfirmRun(true)} disabled={busy || !payable?.members.length}>{t('payouts.run')}</button>
-            <button className="btn ghost" onClick={downloadCsv}>⇩ {t('payouts.export')}</button>
+          <div className="row no-print">
+            <button className="btn success" onClick={() => setConfirmRun('all')} disabled={busy || !payable?.members.length}>{t('payouts.run')}</button>
+            <button className="btn ghost" onClick={downloadExport}>⇩ {t('payouts.export')}</button>
+            <button className="btn ghost" onClick={runFraudScan} disabled={scanning}>{scanning ? 'Scanning…' : '⚠ Fraud scan'}</button>
+            <button className="btn ghost" onClick={() => { const y = new Date().getFullYear(); downloadCsv(`/admin/tax/1099.csv?year=${y}`, `1099-nec-${y}.csv`).catch((e) => setError(String((e as ApiError).message))); }}>⇩ 1099-NEC</button>
+            <button className="btn ghost" onClick={() => { downloadCsv('/admin/payouts/ach.txt', 'payouts-ach.txt').catch((e) => setError(String((e as ApiError).message))); }} title="Self-hosted bank file (NACHA) — upload to your bank">⇩ ACH file</button>
+            <button className="btn ghost" onClick={() => { setReconcileOpen(true); setReconcileText(''); setReconcileResult(null); }} title="Match the bank statement against paid payouts">⇄ Reconcile</button>
           </div>
         </div>
       </div>
 
-      <div className="card fade-in delay-2" style={{ marginBottom: 16 }}>
-        <strong style={{ display: 'block', marginBottom: 12 }}>{t('payouts.payable')}</strong>
-        {!payable ? <Loading rows={2} /> : (
+      {/* ---- talep kuyrugu ---- */}
+      {requests && requests.length > 0 && (
+        <div className="card fade-in delay-1" style={{ marginBottom: 16, borderColor: 'var(--amber)' }}>
+          <div className="spread" style={{ marginBottom: 12 }}>
+            <strong>Payout requests <span className="badge requested" style={{ marginLeft: 6 }}>{requests.length}</span></strong>
+          </div>
           <table>
-            <thead><tr><th>Member</th><th>Code</th><th style={{ textAlign: 'right' }}>Net payable</th></tr></thead>
+            <thead><tr><th>Member</th><th>Period</th><th style={{ textAlign: 'right' }}>Requested</th><th className="no-print" style={{ textAlign: 'right' }}>Decision</th></tr></thead>
             <tbody>
-              {payable.members.map((m) => (
-                <tr key={m.membershipId}>
-                  <td>{m.fullName}</td>
-                  <td className="faint">{m.referralCode}</td>
-                  <td className="tnum" style={{ textAlign: 'right', fontWeight: 650 }}>{money(m.netCents, c)}</td>
+              {requests.map((r) => (
+                <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => setDetailId(r.id)}>
+                  <td>{r.fullName}<div className="faint" style={{ fontSize: 12 }}>{r.referralCode}</div></td>
+                  <td>{r.period}</td>
+                  <td className="tnum" style={{ textAlign: 'right', fontWeight: 650 }}>{money(r.totalCents, c)}</td>
+                  <td className="no-print" style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                    <div className="row" style={{ justifyContent: 'flex-end' }}>
+                      <button className="btn success sm" onClick={() => { setDecideRef(''); setDecide({ p: r, action: 'approve' }); }}>Approve</button>
+                      <button className="btn danger sm" onClick={() => { setDecideRef(''); setDecide({ p: r, action: 'reject' }); }}>Reject</button>
+                    </div>
+                  </td>
                 </tr>
               ))}
-              {payable.members.length === 0 && <tr><td colSpan={3} className="muted">No members above the threshold.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ---- maker-checker: bekleyen payout onaylari ---- */}
+      {batches.length > 0 && (
+        <div className="card fade-in delay-1" style={{ marginBottom: 16, borderColor: 'var(--gold-500)' }}>
+          <div className="spread" style={{ marginBottom: 12 }}>
+            <strong>Payout approvals (4-eyes) <span className="badge pending" style={{ marginLeft: 6 }}>{batches.length}</span></strong>
+          </div>
+          <table>
+            <thead><tr><th>Period</th><th>Members</th><th style={{ textAlign: 'right' }}>Estimate</th><th className="no-print" style={{ textAlign: 'right' }}>Decision</th></tr></thead>
+            <tbody>
+              {batches.map((b) => (
+                <tr key={b.id}>
+                  <td>{b.period}</td>
+                  <td>{b.count}</td>
+                  <td className="tnum" style={{ textAlign: 'right' }}>{money(b.estimateCents, c)}</td>
+                  <td className="no-print" style={{ textAlign: 'right' }}>
+                    <div className="row" style={{ justifyContent: 'flex-end' }}>
+                      <button className="btn success sm" disabled={busyId === b.id} onClick={() => decideBatch(b.id, 'approve')}>Approve &amp; pay</button>
+                      <button className="btn danger sm" disabled={busyId === b.id} onClick={() => decideBatch(b.id, 'reject')}>Reject</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="faint" style={{ fontSize: 11, marginTop: 8 }}>The admin who proposed a batch cannot approve it.</div>
+        </div>
+      )}
+
+      {/* ---- clawback / negatif bakiye ---- */}
+      {clawbacks && clawbacks.members.length > 0 && (
+        <div className="card fade-in delay-1" style={{ marginBottom: 16, borderColor: 'var(--rose)' }}>
+          <div className="spread" style={{ marginBottom: 12 }}>
+            <strong>Clawbacks — negative balances <span className="badge failed" style={{ marginLeft: 6 }}>{clawbacks.members.length}</span></strong>
+            <span className="faint" style={{ fontSize: 12 }}>Total owed: {money(clawbacks.totalOwedCents, c)}</span>
+          </div>
+          <div className="faint" style={{ fontSize: 12, marginBottom: 8 }}>Auto-offset from future earnings. These members owe a balance after a post-payout reversal.</div>
+          <table>
+            <thead><tr><th>Member</th><th style={{ textAlign: 'right' }}>Owed</th></tr></thead>
+            <tbody>
+              {clawbacks.members.map((m) => (
+                <tr key={m.membershipId}><td>{m.name}<div className="faint" style={{ fontSize: 12 }}>{m.referralCode}</div></td><td className="tnum" style={{ textAlign: 'right', color: 'var(--rose)' }}>{money(m.owedCents, c)}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ---- fraud inceleme kuyrugu ---- */}
+      {fraud.length > 0 && (
+        <div className="card fade-in delay-1" style={{ marginBottom: 16, borderColor: 'var(--rose)' }}>
+          <div className="spread" style={{ marginBottom: 12 }}>
+            <strong>Fraud review <span className="badge failed" style={{ marginLeft: 6 }}>{fraud.length}</span></strong>
+          </div>
+          <table>
+            <thead><tr><th>Member</th><th>Score</th><th>Signals</th><th className="no-print" style={{ textAlign: 'right' }}>Decision</th></tr></thead>
+            <tbody>
+              {fraud.map((f) => (
+                <tr key={f.membershipId}>
+                  <td>{f.fullName}<div className="faint" style={{ fontSize: 12 }}>{f.referralCode}</div></td>
+                  <td><span className={`badge ${f.blocked ? 'failed' : 'pending'}`}>{f.score}{f.blocked ? ' · blocked' : ''}</span></td>
+                  <td className="faint" style={{ fontSize: 12 }}>{f.reasons.join(', ')}</td>
+                  <td className="no-print" style={{ textAlign: 'right' }}>
+                    <div className="row" style={{ justifyContent: 'flex-end' }}>
+                      <button className="btn success sm" disabled={busyId === f.membershipId} onClick={() => decideFraud(f.membershipId, 'clear')}>Clear</button>
+                      <button className="btn danger sm" disabled={busyId === f.membershipId} onClick={() => decideFraud(f.membershipId, 'confirm')}>Confirm</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ---- KYC inceleme kuyrugu ---- */}
+      {kyc.length > 0 && (
+        <div className="card fade-in delay-1" style={{ marginBottom: 16, borderColor: 'var(--sky)' }}>
+          <div className="spread" style={{ marginBottom: 12 }}>
+            <strong>Payout profiles to review <span className="badge payable" style={{ marginLeft: 6 }}>{kyc.length}</span></strong>
+          </div>
+          <table>
+            <thead><tr><th>Member</th><th>Legal name</th><th>Tax ID</th><th>Bank</th><th className="no-print" style={{ textAlign: 'right' }}>Decision</th></tr></thead>
+            <tbody>
+              {kyc.map((k) => (
+                <tr key={k.membershipId}>
+                  <td>{k.fullName}<div className="faint" style={{ fontSize: 12 }}>{k.referralCode}</div></td>
+                  <td>{k.legalName}{k.sanctionsHit && <span className="badge failed" style={{ marginLeft: 6 }}>⚠ sanctions</span>}</td>
+                  <td className="tnum">{k.taxIdType.toUpperCase()} ••••{k.taxIdLast4}</td>
+                  <td className="faint" style={{ fontSize: 12 }}>{k.bankName ? `${k.bankName} · ` : ''}{k.accountType} ••••{k.accountLast4} · {k.routingNumber}</td>
+                  <td className="no-print" style={{ textAlign: 'right' }}>
+                    <div className="row" style={{ justifyContent: 'flex-end' }}>
+                      <button className="btn success sm" disabled={busyId === k.membershipId} onClick={() => decideKyc(k.membershipId, 'verify')}>Verify</button>
+                      <button className="btn danger sm" disabled={busyId === k.membershipId} onClick={() => decideKyc(k.membershipId, 'reject')}>Reject</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ---- odenebilir uyeler (secimli odeme) ---- */}
+      <div className="card fade-in delay-2" style={{ marginBottom: 16 }}>
+        <div className="spread" style={{ marginBottom: 12 }}>
+          <strong>{t('payouts.payable')}</strong>
+          {selected.size > 0 && <button className="btn sm no-print" disabled={busy} onClick={() => setConfirmRun('selected')}>Pay selected ({selected.size}) · {money(selTotal, c)}</button>}
+        </div>
+        {!payable ? <Loading rows={2} /> : (
+          <table>
+            <thead><tr>
+              <th className="no-print" style={{ width: 30 }}><input type="checkbox" checked={selected.size > 0 && selected.size === payable.members.length} onChange={toggleAll} aria-label="Select all" /></th>
+              <th>Member</th><th>Code</th><th style={{ textAlign: 'right' }}>Sold (mo)</th><th style={{ textAlign: 'right' }}>Net payable</th><th style={{ textAlign: 'right' }}>Eff. %</th>
+            </tr></thead>
+            <tbody>
+              {payable.members.map((m) => (
+                <tr key={m.membershipId} style={{ background: selected.has(m.membershipId) ? 'var(--panel-2)' : undefined }}>
+                  <td className="no-print"><input type="checkbox" checked={selected.has(m.membershipId)} onChange={() => toggle(m.membershipId)} aria-label={`Select ${m.fullName}`} /></td>
+                  <td>{m.fullName}</td>
+                  <td className="faint">{m.referralCode}</td>
+                  <td className="tnum" style={{ textAlign: 'right', color: 'var(--muted)' }}>{Number(m.soldThisMonthCents) > 0 ? money(m.soldThisMonthCents, c) : '—'}</td>
+                  <td className="tnum" style={{ textAlign: 'right', fontWeight: 650, color: 'var(--gold-500)' }}>{money(m.netCents, c)}</td>
+                  <td className="tnum faint" style={{ textAlign: 'right' }}>{Number(m.soldThisMonthCents) > 0 ? `%${((Number(m.netCents) / Number(m.soldThisMonthCents)) * 100).toFixed(1)}` : '—'}</td>
+                </tr>
+              ))}
+              {payable.members.length === 0 && <tr><td colSpan={6} className="muted">No members above the threshold.</td></tr>}
             </tbody>
           </table>
         )}
       </div>
 
+      {/* ---- gecmis (filtreli + sayfali) ---- */}
       <div className="card fade-in delay-3">
-        <strong style={{ display: 'block', marginBottom: 12 }}>{t('payouts.history')}</strong>
+        <div className="spread" style={{ marginBottom: 12 }}>
+          <strong>{t('payouts.history')}{history ? ` · ${history.total}` : ''}</strong>
+          <div className="row no-print" style={{ gap: 8 }}>
+            <input type="month" value={hPeriod} onChange={(e) => { setHPeriod(e.target.value); setHPage(1); }} aria-label="Period" style={{ width: 'auto' }} />
+            <select value={hStatus} onChange={(e) => { setHStatus(e.target.value); setHPage(1); }} style={{ width: 'auto' }} aria-label="Status">
+              {HISTORY_STATUS.map((s) => <option key={s} value={s}>{s || 'All statuses'}</option>)}
+            </select>
+          </div>
+        </div>
         {!history ? <Loading rows={2} /> : (
           <table>
             <thead><tr><th>Member</th><th>Amount</th><th>Method</th><th>Status</th><th>Period</th><th>Date</th></tr></thead>
             <tbody>
-              {history.map((p) => (
-                <tr key={p.id}>
+              {history.items.map((p) => (
+                <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => setDetailId(p.id)}>
                   <td>{p.fullName}<div className="faint" style={{ fontSize: 12 }}>{p.referralCode}</div></td>
                   <td className="tnum">{money(p.totalCents, c)}</td>
                   <td className="faint">{p.method}</td>
-                  <td><span className={`badge ${p.status}`}>{p.status}</span></td>
+                  <td><span className={`badge ${p.status}`}>{p.status}</span>{p.clearedAt ? <span className="badge paid" style={{ marginLeft: 6, fontSize: 10 }} title={p.bankRef ? `Bank ref: ${p.bankRef}` : 'Bank reconciled'}>✓ cleared</span> : null}</td>
                   <td>{p.period}</td>
                   <td className="muted">{dateShort(p.paidAt)}</td>
                 </tr>
               ))}
-              {history.length === 0 && <tr><td colSpan={6} className="muted">No payouts yet.</td></tr>}
+              {history.items.length === 0 && <tr><td colSpan={6} className="muted">No payouts match these filters.</td></tr>}
             </tbody>
           </table>
         )}
+        {history && <Pagination page={history.page} pageSize={history.pageSize} total={history.total} onPage={setHPage} />}
       </div>
 
       {confirmRun && (
         <Confirm
-          title="Run payouts"
-          message={`A total of ${money(totalPayable, c)} will be paid to ${payable?.members.length ?? 0} members above the threshold. This action marks the ledger as 'paid' and cannot be undone.`}
+          title={confirmRun === 'all' ? 'Run payouts' : `Pay ${selected.size} selected`}
+          message={confirmRun === 'all'
+            ? `A total of ${money(totalPayable, c)} will be paid to ${payable?.members.length ?? 0} members above the threshold. This marks the ledger as 'paid' and cannot be undone.`
+            : `${money(selTotal, c)} will be paid to ${selected.size} selected members. This marks the ledger as 'paid' and cannot be undone.`}
           confirmLabel={t('payouts.run')}
           busy={busy}
-          onConfirm={runAll}
-          onClose={() => setConfirmRun(false)}
+          onConfirm={() => run(confirmRun)}
+          onClose={() => setConfirmRun(null)}
         />
       )}
 
+      {decide && (
+        <Modal title={decide.action === 'approve' ? 'Approve request' : 'Reject request'} onClose={() => setDecide(null)}>
+          <div style={{ width: 'min(440px, 88vw)' }}>
+            <p className="muted" style={{ marginTop: 0 }}>
+              {decide.action === 'approve'
+                ? `Approve ${decide.p.fullName}'s request for ${money(decide.p.totalCents, c)}? Linked balance is marked paid.`
+                : `Reject ${decide.p.fullName}'s request? Their payable balance is returned and the request is closed.`}
+            </p>
+            <div className="field">
+              <label>{decide.action === 'approve' ? 'Bank / transfer reference (optional)' : 'Reason (optional)'}</label>
+              <input aria-label={decide.action === 'approve' ? 'Bank or transfer reference' : 'Reason'} value={decideRef} onChange={(e) => setDecideRef(e.target.value)} placeholder={decide.action === 'approve' ? 'e.g. ACH-20260613-001' : 'e.g. invalid bank details'} autoFocus />
+            </div>
+            <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+              <button className="btn ghost" onClick={() => setDecide(null)} disabled={busy}>Cancel</button>
+              <button className={`btn ${decide.action === 'reject' ? 'danger' : 'success'}`} onClick={submitDecide} disabled={busy}>
+                {busy ? '…' : decide.action === 'approve' ? 'Approve & mark paid' : 'Reject'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {detailId && <PayoutDrawer id={detailId} currency={c} onClose={() => setDetailId(null)} onChanged={refreshAll} onToast={showToast} />}
+
+      {reasonModal && (
+        <Modal title={reasonModal.title} onClose={() => setReasonModal(null)}>
+          <div style={{ width: 'min(420px, 100%)' }}>
+            <div className="field">
+              <label>{reasonModal.label}</label>
+              <textarea aria-label={reasonModal.label} value={reasonText} onChange={(e) => setReasonText(e.target.value)} rows={2} autoFocus />
+            </div>
+            <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
+              <button className="btn ghost" onClick={() => setReasonModal(null)} disabled={busy}>Cancel</button>
+              <button className="btn" disabled={busy} onClick={async () => { setBusy(true); try { await reasonModal.run(reasonText); setReasonModal(null); } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); } }}>Confirm</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {reconcileOpen && (
+        <Modal title="Bank reconciliation" onClose={() => setReconcileOpen(false)}>
+          <div style={{ width: 'min(520px, 100%)' }}>
+            <p className="muted" style={{ marginTop: 0 }}>
+              After the bank processes the ACH file and sends the money, paste the returned statement here.
+              Each line is <strong>amount</strong> (e.g. <code>1500.00</code>) or <strong>amount,reference</strong> (e.g. <code>1500.00,ACH-001</code>).
+              We match by amount against paid payouts and mark them <em>cleared</em>.
+            </p>
+            <div className="field">
+              <label>Statement lines</label>
+              <textarea aria-label="Bank statement lines" value={reconcileText} onChange={(e) => setReconcileText(e.target.value)} rows={6} placeholder={'1500.00,ACH-20260613-001\n2250.50\n980.00,WIRE-77'} style={{ fontFamily: 'var(--mono, monospace)', width: '100%' }} />
+            </div>
+            {reconcileResult && (
+              <div className="card" style={{ background: 'var(--panel-2)', marginBottom: 12 }}>
+                <div className="row spread"><span>✓ Cleared</span><strong>{reconcileResult.clearedCount}</strong></div>
+                <div className="row spread"><span>Unmatched lines</span><strong>{reconcileResult.unmatched.length}</strong></div>
+                <div className="row spread"><span className="muted">Still uncleared payouts</span><span className="muted">{reconcileResult.remainingUncleared}</span></div>
+                {reconcileResult.unmatched.length > 0 && (
+                  <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
+                    Unmatched: {reconcileResult.unmatched.map((u) => money(String(u.amountCents), c)).join(', ')}
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="row" style={{ justifyContent: 'flex-end', gap: 10 }}>
+              <button className="btn ghost" onClick={() => setReconcileOpen(false)} disabled={busy}>Close</button>
+              <button className="btn" onClick={runReconcile} disabled={busy || !reconcileText.trim()}>{busy ? 'Matching…' : '⇄ Match'}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {toast && <div className="toast" role="status">{toast}</div>}
+    </div>
+  );
+}
+
+/* --------------------------------------------------- payout dekont cekmecesi */
+interface PayoutLine { id: string; saleId: string; level: number; type: string; amountCents: string; createdAt: string }
+interface PayoutDetail {
+  id: string; membershipId: string;
+  member: { fullName: string; referralCode: string; email: string };
+  totalCents: string; method: string; status: string; period: string;
+  paidAt: string | null; ref: string | null; createdAt: string;
+  lines: PayoutLine[];
+}
+
+function PayoutDrawer({ id, currency, onClose, onChanged, onToast }: { id: string; currency: string; onClose: () => void; onChanged: () => void; onToast: (m: string) => void }) {
+  const [d, setD] = useState<PayoutDetail | null>(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [printing, setPrinting] = useState(false);
+  const [confirmRetry, setConfirmRetry] = useState(false);
+  const tenantName = (() => { const s = getSession(); return (s ? activeMembership(s)?.tenantName : null) ?? 'Refearn'; })();
+
+  const load = useCallback(() => {
+    api.get<PayoutDetail>(`/admin/payouts/${id}`).then(setD).catch((e) => setErr(String((e as ApiError).message)));
+  }, [id]);
+  useEffect(() => { load(); }, [load]);
+
+  async function retry() {
+    setBusy(true);
+    try { await api.post(`/admin/payouts/${id}/retry`); onToast('Retried — marked paid ✓'); setConfirmRetry(false); load(); onChanged(); }
+    catch (e) { setErr(String((e as ApiError).message)); } finally { setBusy(false); }
+  }
+
+  return (
+    <Drawer
+      title={d ? money(d.totalCents, currency) : 'Payout'}
+      subtitle={d ? `${d.member.fullName} · ${d.period}` : undefined}
+      onClose={onClose}
+      width={520}
+      footer={d && (
+        <>
+          <button className="btn ghost" onClick={() => setPrinting(true)}>🖶 Print slip</button>
+          {d.status === 'failed' && <button className="btn" disabled={busy} onClick={() => setConfirmRetry(true)}>Retry</button>}
+        </>
+      )}
+    >
+      {err && <div className="error">{err}</div>}
+      {!d ? <Loading rows={4} /> : (
+        <div className="grid" style={{ gap: 16 }}>
+          <div><span className={`badge ${d.status}`}>{d.status}</span></div>
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <Field label="Member" value={`${d.member.fullName} · ${d.member.referralCode}`} />
+            <Field label="Email" value={d.member.email} />
+            <Field label="Method" value={d.method} />
+            <Field label="Reference" value={d.ref ?? '—'} />
+            <Field label="Period" value={d.period} />
+            <Field label="Paid at" value={d.paidAt ? dateShort(d.paidAt) : '—'} />
+          </div>
+          <div>
+            <strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>Included commission lines ({d.lines.length})</strong>
+            {d.lines.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>No linked ledger lines (balance was returned).</div> : (
+              <table>
+                <thead><tr><th>Lvl</th><th>Type</th><th>Date</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
+                <tbody>
+                  {d.lines.map((l) => (
+                    <tr key={l.id}>
+                      <td className="tnum">{l.level}</td>
+                      <td className="faint">{l.type}</td>
+                      <td className="muted">{dateShort(l.createdAt)}</td>
+                      <td className="tnum" style={{ textAlign: 'right', color: l.type === 'reversal' ? 'var(--rose)' : undefined }}>{money(l.amountCents, currency)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {confirmRetry && d && (
+        <Confirm title="Retry payout" message={`Re-run the failed payout of ${money(d.totalCents, currency)} to ${d.member.fullName}? Linked balance is marked paid.`} confirmLabel="Retry" busy={busy} onConfirm={retry} onClose={() => setConfirmRetry(false)} />
+      )}
+
+      {printing && d && (
+        <PrintSheet onDone={() => setPrinting(false)}>
+          <PrintHeader tenantName={tenantName} title="Payout Slip" subtitle={`Ref: ${d.ref ?? d.id}`} />
+          <table style={{ marginBottom: 18 }}>
+            <tbody>
+              <tr><td style={{ fontWeight: 700, width: 160 }}>Member</td><td>{d.member.fullName} ({d.member.referralCode})</td></tr>
+              <tr><td style={{ fontWeight: 700 }}>Email</td><td>{d.member.email}</td></tr>
+              <tr><td style={{ fontWeight: 700 }}>Period</td><td>{d.period}</td></tr>
+              <tr><td style={{ fontWeight: 700 }}>Method</td><td>{d.method}</td></tr>
+              <tr><td style={{ fontWeight: 700 }}>Status</td><td>{d.status}{d.paidAt ? ` · ${dateShort(d.paidAt)}` : ''}</td></tr>
+              <tr><td style={{ fontWeight: 700 }}>Amount paid</td><td style={{ fontWeight: 800, fontSize: 16 }}>{money(d.totalCents, currency)}</td></tr>
+            </tbody>
+          </table>
+          {d.lines.length > 0 && (
+            <>
+              <div style={{ fontWeight: 700, margin: '8px 0' }}>Included commission lines</div>
+              <table>
+                <thead><tr><th>Lvl</th><th>Type</th><th>Date</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
+                <tbody>
+                  {d.lines.map((l) => (
+                    <tr key={l.id}><td>{l.level}</td><td>{l.type}</td><td>{dateShort(l.createdAt)}</td><td style={{ textAlign: 'right' }}>{money(l.amountCents, currency)}</td></tr>
+                  ))}
+                  <tr><td colSpan={3} style={{ textAlign: 'right', fontWeight: 700 }}>Total</td><td style={{ textAlign: 'right', fontWeight: 800 }}>{money(d.totalCents, currency)}</td></tr>
+                </tbody>
+              </table>
+            </>
+          )}
+          <PrintSignatures left="Issued by" right="Received by" />
+        </PrintSheet>
+      )}
+    </Drawer>
+  );
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="faint" style={{ fontSize: 11 }}>{label}</div>
+      <div style={{ fontSize: 13.5, marginTop: 2, wordBreak: 'break-word' }}>{value}</div>
     </div>
   );
 }

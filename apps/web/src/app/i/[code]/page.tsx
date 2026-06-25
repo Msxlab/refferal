@@ -12,6 +12,7 @@ interface InviteResolve {
   valid: boolean;
   tenantName: string;
   inviterName: string;
+  inviterMessage: string | null;
   emailLocked: boolean;
 }
 
@@ -24,6 +25,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [accept, setAccept] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -32,6 +34,9 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
       .get<InviteResolve>(`/invites/${encodeURIComponent(code)}`)
       .then(setInvite)
       .catch((e) => setLoadError(String((e as ApiError).message)));
+    // funnel tracking (#14): goruntuleme + UTM kaynak
+    const utm = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('utm_source') ?? undefined : undefined;
+    api.post(`/invites/${encodeURIComponent(code)}/event`, { event: 'view', ...(utm ? { utmSource: utm } : {}) }).catch(() => { /* sessiz */ });
   }, [code]);
 
   async function onSubmit(e: FormEvent) {
@@ -44,6 +49,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
         email: email.trim(),
         password,
         fullName: fullName.trim(),
+        acceptDisclaimer: true,
       });
       setSession(session);
       router.replace(landingPath(activeMembership(session)?.role));
@@ -55,7 +61,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
 
   return (
     <div className="center">
-      <div className="fade-in" style={{ width: 420 }}>
+      <div className="fade-in" style={{ width: '100%', maxWidth: 420 }}>
         <div style={{ textAlign: 'center', marginBottom: 20 }}><Brand size="lg" /></div>
         <div className="card card-glow">
           <div className="eyebrow" style={{ marginBottom: 4 }}>{t('reg.title')}</div>
@@ -72,7 +78,13 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
               <h1 className="h1" style={{ marginBottom: 14 }}>
                 <span className="gradient-text">{invite.inviterName}</span> invited you
               </h1>
-              <div className="card" style={{ background: 'rgba(124,139,255,.08)', padding: 14, marginBottom: 18 }}>
+              {invite.inviterMessage && (
+                <div className="card" style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 14, fontStyle: 'italic', fontSize: 13.5 }}>
+                  “{invite.inviterMessage}”
+                  <div className="faint" style={{ fontStyle: 'normal', fontSize: 11, marginTop: 6 }}>— {invite.inviterName}</div>
+                </div>
+              )}
+              <div className="card" style={{ background: 'rgba(124,139,255,.08)', padding: 14, marginBottom: 14 }}>
                 <div className="spread">
                   <div>
                     <div className="faint" style={{ fontSize: 11 }}>{t('reg.tenant')}</div>
@@ -81,22 +93,53 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
                   <span className="badge active">Active invitation</span>
                 </div>
               </div>
-              <div className="field">
-                <label>{t('reg.fullName')}</label>
-                <input value={fullName} onChange={(e) => setFullName(e.target.value)} required minLength={2} autoFocus placeholder="Full name" />
+
+              {/* show the opportunity before the form — people join for a reward, not an account */}
+              <div className="card" style={{ background: 'color-mix(in srgb, var(--gold-500) 8%, transparent)', borderColor: 'color-mix(in srgb, var(--gold-500) 28%, transparent)', padding: 14, marginBottom: 18 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>💸 What you’ll earn</div>
+                <div className="faint" style={{ fontSize: 12.5, lineHeight: 1.55 }}>
+                  Earn a commission on every sale you make — and a share of the sales made by the people you bring in. Record a sale, your company verifies it, and your commission is tracked and paid out automatically.
+                </div>
               </div>
-              <div className="field">
-                <label>{t('login.email')}</label>
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@company.com" />
-              </div>
-              <div className="field">
-                <label>{t('login.password')} <span className="faint">(min 10)</span></label>
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={10} placeholder="••••••••••" />
-              </div>
-              {error && <div className="error">{error}</div>}
-              <button className="btn block" style={{ marginTop: 6 }} disabled={busy}>
-                {busy ? t('common.loading') : t('reg.submit')} {!busy && <span>→</span>}
-              </button>
+
+              <form onSubmit={onSubmit}>
+                <div className="field">
+                  <label>{t('reg.fullName')}</label>
+                  <input value={fullName} onChange={(e) => setFullName(e.target.value)} required minLength={2} autoFocus placeholder="Full name" />
+                </div>
+                <div className="field">
+                  <label>{t('login.email')}</label>
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@company.com" />
+                </div>
+                <div className="field">
+                  <label>{t('login.password')} <span className="faint">(min 10)</span></label>
+                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={10} placeholder="••••••••••" />
+                </div>
+                {/* Faz A1: self-attestation + sorumluluk metni. Onay ZORUNLU; tarih+IP backend'de saklanir. */}
+                <label
+                  className="card"
+                  style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: 'var(--panel-2)', padding: 12, marginTop: 4, marginBottom: 12, cursor: 'pointer', fontWeight: 400 }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={accept}
+                    onChange={(e) => setAccept(e.target.checked)}
+                    required
+                    style={{ width: 16, height: 16, marginTop: 2, flexShrink: 0 }}
+                  />
+                  <span className="faint" style={{ fontSize: 11.5, lineHeight: 1.55 }}>
+                    I confirm that the name and information I provide are accurate and that I am the
+                    person registering. I understand commissions are paid by check mailed to the
+                    address on my account once my balance reaches the payout minimum, and that I am
+                    responsible for keeping my details correct. I agree to the{' '}
+                    <a href="/terms" target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: 'var(--accent, var(--gold-500))', textDecoration: 'underline' }}>program terms</a>.
+                  </span>
+                </label>
+                {error && <div className="error">{error}</div>}
+                <button type="submit" className="btn block" style={{ marginTop: 6 }} disabled={busy || !accept}>
+                  {busy ? t('common.loading') : t('reg.submit')} {!busy && <span>→</span>}
+                </button>
+              </form>
             </>
           )}
           <div className="faint" style={{ fontSize: 11, marginTop: 16, lineHeight: 1.5 }}>{t('me.incomeNote')}</div>

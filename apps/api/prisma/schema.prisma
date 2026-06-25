@@ -30,6 +30,14 @@ enum TenantStatus {
   suspended
 }
 
+// Faz C2: platform → tenant-sirket faturasi. Odeme PLATFORM DISI (cek/havale; Stripe yok) —
+// manuel takip: fatura kesilir, odeme gelince elle 'paid' isaretlenir.
+enum InvoiceStatus {
+  open
+  paid
+  void
+}
+
 enum MembershipStatus {
   active
   inactive
@@ -46,6 +54,8 @@ enum MaturationRule {
   on_approval
   on_delivery
   days_after_approval
+  // teslimden N gun sonra olgunlasir (iade penceresi): pencere kapanana dek pending kalir
+  days_after_delivery
 }
 
 enum SaleStatus {
@@ -60,6 +70,42 @@ enum LedgerType {
   adjustment
 }
 
+enum CampaignMetric {
+  revenue       // pencere icindeki onayli satis cirosu (satici bazinda)
+  sales_count   // onayli satis adedi
+  new_recruits  // pencere icinde katilan, bu uyenin sponsorlugundaki uyeler
+  invites       // pencere icinde olusturulan davetler
+}
+
+enum CampaignStatus {
+  draft
+  active
+  ended
+}
+
+enum PayoutProfileStatus {
+  unverified
+  pending_review
+  verified
+  rejected
+}
+
+enum TaxIdType {
+  ssn // bireysel (W-9)
+  ein // isletme
+}
+
+enum BankAccountType {
+  checking
+  savings
+}
+
+enum FraudStatus {
+  open      // inceleme bekliyor (payout bloklu)
+  cleared   // temize cikti (payout serbest)
+  confirmed // dolandiricilik teyitli (payout bloklu kalir)
+}
+
 enum LedgerStatus {
   pending
   payable
@@ -71,6 +117,8 @@ enum PayoutMethod {
   manual
   csv
   stripe
+  // Faz A2: cek ile odeme — uyenin posta adresine postalanir (ABD pazari, varsayilan model).
+  check
 }
 
 enum PayoutStatus {
@@ -78,6 +126,12 @@ enum PayoutStatus {
   processing
   paid
   failed
+}
+
+enum PayoutBatchStatus {
+  proposed
+  executed
+  rejected
 }
 
 enum NotificationChannel {
@@ -101,12 +155,24 @@ model Tenant {
   maturationRule      MaturationRule @default(on_delivery) @map("maturation_rule")
   maturationDays      Int?           @map("maturation_days")
   payoutMinCents      BigInt         @default(100000) @map("payout_min_cents")
+  // Cek numarasi sayaci (Faz A2.2): cek-run sirali no atarken atomik artirilir. Ilk cek = +1.
+  lastCheckNumber     Int            @default(1000) @map("last_check_number")
   compressionEnabled  Boolean        @default(false) @map("compression_enabled")
   inactiveMembersEarn Boolean        @default(true) @map("inactive_members_earn")
   notifyNewMemberName Boolean        @default(true) @map("notify_new_member_name")
   // Gorevler ayrimi (maker-checker): satisi giren onaylayamaz. Varsayilan kapali
   // (tek-admin tenant'lari kirmasin); kapali iken self-onay audit'te isaretlenir.
   requireSeparateApprover Boolean    @default(false) @map("require_separate_approver")
+  // KYC kapisi: acikken payout yalniz 'verified' odeme profili + soguma suresi gecmisse acilir.
+  requireKycForPayout Boolean        @default(false) @map("require_kyc_for_payout")
+  // Maker-checker (4-goz): acikken payout run'i ONERI olusturur; farkli bir admin onaylar.
+  requirePayoutApproval Boolean      @default(false) @map("require_payout_approval")
+  // Faz A3: esigi gecen uyeye gece job'u OTOMATIK 'requested' cek talebi acar + bildirir.
+  // Para CIKMAZ — admin onayi (decide) hala sart. Admin kapatabilir (elle talep modeli).
+  autoRequestPayouts  Boolean        @default(true) @map("auto_request_payouts")
+  // Rolling reserve: payable komisyonun %X'i N gun 'reserved' tutulur (iade riskine karsi).
+  reservePercent      Int            @default(0) @map("reserve_percent")
+  reserveDays         Int            @default(0) @map("reserve_days")
   branding            Json           @default("{}")
   status              TenantStatus   @default(active)
   createdAt           DateTime       @default(now()) @map("created_at")
@@ -121,8 +187,64 @@ model Tenant {
   teamStats   TeamStat[]
   payouts     Payout[]
   roles       TenantRole[]
+  campaigns   Campaign[]
+  savedViews  SavedView[]
+  payoutProfiles PayoutProfile[]
+  fraudFlags  FraudFlag[]
+  surveys     SurveyResponse[]
+  inviteEvents InviteEvent[]
+  rankTiers   RankTier[]
+  reportSub   ReportSubscription?
+  payoutBatches PayoutBatch[]
+  apiKeys     ApiKey[]
+  webhooks    WebhookEndpoint[]
+  announcements Announcement[]
+  periodLocks PeriodLock[]
+  billing     TenantBilling?
+  invoices    Invoice[]
 
   @@map("tenants")
+}
+
+// Faz C2: tenant-sirketin faturalama yapilandirmasi (platform geliri — manuel takip, Stripe YOK).
+// monthlyFeeCents = aylik sabit ucret; active=false ise fatura uretilmez (askida/ucretsiz).
+model TenantBilling {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @unique @map("tenant_id") @db.Uuid
+  monthlyFeeCents BigInt   @default(0) @map("monthly_fee_cents")
+  currency        String   @default("USD")
+  active          Boolean  @default(true)
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_billing")
+}
+
+// Faz C2: tek fatura. Odeme platform disi → status open→paid (elle isaretleme, cek/havale referansiyla).
+model Invoice {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String        @map("tenant_id") @db.Uuid
+  period         String        // YYYY-MM (faturalanan donem)
+  amountCents    BigInt        @map("amount_cents")
+  currency       String        @default("USD")
+  status         InvoiceStatus @default(open)
+  issuedAt       DateTime      @default(now()) @map("issued_at")
+  dueAt          DateTime?     @map("due_at")
+  paidAt         DateTime?     @map("paid_at")
+  paidNote       String?       @map("paid_note") // "check #123" / "wire ref" — manuel kanit
+  markedByUserId String?       @map("marked_by_user_id") @db.Uuid
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // ayni tenant-donem icin tek fatura (idempotent uretim)
+  @@unique([tenantId, period])
+  @@index([status, issuedAt])
+  @@map("invoices")
 }
 
 // RBAC: kiracci-kapsamli roller. Sistem rolleri (isSystem) silinemez/yeniden adlandirilamaz;
@@ -182,6 +304,8 @@ model RefreshToken {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId       String    @map("user_id") @db.Uuid
   tokenHash    String    @unique @map("token_hash")
+  // Oturum (cihaz) kimligi: rotasyon boyunca SABIT kalir; "aktif oturumlar" listesi + revoke bununla.
+  familyId     String?   @map("family_id") @db.Uuid
   expiresAt    DateTime  @map("expires_at")
   revokedAt    DateTime? @map("revoked_at")
   replacedById String?   @map("replaced_by_id") @db.Uuid
@@ -193,6 +317,7 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([userId, familyId])
   @@map("refresh_tokens")
 }
 
@@ -233,6 +358,29 @@ model Membership {
   path                String
   depth               Int
   status              MembershipStatus @default(active)
+  // Takim lideri (Dalga 3): owner birini "grup/ekip lideri" isaretler. Liderler sayfasinda
+  // listelenir; "agaci" = ltree alt-agaci (path <@ lider.path). Yerlesimi DEGISTIRMEZ (sadece bayrak).
+  isTeamLeader        Boolean          @default(false) @map("is_team_leader")
+  // Sybil tespiti (#16): kayit anindaki IP. Ayni IP'den N+ uye → fraud sinyali.
+  signupIp            String?          @map("signup_ip")
+  // Kayit disclaimer'i (Faz A1): uye kayitta sorumluluk metnini onaylar — hukuki kayit.
+  // doluysa onaylanmis; surum hangi metnin kabul edildigini izler.
+  disclaimerAcceptedAt DateTime?       @map("disclaimer_accepted_at")
+  disclaimerVersion    String?         @map("disclaimer_version")
+  // Cek odeme adresi (Faz A2): cek BU adrese postalanir. Uye Account'ta kendi girer/gunceller.
+  // Payout aninda Payout'a snapshot'lanir; sonradan degisse gecmis cekin adresi bozulmaz. ABD-only.
+  mailingName       String?            @map("mailing_name")
+  mailingLine1      String?            @map("mailing_line1")
+  mailingLine2      String?            @map("mailing_line2")
+  mailingCity       String?            @map("mailing_city")
+  mailingState      String?            @map("mailing_state")
+  mailingPostal     String?            @map("mailing_postal")
+  mailingCountry    String?            @default("US") @map("mailing_country")
+  // Kisisel davet landing (#23): uyenin /i/{code} sayfasinda gosterilen karsilama mesaji.
+  inviteMessage       String?          @map("invite_message")
+  // Faz D5: en son bildirilen rutbe sortOrder'i — gece scan bunu asan rutbeyi 'rank_up' bildirir.
+  // null = henuz baseline alinmadi (ilk scan bildirmeden kaydeder).
+  lastRankSortOrder   Int?             @map("last_rank_sort_order")
   // Kanal bazli bildirim tercihleri: { "<event>": { in_app, email, push } } — bos = varsayilanlar.
   notificationPrefs   Json             @default("{}") @map("notification_prefs")
   joinedAt            DateTime         @default(now()) @map("joined_at")
@@ -251,6 +399,11 @@ model Membership {
   summaries   MonthlySummary[]
   teamStats   TeamStat[]
   payouts     Payout[]
+  payoutProfile PayoutProfile?
+  fraudFlag   FraudFlag?
+  apiKeys     ApiKey[]
+  notifications     Notification[]
+  announcementReads AnnouncementRead[]
 
   @@unique([tenantId, userId])
   @@unique([tenantId, referralCode])
@@ -273,9 +426,26 @@ model Invite {
 
   tenant  Tenant     @relation(fields: [tenantId], references: [id])
   inviter Membership @relation("Inviter", fields: [inviterMembershipId], references: [id])
+  events  InviteEvent[]
 
   @@index([tenantId, status])
   @@map("invites")
+}
+
+// Davet funnel (#14): tiklama/goruntuleme event'i + UTM kanal kaynagi. signup = Invite.used'tan turetilir.
+model InviteEvent {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  inviteId  String   @map("invite_id") @db.Uuid
+  event     String   // 'view'
+  utmSource String?  @map("utm_source")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invite Invite @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@map("invite_events")
 }
 
 model CommissionPlan {
@@ -284,6 +454,12 @@ model CommissionPlan {
   name          String
   poolRateBps   Int      @map("pool_rate_bps")
   depth         Int
+  // Bonus katmanlari (MLM unilevel+). 0 = kapali (varsayilan; mevcut davranis korunur).
+  // Fast-start: satici joinedAt + fastStartDays icindeyse, direkt sponsora amount*fastStartBps.
+  // Matching: direkt sponsora, saticinin level-0 komisyonunun matchingBps'i.
+  fastStartBps  Int      @default(0) @map("fast_start_bps")
+  fastStartDays Int      @default(0) @map("fast_start_days")
+  matchingBps   Int      @default(0) @map("matching_bps")
   effectiveFrom DateTime @map("effective_from")
   createdBy     String?  @map("created_by") @db.Uuid
   createdAt     DateTime @default(now()) @map("created_at")
@@ -344,26 +520,35 @@ model Sale {
 model LedgerEntry {
   id                      String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId                String       @map("tenant_id") @db.Uuid
-  saleId                  String       @map("sale_id") @db.Uuid
+  // Satisa bagli komisyon/reversal'da dolu; kampanya bonusu/manuel ayarlama gibi
+  // satisa bagli OLMAYAN satirlarda NULL (o satirlar summaryMonth'u kendileri tasir).
+  saleId                  String?      @map("sale_id") @db.Uuid
   beneficiaryMembershipId String       @map("beneficiary_membership_id") @db.Uuid
   level                   Int
   rateBpsUsed             Int          @map("rate_bps_used")
   amountCents             BigInt       @map("amount_cents")
   type                    LedgerType
   status                  LedgerStatus
+  // Satisa bagli olmayan satirin ay bucket'i (payout/summary icin). Komisyonda NULL
+  // kalir, ay sale.summary_month'tan turetilir (geriye donuk uyumlu).
+  summaryMonth            String?      @map("summary_month")
   maturesAt               DateTime?    @map("matures_at")
   payoutId                String?      @map("payout_id") @db.Uuid
   createdAt               DateTime     @default(now()) @map("created_at")
   updatedAt               DateTime     @updatedAt @map("updated_at")
 
   tenant      Tenant     @relation(fields: [tenantId], references: [id])
-  sale        Sale       @relation(fields: [saleId], references: [id])
+  // Restrict: ledger satiri olan satis silinemez (void/ters kayit yolu vardir).
+  // SET NULL olsaydi sale_id'yi NULL'a cekerdi = UPDATE; guard_ledger_update bunu
+  // engeller, bu yuzden FK RESTRICT olmali (ledger degismezligi — bkz. DECISIONS).
+  sale        Sale?      @relation(fields: [saleId], references: [id], onDelete: Restrict)
   beneficiary Membership @relation("Beneficiary", fields: [beneficiaryMembershipId], references: [id])
   // Restrict: payout silinince 'paid' satirin payout_id'si sessizce NULL olmasin
   // (ledger degismezligi — bkz. DECISIONS "Inceleme bulgulari").
   payout      Payout?    @relation(fields: [payoutId], references: [id], onDelete: Restrict)
 
-  // Cift odeme imkansiz: motor kac kez cagrilirsa cagrilsin ayni sonuc
+  // Cift odeme imkansiz: motor kac kez cagrilirsa cagrilsin ayni sonuc.
+  // (saleId NULL satirlar Postgres'te bu kisitta birbirinden ayri sayilir — bonuslar etkilenmez.)
   @@unique([saleId, level, type])
   @@index([tenantId, beneficiaryMembershipId, status])
   @@index([status, maturesAt])
@@ -419,6 +604,16 @@ model Payout {
   period       String
   paidAt       DateTime?    @map("paid_at")
   ref          String?
+  // Banka mutabakati (Dalga 3): banka ACH dosyasini isleyip parayi gonderince admin
+  // ekstreyi import eder; eslesen payout 'cleared' isaretlenir. clearedAt=null → henuz mutabik degil.
+  clearedAt          DateTime? @map("cleared_at")
+  bankRef            String?   @map("bank_ref")
+  reconciledByUserId String?   @map("reconciled_by_user_id") @db.Uuid
+  // Cek odeme (Faz A2.2): cek-run sirali no atar + adresi O AN snapshot'lar (sonra adres degisse
+  // gecmis cek bozulmaz) + postalaninca mailedAt set edilir. method='check' payout'lar icin.
+  checkNumber        Int?      @map("check_number")
+  mailedAt           DateTime? @map("mailed_at")
+  payeeSnapshot      Json?     @map("payee_snapshot")
   createdAt    DateTime     @default(now()) @map("created_at")
   updatedAt    DateTime     @updatedAt @map("updated_at")
 
@@ -427,6 +622,8 @@ model Payout {
   entries    LedgerEntry[]
 
   @@index([tenantId, status])
+  // Kismi unique index ham SQL migration'da (20260615144000_payout_one_open_per_member):
+  // uye basina en fazla bir ACIK (requested|processing) payout — Prisma kismi unique'i ifade edemez.
   @@map("payouts")
 }
 
@@ -461,6 +658,9 @@ model Notification {
   createdAt             DateTime            @default(now()) @map("created_at")
   updatedAt             DateTime            @updatedAt @map("updated_at")
 
+  // Cascade: uyelik silinince bildirimleri de gider (orphan satir kalmaz).
+  membership Membership @relation(fields: [recipientMembershipId], references: [id], onDelete: Cascade)
+
   @@index([status, createdAt])
   @@index([recipientMembershipId, channel, readAt])
   @@map("notifications")
@@ -476,8 +676,313 @@ model AuditLog {
   before      Json?
   after       Json?
   ip          String?
+  // Kurcalamaya-dayanikli zincir: seal job'i kayitlari createdAt sirasiyla hash'ler
+  // (hash = sha256(prevHash + kanonik icerik)). Tek satir oynanirsa zincir kirilir.
+  prevHash    String?  @map("prev_hash")
+  hash        String?
+  // Monoton sira: createdAt esitliginde (ayni tx now()) zincir sirasini KESINLESTIRIR.
+  // DB tarafindan atanir (BIGSERIAL); uygulama asla set etmez. Hash icerigine GIRMEZ.
+  seq         BigInt   @default(autoincrement())
   createdAt   DateTime @default(now()) @map("created_at")
 
   @@index([tenantId, createdAt])
+  @@index([tenantId, seq])
   @@map("audit_logs")
+}
+
+// Referans yarismasi / kampanya: zaman sinirli yaris, donem sonu bonus odulu.
+// Siralama CANLI hesaplanir (sales/memberships/invites'tan); finalize aninda kazananlar
+// 'results' jsonb'sine donderilir ve oduller ledger'a 'adjustment' (payable) satiri olarak
+// yazilir (engine.awardBonus) — normal payout akisindan odenir.
+model Campaign {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String         @map("tenant_id") @db.Uuid
+  name        String
+  description String?
+  metric      CampaignMetric
+  startsAt    DateTime       @map("starts_at")
+  endsAt      DateTime       @map("ends_at")
+  status      CampaignStatus @default(draft)
+  // prizes: [{ rank: 1, bonusCents: 50000 }, ...] (integer cent)
+  prizes      Json           @default("[]")
+  // finalize sonrasi kazanan anlik goruntusu: [{ rank, membershipId, name, code, score, bonusCents }]
+  results     Json?
+  createdBy   String?        @map("created_by") @db.Uuid
+  finalizedAt DateTime?      @map("finalized_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@map("campaigns")
+}
+
+// Kayitli gorunum: filtre+siralama setinin isimli kaydi. shared=true ise tum ekip gorur
+// (kisisel = yalniz sahibi). config jsonb: hedefe gore { status, q, from, to, sort, dir, ... }.
+model SavedView {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  ownerUserId String   @map("owner_user_id") @db.Uuid
+  target      String   // 'sales' | 'members' | ...
+  name        String
+  shared      Boolean  @default(false)
+  config      Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, target])
+  @@map("saved_views")
+}
+
+// KYC / odeme profili (ABD). GIZLILIK: tam SSN/hesap no SAKLANMAZ — yalniz son-4 + routing
+// (public banka kimligi) + durum makinesi tutulur. Tam veri Dalga 3'te odeme saglayici
+// (Stripe Connect) kasasinda olacak. Payout yalniz 'verified' + soguma suresi gecmis profille acilir.
+model PayoutProfile {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String              @map("tenant_id") @db.Uuid
+  membershipId     String              @unique @map("membership_id") @db.Uuid
+  legalName        String              @map("legal_name")
+  country          String              @default("US")
+  taxIdType        TaxIdType           @map("tax_id_type")
+  taxIdLast4       String              @map("tax_id_last4")
+  bankName         String?             @map("bank_name")
+  routingNumber    String              @map("routing_number")
+  accountType      BankAccountType     @map("account_type")
+  accountLast4     String              @map("account_last4")
+  // Self-hosted ACH/NACHA dosyasi icin tam hesap no AES-256-GCM ile sifreli (at-rest).
+  // Dis odeme saglayici YOK; banka dosyasi uretiminde decrypt edilir.
+  accountEnc       String?             @map("account_enc")
+  status           PayoutProfileStatus @default(pending_review)
+  rejectionReason  String?             @map("rejection_reason")
+  // OFAC/AML (#10): legalName yaptirim listesiyle eslesti mi (payout'u bloklar, compliance inceleme)
+  sanctionsHit     Boolean             @default(false) @map("sanctions_hit")
+  // banka/kimlik degisikligi zamani — soguma suresi (anti-account-takeover) buradan olcuelur
+  lastChangedAt    DateTime            @map("last_changed_at")
+  reviewedByUserId String?             @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt       DateTime?           @map("reviewed_at")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@map("payout_profiles")
+}
+
+// Fraud sinyal motoru (#11): saatlik tarama uye basina risk skoru + sebepler uretir.
+// score >= BLOCK ve status != cleared ise payout BLOKLANIR (riskli komisyon hold'u).
+model FraudFlag {
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String      @map("tenant_id") @db.Uuid
+  membershipId     String      @unique @map("membership_id") @db.Uuid
+  score            Int         @default(0)
+  reasons          Json        @default("[]")
+  status           FraudStatus @default(open)
+  note             String?
+  reviewedByUserId String?     @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt       DateTime?   @map("reviewed_at")
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@map("fraud_flags")
+}
+
+// NPS / mikro anket (#9): uye memnuniyeti. score 0-10; >=9 promoter, 7-8 passive, <=6 detractor.
+model SurveyResponse {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  membershipId String   @map("membership_id") @db.Uuid
+  score        Int
+  comment      String?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([membershipId, createdAt])
+  @@map("survey_responses")
+}
+
+// OFAC/AML yaptirim listesi (#10): gece cron OFAC SDN + AB/BM listelerini normalize eder.
+// Self-hosted: liste acik veri (dis bagimlilik yok). normalizedName lower+trim, fuzzy-match icin.
+model SanctionsEntry {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String
+  normalizedName String   @map("normalized_name")
+  source         String   @default("OFAC")
+  country        String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([source, normalizedName])
+  @@index([normalizedName])
+  @@map("sanctions_entries")
+}
+
+// Kariyer rutbesi (#20): tenant-tanimli kademe (ekip boyutu + kumulatif kazanc esigi).
+// Tenant tier tanimlamadiysa yerlesik varsayilanlar kullanilir (ranks.service).
+model RankTier {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  name            String
+  sortOrder       Int      @map("sort_order")
+  minTeam         Int      @default(0) @map("min_team")
+  minEarningsCents BigInt  @default(0) @map("min_earnings_cents")
+  // Rutbe override: bu rutbeye ulasan uye KENDI satislarinda bu bps kadar ek bonus kazanir
+  // (sentetik seviye 1002, type=commission). Rutbe sistemi boylece gercek para surer.
+  overrideBps     Int      @default(0) @map("override_bps")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, sortOrder])
+  @@map("rank_tiers")
+}
+
+// Maker-checker payout onay kuyrugu (Dalga 3): run ONERI olusturur, farkli admin onaylar/yurutur.
+model PayoutBatch {
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String            @map("tenant_id") @db.Uuid
+  status           PayoutBatchStatus @default(proposed)
+  period           String
+  method           PayoutMethod      @default(manual)
+  membershipIds    String[]          @map("membership_ids")
+  estimateCents    BigInt            @default(0) @map("estimate_cents")
+  proposedByUserId String            @map("proposed_by_user_id") @db.Uuid
+  approvedByUserId String?           @map("approved_by_user_id") @db.Uuid
+  createdAt        DateTime          @default(now()) @map("created_at")
+  executedAt       DateTime?         @map("executed_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@map("payout_batches")
+}
+
+// Duyuru akisi (Dalga 3): tenant admini duyuru yayinlar; uye okur + okundu isaretler.
+model Announcement {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  title           String
+  body            String
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  tenant Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reads  AnnouncementRead[]
+
+  @@index([tenantId, createdAt])
+  @@map("announcements")
+}
+
+model AnnouncementRead {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  announcementId String   @map("announcement_id") @db.Uuid
+  membershipId   String   @map("membership_id") @db.Uuid
+  readAt         DateTime @default(now()) @map("read_at")
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  // Cascade: uyelik silinince okundu makbuzlari da gider (orphan satir kalmaz).
+  membership   Membership   @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, membershipId])
+  @@map("announcement_reads")
+}
+
+// Donem kilidi (Dalga 3): muhasebe kapanisi. Satir varsa o ay (YYYY-MM) KILITLI —
+// yeni komisyon yazimi / void reversal / payout o doneme dokunamaz. Acmak = satiri sil (audit'li).
+model PeriodLock {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  period         String   // 'YYYY-MM'
+  lockedByUserId String?  @map("locked_by_user_id") @db.Uuid
+  note           String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, period])
+  @@map("period_locks")
+}
+
+// API anahtari (Dalga 3): X-Api-Key ile entegrasyon erisimi. Yalniz hash saklanir;
+// olusturan admin'in uyeligi/rolu adina davranir (personal access token modeli).
+model ApiKey {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  membershipId    String    @map("membership_id") @db.Uuid
+  createdByUserId String    @map("created_by_user_id") @db.Uuid
+  role            Role
+  name            String
+  prefix          String    // gosterim icin (rfk_xxxx)
+  keyHash         String    @unique @map("key_hash")
+  lastUsedAt      DateTime? @map("last_used_at")
+  // Opsiyonel son-kullanma: dolmus anahtar guard'da reddedilir (yasam-dongusu).
+  expiresAt       DateTime? @map("expires_at")
+  revokedAt       DateTime? @map("revoked_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([membershipId])
+  @@map("api_keys")
+}
+
+// Giden webhook ucu (Dalga 3): olaylara HMAC imzali POST; retry teslimat gunlugu.
+model WebhookEndpoint {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  url        String
+  secret     String
+  events     String[]  @default([]) // ['sale.approved','payout.paid',...] bos = hepsi
+  active     Boolean   @default(true)
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([tenantId])
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  endpointId String   @map("endpoint_id") @db.Uuid
+  event      String
+  payload    Json
+  status     String   @default("pending") // pending | delivered | failed
+  attempts   Int      @default(0)
+  lastError  String?  @map("last_error")
+  responseStatus Int? @map("response_status")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@map("webhook_deliveries")
+}
+
+// Zamanlanmis e-posta raporu (#18): donemsel ozet digest (HTML), secili alicilara.
+model ReportSubscription {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @unique @map("tenant_id") @db.Uuid
+  frequency  String   @default("weekly") // 'weekly' | 'monthly'
+  recipients String[] @default([])
+  lastSentAt DateTime? @map("last_sent_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("report_subscriptions")
 }

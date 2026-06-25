@@ -7,6 +7,7 @@ import { AppModule } from '../src/app.module';
 import { authConfig } from '../src/auth/auth.config';
 import { AccessTokenPayload } from '../src/auth/auth.types';
 import { EngineService } from '../src/engine/engine.service';
+import { RanksService } from '../src/ranks/ranks.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createChain, createPlan, createSale, createTenant, truncateAll } from './helpers';
 
@@ -122,7 +123,7 @@ describe('admin members/tree/dashboard (entegrasyon)', () => {
   it('dashboard: ciro/komisyon/uye/payable bu ay', async () => {
     const { tenant, chain, owner } = await setup();
     const tok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
-    const engine = new EngineService(prisma);
+    const engine = new EngineService(prisma, new RanksService(prisma));
 
     // satici chain[3], 3 ust var → tum havuz dagilmaz; ciro 100k, komisyon = L0..L3
     const sale = await createSale(prisma, tenant.id, chain[3].id, 10_000_000n);
@@ -144,7 +145,7 @@ describe('admin members/tree/dashboard (entegrasyon)', () => {
   it('analytics: zaman serisi + totals + funnel + top performers + onceki donem', async () => {
     const { tenant, chain, owner } = await setup();
     const tok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
-    const engine = new EngineService(prisma);
+    const engine = new EngineService(prisma, new RanksService(prisma));
 
     const sale = await createSale(prisma, tenant.id, chain[3].id, 10_000_000n);
     await engine.approveSale(sale.id);

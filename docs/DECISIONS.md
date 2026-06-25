@@ -185,3 +185,30 @@ Cok-ajanli review (3 mercek + dogrulayicilar) 11 bulgu onayladi. Duzeltildi:
   icin tek-instance MVP'de guvenli. Cok-instance'ta pg advisory lock onerilir.
 - **[medium] Device upsert yeniden-iliskilendirme** — ayni cihaz token'i login'de yeni kullaniciya gecer;
   push semantigi geregi KASITLI (cihaz devri). Sunucu token sahipligini dogrulayamaz.
+
+## Network yerlesim stratejisi degerlendirmesi (2026-06-16)
+
+Network modulu calismasi kapsaminda "spillover / binary / matrix" yerlesim plani talebi
+cok-ajanli tasarimla degerlendirildi. **Karar: YAPILMAYACAK — tek SPONSOR agaci korunur.**
+
+Gerekce (kod kaniti):
+- **docs/SPEC.md:40** binary/matrix/spillover/re-parenting'i bilincli ve kalici Non-Goal
+  ("asla") ilan ediyor; yerlesim kalicidir (yalniz pasiflestirme var).
+- **Komisyon motoru parayi YALNIZ sponsor zinciriyle dagitir**: `engine.service.ts`
+  `uplineChain()` ve `packages/shared/src/commission.ts` `sponsorMembershipId` zincirini
+  yuruyor; ltree `path` SADECE okuma-tarafi agregalarinda (ekip boyu, grup cirosu,
+  gizlilikli `/app/team`) kullaniliyor — para hesabina HIC girmiyor.
+- DB trigger `forbid_reparenting` (migration 20260610214900_guards) sponsor_membership_id
+  ve path degisimini yasaklar → dongu matematiksel imkansiz, yerlesim degismez-degismez.
+
+Sonuc: ayri bir yerlesim agaci eklemek motor yeniden tellenmeden komisyonu degistirmez;
+tam binary/matrix ise motor + ledger + monthly_summaries + forbid_reparenting degismezini
+bastan yazmak demektir (L+, yuksek regresyon riski, urun yonuyle celisik).
+
+- **"placement-ready" nullable sema rezervasyonu da ERTELENDI** — yarim-ozellik yanilgisi +
+  forbid_reparenting bu kolonlari kapsamayacagindan sahte koruma riski; kolon gercekten
+  gerekince additive migration ile eklemek zaten kolay.
+- Bu degismez bir **regresyon testiyle kilitlendi**: komisyonun sponsor zinciriyle aktigini
+  (path-komsusu/farkli-sponsor iki uye ile) dogrular (`packages/shared/test/commission.spec.ts`).
+- **Yeniden acma kosulu** (kod degil, urun karari): ABD pazarinda binary/matrix ticari talebi
+  netlesirse motor (uplineChain) yeniden tasarimi AYRI bir L+ epic olarak ele alinir.

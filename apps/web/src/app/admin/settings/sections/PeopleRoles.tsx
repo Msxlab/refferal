@@ -158,6 +158,7 @@ export default function PeopleRoles() {
                         <span className="badge active" style={{ fontSize: 10 }}>Owner</span>
                       ) : (
                         <select
+                          aria-label="Member tier"
                           value={p.tier}
                           onChange={(e) => assign(p.membershipId, { tier: e.target.value })}
                           style={{ padding: '5px 8px', fontSize: 12 }}
@@ -173,6 +174,7 @@ export default function PeopleRoles() {
                         <span className="faint" style={{ fontSize: 12 }}>—</span>
                       ) : (
                         <select
+                          aria-label="Member custom role"
                           value={p.role?.id ?? ''}
                           onChange={(e) => assign(p.membershipId, { roleId: e.target.value || null })}
                           style={{ padding: '5px 8px', fontSize: 12 }}

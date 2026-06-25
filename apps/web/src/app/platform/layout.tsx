@@ -12,6 +12,10 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
   const router = useRouter();
   const pathname = usePathname();
   const [session, setSession] = useState<Session | null>(null);
+  const [navOpen, setNavOpen] = useState(false);
+
+  // route degisince mobil drawer'i kapat
+  useEffect(() => { setNavOpen(false); }, [pathname]);
 
   useEffect(() => {
     const s = getSession();
@@ -30,13 +34,19 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
   }
 
   return (
-    <div className="shell">
+    <div className={`shell${navOpen ? ' nav-open' : ''}`}>
+      <div className="mobile-topbar no-print">
+        <button className="hamburger" aria-label="Menu" aria-expanded={navOpen} onClick={() => setNavOpen((v) => !v)}>☰</button>
+        <div className="brand"><span className="dot">R</span> Refearn</div>
+        <div className="row" style={{ gap: 6, marginLeft: 'auto' }}><ThemeToggle /></div>
+      </div>
+      {navOpen && <div className="nav-backdrop no-print" onClick={() => setNavOpen(false)} aria-hidden="true" />}
       <aside className="side">
         <div className="brand"><span className="dot">R</span> Refearn</div>
         <div className="faint" style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', margin: '0 0 10px 4px' }}>Platform</div>
         <nav>
           {NAV.map((n) => (
-            <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
+            <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''} onClick={() => setNavOpen(false)}>
               <span className="ic">{n.ic}</span>{n.label}
             </Link>
           ))}

@@ -83,6 +83,44 @@ export class InvitesService {
     }));
   }
 
+  /** Davet funnel (#14): /i/{code} sayfasi goruntulendiginde event + UTM kaydi (public). */
+  async track(code: string, event: 'view', utmSource?: string) {
+    const invite = await this.prisma.invite.findUnique({ where: { code }, select: { id: true, tenantId: true } });
+    if (!invite) return { ok: false };
+    await this.prisma.inviteEvent.create({
+      data: { tenantId: invite.tenantId, inviteId: invite.id, event, utmSource: utmSource?.slice(0, 80) || null },
+    });
+    return { ok: true };
+  }
+
+  /** Admin funnel ozeti: goruntuleme → kayit donusumu + UTM kanal kirilimi. */
+  async funnel(tenantId: string) {
+    const [views, signups, byUtm] = await Promise.all([
+      this.prisma.inviteEvent.count({ where: { tenantId, event: 'view' } }),
+      this.prisma.invite.count({ where: { tenantId, status: InviteStatus.used } }),
+      this.prisma.inviteEvent.groupBy({ by: ['utmSource'], where: { tenantId, event: 'view' }, _count: { _all: true } }),
+    ]);
+    return {
+      views,
+      signups,
+      conversionPct: views > 0 ? Math.round((signups / views) * 1000) / 10 : null,
+      byUtm: byUtm
+        .map((u) => ({ source: u.utmSource ?? 'direct', views: u._count._all }))
+        .sort((a, b) => b.views - a.views),
+    };
+  }
+
+  /** Uyenin kisisel davet karsilama mesaji (#23). */
+  async getMessage(membershipId: string) {
+    const m = await this.prisma.membership.findUnique({ where: { id: membershipId }, select: { inviteMessage: true } });
+    return { message: m?.inviteMessage ?? null };
+  }
+
+  async setMessage(membershipId: string, message: string | null) {
+    await this.prisma.membership.update({ where: { id: membershipId }, data: { inviteMessage: message?.trim() || null } });
+    return { message: message?.trim() || null };
+  }
+
   /** Public cozumleme: /i/{code} kayit sayfasinin ihtiyaci kadar veri. */
   async resolve(code: string) {
     const invite = await this.prisma.invite.findUnique({
@@ -106,6 +144,7 @@ export class InvitesService {
       tenantName: invite.tenant.name,
       tenantSlug: invite.tenant.slug,
       inviterName: invite.inviter.user.fullName,
+      inviterMessage: invite.inviter.inviteMessage ?? null,
       expiresAt: invite.expiresAt,
       emailLocked: invite.email !== null,
     };

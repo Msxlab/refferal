@@ -221,6 +221,12 @@ export class RbacService implements OnModuleInit {
     if (m.role === Role.tenant_owner) {
       throw new BadRequestException('Owner uyeliginin rolu bu ekrandan degistirilemez');
     }
+    if (input.tier) {
+      // tavan: bir uyeyi, kendinde olmayan izinleri tasiyan bir enum-katmana yukseltemezsin.
+      // ozellikle tenant_admin (allExcept('settings.data') — god-tier) yalniz o izin kumesini
+      // tam tasiyan aktor (owner/platform veya admin-denk ozel rol) tarafindan verilebilir.
+      this.assertGrantable(actorPerms, defaultPermissionsForTier(input.tier));
+    }
     if (input.roleId) {
       const role = await this.prisma.tenantRole.findFirst({
         where: { id: input.roleId, tenantId: actor.tenantId },

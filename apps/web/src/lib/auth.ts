@@ -52,6 +52,29 @@ interface AccessClaims {
   perms?: string[];
   tid?: string;
   mid?: string;
+  imp?: string;
+}
+
+/* ---- impersonation: admin'in uye oturumunu gecici devralmasi (salt-okunur) ---- */
+const IMP_KEY = 'refearn.session.impersonator';
+
+/** Mevcut (admin) oturumu yedekle, uye imp oturumuna gec. */
+export function startImpersonation(impSession: Session): void {
+  const current = getSession();
+  if (current) window.localStorage.setItem(IMP_KEY, JSON.stringify(current));
+  setSession(impSession);
+}
+
+export function isImpersonating(): boolean {
+  return typeof window !== 'undefined' && !!window.localStorage.getItem(IMP_KEY);
+}
+
+/** Yedeklenen admin oturumunu dondur ve imp bayragini temizle (yoksa null). */
+export function stopImpersonation(): Session | null {
+  if (typeof window === 'undefined') return null;
+  const raw = window.localStorage.getItem(IMP_KEY);
+  window.localStorage.removeItem(IMP_KEY);
+  return raw ? (JSON.parse(raw) as Session) : null;
 }
 
 /** Access JWT govdesini cozer (imza dogrulamasi sunucuda; burada yalniz UI gosterimi icin). */

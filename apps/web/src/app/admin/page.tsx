@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Donut, Loading, MoneyCounter, StatCard } from '@/components/ui';
 import { TrendChart } from '@/components/TrendChart';
+import { useLiveRefresh } from '@/components/LiveIndicator';
 import { bps, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -13,6 +15,8 @@ interface Dashboard {
   members: { total: number; active: number };
   thisMonth: { approvedSalesCount: number; revenueCents: string; commissionCents: string; effectiveRateBps: number };
   outstandingPayableCents: string;
+  liability: { pendingCents: string; payableCents: string; inPayoutCents: string };
+  topEarners: { membershipId: string; fullName: string; referralCode: string; earnedCents: string }[];
   pendingPayoutRequests: number;
 }
 
@@ -27,17 +31,58 @@ interface Analytics {
   topPerformers: Array<{ membershipId: string; fullName: string; referralCode: string; revenueCents: string; salesCount: number }>;
 }
 
+interface Onboarding {
+  steps: { key: string; label: string; done: boolean; cta: string | null }[];
+  done: number; total: number; percent: number;
+}
+
+interface Todo {
+  items: { key: string; label: string; count: number; href: string }[];
+  total: number;
+}
+const TODO_ICON: Record<string, string> = {
+  sales_approval: '◇', payout_requests: '◆', checks_to_process: '🖶', fraud_review: '⚑',
+};
+
+interface Cohorts {
+  cohorts: { cohort: string; joined: number; active: number; churned: number; producing: number; retentionPct: number; activationPct: number }[];
+  totals: { joined: number; active: number; producing: number; churned: number; retentionPct: number };
+}
+
 const RANGES = [3, 6, 12];
+const CTA_LABEL: Record<string, string> = {
+  invite_team: 'Invite members',
+  first_sale: 'Record a sale',
+  first_payout: 'Go to payouts',
+};
 
 export default function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
+  const [todo, setTodo] = useState<Todo | null>(null);
+  const [cohorts, setCohorts] = useState<Cohorts | null>(null);
   const [months, setMonths] = useState(6);
   const [error, setError] = useState('');
+  const [fin, setFin] = useState<{ ok: boolean; payoutMismatches: unknown[]; summaryMismatches: unknown[] } | null>(null);
+  const [finBusy, setFinBusy] = useState(false);
 
-  useEffect(() => {
+  async function verifyFinancials() {
+    setFinBusy(true);
+    try { setFin(await api.get('/admin/financials/verify')); }
+    catch (e) { setError(String((e as ApiError).message)); } finally { setFinBusy(false); }
+  }
+
+  const loadDashboard = useCallback(() => {
     api.get<Dashboard>('/admin/dashboard').then(setData).catch((e) => setError(String((e as ApiError).message)));
+    api.get<Onboarding>('/admin/onboarding').then(setOnboarding).catch(() => { /* opsiyonel */ });
+    api.get<Todo>('/admin/todo').then(setTodo).catch(() => { /* opsiyonel */ });
+    api.get<Cohorts>('/admin/cohorts').then(setCohorts).catch(() => { /* opsiyonel */ });
   }, []);
+  useEffect(() => { loadDashboard(); }, [loadDashboard]);
+
+  // canli: satis onayi/odeme oldukca ozet kartlari kendiliginden gunceller
+  useLiveRefresh(loadDashboard);
 
   useEffect(() => {
     setAnalytics(null);
@@ -54,11 +99,75 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <div className="eyebrow fade-in">{t('nav.dashboard')} · {data.month}</div>
-      <h1 className="h1 fade-in">{t('dash.title')}</h1>
-      <p className="sub fade-in">{t('dash.sub')}</p>
+      <div className="spread">
+        <div>
+          <div className="eyebrow fade-in">{t('nav.dashboard')} · {data.month}</div>
+          <h1 className="h1 fade-in">{t('dash.title')}</h1>
+          <p className="sub fade-in">{t('dash.sub')}</p>
+        </div>
+        <div className="row fade-in no-print" style={{ gap: 8 }}>
+          {fin && <span className={`badge ${fin.ok ? 'active' : 'failed'}`}>{fin.ok ? '✓ Books balanced' : `✗ ${fin.payoutMismatches.length + fin.summaryMismatches.length} issue(s)`}</span>}
+          <button className="btn ghost" onClick={verifyFinancials} disabled={finBusy}>{finBusy ? 'Checking…' : '⚖ Verify financials'}</button>
+          <button className="btn ghost" onClick={() => window.print()}>🖶 Print report</button>
+        </div>
+      </div>
 
-      <div className="grid fade-in delay-1" style={{ gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)' }}>
+      {/* ---- Yapilacaklar (C4): bekleyen eylemler ---- */}
+      {todo && todo.total > 0 && (
+        <div className="card fade-in" style={{ marginTop: 16, marginBottom: 16, borderColor: 'color-mix(in srgb, var(--gold-500) 30%, transparent)' }}>
+          <div className="spread" style={{ marginBottom: 10 }}>
+            <strong style={{ fontSize: 15 }}>Needs your attention</strong>
+            <span className="badge pending" style={{ fontSize: 10 }}>{todo.total} item{todo.total === 1 ? '' : 's'}</span>
+          </div>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 10 }}>
+            {todo.items.map((it) => (
+              <Link key={it.key} href={it.href} className="card hover" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', padding: 14 }}>
+                <span style={{ fontSize: 20 }}>{TODO_ICON[it.key] ?? '•'}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 18, lineHeight: 1 }}>{it.count}</div>
+                  <div className="faint" style={{ fontSize: 12, marginTop: 3 }}>{it.label}</div>
+                </div>
+                <span className="faint" style={{ fontSize: 16 }}>→</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ---- ilk-kurulum rehberi: %100'de gizlenir ---- */}
+      {onboarding && onboarding.percent < 100 && (
+        <div className="card fade-in" style={{ marginBottom: 18, border: '1px solid var(--gold-500)', boxShadow: 'var(--shadow-glow)' }}>
+          <div className="spread" style={{ alignItems: 'flex-start', marginBottom: 12 }}>
+            <div>
+              <strong style={{ fontSize: 16 }}>Get your referral program running</strong>
+              <div className="faint" style={{ fontSize: 13, marginTop: 2 }}>Finish setup to start tracking referrals and paying commissions.</div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <div style={{ fontWeight: 800, fontSize: 22 }}>{onboarding.percent}%</div>
+              <div className="faint" style={{ fontSize: 12 }}>{onboarding.done} of {onboarding.total}</div>
+            </div>
+          </div>
+          <div style={{ height: 6, background: 'var(--panel-3)', borderRadius: 3, marginBottom: 14 }}>
+            <div style={{ height: '100%', width: `${onboarding.percent}%`, borderRadius: 3, background: 'var(--foil)', transition: 'width .7s' }} />
+          </div>
+          <div>
+            {onboarding.steps.map((s) => (
+              <div key={s.key} className="row" style={{ gap: 12, padding: '9px 0', borderTop: '1px solid var(--border)', alignItems: 'center' }}>
+                <span style={{ fontSize: 16, width: 18, textAlign: 'center', color: s.done ? 'var(--emerald)' : 'var(--faint)' }}>{s.done ? '✓' : '○'}</span>
+                <span style={{ flex: 1, fontSize: 14, color: s.done ? 'var(--muted)' : 'var(--text)' }}>{s.label}</span>
+                {s.done
+                  ? <span className="faint" style={{ fontSize: 12 }}>Done</span>
+                  : s.cta
+                    ? <Link href={s.cta} className="btn ghost sm">{CTA_LABEL[s.key] ?? 'Open'} →</Link>
+                    : <span className="faint" style={{ fontSize: 12 }}>Pending</span>}
+              </div>
+            ))}
+          </div>
+          <div className="faint" style={{ fontSize: 11, marginTop: 10 }}>This guide hides automatically once every step is done.</div>
+        </div>
+      )}
+
+      <div className="grid stack-sm fade-in delay-1" style={{ gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)' }}>
         <div className="card hero">
           <div className="faint" style={{ fontSize: 12 }}>{t('dash.revenue')}</div>
           <div className="bignum gradient-text" style={{ marginTop: 6 }}><MoneyCounter cents={revenue} currency={c} /></div>
@@ -97,7 +206,36 @@ export default function DashboardPage() {
       <div className="stat-grid fade-in delay-2" style={{ marginTop: 16 }}>
         <StatCard label={t('dash.payable')} value={money(data.outstandingPayableCents, c)} icon="◆" hint={t('dash.payableHint')} />
         <StatCard label={t('dash.members')} value={`${data.members.active} / ${data.members.total}`} icon="⬡" hint={t('dash.membersHint')} />
-        <StatCard label={t('dash.pendingReq')} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} />
+        {data.pendingPayoutRequests > 0
+          ? <a href="/admin/payouts" style={{ textDecoration: 'none' }} title="Go to payouts"><StatCard label={`${t('dash.pendingReq')} →`} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} /></a>
+          : <StatCard label={t('dash.pendingReq')} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} />}
+      </div>
+
+      {/* ---- borc kirilimi + en cok kazananlar ---- */}
+      <div className="grid stack-sm fade-in delay-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.2fr)', gap: 16, marginTop: 16 }}>
+        <div className="card">
+          <strong style={{ fontSize: 13 }}>Commission owed (to members)</strong>
+          <div className="faint" style={{ fontSize: 11, marginBottom: 12 }}>What the company owes members — by maturation and payout state.</div>
+          <div className="grid" style={{ gap: 8 }}>
+            <div className="row spread"><span className="row" style={{ gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--amber)' }} />Pending (not yet matured)</span><strong className="tnum">{money(data.liability.pendingCents, c)}</strong></div>
+            <div className="row spread"><span className="row" style={{ gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--sky)' }} />Payable (ready)</span><strong className="tnum">{money(data.liability.payableCents, c)}</strong></div>
+            <div className="row spread"><span className="row" style={{ gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--emerald)' }} />In payout</span><strong className="tnum">{money(data.liability.inPayoutCents, c)}</strong></div>
+          </div>
+        </div>
+        <div className="card">
+          <strong style={{ fontSize: 13 }}>Top earners · {data.month}</strong>
+          <div className="faint" style={{ fontSize: 11, marginBottom: 10 }}>Members with the highest commission this month.</div>
+          {data.topEarners.length === 0 ? <span className="muted" style={{ fontSize: 13 }}>No commission yet this month.</span> : (
+            <div className="grid" style={{ gap: 6 }}>
+              {data.topEarners.map((e, i) => (
+                <div key={e.membershipId} className="row spread" style={{ fontSize: 13 }}>
+                  <span className="row" style={{ gap: 8, minWidth: 0 }}><span className="faint tnum" style={{ width: 18 }}>{i + 1}.</span><span style={{ fontWeight: 600 }}>{e.fullName}</span><span className="faint" style={{ fontSize: 11 }}>{e.referralCode}</span></span>
+                  <strong className="tnum" style={{ color: 'var(--gold-500)' }}>{money(e.earnedCents, c)}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ---- analitik: zaman serisi + karsilastirma + huni + top performers ---- */}
@@ -106,7 +244,7 @@ export default function DashboardPage() {
           <h2 style={{ fontSize: 18, fontWeight: 750, margin: 0 }}>Performance</h2>
           <span className="faint" style={{ fontSize: 12 }}>Trends and comparison vs the previous period.</span>
         </div>
-        <div className="seg-tabs" role="tablist">
+        <div className="seg-tabs no-print" role="tablist">
           {RANGES.map((r) => (
             <button key={r} className={`seg-tab ${months === r ? 'on' : ''}`} onClick={() => setMonths(r)} role="tab" aria-selected={months === r}>
               {r}M
@@ -129,7 +267,7 @@ export default function DashboardPage() {
             <TrendChart series={analytics.series} currency={c} />
           </div>
 
-          <div className="grid fade-in" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.2fr)', gap: 16 }}>
+          <div className="grid stack-sm fade-in" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.2fr)', gap: 16 }}>
             <div className="card">
               <strong style={{ fontSize: 14 }}>Sales funnel</strong>
               <div className="faint" style={{ fontSize: 12, marginBottom: 14 }}>Status mix over the selected window.</div>
@@ -168,6 +306,51 @@ export default function DashboardPage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ---- Kohort retention/churn (D3) — yazdirilabilir ---- */}
+      {cohorts && cohorts.cohorts.length > 0 && (
+        <div className="card fade-in" style={{ marginTop: 16 }}>
+          <div className="spread" style={{ marginBottom: 4 }}>
+            <strong style={{ fontSize: 15 }}>Member cohorts — retention &amp; churn</strong>
+            <span className="faint" style={{ fontSize: 12 }}>{cohorts.totals.retentionPct}% still active · {cohorts.totals.churned} churned</span>
+          </div>
+          <div className="faint" style={{ fontSize: 12, marginBottom: 12 }}>Members grouped by the month they joined. “Producing” = made an approved sale in the last 30 days.</div>
+          <div className="card" style={{ background: 'var(--panel-2)', padding: 0, overflowX: 'auto' }}>
+            <table>
+              <thead><tr><th>Joined</th><th style={{ textAlign: 'right' }}>Members</th><th style={{ textAlign: 'right' }}>Still active</th><th style={{ textAlign: 'right' }}>Retention</th><th style={{ textAlign: 'right' }}>Producing</th><th style={{ textAlign: 'right' }}>Churned</th></tr></thead>
+              <tbody>
+                {cohorts.cohorts.map((co) => (
+                  <tr key={co.cohort}>
+                    <td>{co.cohort}</td>
+                    <td className="tnum" style={{ textAlign: 'right' }}>{co.joined}</td>
+                    <td className="tnum" style={{ textAlign: 'right' }}>{co.active}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                        <span style={{ width: 44, height: 6, borderRadius: 4, background: 'rgba(255,255,255,.08)', overflow: 'hidden', display: 'inline-block' }}>
+                          <span style={{ display: 'block', height: '100%', width: `${co.retentionPct}%`, background: co.retentionPct >= 60 ? 'var(--emerald)' : co.retentionPct >= 30 ? 'var(--gold-500)' : 'var(--rose, #e11d48)' }} />
+                        </span>
+                        <span className="tnum" style={{ fontWeight: 600, minWidth: 34 }}>{co.retentionPct}%</span>
+                      </span>
+                    </td>
+                    <td className="tnum" style={{ textAlign: 'right', color: co.producing > 0 ? 'var(--emerald)' : 'var(--faint)' }}>{co.producing} <span className="faint">({co.activationPct}%)</span></td>
+                    <td className="tnum" style={{ textAlign: 'right', color: co.churned > 0 ? 'var(--faint)' : 'inherit' }}>{co.churned || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700 }}>
+                  <td>All</td>
+                  <td className="tnum" style={{ textAlign: 'right' }}>{cohorts.totals.joined}</td>
+                  <td className="tnum" style={{ textAlign: 'right' }}>{cohorts.totals.active}</td>
+                  <td className="tnum" style={{ textAlign: 'right' }}>{cohorts.totals.retentionPct}%</td>
+                  <td className="tnum" style={{ textAlign: 'right' }}>{cohorts.totals.producing}</td>
+                  <td className="tnum" style={{ textAlign: 'right' }}>{cohorts.totals.churned}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   );
