@@ -251,7 +251,7 @@ export default function CompanyPage() {
   );
 }
 
-function Kpi({ label, value, icon, hint }: { label: string; value: string; icon: ReactNode; hint?: string }) {
+function Kpi({ label, value, icon, hint }: { label: string; value: ReactNode; icon: ReactNode; hint?: string }) {
   return (
     <div className="card stat lift">
       <div className="spread"><span className="k">{label}</span><span className="icon" aria-hidden="true">{icon}</span></div>
