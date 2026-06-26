@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { motion } from 'framer-motion';
 import { activeMembership, clearSession, getSession, isAdminRole, type Session } from '@/lib/auth';
 import { ThemeToggle } from '@/components/ui';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -17,6 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { NotificationBell } from '@/components/NotificationBell';
 import { CommandPalette } from '@/components/CommandPalette';
+import { PageTransition } from '@/components/PageTransition';
 import { LiveIndicator } from '@/components/LiveIndicator';
 import { t } from '@/lib/i18n';
 import { APP_MONOGRAM, APP_NAME } from '@/lib/brand';
@@ -161,21 +163,26 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         onClick={() => setNavOpen(false)}
         aria-current={isActive ? 'page' : undefined}
         className={[
-          'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+          'group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-          isActive
-            ? 'bg-primary/15 text-primary'
-            : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+          isActive ? 'text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
         ].join(' ')}
       >
-        <span className={isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'} aria-hidden="true">
+        {isActive && (
+          <motion.span
+            layoutId="adminNavActive"
+            className="absolute inset-0 rounded-lg bg-primary/15"
+            transition={{ type: 'spring', stiffness: 500, damping: 38 }}
+          />
+        )}
+        <span className={`relative z-10 ${isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'}`} aria-hidden="true">
           <NavIcon name={n.ic} />
         </span>
-        <span className="flex-1 truncate">{t(n.key)}</span>
+        <span className="relative z-10 flex-1 truncate">{t(n.key)}</span>
         {n.badge && (
           <span
             className={[
-              'ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums',
+              'relative z-10 ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums',
               n.badge.tone === 'pending'
                 ? 'bg-[color-mix(in_srgb,var(--amber)_14%,transparent)] text-[var(--amber)]'
                 : 'bg-primary/15 text-primary',
@@ -383,7 +390,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </header>
 
         {/* Content — tutarli sayfa container'i (tum admin sayfalari icin tek max-width + padding) */}
-        <div className="mx-auto w-full max-w-[1200px] flex-1 px-4 py-6 sm:px-7 lg:py-7">{children}</div>
+        <div className="mx-auto w-full max-w-[1200px] flex-1 px-4 py-6 sm:px-7 lg:py-7"><PageTransition>{children}</PageTransition></div>
       </main>
 
       <CommandPalette />
