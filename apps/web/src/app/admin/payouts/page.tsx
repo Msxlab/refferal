@@ -2,6 +2,7 @@
 
 import type { CSSProperties, ComponentProps } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowRight, Download, ChevronDown, AlertTriangle, RefreshCw, Check, Printer } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
 import { cn } from '@/lib/utils';
@@ -373,25 +374,25 @@ export default function PayoutsPage() {
           </div>
           <div className="flex flex-wrap gap-2.5 print:hidden">
             <Button onClick={() => setConfirmRun('all')} disabled={busy || !payable?.members.length}>
-              <span aria-hidden>→</span> {t('payouts.run')}
+              <ArrowRight className="size-4" aria-hidden /> {t('payouts.run')}
             </Button>
-            <Button variant="outline" onClick={downloadExport}><span aria-hidden>⇩</span> {t('payouts.export')}</Button>
+            <Button variant="outline" onClick={downloadExport}><Download className="size-4" aria-hidden /> {t('payouts.export')}</Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline">More <span aria-hidden>▾</span></Button>
+                <Button variant="outline">More <ChevronDown className="size-4" aria-hidden /></Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52">
                 <DropdownMenuItem disabled={scanning} onSelect={() => { void runFraudScan(); }}>
-                  <span aria-hidden>⚠</span> {scanning ? 'Scanning…' : 'Fraud scan'}
+                  <AlertTriangle className="mr-2 size-4" aria-hidden /> {scanning ? 'Scanning…' : 'Fraud scan'}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => { const y = new Date().getFullYear(); downloadCsv(`/admin/tax/1099.csv?year=${y}`, `1099-nec-${y}.csv`).catch((e) => setError(String((e as ApiError).message))); }}>
-                  <span aria-hidden>⇩</span> 1099-NEC
+                  <Download className="mr-2 size-4" aria-hidden /> 1099-NEC
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => { downloadCsv('/admin/payouts/ach.txt', 'payouts-ach.txt').catch((e) => setError(String((e as ApiError).message))); }}>
-                  <span aria-hidden>⇩</span> ACH file
+                  <Download className="mr-2 size-4" aria-hidden /> ACH file
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => { setReconcileOpen(true); setReconcileText(''); setReconcileResult(null); }}>
-                  <span aria-hidden>⇄</span> Reconcile
+                  <RefreshCw className="mr-2 size-4" aria-hidden /> Reconcile
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -403,7 +404,7 @@ export default function PayoutsPage() {
       {clawbacks && clawbacks.members.length > 0 && (
         <Alert variant="destructive" className="mt-3.5">
           <AlertDescription className="flex items-center gap-2.5 text-[12.5px]">
-            <span aria-hidden className="text-base leading-none">⚠</span>
+            <AlertTriangle aria-hidden className="size-4 shrink-0" />
             <span>
               <strong>{clawbacks.members.length} member{clawbacks.members.length > 1 ? 's' : ''}</strong> {clawbacks.members.length > 1 ? 'have' : 'has'} a negative balance
               {' '}(owed {money(clawbacks.totalOwedCents, c)} from a reversal) — excluded from this run until covered.
@@ -616,7 +617,7 @@ export default function PayoutsPage() {
                     </TableCell>
                     <TableCell className="text-foreground">
                       {k.legalName}
-                      {k.sanctionsHit && <Badge variant="destructive" className="ml-2"><span aria-hidden="true">⚠</span> sanctions</Badge>}
+                      {k.sanctionsHit && <Badge variant="destructive" className="ml-2"><AlertTriangle className="size-[13px]" aria-hidden /> sanctions</Badge>}
                     </TableCell>
                     <TableCell className="tabular-nums text-muted-foreground">{k.taxIdType.toUpperCase()} ••••{k.taxIdLast4}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{k.bankName ? `${k.bankName} · ` : ''}{k.accountType} ••••{k.accountLast4} · {k.routingNumber}</TableCell>
@@ -756,7 +757,7 @@ export default function PayoutsPage() {
                       <div className="flex items-center gap-1.5">
                         <StatusPill status={p.status} />
                         {p.clearedAt ? (
-                          <span style={toneStyle('emerald')} className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold" title={p.bankRef ? `Bank ref: ${p.bankRef}` : 'Bank reconciled'}><span aria-hidden>✓</span>&nbsp;cleared</span>
+                          <span style={toneStyle('emerald')} className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold" title={p.bankRef ? `Bank ref: ${p.bankRef}` : 'Bank reconciled'}><Check className="size-3" aria-hidden />cleared</span>
                         ) : null}
                       </div>
                     </TableCell>
@@ -861,7 +862,7 @@ export default function PayoutsPage() {
             </div>
             {reconcileResult && (
               <div className="mt-3 rounded-lg border border-border bg-muted p-3 text-sm">
-                <div className="flex items-center justify-between"><span style={{ color: 'var(--emerald)' }}><span aria-hidden>✓</span> Cleared</span><strong className="tabular-nums text-foreground">{reconcileResult.clearedCount}</strong></div>
+                <div className="flex items-center justify-between"><span className="inline-flex items-center gap-1" style={{ color: 'var(--emerald)' }}><Check className="size-4" aria-hidden /> Cleared</span><strong className="tabular-nums text-foreground">{reconcileResult.clearedCount}</strong></div>
                 <div className="mt-1 flex items-center justify-between"><span className="text-muted-foreground">Unmatched lines</span><strong className="tabular-nums text-foreground">{reconcileResult.unmatched.length}</strong></div>
                 <div className="mt-1 flex items-center justify-between"><span className="text-muted-foreground/70">Still uncleared payouts</span><span className="tabular-nums text-muted-foreground/70">{reconcileResult.remainingUncleared}</span></div>
                 {reconcileResult.unmatched.length > 0 && (
@@ -873,7 +874,7 @@ export default function PayoutsPage() {
             )}
             <div className="mt-3.5 flex justify-end gap-2.5">
               <Button variant="ghost" onClick={() => setReconcileOpen(false)} disabled={busy}>Close</Button>
-              <Button onClick={runReconcile} disabled={busy || !reconcileText.trim()}>{busy ? 'Matching…' : <><span aria-hidden>⇄</span> Match</>}</Button>
+              <Button onClick={runReconcile} disabled={busy || !reconcileText.trim()}>{busy ? 'Matching…' : <><RefreshCw className="size-4" aria-hidden /> Match</>}</Button>
             </div>
           </div>
         </Modal>
@@ -921,7 +922,7 @@ function PayoutDrawer({ id, currency, onClose, onChanged, onToast }: { id: strin
       width={520}
       footer={d && (
         <>
-          <Button variant="outline" onClick={() => setPrinting(true)}><span aria-hidden>🖶</span> Print slip</Button>
+          <Button variant="outline" onClick={() => setPrinting(true)}><Printer className="size-4" aria-hidden /> Print slip</Button>
           {d.status === 'failed' && <Button disabled={busy} onClick={() => setConfirmRetry(true)}>Retry</Button>}
         </>
       )}

@@ -20,6 +20,7 @@ import { CommandPalette } from '@/components/CommandPalette';
 import { LiveIndicator } from '@/components/LiveIndicator';
 import { t } from '@/lib/i18n';
 import { APP_MONOGRAM, APP_NAME } from '@/lib/brand';
+import { Menu, ChevronsUpDown, Search, ChevronRight, User, LogOut } from 'lucide-react';
 
 type IconKey =
   | 'dashboard' | 'sales' | 'members' | 'tree' | 'campaigns'
@@ -200,7 +201,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               onClick={() => setNavOpen((v) => !v)}
               className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-muted text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+              <Menu className="size-[18px]" aria-hidden />
             </button>
           </TooltipTrigger>
           <TooltipContent>{t('nav.menu')}</TooltipContent>
@@ -256,7 +257,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <div className="truncate text-sm font-semibold text-foreground">{active?.tenantName ?? APP_NAME}</div>
             <div className="text-xs text-muted-foreground">{active?.role ?? 'Workspace'}</div>
           </div>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground" aria-hidden="true"><path d="M8 9l4-4 4 4M8 15l4 4 4-4" /></svg>
+          <ChevronsUpDown className="size-4 text-muted-foreground" aria-hidden />
         </Link>
 
         {/* Nav */}
@@ -315,13 +316,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 <DropdownMenuLabel className="truncate">{session.user.fullName}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link href="/account">Account settings</Link>
+                  <Link href="/account"><User className="mr-2 size-4" aria-hidden />Account settings</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link href="/account">Switch workspace</Link>
+                  <Link href="/account"><ChevronsUpDown className="mr-2 size-4" aria-hidden />Switch workspace</Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={logout} className="text-destructive focus:text-destructive">
+                  <LogOut className="mr-2 size-4" aria-hidden />
                   {t('nav.logout')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -354,7 +356,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {/* Breadcrumb */}
           <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm text-muted-foreground">
             <span>{APP_NAME}</span>
-            <span aria-hidden="true" className="text-muted-foreground">/</span>
+            <ChevronRight className="size-4 text-muted-foreground" aria-hidden />
             <span className="font-semibold text-foreground">{screenTitle}</span>
           </nav>
 
@@ -367,7 +369,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             aria-label="Search"
             className="flex h-[34px] items-center gap-2.5 rounded-lg border border-border bg-muted pl-3 pr-2.5 text-sm text-muted-foreground transition-colors hover:border-input hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3-3" /></svg>
+            <Search className="size-[15px]" aria-hidden />
             <span className="text-muted-foreground">Search…</span>
             <span aria-hidden="true" className="ml-1.5 rounded-md border border-input px-1.5 py-px text-xs font-semibold text-muted-foreground">⌘K</span>
           </button>

@@ -6,6 +6,7 @@ import { Confirm, Loading, Modal, StatCard, useToast } from '@/components/ui';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useLiveRefresh } from '@/components/LiveIndicator';
 import { money } from '@/lib/format';
+import { Printer, Lock, Wallet, Clock } from 'lucide-react';
 
 interface PeriodRow {
   period: string;
@@ -86,15 +87,15 @@ export default function PeriodsPage() {
           <h1 className="h1 fade-in">Period close</h1>
           <p className="sub fade-in">Locking a month closes the books — no new commission, reversals or payouts can touch that period. Unlocking is recorded in the audit log.</p>
         </div>
-        <button className="btn ghost no-print" onClick={() => window.print()} aria-label="Print page"><span aria-hidden>🖶</span> Print</button>
+        <button className="btn ghost no-print" onClick={() => window.print()} aria-label="Print page"><Printer className="size-4" aria-hidden /> Print</button>
       </div>
 
       {error && <Alert variant="destructive" style={{ marginTop: 16 }}><AlertDescription>{error}</AlertDescription></Alert>}
 
       <div className="stat-grid" style={{ marginTop: 16 }}>
-        <StatCard label="Locked periods" value={String(stats.lockedCount)} icon="▥" />
-        <StatCard label="Payable in open periods" value={money(stats.openPayable.toString())} icon="◆" />
-        <StatCard label="Pending in open periods" value={money(stats.openPending.toString())} icon="◷" />
+        <StatCard label="Locked periods" value={String(stats.lockedCount)} icon={<Lock className="size-[18px]" aria-hidden />} />
+        <StatCard label="Payable in open periods" value={money(stats.openPayable.toString())} icon={<Wallet className="size-[18px]" aria-hidden />} />
+        <StatCard label="Pending in open periods" value={money(stats.openPending.toString())} icon={<Clock className="size-[18px]" aria-hidden />} />
       </div>
 
       {rows.length === 0 ? (
@@ -123,7 +124,7 @@ export default function PeriodsPage() {
                   <td style={{ textAlign: 'right' }}>{money(r.paidCents)}</td>
                   <td>
                     {r.locked
-                      ? <span className="badge paid" title={r.lockedBy ? `Locked by: ${r.lockedBy}` : undefined}><span aria-hidden>🔒</span> Locked</span>
+                      ? <span className="badge paid" title={r.lockedBy ? `Locked by: ${r.lockedBy}` : undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Lock className="size-[13px]" aria-hidden /> Locked</span>
                       : <span className="badge draft">Open</span>}
                   </td>
                   <td className="no-print">
@@ -147,7 +148,7 @@ export default function PeriodsPage() {
           </label>
           <div className="row spread" style={{ marginTop: 12 }}>
             <button className="btn ghost" onClick={() => setLockTarget(null)} disabled={busy}>Cancel</button>
-            <button className="btn" onClick={doLock} disabled={busy}>{busy ? 'Locking…' : <><span aria-hidden>🔒</span> Lock</>}</button>
+            <button className="btn" onClick={doLock} disabled={busy}>{busy ? 'Locking…' : <><Lock className="size-4" aria-hidden /> Lock</>}</button>
           </div>
         </Modal>
       )}

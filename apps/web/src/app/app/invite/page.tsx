@@ -7,6 +7,7 @@ import { Loading, useToast } from '@/components/ui';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { dateShort } from '@/lib/format';
 import { t } from '@/lib/i18n';
+import { Sparkles, Copy, Save } from 'lucide-react';
 
 interface InviteItem {
   id: string;
@@ -82,14 +83,14 @@ export default function InvitePage() {
         <textarea value={message} onChange={(e) => setMessage(e.target.value)} maxLength={280} rows={2} placeholder="e.g. Hey! Join my team and let's grow together." style={{ marginTop: 6, resize: 'vertical' }} />
         <div className="row" style={{ justifyContent: 'space-between', marginTop: 8 }}>
           <span className="faint" style={{ fontSize: 11 }}>{message.length}/280</span>
-          <button className="btn ghost sm" onClick={saveMessage} disabled={savingMsg}>{savingMsg ? 'Saving…' : 'Save message'}</button>
+          <button className="btn ghost sm" onClick={saveMessage} disabled={savingMsg}><Save className="size-4" aria-hidden />{savingMsg ? 'Saving…' : 'Save message'}</button>
         </div>
       </div>
 
       <div className="card card-glow fade-in delay-1" style={{ textAlign: 'center' }}>
         {!latest ? (
           <>
-            <div aria-hidden="true" style={{ fontSize: 40, marginBottom: 8 }}>✦</div>
+            <div aria-hidden="true" style={{ marginBottom: 8, display: 'grid', placeItems: 'center' }}><Sparkles className="size-10" aria-hidden style={{ color: 'var(--gold-500)' }} /></div>
             <p className="muted" style={{ marginTop: 0 }}>Create a new invite link.</p>
             <button className="btn" onClick={create} disabled={busy} style={{ margin: '0 auto' }}>{t('me.inviteCreate')}</button>
           </>
@@ -98,7 +99,7 @@ export default function InvitePage() {
             <div className="qr"><QRCodeSVG value={linkFor(latest)} size={172} /></div>
             <div className="row" style={{ justifyContent: 'center', marginTop: 16 }}>
               <input readOnly value={linkFor(latest)} style={{ maxWidth: 340 }} onFocus={(e) => e.currentTarget.select()} />
-              <button className="btn sm" onClick={() => copy(latest)}>{t('me.copy')}</button>
+              <button className="btn sm" onClick={() => copy(latest)}><Copy className="size-4" aria-hidden />{t('me.copy')}</button>
             </div>
             <button className="btn ghost sm" onClick={create} disabled={busy} style={{ margin: '14px auto 0' }}>New invite</button>
           </>
@@ -122,7 +123,7 @@ export default function InvitePage() {
                     <td className="muted">{dateShort(i.expiresAt)}</td>
                     <td className="muted">{dateShort(i.createdAt)}</td>
                     <td style={{ textAlign: 'right' }}>
-                      {i.status === 'active' && <button className="btn ghost sm" onClick={() => copy(i.code)}>{t('me.copy')}</button>}
+                      {i.status === 'active' && <button className="btn ghost sm" onClick={() => copy(i.code)}><Copy className="size-4" aria-hidden />{t('me.copy')}</button>}
                     </td>
                   </tr>
                 ))}

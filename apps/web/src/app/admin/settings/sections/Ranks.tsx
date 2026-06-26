@@ -1,6 +1,7 @@
 'use client';
 
 import { CSSProperties, useCallback, useEffect, useState } from 'react';
+import { Plus, X } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -63,7 +64,7 @@ export default function Ranks() {
           <h2 style={SECTION_TITLE}>Career ranks</h2>
           <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>Tiers by team size + cumulative earnings. Members see their rank and progress. <strong>Override %</strong> = extra bonus the member earns on their own sales at this rank.</div>
         </div>
-        {data.isDefault ? <button className="btn ghost sm" onClick={customize} disabled={busy}>{busy ? 'Customizing…' : 'Customize tiers'}</button> : <button className="btn ghost sm" onClick={addTier}>＋ Add tier</button>}
+        {data.isDefault ? <button className="btn ghost sm" onClick={customize} disabled={busy}>{busy ? 'Customizing…' : 'Customize tiers'}</button> : <button className="btn ghost sm" onClick={addTier} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus className="size-4" aria-hidden /> Add tier</button>}
       </div>
       {data.isDefault && <div className="faint" style={{ fontSize: 12, marginBottom: 10 }}>Using built-in defaults. Click “Customize tiers” to edit.</div>}
       <div style={{ overflowX: 'auto' }}>
@@ -83,7 +84,7 @@ export default function Ranks() {
                   {!data.isDefault && t.id && (
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
                       <button className="btn ghost sm" onClick={() => saveTier(t)}>Save</button>
-                      <button className="btn ghost sm danger" onClick={() => removeTier(t.id!)} title="Remove tier" aria-label={`Remove tier ${t.name}`}>✕</button>
+                      <button className="btn ghost sm danger" onClick={() => removeTier(t.id!)} title="Remove tier" aria-label={`Remove tier ${t.name}`}><X className="size-4" aria-hidden /></button>
                     </div>
                   )}
                 </td>

@@ -10,6 +10,7 @@ import { Progress } from '@/components/ui/progress';
 import { activeMembership, getSession, isAdminRole } from '@/lib/auth';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
+import { Plus, Clock, X } from 'lucide-react';
 
 type Metric = 'revenue' | 'sales_count' | 'new_recruits' | 'invites';
 type Status = 'draft' | 'active' | 'ended';
@@ -60,7 +61,7 @@ export default function CampaignsPage() {
           <h1 className="h1 fade-in">Campaigns &amp; Contests</h1>
           <p className="sub fade-in">Time-boxed contests with live leaderboards and end-of-campaign bonuses.</p>
         </div>
-        {isAdmin && <button className="btn fade-in" onClick={() => { setEditing(null); setShowForm(true); }} aria-label="Create a new campaign">＋ New campaign</button>}
+        {isAdmin && <button className="btn fade-in" onClick={() => { setEditing(null); setShowForm(true); }} aria-label="Create a new campaign"><Plus className="size-4" aria-hidden /> New campaign</button>}
       </div>
 
       {error && <Alert variant="destructive" className="fade-in"><AlertDescription>{error}</AlertDescription></Alert>}
@@ -91,7 +92,7 @@ export default function CampaignsPage() {
                 <div className="spread" style={{ marginBottom: 8 }}>
                   <span className="row" style={{ gap: 6 }}>
                     <span className={`badge ${c.status === 'active' ? 'active' : c.status === 'ended' ? 'paid' : 'draft'}`}>{c.status}</span>
-                    {c.status === 'active' && new Date(c.endsAt) < new Date() && <span className="badge requested" title="The window has ended — finalize to pay bonuses" aria-label="Needs finalization — the window has ended">⏳ needs finalization</span>}
+                    {c.status === 'active' && new Date(c.endsAt) < new Date() && <span className="badge requested" title="The window has ended — finalize to pay bonuses" aria-label="Needs finalization — the window has ended" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Clock className="size-[13px]" aria-hidden /> needs finalization</span>}
                   </span>
                   <span className="faint">{METRICS[c.metric]}</span>
                 </div>
@@ -220,11 +221,11 @@ function CampaignForm({ existing, onClose, onSaved, onError }: {
                 <input type="number" min={1} value={p.rank} onChange={(e) => setPrize(i, 'rank', e.target.value)} style={{ width: 70 }} disabled={!isDraft} />
                 <span className="faint">$</span>
                 <input type="number" step="0.01" min="0" value={p.dollars} onChange={(e) => setPrize(i, 'dollars', e.target.value)} placeholder="bonus" disabled={!isDraft} />
-                {isDraft && prizes.length > 1 && <button type="button" className="btn ghost sm" onClick={() => removePrize(i)} aria-label={`Remove prize for rank ${p.rank}`}>✕</button>}
+                {isDraft && prizes.length > 1 && <button type="button" className="btn ghost sm" onClick={() => removePrize(i)} aria-label={`Remove prize for rank ${p.rank}`}><X className="size-4" aria-hidden /></button>}
               </div>
             ))}
           </div>
-          {isDraft && <button type="button" className="btn ghost sm" style={{ marginTop: 8 }} onClick={addPrize}>＋ Add prize</button>}
+          {isDraft && <button type="button" className="btn ghost sm" style={{ marginTop: 8 }} onClick={addPrize}><Plus className="size-4" aria-hidden /> Add prize</button>}
         </div>
 
         {err && <Alert variant="destructive"><AlertDescription>{err}</AlertDescription></Alert>}

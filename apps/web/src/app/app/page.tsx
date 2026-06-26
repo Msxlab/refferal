@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { dateShort, money, levelLabel } from '@/lib/format';
 import { t } from '@/lib/i18n';
+import { Megaphone, X, Check, CheckCircle2, Banknote, Wallet, TrendingUp, Award, Flag, ArrowRight } from 'lucide-react';
 
 interface LevelRow {
   level: number;
@@ -140,8 +141,8 @@ export default function MemberDashboard() {
           {announcements.filter((a) => !a.read).map((a) => (
             <div key={a.id} className="card" style={{ borderColor: 'color-mix(in srgb, var(--gold-500) 35%, transparent)' }}>
               <div className="spread" style={{ marginBottom: 4 }}>
-                <strong style={{ fontSize: 14 }}><span aria-hidden="true">📣 </span>{a.title}</strong>
-                <button className="faint" onClick={() => dismissAnnouncement(a.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>Mark read <span aria-hidden="true">✕</span></button>
+                <strong className="row" style={{ fontSize: 14, gap: 6, alignItems: 'center' }}><Megaphone className="size-4" aria-hidden />{a.title}</strong>
+                <button className="faint row" onClick={() => dismissAnnouncement(a.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, gap: 4, alignItems: 'center' }}>Mark read <X className="size-4" aria-hidden /></button>
               </div>
               <div className="muted" style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{a.body}</div>
             </div>
@@ -160,7 +161,7 @@ export default function MemberDashboard() {
           <div className="grid" style={{ gap: 6 }}>
             {onboarding.steps.map((s) => (
               <div key={s.key} className="row" style={{ gap: 8, fontSize: 13 }}>
-                <span aria-hidden="true" style={{ width: 18, height: 18, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 11, background: s.done ? 'var(--grad-emerald, var(--emerald))' : 'var(--panel-2)', color: s.done ? 'color-mix(in srgb, var(--emerald) 22%, black)' : 'var(--faint)' }}>{s.done ? '✓' : ''}</span>
+                <span aria-hidden="true" style={{ width: 18, height: 18, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 11, background: s.done ? 'var(--grad-emerald, var(--emerald))' : 'var(--panel-2)', color: s.done ? 'color-mix(in srgb, var(--emerald) 22%, black)' : 'var(--faint)' }}>{s.done ? <Check className="size-3" aria-hidden /> : ''}</span>
                 <span style={{ color: s.done ? 'hsl(var(--muted-foreground))' : 'var(--text)', textDecoration: s.done ? 'line-through' : undefined }}>{s.label}</span>
               </div>
             ))}
@@ -172,7 +173,7 @@ export default function MemberDashboard() {
         <div className="card fade-in" style={{ marginBottom: 16, borderColor: 'color-mix(in srgb, var(--sky) 30%, transparent)' }}>
           <div className="spread" style={{ marginBottom: 10 }}>
             <strong style={{ fontSize: 14 }}>How likely are you to recommend us? (0–10)</strong>
-            <button className="faint" onClick={() => setNpsPrompt(false)} aria-label="Dismiss" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13 }}><span aria-hidden="true">✕</span></button>
+            <button className="faint" onClick={() => setNpsPrompt(false)} aria-label="Dismiss" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13 }}><X className="size-4" aria-hidden /></button>
           </div>
           <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
             {Array.from({ length: 11 }).map((_, n) => (
@@ -185,22 +186,22 @@ export default function MemberDashboard() {
           </div>
         </div>
       )}
-      {npsDone && <div className="card fade-in" style={{ marginBottom: 16 }}><span className="muted">Thanks for your feedback! 🙏</span></div>}
+      {npsDone && <div className="card fade-in" style={{ marginBottom: 16 }}><span className="muted row" style={{ gap: 6, alignItems: 'center' }}><CheckCircle2 className="size-4" aria-hidden style={{ color: 'var(--emerald)' }} />Thanks for your feedback!</span></div>}
 
       {/* sold vs earned (this month) — the product's core promise */}
       <div className="stat-grid fade-in delay-1" style={{ marginBottom: 16 }}>
         <div className="card stat">
-          <div className="spread"><span className="k">You sold (this month)</span><span className="icon">◇</span></div>
+          <div className="spread"><span className="k">You sold (this month)</span><span className="icon"><Banknote className="size-[18px]" aria-hidden /></span></div>
           <div className="v"><MoneyCounter cents={Number(data.soldThisMonthCents)} currency={c} /></div>
           <div className="hint">{data.salesThisMonth} sales · {money(data.soldLifetimeCents, c)} lifetime</div>
         </div>
         <Link href="/app/wallet" className="card stat" style={{ color: 'inherit', display: 'block' }}>
-          <div className="spread"><span className="k">You earned (this month)</span><span className="icon" style={{ background: 'var(--foil)' }}>◆</span></div>
+          <div className="spread"><span className="k">You earned (this month)</span><span className="icon" style={{ background: 'var(--foil)' }}><Wallet className="size-[18px]" aria-hidden /></span></div>
           <div className="v" style={{ color: 'var(--gold-500)' }}><MoneyCounter cents={Number(data.earnedThisMonthCents)} currency={c} /></div>
-          <div className="hint">commission (pending + payable + paid) · view wallet →</div>
+          <div className="hint row" style={{ gap: 4, alignItems: 'center' }}>commission (pending + payable + paid) · view wallet <ArrowRight className="size-3.5" aria-hidden /></div>
         </Link>
         <div className="card stat">
-          <div className="spread"><span className="k">Effective rate</span><span className="icon">%</span></div>
+          <div className="spread"><span className="k">Effective rate</span><span className="icon"><TrendingUp className="size-[18px]" aria-hidden /></span></div>
           <div className="v">{data.effectiveRateBps > 0 ? `${(data.effectiveRateBps / 100).toFixed(1)}%` : '—'}</div>
           <div className="hint">earned / sold</div>
         </div>
@@ -219,7 +220,7 @@ export default function MemberDashboard() {
               <Chip color="var(--sky)" label={t('me.payable')} value={money(payable, c)} />
               <Chip color="var(--emerald)" label={t('me.paid')} value={money(paid, c)} />
             </div>
-            {payable > 0 && <Link className="btn success sm" href="/app/wallet">{t('me.requestPayout')} →</Link>}
+            {payable > 0 && <Link className="btn success sm" href="/app/wallet">{t('me.requestPayout')}<ArrowRight className="size-4" aria-hidden /></Link>}
           </div>
           {/* kompakt vesting cubugu — cuzdandaki "para yukleme cubugu"nun ozeti */}
           {(() => {
@@ -245,7 +246,7 @@ export default function MemberDashboard() {
 
           {rankInfo?.rank && (
             <div className="row" style={{ marginTop: 14, gap: 8 }}>
-              <span className="badge active" style={{ fontSize: 11, background: 'var(--foil)', color: 'var(--on-gold)' }}><span aria-hidden="true">🏆 </span>Rank #{rankInfo.rank} of {rankInfo.total}</span>
+              <span className="badge active row" style={{ fontSize: 11, background: 'var(--foil)', color: 'var(--on-gold)', gap: 4, alignItems: 'center' }}><Award className="size-3.5" aria-hidden />Rank #{rankInfo.rank} of {rankInfo.total}</span>
               {rankInfo.topPercent != null && <span className="faint" style={{ fontSize: 11 }}>top {rankInfo.topPercent}% this month</span>}
             </div>
           )}
@@ -269,13 +270,13 @@ export default function MemberDashboard() {
       {rank && (rank.current || rank.badges.some((b) => b.earned)) && (
         <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
           <div className="spread" style={{ marginBottom: 10 }}>
-            <strong style={{ fontSize: 14 }}><span aria-hidden="true">🏅 </span>{rank.current ?? 'Unranked'}{rank.next && <span className="faint" style={{ fontWeight: 400 }}> → {rank.next}</span>}{rank.overrideBps ? <span className="badge active" style={{ fontSize: 10, marginLeft: 8 }}>+{(rank.overrideBps / 100).toFixed(rank.overrideBps % 100 ? 1 : 0)}% on your sales</span> : null}</strong>
+            <strong className="row" style={{ fontSize: 14, gap: 6, alignItems: 'center' }}><Award className="size-4" aria-hidden />{rank.current ?? 'Unranked'}{rank.next && <span className="faint row" style={{ fontWeight: 400, gap: 4, alignItems: 'center' }}><ArrowRight className="size-3.5" aria-hidden />{rank.next}</span>}{rank.overrideBps ? <span className="badge active" style={{ fontSize: 10, marginLeft: 8 }}>+{(rank.overrideBps / 100).toFixed(rank.overrideBps % 100 ? 1 : 0)}% on your sales</span> : null}</strong>
             {rank.next && <span className="faint" style={{ fontSize: 12 }}>{rank.overallPct}% to {rank.next}</span>}
           </div>
           {rank.next && <Progress value={rank.overallPct} className="h-2 mb-3" />}
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
             {rank.badges.map((b) => (
-              <span key={b.key} className={`badge ${b.earned ? 'active' : 'draft'}`} style={{ fontSize: 11, opacity: b.earned ? 1 : 0.5 }}>{b.earned ? '✓ ' : ''}{b.label}</span>
+              <span key={b.key} className={`badge ${b.earned ? 'active' : 'draft'} row`} style={{ fontSize: 11, opacity: b.earned ? 1 : 0.5, gap: 4, alignItems: 'center', display: 'inline-flex' }}>{b.earned ? <Check className="size-3" aria-hidden /> : null}{b.label}</span>
             ))}
           </div>
         </div>
@@ -289,7 +290,7 @@ export default function MemberDashboard() {
             return (
               <div key={cp.id} className="card" style={{ borderColor: 'color-mix(in srgb, var(--gold-500) 35%, transparent)' }}>
                 <div className="spread">
-                  <strong style={{ fontSize: 14 }}><span aria-hidden="true">⚑ </span>{cp.name}</strong>
+                  <strong className="row" style={{ fontSize: 14, gap: 6, alignItems: 'center' }}><Flag className="size-4" aria-hidden />{cp.name}</strong>
                   <span className="faint" style={{ fontSize: 11 }}>ends {dateShort(cp.endsAt)}</span>
                 </div>
                 <div className="row" style={{ gap: 16, margin: '12px 0' }}>

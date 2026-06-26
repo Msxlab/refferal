@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ArrowLeft, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { login, loginTwoFactor } from '@/lib/api';
 import { landingForSession, setSession, type Session } from '@/lib/auth';
 import { Brand } from '@/components/ui';
@@ -81,12 +82,12 @@ export default function LoginPage() {
               <label>{t('login.password')}</label>
               <div style={{ position: 'relative' }}>
                 <input type={showPw ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" style={{ paddingRight: 64 }} />
-                <button type="button" aria-label={showPw ? 'Hide password' : 'Show password'} onClick={() => setShowPw((v) => !v)} className="faint" style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)' }}>{showPw ? 'Hide' : 'Show'}</button>
+                <button type="button" aria-label={showPw ? 'Hide password' : 'Show password'} onClick={() => setShowPw((v) => !v)} className="faint" style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>{showPw ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}{showPw ? 'Hide' : 'Show'}</button>
               </div>
             </div>
             {error && <Alert variant="destructive" className="mb-3"><AlertDescription>{error}</AlertDescription></Alert>}
             <button className="btn block" style={{ marginTop: 6 }} disabled={busy}>
-              {busy ? t('common.loading') : t('login.submit')} {!busy && <span aria-hidden="true">→</span>}
+              {busy ? t('common.loading') : t('login.submit')} {!busy && <ArrowRight className="size-4" aria-hidden />}
             </button>
           </form>
         ) : (
@@ -101,10 +102,10 @@ export default function LoginPage() {
             </div>
             {error && <Alert variant="destructive" className="mb-3"><AlertDescription>{error}</AlertDescription></Alert>}
             <button className="btn block" style={{ marginTop: 6 }} disabled={busy || code.trim().length < 6}>
-              {busy ? t('common.loading') : 'Verify'} {!busy && <span aria-hidden="true">→</span>}
+              {busy ? t('common.loading') : 'Verify'} {!busy && <ArrowRight className="size-4" aria-hidden />}
             </button>
             <button type="button" className="faint" onClick={() => { setMfaToken(null); setCode(''); setError(''); }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)', marginTop: 12, width: '100%' }}><span aria-hidden="true">←</span> Back to sign in</button>
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)', marginTop: 12, width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><ArrowLeft className="size-4" aria-hidden /> Back to sign in</button>
           </form>
         )}
       </div>

@@ -1,5 +1,7 @@
 'use client';
 
+import { Check } from 'lucide-react';
+
 /**
  * Bildirim olay × kanal matrisi (varsayilanlar, salt-okunur onizleme).
  * Tam duzenlenebilir tercih matrisi (task #7) gelen-kutusu ile birlikte baglanacak.
@@ -54,12 +56,12 @@ export default function Notifications() {
                           aria-label={`${CHANNELS[i]} ${on ? 'enabled' : 'disabled'}`}
                           className="rounded-sm"
                           style={{
-                            display: 'inline-block', width: 16, height: 16,
+                            display: 'inline-grid', placeItems: 'center', width: 16, height: 16,
                             background: on ? 'var(--emerald)' : 'transparent',
                             border: on ? 'none' : '1.5px solid var(--border-strong)',
-                            color: 'hsl(var(--primary-foreground))', fontSize: 11, fontWeight: 900, lineHeight: '16px',
+                            color: 'hsl(var(--primary-foreground))',
                           }}
-                        >{on ? '✓' : ''}</span>
+                        >{on ? <Check className="size-3" aria-hidden /> : null}</span>
                       </td>
                     ))}
                   </tr>

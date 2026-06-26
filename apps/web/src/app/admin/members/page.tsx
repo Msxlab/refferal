@@ -19,6 +19,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
+import { Download, Plus, Sparkles, Search, Copy, Pencil, Printer, Eye, ArrowUpRight, AlertTriangle, Award, Check, ArrowLeft, ArrowRight, ChevronDown } from 'lucide-react';
 
 type SortDir = 'asc' | 'desc';
 
@@ -75,7 +76,7 @@ function SortHead({ label, field, sort, dir, onSort, align, className }: {
     >
       <span className="inline-flex items-center gap-1">
         {label}
-        {active && <span className="text-primary text-[10px]">{dir === 'asc' ? '▲' : '▼'}</span>}
+        {active && <ChevronDown className={cn('size-3.5 text-primary', dir === 'asc' && 'rotate-180')} aria-hidden />}
       </span>
     </th>
   );
@@ -265,15 +266,15 @@ export default function MembersPage() {
             )}
             {funnel && funnel.views > 0 && (
               <Badge variant="outline" className="ml-2 border-primary/30 bg-primary/10 font-medium text-primary">
-                Invite funnel: {funnel.views} views → {funnel.signups} signups{funnel.conversionPct != null ? ` (${funnel.conversionPct}%)` : ''}
+                Invite funnel: {funnel.views} views <ArrowRight className="inline size-3" aria-hidden /> {funnel.signups} signups{funnel.conversionPct != null ? ` (${funnel.conversionPct}%)` : ''}
               </Badge>
             )}
           </p>
         </div>
         <div className="no-print flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={exportCsv}>⇩ Export CSV</Button>
-          <Button variant="outline" size="sm" onClick={() => { setError(''); setAddName(''); setAddEmail(''); setAddSponsor(''); setAddRole('member'); setAddAsLeader(false); setAddResult(null); setShowAdd(true); }}>＋ Add member</Button>
-          <Button size="sm" onClick={() => { setLatest(null); setShowInvite(true); }}>✦ {t('members.invite')}</Button>
+          <Button variant="outline" size="sm" onClick={exportCsv}><Download className="size-4" aria-hidden /> Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => { setError(''); setAddName(''); setAddEmail(''); setAddSponsor(''); setAddRole('member'); setAddAsLeader(false); setAddResult(null); setShowAdd(true); }}><Plus className="size-4" aria-hidden /> Add member</Button>
+          <Button size="sm" onClick={() => { setLatest(null); setShowInvite(true); }}><Sparkles className="size-4" aria-hidden /> {t('members.invite')}</Button>
         </div>
       </div>
 
@@ -286,9 +287,7 @@ export default function MembersPage() {
       {/* filter bar */}
       <div className="no-print my-[18px] flex flex-wrap items-center gap-[11px]">
         <div className="flex h-9 max-w-[320px] flex-1 items-center gap-2 rounded-lg border border-border bg-card px-3 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground/70">
-            <circle cx="11" cy="11" r="7" /><path d="m20 20-3-3" />
-          </svg>
+          <Search className="size-[15px] text-muted-foreground/70" aria-hidden />
           <input
             aria-label="Search members by name, email, or code"
             placeholder="Search name, email or code…"
@@ -377,7 +376,7 @@ export default function MembersPage() {
                                 aria-label={`Copy ${m.referralCode}`}
                                 className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                 onClick={() => { navigator.clipboard.writeText(m.referralCode).then(() => showToast('Copied ✓')).catch(() => {}); }}
-                              >⧉</button>
+                              ><Copy className="size-3.5" aria-hidden /></button>
                             </TooltipTrigger>
                             <TooltipContent>Copy {m.referralCode}</TooltipContent>
                           </Tooltip>
@@ -419,7 +418,7 @@ export default function MembersPage() {
                               aria-label={`Edit ${m.fullName}`}
                               className="rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                               onClick={() => { setError(''); setEditM(m); setEditName(m.fullName); setEditEmail(m.email); }}
-                            >✎</button>
+                            ><Pencil className="size-3.5" aria-hidden /></button>
                           </TooltipTrigger>
                           <TooltipContent>Edit {m.fullName}</TooltipContent>
                         </Tooltip>
@@ -453,14 +452,14 @@ export default function MembersPage() {
                 disabled={list.page <= 1}
                 onClick={() => setPage(list.page - 1)}
                 aria-label="Previous page"
-              >‹</button>
+              ><ArrowLeft className="size-4" aria-hidden /></button>
               <span className="tabular-nums px-1.5 text-foreground">{list.page} / {pages}</span>
               <button
                 className="grid h-7 w-7 place-items-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:border-primary hover:text-foreground disabled:opacity-40"
                 disabled={list.page >= pages}
                 onClick={() => setPage(list.page + 1)}
                 aria-label="Next page"
-              >›</button>
+              ><ArrowRight className="size-4" aria-hidden /></button>
             </div>
           </div>
         )}
@@ -513,7 +512,7 @@ export default function MembersPage() {
             ) : null}
             <div className="mt-3.5 flex justify-end gap-2.5">
               <Button type="button" variant="ghost" onClick={() => setShowInvite(false)}>{latest ? 'Done' : 'Cancel'}</Button>
-              <Button type="submit">✦ {latest ? 'New invite' : t('members.invite')}</Button>
+              <Button type="submit"><Sparkles className="size-4" aria-hidden /> {latest ? 'New invite' : t('members.invite')}</Button>
             </div>
           </form>
         </Modal>
@@ -525,7 +524,7 @@ export default function MembersPage() {
             {addResult ? (
               <div>
                 <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5">
-                  <div className="mb-1.5 font-bold text-foreground">✓ Member added</div>
+                  <div className="mb-1.5 flex items-center gap-1.5 font-bold text-foreground"><Check className="size-4 text-emerald-400" aria-hidden /> Member added</div>
                   <div className="flex items-center justify-between text-[13px]"><span className="text-muted-foreground">Referral code</span><strong className="font-mono tabular-nums">{addResult.referralCode}</strong></div>
                   {addResult.tempPassword ? (
                     <div className="mt-2">
@@ -571,13 +570,13 @@ export default function MembersPage() {
                 </div>
                 <label className="my-2 flex cursor-pointer items-center gap-2 text-[13px]">
                   <input type="checkbox" className="accent-primary" checked={addAsLeader} onChange={(e) => setAddAsLeader(e.target.checked)} />
-                  🎖 Add as a new team leader (top of the tree, no sponsor)
+                  <span className="inline-flex items-center gap-1.5"><Award className="size-4 text-primary" aria-hidden /> Add as a new team leader (top of the tree, no sponsor)</span>
                 </label>
                 <div className="text-xs text-muted-foreground/70">A temporary password is generated; the person signs in with it and changes it. (Placement is permanent.)</div>
                 {error && <Alert variant="destructive" className="mt-2 bg-destructive/10"><AlertDescription>{error}</AlertDescription></Alert>}
                 <div className="mt-3.5 flex justify-end gap-2.5">
                   <Button type="button" variant="ghost" onClick={() => setShowAdd(false)} disabled={busy}>Cancel</Button>
-                  <Button type="submit" disabled={busy}>{busy ? 'Adding…' : '＋ Add member'}</Button>
+                  <Button type="submit" disabled={busy}>{busy ? 'Adding…' : <><Plus className="size-4" aria-hidden /> Add member</>}</Button>
                 </div>
               </form>
             )}
@@ -632,7 +631,7 @@ export default function MembersPage() {
               <div className="flex items-center justify-between"><span className="text-[13px] text-muted-foreground">Will change</span><b className="tabular-nums text-emerald-400">{preview.willChange}</b></div>
               <div className="flex items-center justify-between"><span className="text-[13px] text-muted-foreground">Skipped (no-op / protected)</span><b className="tabular-nums text-muted-foreground/70">{preview.skipped.length}</b></div>
               {preview.openPayoutRequests > 0 && (
-                <div className="flex items-center justify-between text-amber-400"><span className="text-[13px]">⚠ In open payout request</span><b className="tabular-nums">{preview.openPayoutRequests}</b></div>
+                <div className="flex items-center justify-between text-amber-400"><span className="inline-flex items-center gap-1.5 text-[13px]"><AlertTriangle className="size-4" aria-hidden /> In open payout request</span><b className="tabular-nums">{preview.openPayoutRequests}</b></div>
               )}
             </div>
             <div className="mt-3.5 flex justify-end gap-2.5">
@@ -745,10 +744,10 @@ function MemberDrawer({ id, onClose, onNavigate, onChanged, onToast }: {
       onClose={onClose}
       footer={p && (
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" disabled={busy} onClick={() => setPrinting(true)}>🖶 Print</Button>
-          {meIsAdmin && <Button variant="outline" size="sm" disabled={busy} onClick={exportData}>⇩ Export</Button>}
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => setPrinting(true)}><Printer className="size-4" aria-hidden /> Print</Button>
+          {meIsAdmin && <Button variant="outline" size="sm" disabled={busy} onClick={exportData}><Download className="size-4" aria-hidden /> Export</Button>}
           {meIsAdmin && p.role !== 'tenant_owner' && p.role !== 'tenant_admin' && (
-            <Button variant="outline" size="sm" disabled={busy} onClick={viewAsMember}>👁 View as member</Button>
+            <Button variant="outline" size="sm" disabled={busy} onClick={viewAsMember}><Eye className="size-4" aria-hidden /> View as member</Button>
           )}
           <div className="flex-1" />
           {p.role !== 'tenant_owner' && (
@@ -822,7 +821,7 @@ function MemberDrawer({ id, onClose, onNavigate, onChanged, onToast }: {
                     className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-[12.5px] font-semibold text-foreground transition-colors hover:border-primary hover:text-primary"
                     onClick={() => onNavigate(p.sponsor!.membershipId)}
                   >
-                    {p.sponsor.name} · {p.sponsor.code} ↗
+                    {p.sponsor.name} · {p.sponsor.code} <ArrowUpRight className="size-3.5" aria-hidden />
                   </button>
                 </div>
               )}

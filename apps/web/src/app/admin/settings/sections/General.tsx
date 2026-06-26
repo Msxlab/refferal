@@ -1,6 +1,7 @@
 'use client';
 
 import { CSSProperties, FormEvent, useEffect, useState } from 'react';
+import { Save } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, Toggle, useToast } from '@/components/ui';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
@@ -136,7 +137,7 @@ export default function General() {
       </div>
 
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-      <div className="row"><button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button></div>
+      <div className="row"><button className="btn" disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Save className="size-4" aria-hidden /> {busy ? 'Saving…' : 'Save changes'}</button></div>
       {toast && <div className="toast" role="status">{toast}</div>}
     </form>
   );

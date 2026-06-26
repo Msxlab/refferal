@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { dateShort, money } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { Copy, Check, X, Pencil } from 'lucide-react';
 
 /**
  * Liste satirinin veri sekli. Sayfadaki MemberItem ile yapisal olarak ozdes —
@@ -139,7 +140,9 @@ export function MemberDrawer({
                     onClick={copyCode}
                     className="rounded-md border border-border bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    {copied ? 'Copied ✓' : '⧉'}
+                    {copied
+                      ? <span className="inline-flex items-center gap-1"><Check className="size-3.5 text-emerald-400" aria-hidden /> Copied</span>
+                      : <Copy className="size-3.5" aria-hidden />}
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>Copy referral code</TooltipContent>
@@ -153,7 +156,7 @@ export function MemberDrawer({
             onClick={onClose}
             className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-border bg-secondary text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            ✕
+            <X className="size-4" aria-hidden />
           </button>
         </div>
 
@@ -191,7 +194,7 @@ export function MemberDrawer({
 
         {/* footer actions — reuse the page's existing handlers */}
         <div className="flex items-center gap-2 border-t border-border px-5 py-4">
-          <Button variant="outline" size="sm" onClick={() => onEdit(member)}>✎ Edit</Button>
+          <Button variant="outline" size="sm" onClick={() => onEdit(member)}><Pencil className="size-4" aria-hidden /> Edit</Button>
           <div className="flex-1" />
           {!isOwner && (
             <Button

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Bell, Info, TrendingDown, TrendingUp, Users, type LucideIcon } from 'lucide-react';
 import { api } from '@/lib/api';
 
 interface Item {
@@ -14,11 +15,11 @@ interface Item {
 }
 interface Inbox { items: Item[]; unreadCount: number; nextBefore: string | null }
 
-const KIND_ICON: Record<Item['kind'], { ic: string; color: string }> = {
-  positive: { ic: '↑', color: 'var(--emerald)' },
-  negative: { ic: '↓', color: 'var(--rose)' },
-  team: { ic: '⬡', color: 'var(--sky)' },
-  system: { ic: '◔', color: 'hsl(var(--muted-foreground))' },
+const KIND_ICON: Record<Item['kind'], { ic: LucideIcon; color: string }> = {
+  positive: { ic: TrendingUp, color: 'var(--emerald)' },
+  negative: { ic: TrendingDown, color: 'var(--rose)' },
+  team: { ic: Users, color: 'var(--sky)' },
+  system: { ic: Info, color: 'hsl(var(--muted-foreground))' },
 };
 
 function ago(iso: string): string {
@@ -102,7 +103,8 @@ export function NotificationBell({ placement = 'down' }: { placement?: 'down' | 
         aria-expanded={open}
         style={{ position: 'relative' }}
       >
-        <span aria-hidden style={{ fontSize: 'var(--text-lg)' }}>◔</span>
+        <Bell className="size-[18px]" aria-hidden />
+
         {unread > 0 && (
           <span aria-hidden style={{
             position: 'absolute', top: -3, right: -3, minWidth: 16, height: 16, padding: '0 4px',
@@ -135,13 +137,14 @@ export function NotificationBell({ placement = 'down' }: { placement?: 'down' | 
             )}
             {!loading && inbox?.items.map((it) => {
               const k = KIND_ICON[it.kind];
+              const KindIcon = k.ic;
               return (
                 <button key={it.id} onClick={() => openItem(it)} className="inbox-row"
                   style={{ background: it.read ? 'transparent' : 'var(--panel-2)' }}>
                   <span style={{
                     width: 28, height: 28, borderRadius: 8, flexShrink: 0, display: 'grid', placeItems: 'center',
                     background: `color-mix(in srgb, ${k.color} 16%, transparent)`, color: k.color, fontWeight: 800, fontSize: 'var(--text-md)',
-                  }}>{k.ic}</span>
+                  }}><KindIcon className="size-4" aria-hidden /></span>
                   <span style={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
                     <span className="spread" style={{ gap: 8 }}>
                       <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)', color: 'var(--text)' }}>{it.title}</span>

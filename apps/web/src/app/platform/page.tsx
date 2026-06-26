@@ -1,7 +1,8 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ArrowRight, Building2, Plus, Users, Wallet } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, Modal, useToast } from '@/components/ui';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -76,9 +77,9 @@ export default function CompaniesPage() {
       <p className="sub fade-in" style={{ marginBottom: 16 }}>Every workspace on {APP_NAME}. Open one to manage its network and settings.</p>
 
       <div className="stat-grid fade-in delay-1" style={{ marginBottom: 18 }}>
-        <Kpi label="Companies" value={String(totals.companies)} icon="◳" />
-        <Kpi label="Members (all)" value={totals.members.toLocaleString('en-US')} icon="⬡" />
-        <Kpi label="Revenue this month" value={money(totals.revenue, 'USD')} icon="◆" />
+        <Kpi label="Companies" value={String(totals.companies)} icon={<Building2 className="size-[18px]" aria-hidden />} />
+        <Kpi label="Members (all)" value={totals.members.toLocaleString('en-US')} icon={<Users className="size-[18px]" aria-hidden />} />
+        <Kpi label="Revenue this month" value={money(totals.revenue, 'USD')} icon={<Wallet className="size-[18px]" aria-hidden />} />
       </div>
 
       {/* Billing (AR) — manuel takip: faturalandır, ödeme gelince şirket sayfasından işaretle */}
@@ -109,7 +110,7 @@ export default function CompaniesPage() {
 
       <div className="row fade-in delay-1" style={{ marginBottom: 14, justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <input aria-label="Search companies" placeholder="Search companies…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 280 }} />
-        <button className="btn" onClick={() => setShowNew(true)}>＋ New company</button>
+        <button className="btn" onClick={() => setShowNew(true)}><Plus className="size-4" aria-hidden /> New company</button>
       </div>
 
       <div className="grid fade-in delay-2" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(300px,1fr))', gap: 14 }}>
@@ -133,7 +134,7 @@ export default function CompaniesPage() {
               <Mini label="Revenue (mo)" value={money(c.revenueThisMonthCents, c.currency)} />
               <Mini label="Sales (mo)" value={String(c.salesThisMonth)} />
             </div>
-            <div className="faint" style={{ fontSize: 12, marginTop: 'auto' }}>Open company →</div>
+            <div className="faint" style={{ fontSize: 12, marginTop: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4 }}>Open company <ArrowRight className="size-[13px]" aria-hidden /></div>
           </button>
         ))}
         {filtered.length === 0 && <div className="muted">No companies match.</div>}
@@ -150,7 +151,7 @@ export default function CompaniesPage() {
   );
 }
 
-function Kpi({ label, value, icon }: { label: string; value: string; icon: string }) {
+function Kpi({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
   return (
     <div className="card stat">
       <div className="spread"><span className="k">{label}</span><span className="icon" aria-hidden="true">{icon}</span></div>

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import type { ComponentType } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Donut, Loading, MoneyCounter, StatCard } from '@/components/ui';
@@ -14,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { ContinuousTabs } from '@/components/ui/continuous-tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
+import { RefreshCw, Check, X, Scale, Printer, Wallet, Flag, Clock, ArrowRight, CheckCircle2, Circle, Users, TrendingUp, TrendingDown, Diamond } from 'lucide-react';
 
 interface Dashboard {
   month: string;
@@ -46,8 +48,8 @@ interface Todo {
   items: { key: string; label: string; count: number; href: string }[];
   total: number;
 }
-const TODO_ICON: Record<string, string> = {
-  sales_approval: '◇', payout_requests: '◆', checks_to_process: '🖶', fraud_review: '⚑',
+const TODO_ICON: Record<string, ComponentType<{ className?: string; 'aria-hidden'?: boolean }>> = {
+  sales_approval: Diamond, payout_requests: Wallet, checks_to_process: Printer, fraud_review: Flag,
 };
 const TODO_ICON_COLOR: Record<string, string> = {
   sales_approval: 'text-muted-foreground', payout_requests: 'text-primary',
@@ -113,7 +115,7 @@ export default function DashboardPage() {
               className="self-start sm:self-auto"
               onClick={() => { setError(''); loadDashboard(); }}
             >
-              <span aria-hidden>↻</span> Retry
+              <RefreshCw className="size-4" aria-hidden /> Retry
             </Button>
           </AlertDescription>
         </Alert>
@@ -148,16 +150,16 @@ export default function DashboardPage() {
                 variant="outline"
                 style={{ borderColor: 'color-mix(in srgb, var(--emerald) 40%, transparent)', backgroundColor: 'color-mix(in srgb, var(--emerald) 10%, transparent)', color: 'var(--emerald)' }}
               >
-                <span aria-hidden>✓</span> Books balanced
+                <Check className="size-4" aria-hidden /> Books balanced
               </Badge>
             ) : (
               <Badge variant="outline" className="border-destructive/40 bg-destructive/10 text-destructive">
-                <span aria-hidden>✗</span> {fin.payoutMismatches.length + fin.summaryMismatches.length} issue(s)
+                <X className="size-4" aria-hidden /> {fin.payoutMismatches.length + fin.summaryMismatches.length} issue(s)
               </Badge>
             )
           )}
-          <Button variant="ghost" size="sm" onClick={verifyFinancials} disabled={finBusy}>{finBusy ? 'Checking…' : <><span aria-hidden>⚖</span> Verify financials</>}</Button>
-          <Button variant="ghost" size="sm" onClick={() => window.print()}><span aria-hidden>🖶</span> Print report</Button>
+          <Button variant="ghost" size="sm" onClick={verifyFinancials} disabled={finBusy}>{finBusy ? 'Checking…' : <><Scale className="size-4" aria-hidden /> Verify financials</>}</Button>
+          <Button variant="ghost" size="sm" onClick={() => window.print()}><Printer className="size-4" aria-hidden /> Print report</Button>
         </div>
       </div>
 
@@ -181,12 +183,14 @@ export default function DashboardPage() {
                 href={it.href}
                 className="flex items-center gap-3 rounded-xl border border-border bg-muted/40 p-[13px] transition-colors hover:border-input hover:bg-muted"
               >
-                <span aria-hidden className={`text-lg ${TODO_ICON_COLOR[it.key] ?? 'text-muted-foreground'}`}>{TODO_ICON[it.key] ?? '•'}</span>
+                <span aria-hidden className={`${TODO_ICON_COLOR[it.key] ?? 'text-muted-foreground'}`}>
+                  {(() => { const Icon = TODO_ICON[it.key] ?? Circle; return <Icon className="size-[18px]" aria-hidden />; })()}
+                </span>
                 <div className="min-w-0 flex-1">
                   <div className="font-display text-[19px] font-bold leading-none text-foreground tabular-nums">{it.count}</div>
                   <div className="mt-[3px] text-[11.5px] text-muted-foreground/70">{it.label}</div>
                 </div>
-                <span aria-hidden className="text-muted-foreground/70">→</span>
+                <ArrowRight aria-hidden className="size-4 text-muted-foreground/70" />
               </Link>
             ))}
           </div>
@@ -210,12 +214,12 @@ export default function DashboardPage() {
           <div>
             {onboarding.steps.map((s) => (
               <div key={s.key} className="flex items-center gap-3 border-t border-border py-[9px]">
-                <span aria-hidden className={`w-[18px] text-center text-base ${s.done ? '' : 'text-muted-foreground/70'}`} style={s.done ? { color: 'var(--emerald)' } : undefined}>{s.done ? '✓' : '○'}</span>
+                <span aria-hidden className={`flex w-[18px] justify-center ${s.done ? '' : 'text-muted-foreground/70'}`} style={s.done ? { color: 'var(--emerald)' } : undefined}>{s.done ? <CheckCircle2 className="size-4" aria-hidden /> : <Circle className="size-4" aria-hidden />}</span>
                 <span className={`flex-1 text-sm ${s.done ? 'text-muted-foreground' : 'text-foreground'}`}>{s.label}</span>
                 {s.done
                   ? <span className="text-xs text-muted-foreground/70">Done</span>
                   : s.cta
-                    ? <Button asChild variant="ghost" size="sm"><Link href={s.cta}>{CTA_LABEL[s.key] ?? 'Open'} <span aria-hidden>→</span></Link></Button>
+                    ? <Button asChild variant="ghost" size="sm"><Link href={s.cta}>{CTA_LABEL[s.key] ?? 'Open'} <ArrowRight className="size-4" aria-hidden /></Link></Button>
                     : <span className="text-xs text-muted-foreground/70">Pending</span>}
               </div>
             ))}
@@ -270,11 +274,11 @@ export default function DashboardPage() {
 
       {/* ---- 3-up stat cards ---- */}
       <div className="mt-4 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-        <StatCard label={t('dash.payable')} value={money(data.outstandingPayableCents, c)} icon="◆" hint={t('dash.payableHint')} />
-        <StatCard label={t('dash.members')} value={`${data.members.active} / ${data.members.total}`} icon="⬡" hint={t('dash.membersHint')} />
+        <StatCard label={t('dash.payable')} value={money(data.outstandingPayableCents, c)} icon={<Wallet className="size-[18px]" aria-hidden />} hint={t('dash.payableHint')} />
+        <StatCard label={t('dash.members')} value={`${data.members.active} / ${data.members.total}`} icon={<Users className="size-[18px]" aria-hidden />} hint={t('dash.membersHint')} />
         {data.pendingPayoutRequests > 0
-          ? <Link href="/admin/payouts" title="Go to payouts" className="block"><StatCard label={`${t('dash.pendingReq')} →`} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} /></Link>
-          : <StatCard label={t('dash.pendingReq')} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} />}
+          ? <Link href="/admin/payouts" title="Go to payouts" className="block"><StatCard label={`${t('dash.pendingReq')} →`} value={String(data.pendingPayoutRequests)} icon={<Clock className="size-[18px]" aria-hidden />} hint={t('dash.requestsHint')} /></Link>
+          : <StatCard label={t('dash.pendingReq')} value={String(data.pendingPayoutRequests)} icon={<Clock className="size-[18px]" aria-hidden />} hint={t('dash.requestsHint')} />}
       </div>
 
       {/* ---- borc kirilimi (stacked bar) + en cok kazananlar ---- */}
@@ -479,7 +483,7 @@ function Delta({ pct, invertGood }: { pct: number | null; invertGood?: boolean }
   const className = good === null ? 'text-muted-foreground' : good ? '' : 'text-destructive';
   return (
     <span className={`mt-[3px] flex items-center gap-1 text-[11.5px] font-[650] ${className}`} style={good ? { color: 'var(--emerald)' } : undefined}>
-      <span aria-hidden>{flat ? '→' : up ? '▲' : '▼'}</span> {Math.abs(pct)}%
+      {flat ? <ArrowRight className="size-[13px]" aria-hidden /> : up ? <TrendingUp className="size-[13px]" aria-hidden /> : <TrendingDown className="size-[13px]" aria-hidden />} {Math.abs(pct)}%
       <span className="font-normal text-muted-foreground/70">vs prev</span>
     </span>
   );

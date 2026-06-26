@@ -3,6 +3,7 @@
 import { FormEvent, use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { ArrowRight, Banknote } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { landingPath, setSession, activeMembership, type Session } from '@/lib/auth';
 import { Brand, Loading } from '@/components/ui';
@@ -99,7 +100,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
 
               {/* show the opportunity before the form — people join for a reward, not an account */}
               <div className="card" style={{ background: 'color-mix(in srgb, var(--gold-500) 8%, transparent)', borderColor: 'color-mix(in srgb, var(--gold-500) 28%, transparent)', padding: 14, marginBottom: 18 }}>
-                <div style={{ fontWeight: 700, fontSize: 'var(--text-md)', marginBottom: 6 }}><span aria-hidden="true">💸</span> What you’ll earn</div>
+                <div style={{ fontWeight: 700, fontSize: 'var(--text-md)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}><Banknote className="size-[18px]" aria-hidden /> What you’ll earn</div>
                 <div className="faint" style={{ fontSize: 'var(--text-sm)', lineHeight: 1.55 }}>
                   Earn a commission on every sale you make — and a share of the sales made by the people you bring in. Record a sale, your company verifies it, and your commission is tracked and paid out automatically.
                 </div>
@@ -140,7 +141,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
                 </label>
                 {error && <Alert variant="destructive" className="mt-2"><AlertDescription>{error}</AlertDescription></Alert>}
                 <button type="submit" className="btn block" style={{ marginTop: 6 }} disabled={busy || !accept}>
-                  {busy ? t('common.loading') : t('reg.submit')} {!busy && <span aria-hidden="true">→</span>}
+                  {busy ? t('common.loading') : t('reg.submit')} {!busy && <ArrowRight className="size-4" aria-hidden />}
                 </button>
               </form>
             </>

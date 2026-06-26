@@ -1,6 +1,7 @@
 'use client';
 
 import { CSSProperties, useEffect, useState } from 'react';
+import { Save } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
 import { APP_NAME } from '@/lib/brand';
@@ -89,7 +90,7 @@ export default function Brand() {
 
         {error && <div className="error">{error}</div>}
         <div className="row" style={{ marginTop: 14 }}>
-          <button className="btn" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save branding'}</button>
+          <button className="btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Save className="size-4" aria-hidden /> {busy ? 'Saving…' : 'Save branding'}</button>
         </div>
       </div>
 

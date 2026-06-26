@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode, useEffect, useState } from 'react';
+import { Settings as SettingsIcon, Coins, Award, Users, Diamond, Megaphone, Shield, Share2, Bell, Mail, FileText } from 'lucide-react';
 import { getSession, can } from '@/lib/auth';
 import { t } from '@/lib/i18n';
 import General from './sections/General';
@@ -18,21 +19,21 @@ import Plan from './sections/Plan';
 type TabKey = 'general' | 'brand' | 'plan' | 'people' | 'ranks' | 'security' | 'notifications' | 'reports' | 'integrations' | 'announcements' | 'data';
 
 type TabGroup = 'Business' | 'System';
-interface Tab { key: TabKey; label: string; icon: string; group: TabGroup; perm?: string; render: () => ReactNode }
+interface Tab { key: TabKey; label: string; icon: ReactNode; group: TabGroup; perm?: string; render: () => ReactNode }
 
-// Single, consistent unicode glyph set (no emoji) so icons inherit theme color/weight.
+// Crisp lucide icon per tab so glyphs inherit theme color/weight.
 const TABS: Tab[] = [
-  { key: 'general', label: 'General', icon: '⚙', group: 'Business', render: () => <General /> },
-  { key: 'plan', label: 'Commission plan', icon: '⚡', group: 'Business', render: () => <Plan /> },
-  { key: 'ranks', label: 'Ranks', icon: '◇', group: 'Business', render: () => <Ranks /> },
-  { key: 'people', label: 'People & Roles', icon: '⬡', group: 'Business', perm: 'settings.roles', render: () => <PeopleRoles /> },
-  { key: 'brand', label: 'Brand', icon: '◆', group: 'Business', perm: 'settings.branding', render: () => <Brand /> },
-  { key: 'announcements', label: 'Announcements', icon: '◈', group: 'Business', render: () => <Announcements /> },
-  { key: 'security', label: 'Security', icon: '⛉', group: 'System', render: () => <Security /> },
-  { key: 'integrations', label: 'Integrations', icon: '⚯', group: 'System', render: () => <Integrations /> },
-  { key: 'notifications', label: 'Notifications', icon: '◔', group: 'System', render: () => <Notifications /> },
-  { key: 'reports', label: 'Reports', icon: '✉', group: 'System', render: () => <Reports /> },
-  { key: 'data', label: 'Data & Backup', icon: '☷', group: 'System', render: () => <Data /> },
+  { key: 'general', label: 'General', icon: <SettingsIcon className="size-4" aria-hidden />, group: 'Business', render: () => <General /> },
+  { key: 'plan', label: 'Commission plan', icon: <Coins className="size-4" aria-hidden />, group: 'Business', render: () => <Plan /> },
+  { key: 'ranks', label: 'Ranks', icon: <Award className="size-4" aria-hidden />, group: 'Business', render: () => <Ranks /> },
+  { key: 'people', label: 'People & Roles', icon: <Users className="size-4" aria-hidden />, group: 'Business', perm: 'settings.roles', render: () => <PeopleRoles /> },
+  { key: 'brand', label: 'Brand', icon: <Diamond className="size-4" aria-hidden />, group: 'Business', perm: 'settings.branding', render: () => <Brand /> },
+  { key: 'announcements', label: 'Announcements', icon: <Megaphone className="size-4" aria-hidden />, group: 'Business', render: () => <Announcements /> },
+  { key: 'security', label: 'Security', icon: <Shield className="size-4" aria-hidden />, group: 'System', render: () => <Security /> },
+  { key: 'integrations', label: 'Integrations', icon: <Share2 className="size-4" aria-hidden />, group: 'System', render: () => <Integrations /> },
+  { key: 'notifications', label: 'Notifications', icon: <Bell className="size-4" aria-hidden />, group: 'System', render: () => <Notifications /> },
+  { key: 'reports', label: 'Reports', icon: <Mail className="size-4" aria-hidden />, group: 'System', render: () => <Reports /> },
+  { key: 'data', label: 'Data & Backup', icon: <FileText className="size-4" aria-hidden />, group: 'System', render: () => <Data /> },
 ];
 const TAB_GROUPS: TabGroup[] = ['Business', 'System'];
 
@@ -74,8 +75,9 @@ export default function SettingsPage() {
                   aria-selected={active === tab.key}
                   className={`seg-tab ${active === tab.key ? 'on' : ''}`}
                   onClick={() => select(tab.key)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
                 >
-                  <span aria-hidden className="faint" style={{ fontWeight: 600 }}>{tab.icon}</span> {tab.label}
+                  <span aria-hidden className="faint" style={{ display: 'inline-flex' }}>{tab.icon}</span> {tab.label}
                 </button>
               ))}
             </div>

@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { ArrowLeft, ArrowRight, Clock, Diamond, Plus, Users, Wallet } from 'lucide-react';
 import { api, ApiError, switchTenant } from '@/lib/api';
 import { applyTenantSwitch, getSession, membershipForTenant } from '@/lib/auth';
 import { Confirm, Loading, Modal, useToast } from '@/components/ui';
@@ -124,7 +125,7 @@ export default function CompanyPage() {
   return (
     <div>
       <div className="row fade-in" style={{ gap: 8, marginBottom: 6 }}>
-        <Link href="/platform" className="faint" style={{ fontSize: 12, textDecoration: 'none' }}>← Companies</Link>
+        <Link href="/platform" className="faint" style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}><ArrowLeft className="size-[13px]" aria-hidden /> Companies</Link>
       </div>
       <div className="eyebrow fade-in" style={{ marginBottom: 6 }}>Company</div>
       <div className="spread fade-in" style={{ alignItems: 'flex-start' }}>
@@ -140,7 +141,7 @@ export default function CompanyPage() {
         <div className="row" style={{ gap: 8, alignItems: 'center' }}>
           <span className={`badge ${company.status === 'active' ? 'active' : 'inactive'}`}>{company.status}</span>
           <button className="btn sm" onClick={enterWorkspace} disabled={entering}>
-            {entering ? 'Opening…' : 'Enter workspace →'}
+            {entering ? 'Opening…' : <>Enter workspace <ArrowRight className="size-4" aria-hidden /></>}
           </button>
           <button className={`btn ${company.status === 'active' ? 'ghost danger' : 'ghost'} sm`} onClick={() => setConfirmStatus(true)} disabled={busy}>
             {company.status === 'active' ? 'Suspend' : 'Reactivate'}
@@ -150,10 +151,10 @@ export default function CompanyPage() {
       {enterMsg && <Alert variant="destructive" style={{ marginTop: 10 }}><AlertDescription>{enterMsg}</AlertDescription></Alert>}
 
       <div className="stat-grid fade-in delay-1" style={{ margin: '18px 0' }}>
-        <Kpi label="Members" value={`${company.kpis.activeMembers} / ${company.kpis.members}`} icon="⬡" hint="active / total" />
-        <Kpi label="Revenue this month" value={money(company.kpis.revenueThisMonthCents, c)} icon="◆" hint={`${company.kpis.salesThisMonth} approved sales`} />
-        <Kpi label="Outstanding payable" value={money(company.kpis.outstandingPayableCents, c)} icon="◷" hint="awaiting payout" />
-        <Kpi label="Plan" value={company.plan ? bps(company.plan.poolRateBps) : '—'} icon="◇" hint={company.plan ? `${company.plan.name} · depth ${company.plan.depth}` : 'no plan'} />
+        <Kpi label="Members" value={`${company.kpis.activeMembers} / ${company.kpis.members}`} icon={<Users className="size-[18px]" aria-hidden />} hint="active / total" />
+        <Kpi label="Revenue this month" value={money(company.kpis.revenueThisMonthCents, c)} icon={<Wallet className="size-[18px]" aria-hidden />} hint={`${company.kpis.salesThisMonth} approved sales`} />
+        <Kpi label="Outstanding payable" value={money(company.kpis.outstandingPayableCents, c)} icon={<Clock className="size-[18px]" aria-hidden />} hint="awaiting payout" />
+        <Kpi label="Plan" value={company.plan ? bps(company.plan.poolRateBps) : '—'} icon={<Diamond className="size-[18px]" aria-hidden />} hint={company.plan ? `${company.plan.name} · depth ${company.plan.depth}` : 'no plan'} />
       </div>
 
       {/* ---- Billing (C2 — manuel, Stripe yok) ---- */}
@@ -180,7 +181,7 @@ export default function CompanyPage() {
             <label htmlFor="issue-invoice-period">Issue invoice</label>
             <input id="issue-invoice-period" value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="2026-06" style={{ maxWidth: 110 }} disabled={!billing} />
           </div>
-          <button className="btn ghost sm" onClick={issueInvoice} disabled={busy || !billing || !billing?.config?.active}>+ Issue</button>
+          <button className="btn ghost sm" onClick={issueInvoice} disabled={busy || !billing || !billing?.config?.active}><Plus className="size-4" aria-hidden /> Issue</button>
         </div>
 
         <div className="card" style={{ background: 'var(--panel-2)', padding: 0, overflowX: 'auto' }}>
@@ -250,7 +251,7 @@ export default function CompanyPage() {
   );
 }
 
-function Kpi({ label, value, icon, hint }: { label: string; value: string; icon: string; hint?: string }) {
+function Kpi({ label, value, icon, hint }: { label: string; value: string; icon: ReactNode; hint?: string }) {
   return (
     <div className="card stat">
       <div className="spread"><span className="k">{label}</span><span className="icon" aria-hidden="true">{icon}</span></div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { CSSProperties, useEffect, useMemo, useState } from 'react';
+import { Plus, Check } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { Confirm, Loading, Modal, useToast } from '@/components/ui';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
@@ -103,13 +104,13 @@ export default function PeopleRoles() {
             <h2 style={SECTION_TITLE}>Roles &amp; permissions</h2>
             <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>Define what each role can do. Owner always has full access.</div>
           </div>
-          <button className="btn sm" onClick={() => setEditing('new')}>+ New role</button>
+          <button className="btn sm" onClick={() => setEditing('new')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus className="size-4" aria-hidden /> New role</button>
         </div>
 
         {roles.length === 0 ? (
           <div className="card" style={{ textAlign: 'center', padding: '28px 16px' }}>
             <div className="muted" style={{ fontSize: 13, marginBottom: 12 }}>No roles yet — create one to control what teammates can do.</div>
-            <button className="btn sm" onClick={() => setEditing('new')}>+ New role</button>
+            <button className="btn sm" onClick={() => setEditing('new')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus className="size-4" aria-hidden /> New role</button>
           </div>
         ) : (
         <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: 12 }}>
@@ -209,8 +210,8 @@ export default function PeopleRoles() {
                     </td>
                     <td>
                       <div className="row" style={{ gap: 5 }}>
-                        <span className="badge" style={{ fontSize: 9 }} title="Email verification">
-                          {p.emailVerified ? '✓ email' : 'unverified'}
+                        <span className="badge" style={{ fontSize: 9, display: 'inline-flex', alignItems: 'center', gap: 3 }} title="Email verification">
+                          {p.emailVerified ? <><Check className="size-3" aria-hidden /> email</> : 'unverified'}
                         </span>
                         {p.twoFactor && <span className="badge active" style={{ fontSize: 9 }} title="Two-factor enabled">2FA</span>}
                       </div>
@@ -380,7 +381,7 @@ function RoleEditor({ groups, role, onClose, onSaved }: {
                           width: 15, height: 15, borderRadius: 4, flexShrink: 0, display: 'grid', placeItems: 'center',
                           background: checked ? 'var(--gold-500)' : 'transparent', color: 'var(--on-gold)',
                           border: checked ? 'none' : '1.5px solid var(--border-strong)', fontSize: 10, fontWeight: 900,
-                        }}>{checked ? '✓' : ''}</span>
+                        }}>{checked ? <Check className="size-3" aria-hidden /> : ''}</span>
                         {p.label}
                       </label>
                     );

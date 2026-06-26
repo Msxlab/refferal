@@ -105,6 +105,8 @@
   --grad-primary: var(--foil);
   --primary-2: hsl(233 66% 57%);
   --shadow-lg: 0 1px 2px rgba(0,0,0,.5), 0 22px 60px -26px rgba(0,0,0,.85);
+  --shadow-card: 0 1px 2px rgba(0,0,0,.35), 0 1px 3px rgba(0,0,0,.22);
+  --shadow-card-hover: 0 6px 22px -8px rgba(0,0,0,.55);
   --shadow-glow: 0 0 0 1px hsl(var(--primary) / .35), 0 18px 50px -22px hsl(var(--primary) / .3);
   --inset: inset 0 1px 0 rgba(255,255,255,.05);
   --grain: .015;
@@ -127,6 +129,8 @@
   --grad-primary: var(--foil);
   --primary-2: hsl(233 60% 47%);
   --shadow-lg: 0 1px 2px rgba(20,22,40,.05), 0 18px 44px -22px rgba(20,22,40,.16);
+  --shadow-card: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.04);
+  --shadow-card-hover: 0 6px 18px -6px rgba(16,24,40,.12);
   --shadow-glow: 0 0 0 1px hsl(var(--primary) / .4), 0 16px 40px -20px hsl(var(--primary) / .22);
   --inset: inset 0 1px 0 rgba(255,255,255,.85);
   --grain: 0;
@@ -174,22 +178,24 @@ a { color: var(--sky); text-decoration: none; }
 }
 
 /* ---------------------------------------------------------------- buttons */
+/* premium: DUZ solid butonlar (gradient/glow DEGIL) — shadcn estetigi */
 .btn {
-  position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  border: none; border-radius: 12px; cursor: pointer;
-  padding: 11px 18px; font-size: 13px; font-weight: 700; letter-spacing: .01em;
-  color: var(--on-gold); background: var(--grad-primary);
-  box-shadow: 0 8px 22px -10px hsl(var(--primary) / .6);
-  transition: transform var(--dur-fast) ease, box-shadow var(--dur-base) ease, filter var(--dur-base) ease, opacity var(--dur-base) ease;
+  position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid transparent; border-radius: 10px; cursor: pointer; white-space: nowrap;
+  padding: 9px 15px; font-size: 13px; font-weight: 600; letter-spacing: 0; line-height: 1.1;
+  color: hsl(var(--primary-foreground)); background: hsl(var(--primary));
+  box-shadow: 0 1px 2px hsl(var(--primary) / .22);
+  transition: background var(--dur-fast) ease, box-shadow var(--dur-fast) ease, transform var(--dur-fast) ease, opacity var(--dur-base) ease, border-color var(--dur-fast) ease;
 }
-.btn:hover { filter: brightness(1.06); box-shadow: 0 10px 26px -10px hsl(var(--primary) / .75); }
-.btn:active { transform: translateY(1px); }
-.btn:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; filter: none; }
-.btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--border-strong); box-shadow: none; }
-.btn.ghost:hover { background: var(--panel-2); filter: none; }
-.btn.danger { background: var(--rose); color: #fff; box-shadow: 0 8px 22px -10px rgba(224,104,60,.6); }
-.btn.success { background: var(--emerald); color: #03130d; box-shadow: 0 8px 22px -10px rgba(35,169,129,.6); }
-.btn.sm { padding: 7px 12px; font-size: 12px; border-radius: 9px; }
+.btn:hover { background: hsl(var(--primary) / .9); box-shadow: 0 2px 10px -3px hsl(var(--primary) / .4); }
+.btn:active { transform: translateY(.5px); }
+.btn:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
+.btn.ghost { background: transparent; color: var(--text); border-color: hsl(var(--border)); box-shadow: none; }
+.btn.ghost:hover { background: hsl(var(--accent)); border-color: var(--border-strong); }
+.btn.danger { background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground)); box-shadow: 0 1px 2px hsl(var(--destructive) / .22); }
+.btn.danger:hover { background: hsl(var(--destructive) / .9); }
+.btn.success { background: var(--emerald); color: #fff; box-shadow: 0 1px 2px rgba(35,169,129,.28); }
+.btn.sm { padding: 6px 11px; font-size: 12px; border-radius: 8px; }
 .btn.block { width: 100%; }
 
 /* ---------------------------------------------------------------- inputs */
@@ -205,16 +211,17 @@ label { display: block; font-size: 12px; color: hsl(var(--muted-foreground)); ma
 .field { margin-bottom: 14px; }
 
 /* ---------------------------------------------------------------- cards */
+/* premium: ince border + cok yumusak golge (agir golge DEGIL) */
 .card {
   position: relative; background: var(--panel); border: 1px solid hsl(var(--border));
-  border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-lg), var(--inset);
+  border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-card);
 }
 .card.hover { transition: transform var(--dur-base) ease, box-shadow var(--dur-base) ease, border-color var(--dur-base) ease; }
-.card.hover:hover { border-color: var(--border-strong); box-shadow: var(--shadow-glow), var(--inset); }
-/* premium: ince altin ust-cizgi */
+.card.hover:hover { border-color: var(--border-strong); box-shadow: var(--shadow-card-hover); }
+/* premium: cok ince ust-vurgu cizgisi (indigo, dusuk opaklik) */
 .card-glow::before {
   content: ""; position: absolute; top: 0; left: 24px; right: 24px; height: 1px;
-  background: linear-gradient(90deg, transparent, var(--gold-600), transparent); opacity: .5; pointer-events: none;
+  background: linear-gradient(90deg, transparent, hsl(var(--primary) / .45), transparent); opacity: .6; pointer-events: none;
 }
 
 /* ---------------------------------------------------- segmented tabs */
@@ -349,9 +356,10 @@ tr:last-child td { border-bottom: none; }
 
 /* ---------------------------------------------------------------- stat / hero */
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; }
-.stat .k { color: hsl(var(--muted-foreground)); font-size: 12px; font-weight: 550; }
-.stat .v { font-family: var(--font-display); font-size: 26px; font-weight: 700; margin-top: 8px; letter-spacing: -.01em; }
-.stat .icon { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-size: 16px; border: 1px solid var(--border-strong); background: var(--panel-2); color: var(--brand); }
+.stat .k { color: hsl(var(--muted-foreground)); font-size: 12.5px; font-weight: 500; letter-spacing: 0; }
+.stat .v { font-family: var(--font-display); font-size: 28px; font-weight: 650; margin-top: 10px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.stat .icon { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; font-size: 15px; border: none; background: hsl(var(--primary) / .1); color: hsl(var(--primary)); }
+.stat .icon svg { width: 18px; height: 18px; }
 .hero { position: relative; overflow: hidden; background: var(--panel); border: 1px solid hsl(var(--border)); }
 .hero::before { content: ""; position: absolute; top: 0; left: 22px; right: 22px; height: 1px; background: linear-gradient(90deg, transparent, var(--gold-600), transparent); opacity: .55; }
 .hero .bignum { font-family: var(--font-display); font-size: var(--text-hero); font-weight: 800; letter-spacing: -.02em; line-height: 1.05; }

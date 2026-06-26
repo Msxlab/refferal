@@ -2,6 +2,7 @@
 
 import type { ComponentProps } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Download, Check } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { downloadPdf } from '@/lib/download';
 import { money, dateShort } from '@/lib/format';
@@ -172,10 +173,10 @@ export default function ChecksPage() {
                 {action === 'run' ? 'Assigning…' : `Generate check run${ready.length ? ` (${runCount})` : ''}`}
               </Button>
               <Button size="sm" variant="outline" onClick={downloadChecks} disabled={busy || printed.length === 0}>
-                {action === 'pdf' ? 'Preparing…' : <><span aria-hidden>⤓</span> Download PDF</>}
+                {action === 'pdf' ? 'Preparing…' : <><Download className="size-4" aria-hidden /> Download PDF</>}
               </Button>
               <Button size="sm" variant="outline" onClick={() => setConfirmMail(true)} disabled={busy || printed.length === 0}>
-                {action === 'mail' ? 'Marking…' : <><span aria-hidden>✓</span> Mark mailed</>}
+                {action === 'mail' ? 'Marking…' : <><Check className="size-4" aria-hidden /> Mark mailed</>}
               </Button>
             </CardContent>
           </Card>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
 import { Loading, Pagination } from '@/components/ui';
@@ -9,6 +9,22 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 import { t } from '@/lib/i18n';
+import {
+  Search, Download, ShieldCheck, CheckCircle2, XCircle, Settings, Wallet,
+  Users, Sparkles, ShieldAlert, AlertTriangle, Flag, Receipt, Dot,
+} from 'lucide-react';
+
+const ENTITY_ICON: Record<string, ReactNode> = {
+  sale: <Receipt className="size-4" aria-hidden />,
+  payout: <Wallet className="size-4" aria-hidden />,
+  membership: <Users className="size-4" aria-hidden />,
+  invite: <Sparkles className="size-4" aria-hidden />,
+  tenant: <Settings className="size-4" aria-hidden />,
+  rbac: <ShieldAlert className="size-4" aria-hidden />,
+  role: <ShieldAlert className="size-4" aria-hidden />,
+  security: <AlertTriangle className="size-4" aria-hidden />,
+  campaign: <Flag className="size-4" aria-hidden />,
+};
 
 interface AuditItem {
   id: string;
@@ -25,9 +41,6 @@ interface AuditItem {
 }
 interface AuditList { total: number; page: number; pageSize: number; items: AuditItem[] }
 
-const ICON: Record<string, string> = {
-  sale: '◇', payout: '◆', membership: '⬡', invite: '✦', tenant: '⚙', rbac: '⛉', role: '⛉', security: '⚠', campaign: '⚑',
-};
 const ENTITIES = ['sale', 'payout', 'membership', 'invite', 'campaign', 'tenant', 'role', 'security'];
 
 function when(iso: string): string {
@@ -117,25 +130,25 @@ export default function AuditPage() {
         </div>
         <div className="row fade-in no-print" style={{ gap: 8 }}>
           {integrity && (
-            <span className={`badge ${integrity.ok ? 'active' : 'failed'}`} title={integrity.brokenAt ? `Broken at ${integrity.brokenAt}` : undefined}>
-              {integrity.ok ? `✓ Chain intact (${integrity.checked})` : '✗ Chain tampered'}
+            <span className={`badge ${integrity.ok ? 'active' : 'failed'}`} title={integrity.brokenAt ? `Broken at ${integrity.brokenAt}` : undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              {integrity.ok ? <><CheckCircle2 className="size-4" aria-hidden /> Chain intact ({integrity.checked})</> : <><XCircle className="size-4" aria-hidden /> Chain tampered</>}
             </span>
           )}
-          <button className="btn ghost" onClick={verifyIntegrity} disabled={verifying}>{verifying ? 'Verifying…' : <><span aria-hidden="true">🔒</span> Verify integrity</>}</button>
-          <button className="btn ghost" onClick={exportCsv}><span aria-hidden="true">⇩</span> Export CSV</button>
+          <button className="btn ghost" onClick={verifyIntegrity} disabled={verifying}>{verifying ? 'Verifying…' : <><ShieldCheck className="size-4" aria-hidden /> Verify integrity</>}</button>
+          <button className="btn ghost" onClick={exportCsv}><Download className="size-4" aria-hidden /> Export CSV</button>
         </div>
       </div>
 
       {error && <Alert variant="destructive" style={{ marginTop: 16 }}><AlertDescription>{error}</AlertDescription></Alert>}
 
       <div className="row fade-in delay-1 no-print" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '16px 0' }}>
-        <span aria-hidden="true">🔍</span>
+        <Search className="size-4" aria-hidden style={{ color: 'hsl(var(--muted-foreground))' }} />
         <input aria-label="Search audit log by action or entity" placeholder="Search action or entity…" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} style={{ flex: 1, minWidth: 180, maxWidth: 280 }} />
         <Select value={entity === '' ? '__all__' : entity} onValueChange={(v) => { setEntity(v === '__all__' ? '' : v); setPage(1); }}>
           <SelectTrigger aria-label="Entity" className="h-9 w-auto"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All entities</SelectItem>
-            {ENTITIES.map((e) => <SelectItem key={e} value={e}>{ICON[e] ?? '•'} {e}</SelectItem>)}
+            {ENTITIES.map((e) => <SelectItem key={e} value={e}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{ENTITY_ICON[e] ?? <Dot className="size-4" aria-hidden />} {e}</span></SelectItem>)}
           </SelectContent>
         </Select>
         <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1); }} aria-label="From" style={{ width: 'auto', minWidth: 130 }} />
@@ -158,13 +171,13 @@ export default function AuditPage() {
           <div>
             {items.map((a) => (
               <button key={a.id} onClick={() => setDetail(a)} className="row inbox-row" style={{ alignItems: 'flex-start' }}>
-                <span aria-hidden style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', background: a.entity === 'security' ? 'color-mix(in srgb, var(--rose) 16%, transparent)' : 'var(--panel-2)', fontSize: '0.9375rem', flexShrink: 0 }}>
-                  {ICON[a.entity] ?? '•'}
+                <span aria-hidden style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', background: a.entity === 'security' ? 'color-mix(in srgb, var(--rose) 16%, transparent)' : 'var(--panel-2)', color: a.entity === 'security' ? 'var(--rose)' : 'hsl(var(--muted-foreground))', flexShrink: 0 }}>
+                  {ENTITY_ICON[a.entity] ?? <Dot className="size-4" aria-hidden />}
                 </span>
                 <span style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
                   <span style={{ fontWeight: 600, fontSize: '0.8125rem' }} title={a.action}>{humanizeAction(a.action)}</span>
-                  <span className="faint" style={{ fontSize: '0.75rem', display: 'block', marginTop: 2 }}>
-                    {a.actorUserId ? a.actorName : '⚙ system'}{a.actorEmail ? ` · ${a.actorEmail}` : ''}
+                  <span className="faint" style={{ fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                    {a.actorUserId ? a.actorName : <><Settings className="size-[13px]" aria-hidden /> system</>}{a.actorEmail ? ` · ${a.actorEmail}` : ''}
                   </span>
                 </span>
                 <span className="faint" style={{ fontSize: '0.75rem', whiteSpace: 'nowrap', flexShrink: 0 }}>{when(a.createdAt)}</span>

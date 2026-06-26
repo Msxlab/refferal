@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { ArrowRight } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { Modal } from '@/components/ui';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
@@ -129,8 +130,8 @@ export function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone:
           <button className="btn ghost" onClick={step === 'data' ? onClose : () => setStep(step === 'preview' ? 'map' : 'data')} disabled={busy}>
             {step === 'data' ? 'Cancel' : 'Back'}
           </button>
-          {step === 'data' && <button className="btn" onClick={toMap}>Next: map columns →</button>}
-          {step === 'map' && <button className="btn" onClick={toPreview} disabled={busy}>{busy ? 'Checking…' : 'Preview →'}</button>}
+          {step === 'data' && <button className="btn" onClick={toMap}>Next: map columns <ArrowRight className="size-4" aria-hidden /></button>}
+          {step === 'map' && <button className="btn" onClick={toPreview} disabled={busy}>{busy ? 'Checking…' : <>Preview <ArrowRight className="size-4" aria-hidden /></>}</button>}
           {step === 'preview' && <button className="btn" onClick={confirm} disabled={busy || preview?.okCount === 0}>{busy ? 'Importing…' : `Import ${preview?.okCount ?? 0} sales`}</button>}
         </div>
       </div>

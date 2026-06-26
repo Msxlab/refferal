@@ -5,9 +5,10 @@ import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { clearSession, getSession, type Session } from '@/lib/auth';
 import { ThemeToggle } from '@/components/ui';
+import { Menu, Building2 } from 'lucide-react';
 import { APP_MONOGRAM, APP_NAME } from '@/lib/brand';
 
-const NAV = [{ href: '/platform', label: 'Companies', ic: '◳' }];
+const NAV = [{ href: '/platform', label: 'Companies', ic: <Building2 className="size-4" aria-hidden /> }];
 
 export default function PlatformLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -37,7 +38,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
   return (
     <div className={`shell${navOpen ? ' nav-open' : ''}`}>
       <div className="mobile-topbar no-print">
-        <button className="hamburger" aria-label="Menu" aria-expanded={navOpen} onClick={() => setNavOpen((v) => !v)}>☰</button>
+        <button className="hamburger" aria-label="Menu" aria-expanded={navOpen} onClick={() => setNavOpen((v) => !v)}><Menu className="size-5" aria-hidden /></button>
         <div className="brand"><span className="dot">{APP_MONOGRAM}</span> {APP_NAME}</div>
         <div className="row" style={{ gap: 6, marginLeft: 'auto' }}><ThemeToggle /></div>
       </div>

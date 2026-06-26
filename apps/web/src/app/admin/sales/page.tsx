@@ -20,6 +20,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { ChevronDown, Download, Printer, Upload, Plus, ArrowRight, Search, Users, X, Check, Trash2 } from 'lucide-react';
 
 interface SaleItem {
   id: string;
@@ -323,15 +324,15 @@ export default function SalesPage() {
         <div className="no-print flex flex-wrap items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">More <span aria-hidden="true">▾</span></Button>
+              <Button variant="outline" size="sm">More <ChevronDown className="size-4" aria-hidden /></Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={exportCsv}><span aria-hidden="true">⇩</span> Export CSV</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => window.print()}><span aria-hidden="true">🖶</span> Print</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setShowImport(true)}><span aria-hidden="true">⇪</span> Import</DropdownMenuItem>
+              <DropdownMenuItem onSelect={exportCsv}><Download className="size-4 mr-2" aria-hidden /> Export CSV</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => window.print()}><Printer className="size-4 mr-2" aria-hidden /> Print</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setShowImport(true)}><Upload className="size-4 mr-2" aria-hidden /> Import</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button size="sm" onClick={() => { setError(''); setCode(''); setSellerOpts([]); setSellerPicked(false); setNewDate(new Date().toLocaleDateString('en-CA')); setShowNew(true); }}><span aria-hidden="true">＋</span> New sale</Button>
+          <Button size="sm" onClick={() => { setError(''); setCode(''); setSellerOpts([]); setSellerPicked(false); setNewDate(new Date().toLocaleDateString('en-CA')); setShowNew(true); }}><Plus className="size-4" aria-hidden /> New sale</Button>
         </div>
       </div>
 
@@ -343,7 +344,7 @@ export default function SalesPage() {
           value={summary ? <MoneyCounter cents={summary.byStatus.approved.amountCents} currency={cur} /> : '—'}
           hint={summary ? `${summary.byStatus.approved.count} approved sales` : undefined} />
         <button type="button" onClick={() => patchFilters({ ...EMPTY, status: 'draft' })} title="Show drafts awaiting approval" aria-label="Show drafts awaiting approval" className="rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <Kpi label={<>Awaiting approval <span aria-hidden="true">→</span></>}
+          <Kpi label={<>Awaiting approval <ArrowRight className="inline size-[15px] align-text-bottom" aria-hidden /></>}
             value={summary ? summary.byStatus.draft.count : '—'}
             valueStyle={{ color: 'var(--amber)' }}
             hint={summary ? money(summary.byStatus.draft.amountCents, cur) : undefined} />
@@ -360,7 +361,7 @@ export default function SalesPage() {
       {/* ---- arac cubugu: ara + hizli tarih + filtreler + kayitli gorunumler ---- */}
       <div className="no-print my-4 flex flex-wrap items-center gap-2">
         <div className="flex h-9 basis-full items-center gap-2 rounded-lg border border-input bg-card px-3 transition-colors focus-within:border-primary focus-within:ring-1 focus-within:ring-primary sm:min-w-[210px] sm:max-w-[320px] sm:flex-1 sm:basis-auto">
-          <span className="text-muted-foreground/70" aria-hidden="true">🔍</span>
+          <Search className="size-4 shrink-0 text-muted-foreground/70" aria-hidden />
           <input aria-label="Search sales by seller, code, or customer" value={filters.q} onChange={(e) => patchFilters({ ...filters, q: e.target.value })}
             placeholder="Search seller, code, customer…" className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/70" />
         </div>
@@ -408,16 +409,16 @@ export default function SalesPage() {
         {views.map((v) => (
           <span key={v.id} className="inline-flex h-9 items-center gap-1 rounded-lg border border-primary/30 bg-primary/10 px-2.5 text-xs font-semibold text-primary">
             <button type="button" onClick={() => applyView(v)} title={v.mine ? undefined : `Shared by ${v.ownerName ?? 'team'}`} className="inline-flex items-center gap-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              {v.shared && <><span aria-hidden="true">👥</span><span className="sr-only">Shared view: </span></>}{v.name}
+              {v.shared && <><Users className="size-[15px]" aria-hidden /><span className="sr-only">Shared view: </span></>}{v.name}
             </button>
-            {v.mine && <Tooltip><TooltipTrigger asChild><button type="button" onClick={() => deleteView(v.id)} aria-label={`Delete ${v.name}`} className="ml-0.5 rounded-sm text-primary/70 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><span aria-hidden="true">✕</span></button></TooltipTrigger><TooltipContent>{`Delete ${v.name}`}</TooltipContent></Tooltip>}
+            {v.mine && <Tooltip><TooltipTrigger asChild><button type="button" onClick={() => deleteView(v.id)} aria-label={`Delete ${v.name}`} className="ml-0.5 rounded-sm text-primary/70 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><X className="size-[15px]" aria-hidden /></button></TooltipTrigger><TooltipContent>{`Delete ${v.name}`}</TooltipContent></Tooltip>}
           </span>
         ))}
 
         <span className="ml-auto flex items-center gap-2">
           <ColumnsMenu prefs={cols} />
           {activeFilters && <Button variant="ghost" size="sm" onClick={() => patchFilters(EMPTY)}>Clear</Button>}
-          <Button variant="outline" size="sm" onClick={() => { setViewName(''); setViewShared(false); setShowSaveView(true); }}><span aria-hidden="true">＋</span> Save view</Button>
+          <Button variant="outline" size="sm" onClick={() => { setViewName(''); setViewShared(false); setShowSaveView(true); }}><Plus className="size-4" aria-hidden /> Save view</Button>
         </span>
       </div>
 
@@ -506,7 +507,7 @@ export default function SalesPage() {
                       <td className="px-4 py-2.5">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <StatusPill status={s.status} />
-                          {s.deliveredAt && <ToneChip tone="emerald"><span aria-hidden="true">✓</span> delivered</ToneChip>}
+                          {s.deliveredAt && <ToneChip tone="emerald"><Check className="size-[13px]" aria-hidden /> delivered</ToneChip>}
                         </div>
                       </td>
                     )}
@@ -515,7 +516,7 @@ export default function SalesPage() {
                       <div className="flex items-center justify-end gap-1.5">
                         {s.status === 'draft' && <Button size="sm" onClick={() => setConfirm({ ids: [s.id], action: 'approve' })}>{t('sales.approve')}</Button>}
                         {s.status === 'approved' && !s.deliveredAt && <Button variant="outline" size="sm" onClick={() => deliver(s.id)}>{t('sales.deliver')}</Button>}
-                        {s.status === 'draft' && <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" className="h-8 w-8 px-0 text-destructive hover:text-destructive" onClick={() => setConfirm({ ids: [s.id], action: 'delete' })} aria-label="Delete draft" title="Delete draft"><span aria-hidden="true">🗑</span></Button></TooltipTrigger><TooltipContent>Delete draft</TooltipContent></Tooltip>}
+                        {s.status === 'draft' && <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" className="h-8 w-8 px-0 text-destructive hover:text-destructive" onClick={() => setConfirm({ ids: [s.id], action: 'delete' })} aria-label="Delete draft" title="Delete draft"><Trash2 className="size-4" aria-hidden /></Button></TooltipTrigger><TooltipContent>Delete draft</TooltipContent></Tooltip>}
                         {s.status !== 'void' && <Button variant="destructive" size="sm" onClick={() => setConfirm({ ids: [s.id], action: 'void' })}>{t('sales.void')}</Button>}
                       </div>
                     </td>
@@ -723,7 +724,7 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
       onClose={onClose}
       footer={d && (
         <>
-          <Button variant="outline" size="sm" disabled={busy} onClick={() => setPrinting(true)}><span aria-hidden="true">🖶</span> Print receipt</Button>
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => setPrinting(true)}><Printer className="size-4" aria-hidden /> Print receipt</Button>
           {d.status === 'draft' && <Button size="sm" disabled={busy} onClick={() => action('approve')}>Approve</Button>}
           {d.status === 'approved' && !d.deliveredAt && <Button variant="outline" size="sm" disabled={busy} onClick={() => action('deliver')}>Mark delivered</Button>}
           {d.status === 'draft' && <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" disabled={busy} onClick={() => setConfirmDel(true)}>Delete</Button>}

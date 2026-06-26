@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { dateShort, money, levelLabel, ledgerTypeLabel } from '@/lib/format';
 import { t } from '@/lib/i18n';
+import { CheckCircle2, ShieldCheck } from 'lucide-react';
 
 interface LedgerItem {
   id: string;
@@ -191,7 +192,7 @@ export default function WalletPage() {
             <span className="faint tnum" style={{ fontSize: 12 }}>{vesting.pct.toFixed(0)}% vested</span>
             <span className="faint" style={{ fontSize: 12 }}>
               {reached
-                ? <span style={{ color: 'var(--emerald)', fontWeight: 600 }}>✓ Ready to pay out</span>
+                ? <span className="row" style={{ color: 'var(--emerald)', fontWeight: 600, gap: 4, alignItems: 'center', display: 'inline-flex' }}><CheckCircle2 className="size-4" aria-hidden />Ready to pay out</span>
                 : <>{money(remaining, c)} to the {money(min, c)} threshold</>}
             </span>
           </div>
@@ -225,7 +226,7 @@ export default function WalletPage() {
           </div>
           <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
             {reached
-              ? <span style={{ color: 'var(--emerald)' }}>✓ Threshold reached — you can request a payout.</span>
+              ? <span className="row" style={{ color: 'var(--emerald)', gap: 4, alignItems: 'center', display: 'inline-flex' }}><CheckCircle2 className="size-4" aria-hidden />Threshold reached — you can request a payout.</span>
               : <>{money(remaining, c)} to go until the {money(min, c)} payout threshold.</>}
           </div>
         </div>
@@ -254,8 +255,9 @@ export default function WalletPage() {
             </div>
           ))}
         </div>
-        <div className="faint" style={{ fontSize: 12, marginTop: 14, paddingTop: 12, borderTop: '1px solid hsl(var(--border))', lineHeight: 1.5 }}>
-          <span aria-hidden="true">🔒 </span>Commissions come from real, approved product sales only. Your company&apos;s books are checked for balance every day.
+        <div className="faint" style={{ fontSize: 12, marginTop: 14, paddingTop: 12, borderTop: '1px solid hsl(var(--border))', lineHeight: 1.5, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          <ShieldCheck className="size-4" aria-hidden style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>Commissions come from real, approved product sales only. Your company&apos;s books are checked for balance every day.</span>
         </div>
       </div>
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Plus, Copy, Send, RefreshCw, Trash2 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
 import { dateShort } from '@/lib/format';
@@ -72,12 +73,12 @@ export default function Integrations() {
           <div className="card" style={{ background: 'color-mix(in srgb, var(--emerald) 10%, transparent)', padding: 12, marginBottom: 12 }}>
             <div className="faint" style={{ fontSize: 11 }}>Copy now — shown once:</div>
             <code style={{ wordBreak: 'break-all', fontSize: 12 }}>{createdKey}</code>
-            <div><button className="btn ghost sm" style={{ marginTop: 6 }} onClick={() => { navigator.clipboard.writeText(createdKey); showToast('Copied'); }}>Copy</button></div>
+            <div><button className="btn ghost sm" style={{ marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => { navigator.clipboard.writeText(createdKey); showToast('Copied'); }}><Copy className="size-4" aria-hidden /> Copy</button></div>
           </div>
         )}
         <div className="row" style={{ gap: 8, marginBottom: 10 }}>
           <input value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') createKey(); }} placeholder="Key name (e.g. CRM import)" style={{ flex: 1 }} />
-          <button className="btn sm" onClick={createKey} disabled={keyBusy}>{keyBusy ? 'Creating…' : 'Create'}</button>
+          <button className="btn sm" onClick={createKey} disabled={keyBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus className="size-4" aria-hidden /> {keyBusy ? 'Creating…' : 'Create'}</button>
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table>
@@ -98,25 +99,25 @@ export default function Integrations() {
       </div>
 
       <div className="card">
-        <div className="spread"><strong style={{ fontFamily: 'var(--font-display)', fontSize: 14 }}>Webhooks</strong><button className="btn ghost sm" onClick={testHook}>Send test</button></div>
+        <div className="spread"><strong style={{ fontFamily: 'var(--font-display)', fontSize: 14 }}>Webhooks</strong><button className="btn ghost sm" onClick={testHook} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send className="size-4" aria-hidden /> Send test</button></div>
         <div className="faint" style={{ fontSize: 12, margin: '4px 0 12px' }}>HMAC-SHA256 signed (<code>X-Refearn-Signature</code>). Events: payout.paid, … (empty = all).</div>
         {createdSecret && (
           <div className="card" style={{ background: 'color-mix(in srgb, var(--emerald) 10%, transparent)', padding: 12, marginBottom: 12 }}>
             <div className="faint" style={{ fontSize: 11 }}>Signing secret — shown once:</div>
             <code style={{ wordBreak: 'break-all', fontSize: 12 }}>{createdSecret}</code>
-            <div><button className="btn ghost sm" style={{ marginTop: 6 }} onClick={() => { navigator.clipboard.writeText(createdSecret); showToast('Copied'); }}>Copy</button></div>
+            <div><button className="btn ghost sm" style={{ marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => { navigator.clipboard.writeText(createdSecret); showToast('Copied'); }}><Copy className="size-4" aria-hidden /> Copy</button></div>
           </div>
         )}
         <div className="row" style={{ gap: 8, marginBottom: 10 }}>
           <input value={hookUrl} onChange={(e) => setHookUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') createHook(); }} placeholder="https://your-app.com/webhooks/refearn" style={{ flex: 1 }} />
-          <button className="btn sm" onClick={createHook} disabled={hookBusy}>{hookBusy ? 'Adding…' : 'Add'}</button>
+          <button className="btn sm" onClick={createHook} disabled={hookBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus className="size-4" aria-hidden /> {hookBusy ? 'Adding…' : 'Add'}</button>
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table>
             <thead><tr><th>URL</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {hooks.map((h) => (
-                <tr key={h.id}><td className="faint" style={{ fontSize: 12, wordBreak: 'break-all' }}>{h.url}</td><td><span className={`badge ${h.active ? 'active' : 'inactive'}`}>{h.active ? 'active' : 'off'}</span></td><td style={{ textAlign: 'right' }}><button className="btn ghost sm danger" aria-label={`Delete webhook: ${h.url}`} onClick={() => delHook(h.id)}>✕</button></td></tr>
+                <tr key={h.id}><td className="faint" style={{ fontSize: 12, wordBreak: 'break-all' }}>{h.url}</td><td><span className={`badge ${h.active ? 'active' : 'inactive'}`}>{h.active ? 'active' : 'off'}</span></td><td style={{ textAlign: 'right' }}><button className="btn ghost sm danger" aria-label={`Delete webhook: ${h.url}`} onClick={() => delHook(h.id)}><Trash2 className="size-4" aria-hidden /></button></td></tr>
               ))}
               {hooks.length === 0 && <tr><td colSpan={3} className="muted">No endpoints.</td></tr>}
             </tbody>
@@ -134,7 +135,7 @@ export default function Integrations() {
                       <td>{d.event}</td>
                       <td><span className={`badge ${d.status === 'delivered' ? 'paid' : d.status === 'failed' ? 'failed' : 'pending'}`}>{d.status}{d.responseStatus ? ` ${d.responseStatus}` : ''}</span></td>
                       <td className="tnum" style={{ textAlign: 'right' }}>{d.attempts}</td>
-                      <td style={{ textAlign: 'right' }}>{d.status !== 'delivered' && <button className="btn ghost sm" onClick={() => replay(d.id)}>Replay</button>}</td>
+                      <td style={{ textAlign: 'right' }}>{d.status !== 'delivered' && <button className="btn ghost sm" onClick={() => replay(d.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><RefreshCw className="size-4" aria-hidden /> Replay</button>}</td>
                     </tr>
                   ))}
                 </tbody>

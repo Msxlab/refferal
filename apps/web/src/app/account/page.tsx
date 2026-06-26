@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { QRCodeSVG } from 'qrcode.react';
+import { ArrowLeft, CheckCircle2, Copy } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { activeMembership, getSession, isAdminRole, setSession } from '@/lib/auth';
 import { Brand, Loading, ThemeToggle, useToast } from '@/components/ui';
@@ -203,7 +204,7 @@ export default function AccountPage() {
           <Brand />
           <span style={{ flex: 1 }} />
           <ThemeToggle />
-          <Link href={backHref} className="btn ghost sm"><span aria-hidden="true">←</span> Back</Link>
+          <Link href={backHref} className="btn ghost sm"><ArrowLeft className="size-4" aria-hidden /> Back</Link>
         </div>
       </header>
 
@@ -224,7 +225,7 @@ export default function AccountPage() {
             <div className="row" style={{ gap: 8, alignItems: 'center' }}>
               <input value={acc.email} disabled style={{ flex: 1 }} />
               <span className={`badge ${acc.emailVerified ? 'active' : 'inactive'}`}>
-                {acc.emailVerified ? <><span aria-hidden="true">✓</span> verified</> : 'unverified'}
+                {acc.emailVerified ? <><CheckCircle2 className="size-4" aria-hidden /> verified</> : 'unverified'}
               </span>
             </div>
             <div className="faint" style={{ fontSize: 'var(--text-xs)', marginTop: 4 }}>Email change with re-verification is coming soon.</div>
@@ -245,7 +246,7 @@ export default function AccountPage() {
                 </div>
               </div>
               <span className={`badge ${mailing.complete ? 'active' : 'inactive'}`} style={{ flexShrink: 0 }}>
-                {mailing.complete ? <><span aria-hidden="true">✓</span> complete</> : 'incomplete'}
+                {mailing.complete ? <><CheckCircle2 className="size-4" aria-hidden /> complete</> : 'incomplete'}
               </span>
             </div>
             <div className="field" style={{ marginTop: 12 }}>
@@ -353,7 +354,7 @@ export default function AccountPage() {
 
           {twoFaStep === 'recovery' && (
             <div style={{ marginTop: 14, borderTop: '1px solid hsl(var(--border))', paddingTop: 14 }}>
-              <strong style={{ fontSize: 'var(--text-md)', color: 'var(--emerald)' }}>✓ Two-factor authentication enabled</strong>
+              <strong style={{ fontSize: 'var(--text-md)', color: 'var(--emerald)', display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckCircle2 className="size-4" aria-hidden /> Two-factor authentication enabled</strong>
               <p className="faint" style={{ fontSize: 'var(--text-sm)', margin: '6px 0 10px' }}>
                 Save these recovery codes somewhere safe. Each works once if you lose your authenticator — they won&apos;t be shown again.
               </p>
@@ -361,7 +362,7 @@ export default function AccountPage() {
                 {recoveryCodes.map((c) => <span key={c}>{c}</span>)}
               </div>
               <div className="row" style={{ justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-                <button className="btn ghost sm" onClick={copyRecovery} aria-label="Copy recovery codes"><span aria-hidden="true">⧉</span> Copy</button>
+                <button className="btn ghost sm" onClick={copyRecovery} aria-label="Copy recovery codes"><Copy className="size-4" aria-hidden /> Copy</button>
                 <button className="btn" onClick={resetTwoFa}>Done</button>
               </div>
             </div>

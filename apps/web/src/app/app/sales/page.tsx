@@ -6,6 +6,7 @@ import { Loading, Modal, MoneyCounter, Pagination, useToast } from '@/components
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
+import { Plus, Banknote, Wallet, Clock, Info, Check } from 'lucide-react';
 
 interface MySale {
   id: string;
@@ -70,24 +71,25 @@ export default function MySalesPage() {
           <h1 className="h1 fade-in">My Sales</h1>
           <p className="sub fade-in">Record your sales and track their commission.</p>
         </div>
-        <button className="btn fade-in" onClick={() => { setFormErr(''); setShowNew(true); }}><span aria-hidden="true">＋ </span>Record sale</button>
+        <button className="btn fade-in" onClick={() => { setFormErr(''); setShowNew(true); }}><Plus className="size-4" aria-hidden />Record sale</button>
       </div>
 
       {error && <Alert variant="destructive" style={{ marginBottom: 16 }}><AlertDescription>{error}</AlertDescription></Alert>}
 
       {summary && (
         <div className="stat-grid fade-in delay-1" style={{ marginBottom: 16 }}>
-          <div className="card stat"><div className="spread"><span className="k">Sold (this month)</span><span className="icon" aria-hidden="true">◇</span></div><div className="v"><MoneyCounter cents={Number(summary.soldThisMonthCents)} currency={summary.currency} /></div><div className="hint">{summary.salesThisMonth} sales · {money(summary.soldLifetimeCents, summary.currency)} lifetime</div></div>
-          <div className="card stat"><div className="spread"><span className="k">Earned (this month)</span><span className="icon" aria-hidden="true" style={{ background: 'var(--foil)' }}>◆</span></div><div className="v" style={{ color: 'var(--gold-500)' }}><MoneyCounter cents={Number(summary.earnedThisMonthCents)} currency={summary.currency} /></div><div className="hint">commission you earned</div></div>
-          <div className="card stat"><div className="spread"><span className="k">Awaiting approval</span><span className="icon" aria-hidden="true">◷</span></div><div className="v">{list?.items.filter((s) => s.status === 'draft').length ?? 0}</div><div className="hint">drafts on this page</div></div>
+          <div className="card stat"><div className="spread"><span className="k">Sold (this month)</span><span className="icon"><Banknote className="size-[18px]" aria-hidden /></span></div><div className="v"><MoneyCounter cents={Number(summary.soldThisMonthCents)} currency={summary.currency} /></div><div className="hint">{summary.salesThisMonth} sales · {money(summary.soldLifetimeCents, summary.currency)} lifetime</div></div>
+          <div className="card stat"><div className="spread"><span className="k">Earned (this month)</span><span className="icon" style={{ background: 'var(--foil)' }}><Wallet className="size-[18px]" aria-hidden /></span></div><div className="v" style={{ color: 'var(--gold-500)' }}><MoneyCounter cents={Number(summary.earnedThisMonthCents)} currency={summary.currency} /></div><div className="hint">commission you earned</div></div>
+          <div className="card stat"><div className="spread"><span className="k">Awaiting approval</span><span className="icon"><Clock className="size-[18px]" aria-hidden /></span></div><div className="v">{list?.items.filter((s) => s.status === 'draft').length ?? 0}</div><div className="hint">drafts on this page</div></div>
         </div>
       )}
 
       {/* the drafts explainer only matters before the first sale */}
       {list && list.total === 0 && (
         <Alert className="fade-in delay-1" style={{ background: 'color-mix(in srgb, var(--sky) 7%, transparent)', borderColor: 'color-mix(in srgb, var(--sky) 30%, transparent)', marginBottom: 16 }}>
-          <AlertDescription className="faint" style={{ fontSize: 12, lineHeight: 1.5 }}>
-            <span aria-hidden="true">◆ </span>Sales you record are <b>drafts</b> until verified by your company. Commission is distributed across your network after approval.
+          <AlertDescription className="faint" style={{ fontSize: 12, lineHeight: 1.5, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <Info className="size-4" aria-hidden style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>Sales you record are <b>drafts</b> until verified by your company. Commission is distributed across your network after approval.</span>
           </AlertDescription>
         </Alert>
       )}
@@ -110,7 +112,7 @@ export default function MySalesPage() {
                     <td className="faint" style={{ fontSize: 12 }}>{s.customerRef || '—'}</td>
                     <td>
                       <span className={`badge ${s.status}`}>{s.status}</span>
-                      {s.deliveredAt && <span className="badge active" style={{ marginLeft: 6 }} aria-label="Delivered"><span aria-hidden="true">✓</span></span>}
+                      {s.deliveredAt && <span className="badge active" style={{ marginLeft: 6, display: 'inline-flex', alignItems: 'center' }} aria-label="Delivered"><Check className="size-3" aria-hidden /></span>}
                     </td>
                     <td className="tnum" style={{ textAlign: 'right', color: Number(s.myCommissionCents) > 0 ? 'var(--emerald)' : 'var(--faint)' }}>
                       {Number(s.myCommissionCents) > 0 ? money(s.myCommissionCents, s.currency) : '—'}

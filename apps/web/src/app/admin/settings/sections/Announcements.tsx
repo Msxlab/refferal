@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Trash2, Megaphone } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
 import { dateShort } from '@/lib/format';
@@ -44,7 +45,7 @@ export default function Announcements() {
         <div className="faint" style={{ fontSize: 12, marginBottom: 10 }}>Members see this on their dashboard until they mark it read.</div>
         <div className="field"><label>Title</label><input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={140} /></div>
         <div className="field"><label>Message</label><textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} maxLength={4000} style={{ resize: 'vertical' }} /></div>
-        <div className="row"><button className="btn" onClick={publish} disabled={busy}>{busy ? 'Publishing…' : 'Publish'}</button></div>
+        <div className="row"><button className="btn" onClick={publish} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Megaphone className="size-4" aria-hidden /> {busy ? 'Publishing…' : 'Publish'}</button></div>
       </div>
 
       <div className="card">
@@ -55,7 +56,7 @@ export default function Announcements() {
               <thead><tr><th>Title</th><th style={{ textAlign: 'right' }}>Reads</th><th>Date</th><th></th></tr></thead>
               <tbody>
                 {list.map((a) => (
-                  <tr key={a.id}><td>{a.title}</td><td className="tnum" style={{ textAlign: 'right' }}>{a.reads}</td><td className="muted">{dateShort(a.createdAt)}</td><td style={{ textAlign: 'right' }}><button className="btn ghost sm danger" aria-label={`Delete announcement: ${a.title}`} onClick={() => remove(a.id)}>✕</button></td></tr>
+                  <tr key={a.id}><td>{a.title}</td><td className="tnum" style={{ textAlign: 'right' }}>{a.reads}</td><td className="muted">{dateShort(a.createdAt)}</td><td style={{ textAlign: 'right' }}><button className="btn ghost sm danger" aria-label={`Delete announcement: ${a.title}`} onClick={() => remove(a.id)}><Trash2 className="size-4" aria-hidden /></button></td></tr>
                 ))}
               </tbody>
             </table>

@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode, useEffect, useRef, useState } from 'react';
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, Settings } from 'lucide-react';
 import { Popover } from './Popover';
 import { APP_MONOGRAM, APP_NAME } from '@/lib/brand';
 
@@ -120,7 +121,7 @@ export function Bars({ data, max, format }: { data: Array<{ label: string; value
 }
 
 /* ----------------------------------------------------- stat kart */
-export function StatCard({ label, value, icon, grad, hint, delay }: { label: string; value: ReactNode; icon?: string; grad?: string; hint?: string; delay?: string }) {
+export function StatCard({ label, value, icon, grad, hint, delay }: { label: string; value: ReactNode; icon?: ReactNode; grad?: string; hint?: string; delay?: string }) {
   return (
     <div className={`card hover stat fade-in ${delay ?? ''}`}>
       <div className="spread">
@@ -325,7 +326,8 @@ export function Error({ message, onRetry }: { message: string; onRetry?: () => v
         color: 'var(--rose)',
       }}
     >
-      <span aria-hidden="true" style={{ fontSize: 'var(--text-2xl)' }}>⚠</span>
+      <AlertTriangle className="size-7" aria-hidden />
+
       <p style={{ margin: 0, maxWidth: 320, fontSize: 'var(--text-md)', fontWeight: 600 }}>{message}</p>
       {onRetry && (
         <button className="btn ghost sm" onClick={onRetry} style={{ color: 'var(--text)' }}>Try again</button>
@@ -353,9 +355,9 @@ export function Pagination({ page, pageSize, total, onPage }: { page: number; pa
   return (
     <div className="row no-print" style={{ justifyContent: 'flex-end', flexWrap: 'wrap', gap: 'var(--space-2)', marginTop: 'var(--space-3)' }}>
       <span className="faint tnum" style={{ fontSize: 'var(--text-sm)' }}>{first}–{last} / {total}</span>
-      <button className="btn ghost sm" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page"><span aria-hidden="true">‹</span></button>
+      <button className="btn ghost sm" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page"><ArrowLeft className="size-4" aria-hidden /></button>
       <span className="tnum" style={{ fontSize: 'var(--text-sm)' }}>{page} / {pages}</span>
-      <button className="btn ghost sm" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page"><span aria-hidden="true">›</span></button>
+      <button className="btn ghost sm" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page"><ArrowRight className="size-4" aria-hidden /></button>
     </div>
   );
 }
@@ -410,7 +412,7 @@ export function useTablePrefs(tableId: string, columns: TableColumn[]): TablePre
 /** Kolon/yogunluk menusu (Popover). Kilitli kolonlar her zaman acik. */
 export function ColumnsMenu({ prefs }: { prefs: TablePrefs }) {
   return (
-    <Popover label={<><span aria-hidden="true">⚙</span> Columns</>} badge={prefs.hiddenCount} width={240}>
+    <Popover label={<><Settings className="size-4" aria-hidden /> Columns</>} badge={prefs.hiddenCount} width={240}>
       <div className="grid" style={{ gap: 'var(--space-1)' }}>
         {prefs.columns.map((c) => {
           const on = c.locked || prefs.isVisible(c.key);
@@ -425,7 +427,7 @@ export function ColumnsMenu({ prefs }: { prefs: TablePrefs }) {
               onClick={toggle}
               onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); } }}
               style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: 'var(--space-2) var(--space-3)', borderRadius: 8, cursor: c.locked ? 'default' : 'pointer', fontSize: 'var(--text-md)', opacity: c.locked ? 0.6 : 1 }}>
-              <span aria-hidden="true" style={{ width: 14, height: 14, borderRadius: 4, display: 'grid', placeItems: 'center', fontSize: 'var(--text-xs)', fontWeight: 900, background: on ? 'var(--gold-500)' : 'transparent', border: on ? 'none' : '1.5px solid var(--border-strong)', color: 'var(--on-gold)' }}>{on ? '✓' : ''}</span>
+              <span aria-hidden="true" style={{ width: 14, height: 14, borderRadius: 4, display: 'grid', placeItems: 'center', fontSize: 'var(--text-xs)', fontWeight: 900, background: on ? 'var(--gold-500)' : 'transparent', border: on ? 'none' : '1.5px solid var(--border-strong)', color: 'var(--on-gold)' }}>{on ? <Check className="size-3" aria-hidden /> : ''}</span>
               {c.label}{c.locked && <span className="faint" style={{ fontSize: 'var(--text-xs)' }}>(fixed)</span>}
             </div>
           );

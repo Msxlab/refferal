@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Save, Send } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
@@ -61,8 +62,8 @@ export default function Reports() {
       {lastSentAt && <div className="faint" style={{ fontSize: 11, marginBottom: 10 }}>Last sent: {new Date(lastSentAt).toLocaleString()}</div>}
       {error && <Alert variant="destructive" className="mb-2.5"><AlertDescription>{error}</AlertDescription></Alert>}
       <div className="row" style={{ gap: 10 }}>
-        <button className="btn" onClick={save} disabled={busy}>Save</button>
-        <button className="btn ghost" onClick={sendTest} disabled={busy}>Send test now</button>
+        <button className="btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Save className="size-4" aria-hidden /> Save</button>
+        <button className="btn ghost" onClick={sendTest} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send className="size-4" aria-hidden /> Send test now</button>
       </div>
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>

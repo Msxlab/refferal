@@ -16,6 +16,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
+import { ArrowLeft, AlertTriangle, Users, Circle, Network, Star, TrendingUp, TrendingDown, LayoutGrid, List, Award, ArrowRight } from 'lucide-react';
 
 interface Leader {
   id: string; fullName: string; referralCode: string; role: string;
@@ -183,7 +184,7 @@ export default function NetworkPage() {
       <div className="mx-auto max-w-[1160px] px-7 py-7">
         <div className="mb-4 flex items-center gap-3">
           <Button variant="ghost" size="sm" className="gap-1" onClick={() => { setRoot(null); setNodes(null); }}>
-            ← Leaders
+            <ArrowLeft className="size-4" aria-hidden /> Leaders
           </Button>
           <div>
             <div className="text-[11px] font-bold uppercase tracking-[0.13em] text-muted-foreground/70">
@@ -213,7 +214,7 @@ export default function NetworkPage() {
 
       {meta?.truncated && (
         <Alert className="fade-in mt-4 flex items-center gap-2 border-amber-400/30 bg-amber-400/10 py-2 text-[13px] text-foreground">
-          <span aria-hidden className="text-amber-400">⚠</span>
+          <AlertTriangle className="size-4 text-amber-400" aria-hidden />
           <AlertDescription className="text-[13px] text-foreground">
             Showing the first <strong>{meta.shownLeaders}</strong> of <strong>{meta.totalLeaders}</strong> leaders. Search &amp; pagination are coming soon.
           </AlertDescription>
@@ -226,12 +227,12 @@ export default function NetworkPage() {
           <div className={cn('grid grid-cols-2 gap-4 sm:grid-cols-4', health.dormantClusters.length > 0 && 'mb-3.5')}>
             <div>
               <div className="text-[11px] text-muted-foreground/70">Members</div>
-              <div className="mt-0.5 text-[18px] font-bold tabular-nums text-foreground">⬡ {health.totals.members}</div>
+              <div className="mt-0.5 flex items-center gap-1.5 text-[18px] font-bold tabular-nums text-foreground"><Users className="size-4 text-muted-foreground/70" aria-hidden /> {health.totals.members}</div>
             </div>
             <div>
               <div className="text-[11px] text-muted-foreground/70">Active</div>
-              <div className="mt-0.5 text-[18px] font-bold tabular-nums text-foreground">
-                ● {health.totals.active}
+              <div className="mt-0.5 flex items-center gap-1.5 text-[18px] font-bold tabular-nums text-foreground">
+                <Circle className="size-2.5 fill-emerald-400 text-emerald-400" aria-hidden /> {health.totals.active}
                 <span className="text-[11px] font-normal text-muted-foreground/70"> / {health.totals.inactive} inactive</span>
               </div>
             </div>
@@ -256,7 +257,7 @@ export default function NetworkPage() {
                 {health.dormantClusters.map((d) => (
                   <Button key={d.leaderId} variant="outline" size="sm" className="h-auto gap-1.5 py-1.5"
                     onClick={() => openTree(d.leaderId, d.leaderName)} title={`${d.referralCode} · team of ${d.teamSize}`}>
-                    {d.leaderName} <span className="text-muted-foreground/70">⬡{d.teamSize}</span>
+                    {d.leaderName} <span className="inline-flex items-center gap-1 text-muted-foreground/70"><Users className="size-3.5" aria-hidden />{d.teamSize}</span>
                   </Button>
                 ))}
               </div>
@@ -276,14 +277,14 @@ export default function NetworkPage() {
             className="fade-in mt-3.5 w-full cursor-pointer rounded-xl border border-dashed border-input bg-card px-4 py-3 text-left transition-colors hover:border-primary/50 hover:bg-muted"
             onClick={() => openTree(null, 'Whole network')}
           >
-            <span className="text-sm font-bold text-foreground"><span aria-hidden>◈</span> Whole network</span>
+            <span className="inline-flex items-center gap-1.5 text-sm font-bold text-foreground"><Network className="size-4" aria-hidden /> Whole network</span>
             <span className="text-xs text-muted-foreground/70"> — see the entire company as one tree</span>
           </button>
 
           {/* spotlight: en iyi saha lideri (arama yokken) */}
           {!q && spotlight && (
             <>
-              <div className="mt-[18px] mb-[7px] text-[11px] font-semibold text-muted-foreground/70"><span aria-hidden>★</span> Top performer this month</div>
+              <div className="mt-[18px] mb-[7px] inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground/70"><Star className="size-3.5" aria-hidden /> Top performer this month</div>
               <button
                 onClick={() => openTree(spotlight.id, spotlight.fullName)}
                 className="w-full cursor-pointer rounded-2xl border border-primary bg-card px-[18px] py-4 text-left shadow-[0_0_0_1px_hsl(var(--primary)/0.4),0_18px_50px_-28px_hsl(var(--primary)/0.5)] transition-transform hover:-translate-y-0.5"
@@ -298,11 +299,11 @@ export default function NetworkPage() {
                       <span className="font-mono text-[11px] text-muted-foreground/70">{spotlight.referralCode}</span>
                       <StatusPill s={leaderStatus(spotlight)} />
                     </div>
-                    <div className="mt-1 text-xs text-muted-foreground/70">
-                      <span aria-hidden>⬡</span> {spotlight.teamSize} team · {Math.round(activeRatioOf(spotlight) * 100)}% active
+                    <div className="mt-1 inline-flex flex-wrap items-center gap-1 text-xs text-muted-foreground/70">
+                      <Users className="size-3.5" aria-hidden /> {spotlight.teamSize} team · {Math.round(activeRatioOf(spotlight) * 100)}% active
                       {growthOf(spotlight) !== 0 && (
-                        <span className={growthOf(spotlight) > 0 ? 'text-emerald-400' : 'text-destructive'}>
-                          {' · '}<span aria-hidden>{growthOf(spotlight) > 0 ? '▲' : '▼'}</span> {compactMoney(Math.abs(growthOf(spotlight)))} vs last mo
+                        <span className={cn('inline-flex items-center gap-1', growthOf(spotlight) > 0 ? 'text-emerald-400' : 'text-destructive')}>
+                          {' · '}{growthOf(spotlight) > 0 ? <TrendingUp className="size-3.5" aria-hidden /> : <TrendingDown className="size-3.5" aria-hidden />} {compactMoney(Math.abs(growthOf(spotlight)))} vs last mo
                         </span>
                       )}
                     </div>
@@ -340,8 +341,8 @@ export default function NetworkPage() {
             </Select>
             <Tabs value={view} onValueChange={(v) => setView(v as 'cards' | 'table')}>
               <TabsList>
-                <TabsTrigger value="cards">▦ Cards</TabsTrigger>
-                <TabsTrigger value="table">☰ Table</TabsTrigger>
+                <TabsTrigger value="cards" className="gap-1.5"><LayoutGrid className="size-4" aria-hidden /> Cards</TabsTrigger>
+                <TabsTrigger value="table" className="gap-1.5"><List className="size-4" aria-hidden /> Table</TabsTrigger>
               </TabsList>
             </Tabs>
             <span className="text-[12.5px] text-muted-foreground/70">{sortedLeaders.length} {sortedLeaders.length === 1 ? 'leader' : 'leaders'}</span>
@@ -377,12 +378,12 @@ export default function NetworkPage() {
                         <div className="flex shrink-0 gap-1.5">
                           {l.isOwnerRoot
                             ? <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[9px] font-semibold text-primary">owner</span>
-                            : <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[9px] font-semibold text-primary">🎖</span>}
+                            : <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[9px] font-semibold text-primary" title="leader"><Award className="size-3" aria-hidden /></span>}
                           <StatusPill s={st} />
                         </div>
                       </div>
                       <div className="mt-3 flex items-center gap-2">
-                        <span className="min-w-[38px] text-[10px] text-muted-foreground/70">⬡ {l.teamSize}</span>
+                        <span className="inline-flex min-w-[38px] items-center gap-1 text-[10px] text-muted-foreground/70"><Users className="size-3" aria-hidden /> {l.teamSize}</span>
                         <Progress
                           value={Math.round(activeRatioOf(l) * 100)}
                           className={cn('h-1 flex-1 bg-muted', STATUS_META[st].barIndicator)}
@@ -427,7 +428,7 @@ export default function NetworkPage() {
                             <div>
                               <div className="text-[13px] font-semibold text-foreground">
                                 {l.fullName}
-                                {l.isOwnerRoot ? <span className="font-normal text-muted-foreground/70"> · owner</span> : l.isTeamLeader ? ' 🎖' : ''}
+                                {l.isOwnerRoot ? <span className="font-normal text-muted-foreground/70"> · owner</span> : l.isTeamLeader ? <Award className="ml-1 inline size-3.5 align-text-bottom text-primary" aria-hidden /> : ''}
                               </div>
                               <div className="font-mono text-[11px] text-muted-foreground/70">{l.referralCode}</div>
                             </div>
@@ -441,7 +442,7 @@ export default function NetworkPage() {
                         <TableCell className="text-right tabular-nums text-primary">{money(l.monthlyGroupCommissionCents)}</TableCell>
                         <TableCell><Sparkline data={l.trend} color={STATUS_META[st].spark} w={70} h={20} /></TableCell>
                         <TableCell><StatusPill s={st} /></TableCell>
-                        <TableCell className="text-right"><span className="text-xs text-muted-foreground/70">Open →</span></TableCell>
+                        <TableCell className="text-right"><span className="inline-flex items-center gap-1 text-xs text-muted-foreground/70">Open <ArrowRight className="size-3.5" aria-hidden /></span></TableCell>
                       </TableRow>
                     );
                   })}

@@ -8,6 +8,7 @@ import '@xyflow/react/dist/style.css';
 import { Drawer } from '@/components/Drawer';
 import { PrintSheet, PrintHeader } from '@/components/PrintSheet';
 import { activeMembership, getSession } from '@/lib/auth';
+import { Award, Wallet, Users, Circle, GitBranch, List, Target, Download, Printer, ChevronRight, User, Maximize2, Sparkles, Coins, Star, Banknote } from 'lucide-react';
 
 export interface ApiNode {
   id: string;
@@ -85,16 +86,16 @@ function MemberNode({ data }: NodeProps<Node<NodeData>>) {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
         <div style={{ display: 'flex', gap: 6 }}>
-          {n.isTeamLeader && <span className="badge payable" style={{ fontSize: 9 }}>🎖 leader</span>}
+          {n.isTeamLeader && <span className="badge payable" style={{ fontSize: 9, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Award className="size-3" aria-hidden /> leader</span>}
           {n.role !== 'member' && <span className="badge active" style={{ fontSize: 9 }}>{n.role.replace('tenant_', '')}</span>}
-          {data.rank && <span className="badge payable" style={{ fontSize: 9 }}>🏅 {data.rank}</span>}
+          {data.rank && <span className="badge payable" style={{ fontSize: 9, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Star className="size-3" aria-hidden /> {data.rank}</span>}
           {n.status !== 'active' && <span className="badge inactive" style={{ fontSize: 9 }}>{n.status}</span>}
         </div>
         <span className="row" style={{ gap: 6 }}>
-          {data.revenue > 0 && <span className="tnum" style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))' }} title={`${data.sales} satış (bu ay)`}>◇ {compactMoney(data.revenue)}</span>}
+          {data.revenue > 0 && <span className="tnum" style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))', display: 'inline-flex', alignItems: 'center', gap: 3 }} title={`${data.sales} satış (bu ay)`}><Banknote className="size-3" aria-hidden /> {compactMoney(data.revenue)}</span>}
           {Number(n.monthlyCommissionCents ?? 0) > 0
-            ? <span className="tnum" style={{ fontSize: 10, fontWeight: 700, color: 'var(--gold-500)' }} title="Commission this month (earned)">◆ {compactMoney(Number(n.monthlyCommissionCents))}</span>
-            : (data.revenue === 0 && data.team > 0 && <span style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))' }}>⬡ {data.team}</span>)}
+            ? <span className="tnum" style={{ fontSize: 10, fontWeight: 700, color: 'var(--gold-500)', display: 'inline-flex', alignItems: 'center', gap: 3 }} title="Commission this month (earned)"><Wallet className="size-3" aria-hidden /> {compactMoney(Number(n.monthlyCommissionCents))}</span>
+            : (data.revenue === 0 && data.team > 0 && <span style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Users className="size-3" aria-hidden /> {data.team}</span>)}
         </span>
       </div>
       <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
@@ -372,21 +373,21 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
     <div>
       {/* ---- ag analitigi seridi ---- */}
       <div className="net-kpis" style={{ marginBottom: 14 }}>
-        <Kpi label={focusId ? 'In this branch' : 'Total people'} value={String(analytics.people)} icon="⬡" />
-        <Kpi label="Active" value={`${analytics.active}`} sub={analytics.people ? `${Math.round((analytics.active / analytics.people) * 100)}%` : undefined} icon="●" />
-        <Kpi label="Depth" value={String(analytics.maxDepth)} icon="⤳" />
-        <Kpi label="Joined this month" value={String(analytics.newThisMonth)} icon="✦" />
-        <Kpi label="Revenue (this mo)" value={compactMoney(analytics.revenue)} icon="◇" />
-        <Kpi label="Commission (this mo)" value={compactMoney(analytics.monthlyComm)} icon="◆" />
-        {hasEarnings && <Kpi label="Lifetime earnings" value={compactMoney(analytics.earnings)} icon="$" />}
-        {analytics.top && analytics.top.cents > 0 && <Kpi label="Top earner" value={analytics.top.name} sub={compactMoney(analytics.top.cents)} icon="★" />}
+        <Kpi label={focusId ? 'In this branch' : 'Total people'} value={String(analytics.people)} icon={<Users className="size-[18px]" aria-hidden />} />
+        <Kpi label="Active" value={`${analytics.active}`} sub={analytics.people ? `${Math.round((analytics.active / analytics.people) * 100)}%` : undefined} icon={<Circle className="size-[18px]" aria-hidden />} />
+        <Kpi label="Depth" value={String(analytics.maxDepth)} icon={<GitBranch className="size-[18px]" aria-hidden />} />
+        <Kpi label="Joined this month" value={String(analytics.newThisMonth)} icon={<Sparkles className="size-[18px]" aria-hidden />} />
+        <Kpi label="Revenue (this mo)" value={compactMoney(analytics.revenue)} icon={<Banknote className="size-[18px]" aria-hidden />} />
+        <Kpi label="Commission (this mo)" value={compactMoney(analytics.monthlyComm)} icon={<Wallet className="size-[18px]" aria-hidden />} />
+        {hasEarnings && <Kpi label="Lifetime earnings" value={compactMoney(analytics.earnings)} icon={<Coins className="size-[18px]" aria-hidden />} />}
+        {analytics.top && analytics.top.cents > 0 && <Kpi label="Top earner" value={analytics.top.name} sub={compactMoney(analytics.top.cents)} icon={<Star className="size-[18px]" aria-hidden />} />}
       </div>
 
       {/* ---- temiz arac cubugu ---- */}
       <div className="row" style={{ gap: 10, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
         <div className="seg-tabs" role="tablist" aria-label="Network view" style={{ padding: 4 }}>
-          <button role="tab" aria-selected={view === 'tree'} className={`seg-tab ${view === 'tree' ? 'on' : ''}`} onClick={() => setView('tree')}><span aria-hidden>⤳</span> Tree</button>
-          <button role="tab" aria-selected={view === 'list'} className={`seg-tab ${view === 'list' ? 'on' : ''}`} onClick={() => setView('list')}><span aria-hidden>☰</span> List</button>
+          <button role="tab" aria-selected={view === 'tree'} className={`seg-tab ${view === 'tree' ? 'on' : ''}`} onClick={() => setView('tree')} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><GitBranch className="size-4" aria-hidden /> Tree</button>
+          <button role="tab" aria-selected={view === 'list'} className={`seg-tab ${view === 'list' ? 'on' : ''}`} onClick={() => setView('list')} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><List className="size-4" aria-hidden /> List</button>
         </div>
         <input
           aria-label="Search network by name or code"
@@ -407,11 +408,12 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
             onClick={() => setHeat((h) => h === 'none' ? 'revenue' : h === 'revenue' ? 'earnings' : 'none')}
             title="Shade nodes by metric (heat map)"
             aria-pressed={heat !== 'none'}
-          ><span aria-hidden>◉</span> Heat: {heat === 'none' ? 'off' : heat === 'revenue' ? 'revenue' : 'earnings'}</button>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
+          ><Target className="size-4" aria-hidden /> Heat: {heat === 'none' ? 'off' : heat === 'revenue' ? 'revenue' : 'earnings'}</button>
         )}
-        <button className="btn ghost sm" onClick={exportCsv}><span aria-hidden>⇩</span> CSV</button>
-        <button className="btn ghost sm" onClick={() => setPrinting(true)}><span aria-hidden>⇩</span> Print</button>
-        {view === 'tree' && <button className="btn ghost sm" onClick={exportPng}><span aria-hidden>⇩</span> PNG</button>}
+        <button className="btn ghost sm" onClick={exportCsv} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download className="size-4" aria-hidden /> CSV</button>
+        <button className="btn ghost sm" onClick={() => setPrinting(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Printer className="size-4" aria-hidden /> Print</button>
+        {view === 'tree' && <button className="btn ghost sm" onClick={exportPng} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download className="size-4" aria-hidden /> PNG</button>}
         <span className="faint" style={{ fontSize: 12 }}>{subtree.length} {subtree.length === 1 ? 'person' : 'people'}</span>
         {notice && (
           <span role="status" aria-live="polite" style={{ fontSize: 12, fontWeight: 600, color: notice.kind === 'ok' ? 'var(--emerald)' : 'var(--rose)' }}>
@@ -438,7 +440,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
           {rfNodes.length === 0 ? (
             <div style={{ display: 'grid', placeItems: 'center', height: '100%', padding: 24 }}>
               <div style={{ textAlign: 'center' }}>
-                <div aria-hidden style={{ fontSize: 28, opacity: 0.6 }}>⬡</div>
+                <div aria-hidden style={{ opacity: 0.6, display: 'grid', placeItems: 'center' }}><Users style={{ width: 28, height: 28 }} aria-hidden /></div>
                 <div style={{ fontWeight: 600, fontSize: 14, marginTop: 8 }}>No members in this branch</div>
                 <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
                   {query ? 'Try a different search.' : 'This branch has no one to show yet.'}
@@ -475,14 +477,14 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
                             <button
                               onClick={(e) => { e.stopPropagation(); toggleExpand(n.id); }}
                               aria-label={open ? 'Collapse' : 'Expand'}
-                              style={{ width: 20, height: 20, display: 'grid', placeItems: 'center', background: 'none', border: 'none', color: 'hsl(var(--muted-foreground))', cursor: 'pointer', fontSize: 10, flexShrink: 0, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s ease' }}
-                            >▶</button>
+                              style={{ width: 20, height: 20, display: 'grid', placeItems: 'center', background: 'none', border: 'none', color: 'hsl(var(--muted-foreground))', cursor: 'pointer', flexShrink: 0, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s ease' }}
+                            ><ChevronRight className="size-3.5" aria-hidden /></button>
                           ) : <span style={{ width: 20, flexShrink: 0 }} />}
-                          <span style={{ flexShrink: 0, fontSize: 15 }}>{hasChildren ? '🗂' : '👤'}</span>
+                          <span style={{ flexShrink: 0, display: 'grid', placeItems: 'center', color: 'hsl(var(--muted-foreground))' }}>{hasChildren ? <GitBranch className="size-4" aria-hidden /> : <User className="size-4" aria-hidden />}</span>
                           <div style={{ minWidth: 0 }}>
                             <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
                               {n.fullName}
-                              {Number(n.revenueCents ?? 0) > 0 && <span className="tnum" style={{ fontSize: 10, fontWeight: 700, color: 'var(--gold-500)' }} title={`${n.salesCount ?? 0} sales this month`}>◆ {compactMoney(Number(n.revenueCents))}</span>}
+                              {Number(n.revenueCents ?? 0) > 0 && <span className="tnum" style={{ fontSize: 10, fontWeight: 700, color: 'var(--gold-500)', display: 'inline-flex', alignItems: 'center', gap: 3 }} title={`${n.salesCount ?? 0} sales this month`}><Banknote className="size-3" aria-hidden /> {compactMoney(Number(n.revenueCents))}</span>}
                             </div>
                             <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{n.referralCode}</div>
                           </div>
@@ -496,7 +498,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
                     <td className="tnum" style={{ textAlign: 'right', fontWeight: 600, color: Number(n.monthlyCommissionCents ?? 0) > 0 ? 'var(--gold-500)' : 'var(--faint)' }}>{Number(n.monthlyCommissionCents ?? 0) > 0 ? compactMoney(Number(n.monthlyCommissionCents)) : '—'}</td>
                     <td><span className={`badge ${n.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>{n.status}</span></td>
                     <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'right' }}>
-                      {hasChildren && <button className="btn ghost sm" onClick={() => setFocusId(n.id)}>Focus ⤢</button>}
+                      {hasChildren && <button className="btn ghost sm" onClick={() => setFocusId(n.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>Focus <Maximize2 className="size-3.5" aria-hidden /></button>}
                     </td>
                   </tr>
                 );
@@ -511,15 +513,15 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
         <Drawer title={selected.fullName} subtitle={`${selected.referralCode} · ${title}`} onClose={() => setSelected(null)}
           footer={
             <>
-              {onToggleLeader && <button className="btn ghost" onClick={() => { onToggleLeader(selected); setSelected(null); }}>{selected.isTeamLeader ? '🎖 Remove leader' : '🎖 Make leader'}</button>}
-              <button className="btn ghost" onClick={() => { setView('tree'); setQuery(selected.referralCode); setSelected(null); }}>Show in tree ⤳</button>
-              {teamOf(selected.id) > 0 && <button className="btn" onClick={() => { setFocusId(selected.id); setSelected(null); }}>Focus subtree ⤢</button>}
+              {onToggleLeader && <button className="btn ghost" onClick={() => { onToggleLeader(selected); setSelected(null); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Award className="size-4" aria-hidden /> {selected.isTeamLeader ? 'Remove leader' : 'Make leader'}</button>}
+              <button className="btn ghost" onClick={() => { setView('tree'); setQuery(selected.referralCode); setSelected(null); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>Show in tree <GitBranch className="size-4" aria-hidden /></button>
+              {teamOf(selected.id) > 0 && <button className="btn" onClick={() => { setFocusId(selected.id); setSelected(null); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>Focus subtree <Maximize2 className="size-4" aria-hidden /></button>}
             </>
           }>
           <div className="grid" style={{ gap: 16 }}>
             <div className="row" style={{ gap: 8 }}>
               {selected.role !== 'member' && <span className="badge active" style={{ fontSize: 10 }}>{selected.role.replace('tenant_', '')}</span>}
-              {rankOf(selected.id) && <span className="badge payable" style={{ fontSize: 10 }}>🏅 {rankOf(selected.id)}</span>}
+              {rankOf(selected.id) && <span className="badge payable" style={{ fontSize: 10, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Star className="size-3" aria-hidden /> {rankOf(selected.id)}</span>}
               <span className={`badge ${selected.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 10 }}>{selected.status}</span>
             </div>
             <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 14 }}>
@@ -543,7 +545,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
                       <span style={{ fontWeight: 600, fontSize: 12.5 }}>{c.fullName}</span>
                       <span className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{c.referralCode}</span>
                       <span style={{ flex: 1 }} />
-                      <span className="faint" style={{ fontSize: 11 }}>⬡ {teamOf(c.id)}</span>
+                      <span className="faint" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Users className="size-3" aria-hidden /> {teamOf(c.id)}</span>
                     </button>
                   ))}
                 </div>
@@ -572,7 +574,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
             <tbody>
               {printRows.map(({ n, rel }) => (
                 <tr key={n.id} style={{ borderBottom: '1px solid hsl(var(--border))', breakInside: 'avoid' }}>
-                  <td style={{ padding: `3px 6px 3px ${6 + rel * 16}px` }}>{rel > 0 ? '└ ' : ''}{n.fullName}{n.isTeamLeader ? ' 🎖' : ''}</td>
+                  <td style={{ padding: `3px 6px 3px ${6 + rel * 16}px` }}>{rel > 0 ? '└ ' : ''}{n.fullName}{n.isTeamLeader ? <Award style={{ width: 11, height: 11, marginLeft: 4, display: 'inline', verticalAlign: 'text-bottom' }} aria-hidden /> : ''}</td>
                   <td style={{ padding: '3px 6px', fontFamily: 'ui-monospace, monospace' }}>{n.referralCode}</td>
                   <td style={{ padding: '3px 6px', textAlign: 'right' }}>{n.depth}</td>
                   <td style={{ padding: '3px 6px', textAlign: 'right' }}>{(childrenOf.get(n.id) ?? []).length}</td>
@@ -615,7 +617,7 @@ function GuideCells({ lasts }: { lasts: boolean[] }) {
 function crumbStyle(active: boolean): React.CSSProperties {
   return { background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: active ? 700 : 500, color: active ? 'var(--gold-500)' : 'hsl(var(--muted-foreground))' };
 }
-function Kpi({ label, value, sub, icon }: { label: string; value: string; sub?: string; icon?: string }) {
+function Kpi({ label, value, sub, icon }: { label: string; value: string; sub?: string; icon?: React.ReactNode }) {
   return (
     <div className="net-kpi">
       <div className="row" style={{ gap: 6, alignItems: 'center' }}>

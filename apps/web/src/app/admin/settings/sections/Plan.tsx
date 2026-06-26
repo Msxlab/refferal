@@ -1,6 +1,7 @@
 'use client';
 
 import { CSSProperties, useEffect, useMemo, useState } from 'react';
+import { Plus, X, Sparkles, HandCoins } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
 import { money, levelLabel } from '@/lib/format';
@@ -109,14 +110,14 @@ export default function Plan() {
                   <td>{levelLabel(i)}{i === 0 && <span className="faint" style={{ fontSize: 11 }}> (seller)</span>}</td>
                   <td style={{ textAlign: 'right' }}><input type="number" step="0.01" min={0} max={100} value={l.ratePct} onChange={(e) => setLevels(levels.map((x, j) => j === i ? { ratePct: Number(e.target.value) } : x))} style={{ width: 90, textAlign: 'right' }} /></td>
                   <td className="tnum" style={{ textAlign: 'right' }}>{money(preview[i]?.amountCents ?? 0)}</td>
-                  <td style={{ textAlign: 'right' }}>{i === levels.length - 1 && levels.length > 1 && <button className="btn ghost sm" onClick={() => setLevels(levels.slice(0, -1))} title="Remove last tier" aria-label="Remove last tier">✕</button>}</td>
+                  <td style={{ textAlign: 'right' }}>{i === levels.length - 1 && levels.length > 1 && <button className="btn ghost sm" onClick={() => setLevels(levels.slice(0, -1))} title="Remove last tier" aria-label="Remove last tier"><X className="size-4" aria-hidden /></button>}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
         <div className="row spread" style={{ marginTop: 8 }}>
-          <button className="btn ghost sm" onClick={() => setLevels([...levels, { ratePct: 0 }])} disabled={levels.length >= 20}>＋ Add tier</button>
+          <button className="btn ghost sm" onClick={() => setLevels([...levels, { ratePct: 0 }])} disabled={levels.length >= 20} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus className="size-4" aria-hidden /> Add tier</button>
           <span className={overPool ? 'badge failed' : 'faint'} style={{ fontSize: 12 }}>
             Levels total {levelSumPct.toFixed(2)}% / pool {poolPct.toFixed(2)}% {overPool ? '— exceeds the pool!' : ''}
           </span>
@@ -142,7 +143,7 @@ export default function Plan() {
         <div className="faint" style={{ fontSize: 12, marginTop: 4, marginBottom: 14 }}>Extra payouts to the direct sponsor, on top of the base unilevel plan{p.planName ? ` — “${p.planName}”` : ''}. Set 0 to disable.</div>
 
         <div className="card" style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 12 }}>
-          <h3 style={{ ...SECTION_TITLE, fontSize: 13 }}><span aria-hidden>⚡</span> Fast-start bonus</h3>
+          <h3 style={{ ...SECTION_TITLE, fontSize: 13, display: 'flex', alignItems: 'center', gap: 7 }}><Sparkles className="size-4" aria-hidden /> Fast-start bonus</h3>
           <div className="faint" style={{ fontSize: 11, marginBottom: 8 }}>Direct sponsor earns this % of a new member&apos;s sale, if the sale is within the window after they joined.</div>
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="field" style={{ margin: 0 }}><label>Rate (%)</label><input type="number" step="0.01" min={0} value={p.fastStartBps / 100} onChange={(e) => setP({ ...p, fastStartBps: Math.round(Number(e.target.value) * 100) })} /></div>
@@ -151,7 +152,7 @@ export default function Plan() {
         </div>
 
         <div className="card" style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 12 }}>
-          <h3 style={{ ...SECTION_TITLE, fontSize: 13 }}><span aria-hidden>🤝</span> Sponsor matching bonus</h3>
+          <h3 style={{ ...SECTION_TITLE, fontSize: 13, display: 'flex', alignItems: 'center', gap: 7 }}><HandCoins className="size-4" aria-hidden /> Sponsor matching bonus</h3>
           <div className="faint" style={{ fontSize: 11, marginBottom: 8 }}>Direct sponsor earns this % of the seller&apos;s own (level-0) commission on every sale.</div>
           <div className="field" style={{ margin: 0, maxWidth: 200 }}><label>Match rate (%)</label><input type="number" step="0.01" min={0} value={p.matchingBps / 100} onChange={(e) => setP({ ...p, matchingBps: Math.round(Number(e.target.value) * 100) })} /></div>
         </div>
