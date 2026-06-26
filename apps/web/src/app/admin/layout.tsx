@@ -382,8 +382,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <ThemeToggle />
         </header>
 
-        {/* Content */}
-        <div className="flex-1">{children}</div>
+        {/* Content — tutarli sayfa container'i (tum admin sayfalari icin tek max-width + padding) */}
+        <div className="mx-auto w-full max-w-[1200px] flex-1 px-4 py-6 sm:px-7 lg:py-7">{children}</div>
       </main>
 
       <CommandPalette />

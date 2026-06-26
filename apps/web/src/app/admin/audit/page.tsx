@@ -4,6 +4,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react
 import { api, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
 import { Loading, Pagination } from '@/components/ui';
+import { PageHeader } from '@/components/Page';
 import { Drawer } from '@/components/Drawer';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -122,22 +123,22 @@ export default function AuditPage() {
 
   return (
     <div>
-      <div className="spread">
-        <div>
-          <div className="eyebrow fade-in">{t('nav.audit')}</div>
-          <h1 className="h1 fade-in">Audit Log</h1>
-          <p className="sub fade-in">Every action affecting money, roles, and plans is recorded here.</p>
-        </div>
-        <div className="row fade-in no-print" style={{ gap: 8 }}>
-          {integrity && (
-            <span className={`badge ${integrity.ok ? 'active' : 'failed'}`} title={integrity.brokenAt ? `Broken at ${integrity.brokenAt}` : undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              {integrity.ok ? <><CheckCircle2 className="size-4" aria-hidden /> Chain intact ({integrity.checked})</> : <><XCircle className="size-4" aria-hidden /> Chain tampered</>}
-            </span>
-          )}
-          <button className="btn ghost" onClick={verifyIntegrity} disabled={verifying}>{verifying ? 'Verifying…' : <><ShieldCheck className="size-4" aria-hidden /> Verify integrity</>}</button>
-          <button className="btn ghost" onClick={exportCsv}><Download className="size-4" aria-hidden /> Export CSV</button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow={t('nav.audit')}
+        title="Audit Log"
+        description="Every action affecting money, roles, and plans is recorded here."
+        actions={
+          <>
+            {integrity && (
+              <span className={`badge ${integrity.ok ? 'active' : 'failed'}`} title={integrity.brokenAt ? `Broken at ${integrity.brokenAt}` : undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                {integrity.ok ? <><CheckCircle2 className="size-4" aria-hidden /> Chain intact ({integrity.checked})</> : <><XCircle className="size-4" aria-hidden /> Chain tampered</>}
+              </span>
+            )}
+            <button className="btn ghost" onClick={verifyIntegrity} disabled={verifying}>{verifying ? 'Verifying…' : <><ShieldCheck className="size-4" aria-hidden /> Verify integrity</>}</button>
+            <button className="btn ghost" onClick={exportCsv}><Download className="size-4" aria-hidden /> Export CSV</button>
+          </>
+        }
+      />
 
       {error && <Alert variant="destructive" style={{ marginTop: 16 }}><AlertDescription>{error}</AlertDescription></Alert>}
 

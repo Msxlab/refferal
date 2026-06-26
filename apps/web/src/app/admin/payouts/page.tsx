@@ -2,7 +2,7 @@
 
 import type { CSSProperties, ComponentProps } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Download, ChevronDown, AlertTriangle, RefreshCw, Check, Printer } from 'lucide-react';
+import { ArrowRight, Download, ChevronDown, AlertTriangle, RefreshCw, Check, Printer, Wallet } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
 import { cn } from '@/lib/utils';
@@ -13,6 +13,7 @@ import { activeMembership, getSession } from '@/lib/auth';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { Card, CardContent } from '@/components/ui/card';
+import { PageHeader, KpiCard, KpiGrid } from '@/components/Page';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -347,32 +348,13 @@ export default function PayoutsPage() {
   const totalOwed = clawbacks ? Number(clawbacks.totalOwedCents) : 0;
 
   return (
-    <div className="mx-auto max-w-[1160px]">
-      <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-primary">{t('nav.payouts')}</div>
-      <h1 className="mt-1.5 font-display text-3xl font-extrabold tracking-tight text-foreground">Payout Management</h1>
-      <p className="mt-1 text-sm text-muted-foreground">Approve member requests, pay members above the threshold, and download the bank CSV.</p>
-
-      {error && (
-        <Alert variant="destructive" className="mt-4">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {/* ---- ready to pay banner ---- */}
-      <Card className="beam glow-primary relative mt-5 overflow-hidden border-primary/30 shadow-lg">
-        <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-primary to-transparent opacity-50" />
-        <CardContent className="flex flex-wrap items-center justify-between gap-5 p-6">
-          <div>
-            <div className="text-xs text-muted-foreground">Ready to pay · matured &amp; over threshold</div>
-            <div className="mt-1 font-display text-4xl font-extrabold tracking-tight tabular-nums text-primary">
-              <MoneyCounter cents={totalPayable} currency={c} />
-            </div>
-            <div className="mt-1 text-xs text-muted-foreground/70">
-              <CountUp value={payable?.members.length ?? 0} /> members · min threshold {payable ? money(payable.payoutMinCents, c) : '—'}
-            </div>
-            <PayoutProgress ready={totalPayable} blocked={totalOwed} currency={c} />
-          </div>
-          <div className="flex flex-wrap gap-2.5 print:hidden">
+    <div>
+      <PageHeader
+        eyebrow={t('nav.payouts')}
+        title="Payout Management"
+        description="Approve member requests, pay members above the threshold, and download the bank CSV."
+        actions={
+          <>
             <Button onClick={() => setConfirmRun('all')} disabled={busy || !payable?.members.length}>
               <ArrowRight className="size-4" aria-hidden /> {t('payouts.run')}
             </Button>
@@ -396,9 +378,33 @@ export default function PayoutsPage() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </div>
-        </CardContent>
-      </Card>
+          </>
+        }
+      />
+
+      {error && (
+        <Alert variant="destructive" className="mt-4">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* ---- ready to pay banner ---- */}
+      <KpiGrid cols={2} className="mt-5 lg:grid-cols-1">
+        <KpiCard
+          accent
+          label="Ready to pay · matured & over threshold"
+          icon={<Wallet aria-hidden />}
+          value={
+            <>
+              <MoneyCounter cents={totalPayable} currency={c} />
+              <div className="mt-1 text-xs font-normal tracking-normal text-muted-foreground/70">
+                <CountUp value={payable?.members.length ?? 0} /> members · min threshold {payable ? money(payable.payoutMinCents, c) : '—'}
+              </div>
+              <PayoutProgress ready={totalPayable} blocked={totalOwed} currency={c} />
+            </>
+          }
+        />
+      </KpiGrid>
 
       {/* ---- negatif bakiye band ---- */}
       {clawbacks && clawbacks.members.length > 0 && (

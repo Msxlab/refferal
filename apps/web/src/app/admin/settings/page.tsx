@@ -4,6 +4,7 @@ import { ReactNode, useEffect, useState } from 'react';
 import { Settings as SettingsIcon, Coins, Award, Users, Diamond, Megaphone, Shield, Share2, Bell, Mail, FileText } from 'lucide-react';
 import { getSession, can } from '@/lib/auth';
 import { t } from '@/lib/i18n';
+import { PageHeader } from '@/components/Page';
 import General from './sections/General';
 import Brand from './sections/Brand';
 import PeopleRoles from './sections/PeopleRoles';
@@ -59,9 +60,11 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <div className="eyebrow fade-in">{t('nav.settings')}</div>
-      <h1 className="h1 fade-in">Settings</h1>
-      <p className="sub fade-in" style={{ marginBottom: 18 }}>Workspace configuration, people, security and data.</p>
+      <PageHeader
+        eyebrow={t('nav.settings')}
+        title="Settings"
+        description="Workspace configuration, people, security and data."
+      />
 
       <div className="fade-in delay-1" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {TAB_GROUPS.filter((g) => tabs.some((t) => t.group === g)).map((g) => (

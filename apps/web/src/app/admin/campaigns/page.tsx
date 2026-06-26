@@ -3,6 +3,7 @@
 import { CSSProperties, FormEvent, useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Confirm, Loading, Modal, useToast } from '@/components/ui';
+import { PageHeader } from '@/components/Page';
 import { Drawer } from '@/components/Drawer';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -55,14 +56,12 @@ export default function CampaignsPage() {
 
   return (
     <div>
-      <div className="spread">
-        <div>
-          <div className="eyebrow fade-in">{t('nav.campaigns')}</div>
-          <h1 className="h1 fade-in">Campaigns &amp; Contests</h1>
-          <p className="sub fade-in">Time-boxed contests with live leaderboards and end-of-campaign bonuses.</p>
-        </div>
-        {isAdmin && <button className="btn fade-in" onClick={() => { setEditing(null); setShowForm(true); }} aria-label="Create a new campaign"><Plus className="size-4" aria-hidden /> New campaign</button>}
-      </div>
+      <PageHeader
+        eyebrow={t('nav.campaigns')}
+        title="Campaigns & Contests"
+        description="Time-boxed contests with live leaderboards and end-of-campaign bonuses."
+        actions={isAdmin ? <button className="btn fade-in" onClick={() => { setEditing(null); setShowForm(true); }} aria-label="Create a new campaign"><Plus className="size-4" aria-hidden /> New campaign</button> : undefined}
+      />
 
       {error && <Alert variant="destructive" className="fade-in"><AlertDescription>{error}</AlertDescription></Alert>}
 

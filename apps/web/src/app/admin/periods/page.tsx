@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import { Confirm, Loading, Modal, StatCard, useToast } from '@/components/ui';
+import { Confirm, Loading, Modal, useToast } from '@/components/ui';
+import { PageHeader, KpiCard, KpiGrid } from '@/components/Page';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useLiveRefresh } from '@/components/LiveIndicator';
 import { money } from '@/lib/format';
@@ -81,22 +82,20 @@ export default function PeriodsPage() {
 
   return (
     <div>
-      <div className="spread">
-        <div>
-          <div className="eyebrow fade-in">Accounting</div>
-          <h1 className="h1 fade-in">Period close</h1>
-          <p className="sub fade-in">Locking a month closes the books — no new commission, reversals or payouts can touch that period. Unlocking is recorded in the audit log.</p>
-        </div>
-        <button className="btn ghost no-print" onClick={() => window.print()} aria-label="Print page"><Printer className="size-4" aria-hidden /> Print</button>
-      </div>
+      <PageHeader
+        eyebrow="Accounting"
+        title="Period close"
+        description="Locking a month closes the books — no new commission, reversals or payouts can touch that period. Unlocking is recorded in the audit log."
+        actions={<button className="btn ghost no-print" onClick={() => window.print()} aria-label="Print page"><Printer className="size-4" aria-hidden /> Print</button>}
+      />
 
       {error && <Alert variant="destructive" style={{ marginTop: 16 }}><AlertDescription>{error}</AlertDescription></Alert>}
 
-      <div className="stat-grid" style={{ marginTop: 16 }}>
-        <StatCard label="Locked periods" value={String(stats.lockedCount)} icon={<Lock className="size-[18px]" aria-hidden />} />
-        <StatCard label="Payable in open periods" value={money(stats.openPayable.toString())} icon={<Wallet className="size-[18px]" aria-hidden />} />
-        <StatCard label="Pending in open periods" value={money(stats.openPending.toString())} icon={<Clock className="size-[18px]" aria-hidden />} />
-      </div>
+      <KpiGrid cols={3} className="mt-4">
+        <KpiCard label="Locked periods" value={String(stats.lockedCount)} icon={<Lock aria-hidden />} />
+        <KpiCard label="Payable in open periods" value={money(stats.openPayable.toString())} icon={<Wallet aria-hidden />} />
+        <KpiCard label="Pending in open periods" value={money(stats.openPending.toString())} icon={<Clock aria-hidden />} />
+      </KpiGrid>
 
       {rows.length === 0 ? (
         <div className="card lift" style={{ marginTop: 16 }}><span className="muted">No period data yet — periods appear here as approved sales come in.</span></div>

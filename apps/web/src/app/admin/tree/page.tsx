@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { useToast } from '@/components/ui';
 import { NetworkExplorer, type ApiNode, type RankTierLite } from '@/components/NetworkExplorer';
+import { PageHeader, KpiCard, KpiGrid } from '@/components/Page';
 import { money } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { Card } from '@/components/ui/card';
@@ -170,47 +171,47 @@ export default function NetworkPage() {
 
   if (error) {
     return (
-      <div className="mx-auto max-w-[1160px] px-7 py-7">
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      </div>
+      <Alert variant="destructive">
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
     );
   }
 
   // ---- bir lider/ağ seçiliyse: o ağacı göster ----
   if (root) {
     return (
-      <div className="mx-auto max-w-[1160px] px-7 py-7">
-        <div className="mb-4 flex items-center gap-3">
-          <Button variant="ghost" size="sm" className="gap-1" onClick={() => { setRoot(null); setNodes(null); }}>
-            <ArrowLeft className="size-4" aria-hidden /> Leaders
-          </Button>
-          <div>
-            <div className="text-[11px] font-bold uppercase tracking-[0.13em] text-muted-foreground/70">
-              {root.id === ALL ? 'Whole network' : 'Team tree'}
-            </div>
-            <h1 className="mt-0.5 font-display text-[22px] font-extrabold tracking-tight text-foreground">{root.name}</h1>
-          </div>
-        </div>
+      <>
+        <PageHeader
+          eyebrow={root.id === ALL ? 'Whole network' : 'Team tree'}
+          title={root.name}
+          actions={
+            <Button variant="ghost" size="sm" className="gap-1" onClick={() => { setRoot(null); setNodes(null); }}>
+              <ArrowLeft className="size-4" aria-hidden /> Leaders
+            </Button>
+          }
+        />
         {!nodes ? (
           <div className="space-y-2.5" role="status" aria-label="Loading">
             {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
           </div>
         ) : <NetworkExplorer nodes={nodes} tiers={tiers} title={root.name} onToggleLeader={toggleLeader} />}
         {toast && <div className="toast" role="status">{toast}</div>}
-      </div>
+      </>
     );
   }
 
   // ---- liderler landing'i ----
   return (
-    <div className="mx-auto max-w-[1160px] px-7 py-7">
-      <div className="fade-in text-[11px] font-bold uppercase tracking-[0.15em] text-primary">{t('nav.tree')}</div>
-      <h1 className="fade-in mt-1.5 font-display text-[27px] font-extrabold tracking-tight text-foreground">Team leaders</h1>
-      <p className="fade-in mt-1 max-w-[640px] text-[13.5px] text-muted-foreground">
-        Open each leader as its own tree — see their team, sales and <strong className="text-foreground">this month&apos;s commission</strong> live. Open any member in the tree and use <em>“Make leader”</em> to mark them a leader.
-      </p>
+    <>
+      <PageHeader
+        eyebrow={t('nav.tree')}
+        title="Team leaders"
+        description={
+          <>
+            Open each leader as its own tree — see their team, sales and <strong className="text-foreground">this month&apos;s commission</strong> live. Open any member in the tree and use <em>“Make leader”</em> to mark them a leader.
+          </>
+        }
+      />
 
       {meta?.truncated && (
         <Alert className="fade-in mt-4 flex items-center gap-2 border-amber-400/30 bg-amber-400/10 py-2 text-[13px] text-foreground">
@@ -223,35 +224,36 @@ export default function NetworkPage() {
 
       {/* ---- ag saglik seridi ---- */}
       {health && (
-        <Card className="lift fade-in mt-[18px] p-4 shadow-lg sm:px-[18px]">
-          <div className={cn('grid grid-cols-2 gap-4 sm:grid-cols-4', health.dormantClusters.length > 0 && 'mb-3.5')}>
-            <div>
-              <div className="text-[11px] text-muted-foreground/70">Members</div>
-              <div className="mt-0.5 flex items-center gap-1.5 text-[18px] font-bold tabular-nums text-foreground"><Users className="size-4 text-muted-foreground/70" aria-hidden /> {health.totals.members}</div>
-            </div>
-            <div>
-              <div className="text-[11px] text-muted-foreground/70">Active</div>
-              <div className="mt-0.5 flex items-center gap-1.5 text-[18px] font-bold tabular-nums text-foreground">
-                <Circle className="size-2.5 fill-emerald-400 text-emerald-400" aria-hidden /> {health.totals.active}
-                <span className="text-[11px] font-normal text-muted-foreground/70"> / {health.totals.inactive} inactive</span>
-              </div>
-            </div>
-            <div>
-              <div className="text-[11px] text-muted-foreground/70">No sale this month</div>
-              <div className={cn('mt-0.5 text-[18px] font-bold tabular-nums', health.noSaleActive.pct >= 50 ? 'text-amber-400' : 'text-foreground')}>
-                {health.noSaleActive.pct}%
-                <span className="text-[11px] font-normal text-muted-foreground/70"> ({health.noSaleActive.count}/{health.noSaleActive.total} active)</span>
-              </div>
-            </div>
-            <div>
-              <div className="text-[11px] text-muted-foreground/70">Dormant teams</div>
-              <div className={cn('mt-0.5 text-[18px] font-bold tabular-nums', health.dormantClusters.length > 0 ? 'text-amber-400' : 'text-emerald-400')}>
-                {health.dormantClusters.length}
-              </div>
-            </div>
-          </div>
+        <div className="fade-in mt-[18px]">
+          <KpiGrid cols={4}>
+            <KpiCard
+              label="Members"
+              value={health.totals.members}
+              icon={<Users />}
+            />
+            <KpiCard
+              label="Active"
+              value={
+                <span className="flex items-center gap-1.5">
+                  <Circle className="size-2.5 fill-emerald-400 text-emerald-400" aria-hidden /> {health.totals.active}
+                </span>
+              }
+              hint={`/ ${health.totals.inactive} inactive`}
+            />
+            <KpiCard
+              label="No sale this month"
+              value={`${health.noSaleActive.pct}%`}
+              valueClassName={cn(health.noSaleActive.pct >= 50 && 'text-amber-400')}
+              hint={`(${health.noSaleActive.count}/${health.noSaleActive.total} active)`}
+            />
+            <KpiCard
+              label="Dormant teams"
+              value={health.dormantClusters.length}
+              valueClassName={cn(health.dormantClusters.length > 0 ? 'text-amber-400' : 'text-emerald-400')}
+            />
+          </KpiGrid>
           {health.dormantClusters.length > 0 && (
-            <div>
+            <Card className="lift mt-3.5 p-4 shadow-lg sm:px-[18px]">
               <div className="mb-1.5 text-[11px] text-muted-foreground/70">Teams with no group sales this month — open to investigate:</div>
               <div className="flex flex-wrap gap-2">
                 {health.dormantClusters.map((d) => (
@@ -261,9 +263,9 @@ export default function NetworkPage() {
                   </Button>
                 ))}
               </div>
-            </div>
+            </Card>
           )}
-        </Card>
+        </div>
       )}
 
       {!leaders ? (
@@ -453,6 +455,6 @@ export default function NetworkPage() {
         </>
       )}
       {toast && <div className="toast" role="status">{toast}</div>}
-    </div>
+    </>
   );
 }

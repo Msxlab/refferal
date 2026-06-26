@@ -20,7 +20,8 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
-import { ChevronDown, Download, Printer, Upload, Plus, ArrowRight, Search, Users, X, Check, Trash2 } from 'lucide-react';
+import { PageHeader, KpiCard, KpiGrid } from '@/components/Page';
+import { ChevronDown, Download, Printer, Upload, Plus, ArrowRight, Search, Users, X, Check, Trash2, DollarSign, Clock, TrendingUp, Ban } from 'lucide-react';
 
 interface SaleItem {
   id: string;
@@ -315,48 +316,48 @@ export default function SalesPage() {
   return (
     <div className="text-foreground">
       {/* ---- baslik ---- */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-primary">{t('nav.sales')}</div>
-          <h1 className="mt-1 font-display text-2xl font-extrabold tracking-tight text-foreground sm:text-[27px]">Sales &amp; commissions</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Every booked sale, its status, and the commission it generates.</p>
-        </div>
-        <div className="no-print flex flex-wrap items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">More <ChevronDown className="size-4" aria-hidden /></Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={exportCsv}><Download className="size-4 mr-2" aria-hidden /> Export CSV</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => window.print()}><Printer className="size-4 mr-2" aria-hidden /> Print</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setShowImport(true)}><Upload className="size-4 mr-2" aria-hidden /> Import</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button size="sm" onClick={() => { setError(''); setCode(''); setSellerOpts([]); setSellerPicked(false); setNewDate(new Date().toLocaleDateString('en-CA')); setShowNew(true); }}><Plus className="size-4" aria-hidden /> New sale</Button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow={t('nav.sales')}
+        title="Sales & commissions"
+        description="Every booked sale, its status, and the commission it generates."
+        actions={
+          <>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">More <ChevronDown className="size-4" aria-hidden /></Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={exportCsv}><Download className="size-4 mr-2" aria-hidden /> Export CSV</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => window.print()}><Printer className="size-4 mr-2" aria-hidden /> Print</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setShowImport(true)}><Upload className="size-4 mr-2" aria-hidden /> Import</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button size="sm" onClick={() => { setError(''); setCode(''); setSellerOpts([]); setSellerPicked(false); setNewDate(new Date().toLocaleDateString('en-CA')); setShowNew(true); }}><Plus className="size-4" aria-hidden /> New sale</Button>
+          </>
+        }
+      />
 
       {error && <Alert variant="destructive" className="mt-4"><AlertDescription>{error}</AlertDescription></Alert>}
 
       {/* ---- KPI seridi ---- */}
-      <div className="my-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="Revenue (approved)" accent
+      <KpiGrid cols={4} className="my-4">
+        <KpiCard label="Revenue (approved)" accent icon={<DollarSign />}
           value={summary ? <MoneyCounter cents={summary.byStatus.approved.amountCents} currency={cur} /> : '—'}
           hint={summary ? `${summary.byStatus.approved.count} approved sales` : undefined} />
         <button type="button" onClick={() => patchFilters({ ...EMPTY, status: 'draft' })} title="Show drafts awaiting approval" aria-label="Show drafts awaiting approval" className="rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <Kpi label={<>Awaiting approval <ArrowRight className="inline size-[15px] align-text-bottom" aria-hidden /></>}
+          <KpiCard label={<>Awaiting approval <ArrowRight className="inline size-[15px] align-text-bottom" aria-hidden /></>} icon={<Clock />}
             value={summary ? <CountUp value={summary.byStatus.draft.count} /> : '—'}
-            valueStyle={{ color: 'var(--amber)' }}
+            valueClassName="text-[color:var(--amber)]"
             hint={summary ? money(summary.byStatus.draft.amountCents, cur) : undefined} />
         </button>
-        <Kpi label="Average sale"
+        <KpiCard label="Average sale" icon={<TrendingUp />}
           value={summary ? <MoneyCounter cents={summary.avgCents} currency={cur} /> : '—'}
           hint={summary ? `${summary.count} sales in view` : undefined} />
-        <Kpi label="Voided"
+        <KpiCard label="Voided" icon={<Ban />}
           value={summary ? <CountUp value={summary.byStatus.void.count} /> : '—'}
-          valueClass="text-destructive"
+          valueClassName="text-destructive"
           hint={summary ? money(summary.byStatus.void.amountCents, cur) : undefined} />
-      </div>
+      </KpiGrid>
 
       {/* ---- arac cubugu: ara + hizli tarih + filtreler + kayitli gorunumler ---- */}
       <div className="no-print my-4 flex flex-wrap items-center gap-2">
@@ -634,17 +635,6 @@ export default function SalesPage() {
 
       {toast && <div className="toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-border bg-popover px-4 py-2 text-sm text-foreground shadow-lg" role="status">{toast}</div>}
     </div>
-  );
-}
-
-/* ------------------------------------------------- KPI karti (sayfa-ici) */
-function Kpi({ label, value, hint, accent, valueClass, valueStyle }: { label: ReactNode; value: ReactNode; hint?: string; accent?: boolean; valueClass?: string; valueStyle?: CSSProperties }) {
-  return (
-    <Card className={cn('lift p-4 shadow-lg', accent && 'beam glow-primary border-primary/30')}>
-      <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
-      <div style={valueStyle} className={cn('mt-1.5 font-display text-2xl font-extrabold tabular-nums tracking-tight text-foreground', accent && 'text-primary', valueClass)}>{value}</div>
-      {hint && <div className="mt-1 text-[11px] text-muted-foreground/70">{hint}</div>}
-    </Card>
   );
 }
 

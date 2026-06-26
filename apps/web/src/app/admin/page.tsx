@@ -5,7 +5,8 @@ import type { ComponentType } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { sparkle } from '@/lib/celebrate';
-import { CountUp, Donut, Loading, MoneyCounter, StatCard, TrendBadge } from '@/components/ui';
+import { CountUp, Donut, Loading, MoneyCounter, TrendBadge } from '@/components/ui';
+import { PageHeader, KpiCard, KpiGrid } from '@/components/Page';
 import { TrendChart } from '@/components/TrendChart';
 import { useLiveRefresh } from '@/components/LiveIndicator';
 import { bps, money } from '@/lib/format';
@@ -114,9 +115,8 @@ export default function DashboardPage() {
 
   if (error)
     return (
-      <div className="mx-auto max-w-[1160px]">
-        <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-primary">{t('nav.dashboard')}</div>
-        <h1 className="mt-1 font-display text-[27px] font-extrabold tracking-tight text-foreground">{t('dash.title')}</h1>
+      <>
+        <PageHeader eyebrow={t('nav.dashboard')} title={t('dash.title')} />
         <Alert variant="destructive" className="mt-4">
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span>{error}</span>
@@ -130,7 +130,7 @@ export default function DashboardPage() {
             </Button>
           </AlertDescription>
         </Alert>
-      </div>
+      </>
     );
   if (!data) return <Loading />;
 
@@ -146,33 +146,33 @@ export default function DashboardPage() {
   const liaTotal = Math.max(1, liaPending + liaPayable + liaInPayout);
 
   return (
-    <div className="mx-auto max-w-[1160px]">
+    <>
       {/* ---- header ---- */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-primary">{t('nav.dashboard')} · {data.month}</div>
-          <h1 className="mt-1 font-display text-[27px] font-extrabold tracking-tight text-foreground">{t('dash.title')}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{t('dash.sub')}</p>
-        </div>
-        <div className="flex items-center gap-2 no-print">
-          {fin && (
-            fin.ok ? (
-              <Badge
-                variant="outline"
-                style={{ borderColor: 'color-mix(in srgb, var(--emerald) 40%, transparent)', backgroundColor: 'color-mix(in srgb, var(--emerald) 10%, transparent)', color: 'var(--emerald)' }}
-              >
-                <Check className="size-4" aria-hidden /> Books balanced
-              </Badge>
-            ) : (
-              <Badge variant="outline" className="border-destructive/40 bg-destructive/10 text-destructive">
-                <X className="size-4" aria-hidden /> {fin.payoutMismatches.length + fin.summaryMismatches.length} issue(s)
-              </Badge>
-            )
-          )}
-          <Button variant="ghost" size="sm" onClick={verifyFinancials} disabled={finBusy}>{finBusy ? 'Checking…' : <><Scale className="size-4" aria-hidden /> Verify financials</>}</Button>
-          <Button variant="ghost" size="sm" onClick={() => window.print()}><Printer className="size-4" aria-hidden /> Print report</Button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow={<>{t('nav.dashboard')} · {data.month}</>}
+        title={t('dash.title')}
+        description={t('dash.sub')}
+        actions={
+          <>
+            {fin && (
+              fin.ok ? (
+                <Badge
+                  variant="outline"
+                  style={{ borderColor: 'color-mix(in srgb, var(--emerald) 40%, transparent)', backgroundColor: 'color-mix(in srgb, var(--emerald) 10%, transparent)', color: 'var(--emerald)' }}
+                >
+                  <Check className="size-4" aria-hidden /> Books balanced
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="border-destructive/40 bg-destructive/10 text-destructive">
+                  <X className="size-4" aria-hidden /> {fin.payoutMismatches.length + fin.summaryMismatches.length} issue(s)
+                </Badge>
+              )
+            )}
+            <Button variant="ghost" size="sm" onClick={verifyFinancials} disabled={finBusy}>{finBusy ? 'Checking…' : <><Scale className="size-4" aria-hidden /> Verify financials</>}</Button>
+            <Button variant="ghost" size="sm" onClick={() => window.print()}><Printer className="size-4" aria-hidden /> Print report</Button>
+          </>
+        }
+      />
 
       {/* ---- Yapilacaklar (C4): bekleyen eylemler / Needs your attention ---- */}
       {todo && todo.total > 0 && (
@@ -315,13 +315,13 @@ export default function DashboardPage() {
       </div>
 
       {/* ---- 3-up stat cards ---- */}
-      <div className="mt-4 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-        <StatCard label={t('dash.payable')} value={<MoneyCounter cents={data.outstandingPayableCents} currency={c} />} icon={<Wallet className="size-[18px]" aria-hidden />} hint={t('dash.payableHint')} />
-        <StatCard label={t('dash.members')} value={<><CountUp value={data.members.active} /> / <CountUp value={data.members.total} /></>} icon={<Users className="size-[18px]" aria-hidden />} hint={t('dash.membersHint')} />
+      <KpiGrid cols={3} className="mt-4">
+        <KpiCard label={t('dash.payable')} value={<MoneyCounter cents={data.outstandingPayableCents} currency={c} />} icon={<Wallet />} hint={t('dash.payableHint')} />
+        <KpiCard label={t('dash.members')} value={<><CountUp value={data.members.active} /> / <CountUp value={data.members.total} /></>} icon={<Users />} hint={t('dash.membersHint')} />
         {data.pendingPayoutRequests > 0
-          ? <Link href="/admin/payouts" title="Go to payouts" className="block"><StatCard label={`${t('dash.pendingReq')} →`} value={<CountUp value={data.pendingPayoutRequests} />} icon={<Clock className="size-[18px]" aria-hidden />} hint={t('dash.requestsHint')} /></Link>
-          : <StatCard label={t('dash.pendingReq')} value={<CountUp value={data.pendingPayoutRequests} />} icon={<Clock className="size-[18px]" aria-hidden />} hint={t('dash.requestsHint')} />}
-      </div>
+          ? <Link href="/admin/payouts" title="Go to payouts" className="block"><KpiCard label={`${t('dash.pendingReq')} →`} value={<CountUp value={data.pendingPayoutRequests} />} icon={<Clock />} hint={t('dash.requestsHint')} accent /></Link>
+          : <KpiCard label={t('dash.pendingReq')} value={<CountUp value={data.pendingPayoutRequests} />} icon={<Clock />} hint={t('dash.requestsHint')} />}
+      </KpiGrid>
 
       {/* ---- borc kirilimi (stacked bar) + en cok kazananlar ---- */}
       <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
@@ -503,7 +503,7 @@ export default function DashboardPage() {
           </div>
         </Card>
       )}
-    </div>
+    </>
   );
 }
 

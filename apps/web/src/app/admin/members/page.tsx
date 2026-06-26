@@ -19,6 +19,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
+import { PageHeader } from '@/components/Page';
 import { Download, Plus, Sparkles, Search, Copy, Pencil, Printer, Eye, ArrowUpRight, AlertTriangle, Award, Check, ArrowLeft, ArrowRight, ChevronDown } from 'lucide-react';
 
 type SortDir = 'asc' | 'desc';
@@ -253,13 +254,12 @@ export default function MembersPage() {
   const lastRow = list ? Math.min(list.page * list.pageSize, list.total) : 0;
 
   return (
-    <div className="mx-auto max-w-[1160px] px-7 pb-16 pt-6 text-foreground">
-      {/* header */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-primary">{t('nav.members')}</div>
-          <h1 className="mt-1 font-display text-[27px] font-extrabold tracking-tight text-foreground">Member Management</h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+    <div className="text-foreground">
+      <PageHeader
+        eyebrow={t('nav.members')}
+        title="Member Management"
+        description={
+          <>
             Invite members, assign roles, deactivate. Placement is permanent.
             {nps && nps.total > 0 && nps.nps != null && (
               <Badge variant="outline" className="ml-2 border-emerald-500/30 bg-emerald-500/10 font-medium text-emerald-400">NPS {nps.nps} · {nps.total} responses</Badge>
@@ -269,14 +269,16 @@ export default function MembersPage() {
                 Invite funnel: {funnel.views} views <ArrowRight className="inline size-3" aria-hidden /> {funnel.signups} signups{funnel.conversionPct != null ? ` (${funnel.conversionPct}%)` : ''}
               </Badge>
             )}
-          </p>
-        </div>
-        <div className="no-print flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={exportCsv}><Download className="size-4" aria-hidden /> Export CSV</Button>
-          <Button variant="outline" size="sm" onClick={() => { setError(''); setAddName(''); setAddEmail(''); setAddSponsor(''); setAddRole('member'); setAddAsLeader(false); setAddResult(null); setShowAdd(true); }}><Plus className="size-4" aria-hidden /> Add member</Button>
-          <Button size="sm" onClick={() => { setLatest(null); setShowInvite(true); }}><Sparkles className="size-4" aria-hidden /> {t('members.invite')}</Button>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={exportCsv}><Download className="size-4" aria-hidden /> Export CSV</Button>
+            <Button variant="outline" size="sm" onClick={() => { setError(''); setAddName(''); setAddEmail(''); setAddSponsor(''); setAddRole('member'); setAddAsLeader(false); setAddResult(null); setShowAdd(true); }}><Plus className="size-4" aria-hidden /> Add member</Button>
+            <Button size="sm" onClick={() => { setLatest(null); setShowInvite(true); }}><Sparkles className="size-4" aria-hidden /> {t('members.invite')}</Button>
+          </>
+        }
+      />
 
       {error && (
         <Alert variant="destructive" className="mt-4 bg-destructive/10">

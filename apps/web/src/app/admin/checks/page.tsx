@@ -1,14 +1,15 @@
 'use client';
 
-import type { ComponentProps } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, Check } from 'lucide-react';
+import { Download, Check, MailX, Printer, Send, FileCheck } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { downloadPdf } from '@/lib/download';
 import { money, dateShort } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Confirm, useToast } from '@/components/ui';
 import { Card, CardContent } from '@/components/ui/card';
+import { PageHeader, KpiCard, KpiGrid } from '@/components/Page';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -41,6 +42,13 @@ const STATE_META: Record<CheckState, { label: string; cls: string; hint: string 
   ready_to_print: { label: 'Ready to print', cls: 'pending', hint: 'Paid and address on file — generate a check run to assign a number.' },
   printed: { label: 'Printed', cls: 'processing', hint: 'Check number assigned — download the PDF, print, and mail.' },
   mailed: { label: 'Mailed', cls: 'active', hint: 'Check has been mailed to the member.' },
+};
+
+const STATE_ICON: Record<CheckState, ReactNode> = {
+  needs_address: <MailX aria-hidden />,
+  ready_to_print: <Printer aria-hidden />,
+  printed: <FileCheck aria-hidden />,
+  mailed: <Send aria-hidden />,
 };
 
 export default function ChecksPage() {
@@ -114,10 +122,12 @@ export default function ChecksPage() {
   const counts = data?.counts;
 
   return (
-    <div className="mx-auto max-w-[1160px]">
-      <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-primary">Payouts</div>
-      <h1 className="mt-1.5 font-display text-3xl font-extrabold tracking-tight text-foreground">Checks</h1>
-      <p className="mt-1 text-sm text-muted-foreground">Print and mail commission checks. Money already moved when each payout was approved — this is the physical check run.</p>
+    <div>
+      <PageHeader
+        eyebrow="Payouts"
+        title="Checks"
+        description="Print and mail commission checks. Money already moved when each payout was approved — this is the physical check run."
+      />
 
       {error && (
         <Alert variant="destructive" className="mt-4">
@@ -151,16 +161,18 @@ export default function ChecksPage() {
       ) : (
         <>
           {/* durum sayaclari */}
-          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <KpiGrid cols={4} className="mt-5">
             {(['needs_address', 'ready_to_print', 'printed', 'mailed'] as CheckState[]).map((st) => (
-              <Card key={st} className="lift shadow-sm">
-                <CardContent className="p-3.5">
-                  <div className="text-[11px] text-muted-foreground">{STATE_META[st].label}</div>
-                  <div className="mt-1 font-display text-2xl font-bold tabular-nums text-foreground">{counts?.[st] ?? 0}</div>
-                </CardContent>
-              </Card>
+              <KpiCard
+                key={st}
+                accent={st === 'ready_to_print'}
+                label={STATE_META[st].label}
+                value={counts?.[st] ?? 0}
+                icon={STATE_ICON[st]}
+                hint={STATE_META[st].hint}
+              />
             ))}
-          </div>
+          </KpiGrid>
 
           {/* eylem cubugu */}
           <Card className="lift mt-4 shadow-sm">
