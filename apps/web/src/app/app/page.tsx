@@ -25,6 +25,8 @@ interface Dashboard {
   soldLifetimeCents: string;
   earnedThisMonthCents: string;
   effectiveRateBps: number;
+  payoutMinCents: string;
+  estimatedPayoutDate: string | null;
   totals: { pendingCents: string; payableCents: string; paidCents: string };
   levels: LevelRow[];
 }
@@ -47,14 +49,16 @@ function monthLabel(ym: string): string {
  * "yukleniyor". Dashboard payload'inda odeme esigi YOK; bu yuzden hedef =
  * birikmis toplam (accrued). Tahmini odeme tarihi = ay sonu (TAHMIN, etiketli).
  */
-function homeVesting(pendingCents: number, payableCents: number) {
-  const accrued = Math.max(1, pendingCents + payableCents);
+// Esik-asim tahmini: payable hedefe (payoutMin) dogru ilerler; tarih backend'den (estimatedPayoutDate).
+function homeVesting(pendingCents: number, payableCents: number, payoutMinCents: number, estimatedPayoutDate: string | null) {
+  const target = Math.max(1, payoutMinCents);
   const vested = Math.max(0, payableCents);
-  const pct = Math.min(100, (vested / accrued) * 100);
-  const now = new Date();
-  const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  const payoutLabel = periodEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return { vested, accrued, pct, payoutLabel };
+  const pct = Math.min(100, (vested / target) * 100);
+  const reached = payableCents >= payoutMinCents;
+  const dateLabel = estimatedPayoutDate
+    ? new Date(estimatedPayoutDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : null;
+  return { vested, target, pct, reached, dateLabel };
 }
 
 export default function MemberDashboard() {
@@ -227,21 +231,21 @@ export default function MemberDashboard() {
           </div>
           {/* kompakt vesting cubugu — cuzdandaki "para yukleme cubugu"nun ozeti */}
           {(() => {
-            const v = homeVesting(pending, payable);
-            if (v.accrued <= 1) return null;
+            const v = homeVesting(pending, payable, Number(data.payoutMinCents), data.estimatedPayoutDate);
+            if (payable + pending <= 0) return null;
             return (
               <Link href="/app/wallet" style={{ display: 'block', marginTop: 18, color: 'inherit' }}>
                 <div className="spread" style={{ marginBottom: 7 }}>
                   <span className="row faint" style={{ gap: 6, fontSize: 12, alignItems: 'center' }}>
                     Vesting toward payout
-                    <span className="badge" style={{ fontSize: 10, background: 'color-mix(in srgb, var(--gold-500) 14%, transparent)', color: 'var(--gold-500)' }} title="Estimated payout date is end of month; vested/accruing amounts are real.">est.</span>
+                    <span className="badge" style={{ fontSize: 10, background: 'color-mix(in srgb, var(--gold-500) 14%, transparent)', color: 'var(--gold-500)' }} title="Estimated payout date is derived from when your pending commissions mature past the payout threshold.">est.</span>
                   </span>
                   <span className="faint tnum" style={{ fontSize: 12 }}>
-                    {money(v.vested, c)} / {money(v.accrued, c)} · est. {v.payoutLabel}
+                    {money(v.vested, c)} / {money(v.target, c)}{v.reached ? ' · ready' : v.dateLabel ? ` · est. ${v.dateLabel}` : ''}
                   </span>
                 </div>
                 <div style={{ height: 9, borderRadius: 6, background: 'color-mix(in srgb, hsl(var(--muted-foreground)) 12%, transparent)', overflow: 'hidden', boxShadow: 'inset 0 1px 2px color-mix(in srgb, hsl(var(--foreground)) 15%, transparent)' }}>
-                  <div style={{ height: '100%', width: `${v.pct}%`, borderRadius: 6, background: payable > 0 ? 'var(--foil)' : 'var(--amber)', transition: 'width .8s cubic-bezier(.2,.9,.3,1)' }} />
+                  <div style={{ height: '100%', width: `${v.pct}%`, borderRadius: 6, background: v.reached ? 'var(--emerald)' : 'var(--foil)', transition: 'width .8s cubic-bezier(.2,.9,.3,1)' }} />
                 </div>
               </Link>
             );

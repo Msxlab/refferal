@@ -21,6 +21,7 @@ interface LedgerItem {
 interface Wallet {
   currency: string;
   payoutMinCents: string;
+  estimatedPayoutDate: string | null;
   balance: { pendingCents: string; payableCents: string; paidCents: string };
   ledger: { total: number; page: number; pageSize: number; items: LedgerItem[] };
 }
@@ -44,30 +45,18 @@ const TYPES = ['', 'commission', 'reversal', 'adjustment'] as const;
 const STATUSES = ['', 'pending', 'payable', 'paid', 'reversed'] as const;
 
 /**
- * "Para yukleme cubugu" (vesting) — uye baglilik/dopamine ozelligi.
- * Komisyon zamanla "pending" -> "payable" olgunlasir. Bu yardimci, mevcut
- * gercek bakiye verisinden (pending + payable) gun-bazli DOGRUSAL bir
- * vesting tahmini uretir. Hedef = odeme esigi (payoutMin). Tahmini odeme
- * tarihi = bu ayin sonu (dogal donem siniri) — istemci tarafi TAHMIN, etiketli.
+ * "Para yukleme cubugu" (vesting) — uye baglilik ozelligi.
+ * Hedef = odeme esigi (payoutMin); vested = olgunlasmis (payable). Tahmini odeme
+ * tarihi GERCEK backend alanindan gelir (estimatedPayoutDate): payable + olgunlasacak
+ * pending'in esige ulastigi gun. null = mevcut boru hattiyla esige ulasilamiyor.
  */
-function computeVesting(pendingCents: number, payableCents: number, minCents: number) {
-  const accrued = Math.max(0, pendingCents + payableCents); // toplam birikmis (vested + henuz olgunlasmamis)
-  const vested = Math.max(0, payableCents);                 // olgunlasmis = odenebilir
-  // Hedef: esik. Esik zaten asildiysa hedefi birikmise yukselt ki cubuk "dolu" gorunsun.
-  const target = Math.max(minCents, accrued, 1);
+function computeVesting(payableCents: number, minCents: number, estimatedPayoutDate: string | null) {
+  const target = Math.max(minCents, 1);
+  const vested = Math.max(0, payableCents);
   const pct = Math.min(100, (vested / target) * 100);
-
-  // Tahmini odeme tarihi: bu ayin son gunu (TAHMIN). Gercek bir API alani yok.
-  const now = new Date();
-  const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  const msPerDay = 86_400_000;
-  const daysLeft = Math.max(0, Math.ceil((periodEnd.getTime() - now.getTime()) / msPerDay));
-
-  // Gun-bazli dogrusal vesting hizi tahmini: kalan "pending" tutar, kalan gune yayilir.
-  const remainingToVest = Math.max(0, pendingCents);
-  const perDay = daysLeft > 0 ? remainingToVest / daysLeft : remainingToVest;
-
-  return { accrued, vested, target, pct, periodEnd, daysLeft, perDay, remainingToVest };
+  const reached = payableCents >= minCents;
+  const payoutDate = estimatedPayoutDate ? new Date(estimatedPayoutDate) : null;
+  return { vested, target, pct, reached, payoutDate };
 }
 
 function payoutDateLabel(d: Date): string {
@@ -155,7 +144,7 @@ export default function WalletPage() {
   const reached = payable >= min;
   const pct = min > 0 ? Math.min(100, (payable / min) * 100) : 100;
   const remaining = Math.max(0, min - payable);
-  const vesting = computeVesting(pending, payable, min);
+  const vesting = computeVesting(payable, min, wallet.estimatedPayoutDate);
   // Faz A4: cek makbuzu ozeti — postalanan/odenen toplam + yolda olan sayisi
   const receivedCents = history.filter((p) => p.checkStatus === 'mailed' || p.checkStatus === 'paid').reduce((a, p) => a + Number(p.totalCents), 0);
   const receivedCount = history.filter((p) => p.checkStatus === 'mailed' || p.checkStatus === 'paid').length;
@@ -176,7 +165,7 @@ export default function WalletPage() {
               <span
                 className="badge"
                 style={{ fontSize: 10, background: 'color-mix(in srgb, var(--gold-500) 14%, transparent)', color: 'var(--gold-500)' }}
-                title="The payout date is an estimate based on the current billing period (end of month). Vested and accruing amounts are real."
+                title="The payout date is estimated from when your pending commissions mature past the payout threshold. Vested and accruing amounts are real."
               >
                 estimate
               </span>
@@ -193,9 +182,11 @@ export default function WalletPage() {
           </div>
           <div style={{ textAlign: 'right' }}>
             <div className="faint" style={{ fontSize: 11 }}>Est. payout</div>
-            <div className="tnum" style={{ fontWeight: 800, fontSize: 16, marginTop: 2 }}>{payoutDateLabel(vesting.periodEnd)}</div>
+            <div className="tnum" style={{ fontWeight: 800, fontSize: 16, marginTop: 2 }}>
+              {vesting.reached ? 'Ready' : vesting.payoutDate ? payoutDateLabel(vesting.payoutDate) : '—'}
+            </div>
             <div className="faint" style={{ fontSize: 11, marginTop: 2 }}>
-              {vesting.daysLeft === 0 ? 'today' : `in ${vesting.daysLeft} day${vesting.daysLeft === 1 ? '' : 's'}`}
+              {vesting.reached ? 'auto-requested' : vesting.payoutDate ? 'estimated' : 'keep selling'}
             </div>
           </div>
         </div>
@@ -222,11 +213,6 @@ export default function WalletPage() {
                 : <>{money(remaining, c)} to the {money(min, c)} threshold</>}
             </span>
           </div>
-          {!reached && vesting.perDay > 0 && (
-            <div className="faint" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>
-              At your current pace, roughly <b className="tnum" style={{ color: 'var(--text)' }}>{money(Math.round(vesting.perDay), c)}/day</b> is maturing — an estimate that updates as your sales are approved.
-            </div>
-          )}
         </div>
       </div>
 
