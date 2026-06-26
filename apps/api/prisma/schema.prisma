@@ -406,6 +406,10 @@ model Membership {
   joinedAt            DateTime         @default(now()) @map("joined_at")
   createdAt           DateTime         @default(now()) @map("created_at")
   updatedAt           DateTime         @updatedAt @map("updated_at")
+  // Faz E: tahmini odeme tarihi. payable + olgunlasacak pending'in payoutMin'e
+  // ulastigi gun (turetilmis; PayoutEstimateService gunceller). null = ulasilamiyor.
+  estimatedPayoutDate DateTime?        @map("estimated_payout_date")
+  estimatedPayoutAt   DateTime?        @map("estimated_payout_at")
 
   tenant   Tenant       @relation(fields: [tenantId], references: [id])
   user     User         @relation(fields: [userId], references: [id])
