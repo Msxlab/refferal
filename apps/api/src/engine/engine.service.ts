@@ -247,7 +247,9 @@ export class EngineService {
   }
 
   /** Job (5 dk'da bir): matures_at <= now olan pending satirlari payable yapar (SPEC 7). */
-  async matureCommissions(now: Date = new Date()): Promise<{ matured: number }> {
+  async matureCommissions(
+    now: Date = new Date(),
+  ): Promise<{ matured: number; affectedMembershipIds: string[] }> {
     return this.tx(async (tx) => {
       // Ay anahtari satista DONDURULMUS summary_month'tan gelir (apply'da yazildi);
       // null kalmis tarihsel kayitlar icin sale_date + tenant.timezone'a duser.
@@ -280,14 +282,16 @@ export class EngineService {
         ORDER BY le.created_at
         FOR UPDATE OF le SKIP LOCKED`;
 
+      const affected = new Set<string>();
       for (const row of due) {
+        affected.add(row.membershipId);
         await tx.ledgerEntry.update({ where: { id: row.id }, data: { status: LedgerStatus.payable } });
         await this.bumpSummary(tx, row.tenantId, row.membershipId, row.month, row.level, {
           pending: -row.amountCents,
           payable: row.amountCents,
         });
       }
-      return { matured: due.length };
+      return { matured: due.length, affectedMembershipIds: Array.from(affected) };
     });
   }
 
