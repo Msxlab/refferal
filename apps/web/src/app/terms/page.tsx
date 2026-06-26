@@ -23,7 +23,7 @@ export default function TermsPage() {
             </section>
           ))}
 
-          <div className="faint" style={{ fontSize: 11.5, marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border)', lineHeight: 1.55 }}>
+          <div className="faint" style={{ fontSize: 11.5, marginTop: 18, paddingTop: 14, borderTop: '1px solid hsl(var(--border))', lineHeight: 1.55 }}>
             Past earnings are not a guarantee of future income. Commission is earned only from real, approved
             product sales. These terms may be updated; continued participation means you accept the current terms.
           </div>

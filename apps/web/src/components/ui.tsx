@@ -239,7 +239,7 @@ export function ThemeToggle() {
 /* ----------------------------------------------------- toggle (switch) */
 export function Toggle({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
-    <div className="spread" style={{ padding: 'var(--space-3) 0', borderTop: '1px solid var(--border)' }}>
+    <div className="spread" style={{ padding: 'var(--space-3) 0', borderTop: '1px solid hsl(var(--border))' }}>
       <span style={{ fontSize: 'var(--text-md)' }}>{label}</span>
       <button
         type="button"
@@ -377,7 +377,7 @@ export function ColumnsMenu({ prefs }: { prefs: TablePrefs }) {
             </label>
           );
         })}
-        <div className="row" style={{ justifyContent: 'space-between', borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 8 }}>
+        <div className="row" style={{ justifyContent: 'space-between', borderTop: '1px solid hsl(var(--border))', marginTop: 4, paddingTop: 8 }}>
           <div className="seg-tabs" style={{ padding: 3 }}>
             <button className={`seg-tab ${prefs.density === 'comfortable' ? 'on' : ''}`} style={{ padding: '5px 9px', fontSize: 12 }} onClick={() => prefs.setDensity('comfortable')}>Comfortable</button>
             <button className={`seg-tab ${prefs.density === 'compact' ? 'on' : ''}`} style={{ padding: '5px 9px', fontSize: 12 }} onClick={() => prefs.setDensity('compact')}>Compact</button>

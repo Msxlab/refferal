@@ -330,7 +330,7 @@ export default function AccountPage() {
           {twoFaError && <div className="error" style={{ marginTop: 12 }}>{twoFaError}</div>}
 
           {twoFaStep === 'setup' && setupData && (
-            <form onSubmit={enableTwoFa} style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+            <form onSubmit={enableTwoFa} style={{ marginTop: 14, borderTop: '1px solid hsl(var(--border))', paddingTop: 14 }}>
               <div style={{ fontSize: 13, marginBottom: 10 }}>1. Scan this QR code with your authenticator app:</div>
               <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
                 <div className="qr"><QRCodeSVG value={setupData.otpauthUrl} size={144} /></div>
@@ -351,7 +351,7 @@ export default function AccountPage() {
           )}
 
           {twoFaStep === 'recovery' && (
-            <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+            <div style={{ marginTop: 14, borderTop: '1px solid hsl(var(--border))', paddingTop: 14 }}>
               <strong style={{ fontSize: 13, color: 'var(--emerald)' }}>✓ Two-factor authentication enabled</strong>
               <p className="faint" style={{ fontSize: 12, margin: '6px 0 10px' }}>
                 Save these recovery codes somewhere safe. Each works once if you lose your authenticator — they won&apos;t be shown again.
@@ -367,7 +367,7 @@ export default function AccountPage() {
           )}
 
           {twoFaStep === 'disable' && (
-            <form onSubmit={disableTwoFa} style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+            <form onSubmit={disableTwoFa} style={{ marginTop: 14, borderTop: '1px solid hsl(var(--border))', paddingTop: 14 }}>
               <div className="field">
                 <label>Enter your password to disable 2FA</label>
                 <input type="password" value={disablePw} onChange={(e) => setDisablePw(e.target.value)} autoComplete="current-password" autoFocus style={{ maxWidth: 260 }} />

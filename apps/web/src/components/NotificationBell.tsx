@@ -18,7 +18,7 @@ const KIND_ICON: Record<Item['kind'], { ic: string; color: string }> = {
   positive: { ic: '↑', color: 'var(--emerald)' },
   negative: { ic: '↓', color: 'var(--rose)' },
   team: { ic: '⬡', color: 'var(--sky)' },
-  system: { ic: '◔', color: 'var(--muted)' },
+  system: { ic: '◔', color: 'hsl(var(--muted-foreground))' },
 };
 
 function ago(iso: string): string {
@@ -119,7 +119,7 @@ export function NotificationBell({ placement = 'down' }: { placement?: 'down' | 
           aria-label="Notifications"
           style={placement === 'up' ? { bottom: 'calc(100% + 10px)', left: 0 } : { top: 'calc(100% + 10px)', right: 0 }}
         >
-          <div className="spread" style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
+          <div className="spread" style={{ padding: '12px 14px', borderBottom: '1px solid hsl(var(--border))' }}>
             <strong style={{ fontSize: 13 }}>Notifications</strong>
             <button className="link-btn" onClick={markAll}
               style={{ fontSize: 11, color: 'var(--gold-500)', background: 'none', border: 'none', cursor: 'pointer' }}>

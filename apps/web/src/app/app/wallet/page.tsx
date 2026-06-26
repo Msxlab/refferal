@@ -137,7 +137,7 @@ export default function WalletPage() {
             <div key={s.n} className="row" style={{ gap: 12, alignItems: 'flex-start' }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', alignSelf: 'stretch' }}>
                 <span style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--foil)', color: 'var(--on-gold)', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>{s.n}</span>
-                {i < arr.length - 1 && <span style={{ width: 2, flex: 1, background: 'var(--border)', marginTop: 4 }} />}
+                {i < arr.length - 1 && <span style={{ width: 2, flex: 1, background: 'hsl(var(--border))', marginTop: 4 }} />}
               </div>
               <div style={{ paddingBottom: i < arr.length - 1 ? 4 : 0 }}>
                 <div style={{ fontWeight: 600, fontSize: 13.5 }}>{s.t}</div>
@@ -146,7 +146,7 @@ export default function WalletPage() {
             </div>
           ))}
         </div>
-        <div className="faint" style={{ fontSize: 11.5, marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)', lineHeight: 1.5 }}>
+        <div className="faint" style={{ fontSize: 11.5, marginTop: 14, paddingTop: 12, borderTop: '1px solid hsl(var(--border))', lineHeight: 1.5 }}>
           🔒 Commissions come from real, approved product sales only. Your company&apos;s books are checked for balance every day.
         </div>
       </div>

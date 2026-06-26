@@ -76,13 +76,13 @@ export function CommandPalette() {
           if (e.key === 'Enter') { e.preventDefault(); items[sel]?.run(); }
         }}>
         <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search members, sales, or jump to a page…"
-          style={{ border: 'none', borderRadius: 0, borderBottom: '1px solid var(--border)', padding: '16px 18px', fontSize: 15 }} />
+          style={{ border: 'none', borderRadius: 0, borderBottom: '1px solid hsl(var(--border))', padding: '16px 18px', fontSize: 15 }} />
         <div style={{ maxHeight: '50vh', overflow: 'auto' }}>
           {items.length === 0 ? (
             <div className="muted" style={{ padding: 18, fontSize: 13 }}>No matches.</div>
           ) : items.map((it, i) => (
             <button key={it.key} onMouseEnter={() => setSel(i)} onClick={it.run} className="row"
-              style={{ width: '100%', textAlign: 'left', gap: 10, padding: '11px 18px', border: 'none', borderBottom: '1px solid var(--border)', cursor: 'pointer', background: i === sel ? 'var(--panel-2)' : 'transparent' }}>
+              style={{ width: '100%', textAlign: 'left', gap: 10, padding: '11px 18px', border: 'none', borderBottom: '1px solid hsl(var(--border))', cursor: 'pointer', background: i === sel ? 'var(--panel-2)' : 'transparent' }}>
               <span style={{ flex: 1, fontSize: 13.5 }}>{it.label}</span>
               {it.hint && <span className="faint" style={{ fontSize: 11 }}>{it.hint}</span>}
             </button>

@@ -95,7 +95,7 @@ export function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone:
               <span className="badge active">{preview.okCount} ready</span>
               {preview.errorCount > 0 && <span className="badge failed">{preview.errorCount} errors</span>}
             </div>
-            <div style={{ maxHeight: '40vh', overflow: 'auto', borderRadius: 10, border: '1px solid var(--border)' }}>
+            <div style={{ maxHeight: '40vh', overflow: 'auto', borderRadius: 10, border: '1px solid hsl(var(--border))' }}>
               <table>
                 <thead><tr><th>#</th><th>Code</th><th>Amount</th><th>Seller / error</th></tr></thead>
                 <tbody>
@@ -148,9 +148,9 @@ function Steps({ step }: { step: 'data' | 'map' | 'preview' }) {
       {items.map((it, i) => (
         <div key={it.k} className="row" style={{ gap: 8, flex: 1 }}>
           <span style={{ width: 22, height: 22, borderRadius: 999, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800,
-            background: i <= idx ? 'var(--foil)' : 'var(--panel-2)', color: i <= idx ? 'var(--on-gold)' : 'var(--muted)' }}>{i + 1}</span>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: i === idx ? 'var(--text)' : 'var(--muted)' }}>{it.l}</span>
-          {i < items.length - 1 && <span style={{ flex: 1, height: 1, background: 'var(--border)' }} />}
+            background: i <= idx ? 'var(--foil)' : 'var(--panel-2)', color: i <= idx ? 'var(--on-gold)' : 'hsl(var(--muted-foreground))' }}>{i + 1}</span>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: i === idx ? 'var(--text)' : 'hsl(var(--muted-foreground))' }}>{it.l}</span>
+          {i < items.length - 1 && <span style={{ flex: 1, height: 1, background: 'hsl(var(--border))' }} />}
         </div>
       ))}
     </div>

@@ -203,8 +203,8 @@ function FieldDiff({ before, after }: { before: unknown; after: unknown }) {
           return (
             <tr key={k} style={{ background: changed ? 'color-mix(in srgb, var(--amber) 9%, transparent)' : undefined }}>
               <td className="faint" style={{ fontSize: 12 }}>{k}</td>
-              <td className="tnum" style={{ fontSize: 12, color: changed ? 'var(--rose)' : 'var(--muted)' }}>{fmt(b[k])}</td>
-              <td className="tnum" style={{ fontSize: 12, color: changed ? 'var(--emerald)' : 'var(--muted)' }}>{fmt(a[k])}</td>
+              <td className="tnum" style={{ fontSize: 12, color: changed ? 'var(--rose)' : 'hsl(var(--muted-foreground))' }}>{fmt(b[k])}</td>
+              <td className="tnum" style={{ fontSize: 12, color: changed ? 'var(--emerald)' : 'hsl(var(--muted-foreground))' }}>{fmt(a[k])}</td>
             </tr>
           );
         })}
@@ -221,7 +221,7 @@ function Diff({ label, data }: { label: string; data: unknown }) {
       {empty ? (
         <div className="muted" style={{ fontSize: 12 }}>—</div>
       ) : (
-        <pre style={{ margin: 0, padding: 12, borderRadius: 10, background: 'var(--panel-2)', border: '1px solid var(--border)', fontSize: 12, fontFamily: 'ui-monospace, monospace', overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+        <pre style={{ margin: 0, padding: 12, borderRadius: 10, background: 'var(--panel-2)', border: '1px solid hsl(var(--border))', fontSize: 12, fontFamily: 'ui-monospace, monospace', overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
           {JSON.stringify(data, null, 2)}
         </pre>
       )}

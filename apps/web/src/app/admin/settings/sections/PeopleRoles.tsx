@@ -103,7 +103,7 @@ export default function PeopleRoles() {
             <div key={r.id} className="card" style={{ padding: 16 }}>
               <div className="spread">
                 <div className="row" style={{ gap: 9 }}>
-                  <span style={{ width: 11, height: 11, borderRadius: 4, background: r.color ?? 'var(--muted)' }} />
+                  <span style={{ width: 11, height: 11, borderRadius: 4, background: r.color ?? 'hsl(var(--muted-foreground))' }} />
                   <strong style={{ fontSize: 14 }}>{r.name}</strong>
                   {r.isSystem && <span className="badge" style={{ fontSize: 9 }}>system</span>}
                 </div>
@@ -314,7 +314,7 @@ function RoleEditor({ groups, role, onClose, onSaved }: {
         </div>
 
         <div className="spread" style={{ margin: '6px 0 8px' }}>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>PERMISSIONS · {perms.size}/{allKeys.length}</label>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--muted-foreground))' }}>PERMISSIONS · {perms.size}/{allKeys.length}</label>
           {!locked && (
             <div className="row" style={{ gap: 8 }}>
               <button type="button" className="btn ghost sm" onClick={() => setAll(true)}>All</button>
@@ -347,7 +347,7 @@ function RoleEditor({ groups, role, onClose, onSaved }: {
                           display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 9,
                           cursor: locked ? 'default' : 'pointer', fontSize: 12.5,
                           background: checked ? 'var(--gold-soft, rgba(212,175,55,.1))' : 'var(--panel-2)',
-                          border: `1px solid ${checked ? 'var(--gold-500)' : 'var(--border)'}`,
+                          border: `1px solid ${checked ? 'var(--gold-500)' : 'hsl(var(--border))'}`,
                         }}>
                         <span style={{
                           width: 15, height: 15, borderRadius: 4, flexShrink: 0, display: 'grid', placeItems: 'center',

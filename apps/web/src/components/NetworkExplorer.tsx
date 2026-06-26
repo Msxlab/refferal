@@ -66,7 +66,7 @@ function MemberNode({ data }: NodeProps<Node<NodeData>>) {
     <div
       style={{
         width: 196, background: bg, cursor: 'pointer',
-        border: `1px solid ${data.isFocus ? 'var(--gold-500)' : data.match ? 'var(--gold-500)' : 'var(--border)'}`,
+        border: `1px solid ${data.isFocus ? 'var(--gold-500)' : data.match ? 'var(--gold-500)' : 'hsl(var(--border))'}`,
         borderRadius: 14, padding: '10px 12px',
         boxShadow: data.match || data.isFocus ? 'var(--shadow-glow)' : 'var(--shadow-lg)',
         color: 'var(--text)', transition: 'border-color .2s, box-shadow .2s, background .3s',
@@ -91,10 +91,10 @@ function MemberNode({ data }: NodeProps<Node<NodeData>>) {
           {n.status !== 'active' && <span className="badge inactive" style={{ fontSize: 9 }}>{n.status}</span>}
         </div>
         <span className="row" style={{ gap: 6 }}>
-          {data.revenue > 0 && <span className="tnum" style={{ fontSize: 10, color: 'var(--muted)' }} title={`${data.sales} satış (bu ay)`}>◇ {compactMoney(data.revenue)}</span>}
+          {data.revenue > 0 && <span className="tnum" style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))' }} title={`${data.sales} satış (bu ay)`}>◇ {compactMoney(data.revenue)}</span>}
           {Number(n.monthlyCommissionCents ?? 0) > 0
             ? <span className="tnum" style={{ fontSize: 10, fontWeight: 700, color: 'var(--gold-500)' }} title="Commission this month (earned)">◆ {compactMoney(Number(n.monthlyCommissionCents))}</span>
-            : (data.revenue === 0 && data.team > 0 && <span style={{ fontSize: 10, color: 'var(--muted)' }}>⬡ {data.team}</span>)}
+            : (data.revenue === 0 && data.team > 0 && <span style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))' }}>⬡ {data.team}</span>)}
         </span>
       </div>
       <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
@@ -409,7 +409,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
             minZoom={0.2} maxZoom={1.8} proOptions={{ hideAttribution: true }}
             nodesDraggable={false} nodesConnectable={false}
           >
-            <Background gap={20} size={1} color="var(--border)" />
+            <Background gap={20} size={1} color="hsl(var(--border))" />
             <Controls showInteractive={false} />
             <MiniMap pannable zoomable nodeColor={() => 'var(--gold-600)'} maskColor="rgba(0,0,0,.5)" style={{ background: 'var(--panel-2)' }} />
           </ReactFlow>
@@ -431,7 +431,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
                             <button
                               onClick={(e) => { e.stopPropagation(); toggleExpand(n.id); }}
                               aria-label={open ? 'Collapse' : 'Expand'}
-                              style={{ width: 20, height: 20, display: 'grid', placeItems: 'center', background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 10, flexShrink: 0, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s ease' }}
+                              style={{ width: 20, height: 20, display: 'grid', placeItems: 'center', background: 'none', border: 'none', color: 'hsl(var(--muted-foreground))', cursor: 'pointer', fontSize: 10, flexShrink: 0, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s ease' }}
                             >▶</button>
                           ) : <span style={{ width: 20, flexShrink: 0 }} />}
                           <span style={{ flexShrink: 0, fontSize: 15 }}>{hasChildren ? '🗂' : '👤'}</span>
@@ -448,7 +448,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
                     <td>{n.role !== 'member' ? <span className="badge active" style={{ fontSize: 9 }}>{n.role.replace('tenant_', '')}</span> : <span className="faint" style={{ fontSize: 12 }}>member</span>}</td>
                     <td className="tnum" style={{ textAlign: 'right' }}>{n.depth}</td>
                     <td className="tnum" style={{ textAlign: 'right' }}>{hasChildren ? teamOf(n.id) : '—'}</td>
-                    <td className="tnum" style={{ textAlign: 'right', color: 'var(--muted)' }}>{Number(n.revenueCents ?? 0) > 0 ? compactMoney(Number(n.revenueCents)) : '—'}</td>
+                    <td className="tnum" style={{ textAlign: 'right', color: 'hsl(var(--muted-foreground))' }}>{Number(n.revenueCents ?? 0) > 0 ? compactMoney(Number(n.revenueCents)) : '—'}</td>
                     <td className="tnum" style={{ textAlign: 'right', fontWeight: 600, color: Number(n.monthlyCommissionCents ?? 0) > 0 ? 'var(--gold-500)' : 'var(--faint)' }}>{Number(n.monthlyCommissionCents ?? 0) > 0 ? compactMoney(Number(n.monthlyCommissionCents)) : '—'}</td>
                     <td><span className={`badge ${n.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>{n.status}</span></td>
                     <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'right' }}>
@@ -495,7 +495,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
                 <div className="grid" style={{ gap: 6, marginTop: 8 }}>
                   {(childrenOf.get(selected.id) ?? []).map((c) => (
                     <button key={c.id} className="row" onClick={() => setSelected(c)}
-                      style={{ gap: 8, padding: '7px 10px', borderRadius: 9, background: 'var(--panel-2)', border: '1px solid var(--border)', cursor: 'pointer', textAlign: 'left' }}>
+                      style={{ gap: 8, padding: '7px 10px', borderRadius: 9, background: 'var(--panel-2)', border: '1px solid hsl(var(--border))', cursor: 'pointer', textAlign: 'left' }}>
                       <span style={{ fontWeight: 600, fontSize: 12.5 }}>{c.fullName}</span>
                       <span className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{c.referralCode}</span>
                       <span style={{ flex: 1 }} />
@@ -569,7 +569,7 @@ function GuideCells({ lasts }: { lasts: boolean[] }) {
 }
 
 function crumbStyle(active: boolean): React.CSSProperties {
-  return { background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: active ? 700 : 500, color: active ? 'var(--gold-500)' : 'var(--muted)' };
+  return { background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: active ? 700 : 500, color: active ? 'var(--gold-500)' : 'hsl(var(--muted-foreground))' };
 }
 function Kpi({ label, value, sub, icon }: { label: string; value: string; sub?: string; icon?: string }) {
   return (

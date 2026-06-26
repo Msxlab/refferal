@@ -302,7 +302,7 @@ function CampaignDrawer({ id, isAdmin, onClose, onChanged, onEdit, onToast }: {
                   {d.standings.map((s) => (
                     <tr key={s.membershipId}>
                       <td>
-                        <span style={{ width: 22, height: 22, borderRadius: 6, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, background: s.rank === 1 ? 'var(--foil)' : 'var(--panel-2)', color: s.rank === 1 ? 'var(--on-gold)' : 'var(--muted)' }}>{s.rank}</span>
+                        <span style={{ width: 22, height: 22, borderRadius: 6, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, background: s.rank === 1 ? 'var(--foil)' : 'var(--panel-2)', color: s.rank === 1 ? 'var(--on-gold)' : 'hsl(var(--muted-foreground))' }}>{s.rank}</span>
                       </td>
                       <td>
                         {s.name}{s.inactive && <span className="badge inactive" style={{ marginLeft: 6, fontSize: 9 }}>inactive</span>}

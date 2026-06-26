@@ -74,7 +74,7 @@ export default function Brand() {
       {/* canli onizleme */}
       <div className="card" style={{ position: 'sticky', top: 16 }}>
         <div className="faint" style={{ fontSize: 11, marginBottom: 10 }}>PREVIEW</div>
-        <div style={{ borderRadius: 14, overflow: 'hidden', border: '1px solid var(--border)' }}>
+        <div style={{ borderRadius: 14, overflow: 'hidden', border: '1px solid hsl(var(--border))' }}>
           <div style={{ background: '#0f1115', padding: '18px 18px 22px' }}>
             <div className="row" style={{ gap: 10 }}>
               <span style={{

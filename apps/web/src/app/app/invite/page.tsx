@@ -77,7 +77,7 @@ export default function InvitePage() {
       <p className="sub fade-in">Share your invite link; everyone who joins becomes part of your tree.</p>
 
       <div className="card fade-in" style={{ marginBottom: 16 }}>
-        <label style={{ fontSize: 12, color: 'var(--muted)' }}>Personal welcome message (shown on your invite page)</label>
+        <label style={{ fontSize: 12, color: 'hsl(var(--muted-foreground))' }}>Personal welcome message (shown on your invite page)</label>
         <textarea value={message} onChange={(e) => setMessage(e.target.value)} maxLength={280} rows={2} placeholder="e.g. Hey! Join my team and let's grow together." style={{ marginTop: 6, resize: 'vertical' }} />
         <div className="row" style={{ justifyContent: 'space-between', marginTop: 8 }}>
           <span className="faint" style={{ fontSize: 11 }}>{message.length}/280</span>

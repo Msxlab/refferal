@@ -46,7 +46,7 @@ export function RadialNetwork({ levels, totalMembers }: { levels: Level[]; total
       {/* halka izleri + radyal kilavuzlar */}
       {Array.from({ length: maxLevel }).map((_, i) => {
         const r = CENTER_R + (i + 1) * gap;
-        return <circle key={`ring-${i}`} cx={C} cy={C} r={r} fill="none" stroke="var(--border)" strokeWidth={1} strokeDasharray="2 4" />;
+        return <circle key={`ring-${i}`} cx={C} cy={C} r={r} fill="none" stroke="hsl(var(--border))" strokeWidth={1} strokeDasharray="2 4" />;
       })}
 
       {/* her seviyenin noktalari */}
@@ -65,8 +65,8 @@ export function RadialNetwork({ levels, totalMembers }: { levels: Level[]; total
               const isActive = i < activeShown;
               return (
                 <g key={i}>
-                  <line x1={C} y1={C} x2={x} y2={y} stroke="var(--border)" strokeWidth={0.6} opacity={0.5} />
-                  <circle cx={x} cy={y} r={6} fill={isActive ? 'var(--emerald)' : 'var(--muted)'}
+                  <line x1={C} y1={C} x2={x} y2={y} stroke="hsl(var(--border))" strokeWidth={0.6} opacity={0.5} />
+                  <circle cx={x} cy={y} r={6} fill={isActive ? 'var(--emerald)' : 'hsl(var(--muted-foreground))'}
                     stroke="var(--panel)" strokeWidth={1.5} />
                 </g>
               );

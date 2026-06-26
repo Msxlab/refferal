@@ -46,7 +46,7 @@ export function TrendChart({ series, currency }: { series: Point[]; currency: st
         {/* yatay kilavuzlar */}
         {[0.25, 0.5, 0.75, 1].map((g) => (
           <line key={g} x1={PAD.l} x2={W - PAD.r} y1={PAD.t + innerH * (1 - g)} y2={PAD.t + innerH * (1 - g)}
-            stroke="var(--border)" strokeWidth={1} strokeDasharray="2 5" />
+            stroke="hsl(var(--border))" strokeWidth={1} strokeDasharray="2 5" />
         ))}
 
         {series.map((p, i) => {

@@ -126,7 +126,7 @@ export default function MemberDashboard() {
             {onboarding.steps.map((s) => (
               <div key={s.key} className="row" style={{ gap: 8, fontSize: 13 }}>
                 <span style={{ width: 18, height: 18, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 11, background: s.done ? 'var(--grad-emerald, var(--emerald))' : 'var(--panel-2)', color: s.done ? '#03130d' : 'var(--faint)' }}>{s.done ? '✓' : ''}</span>
-                <span style={{ color: s.done ? 'var(--muted)' : 'var(--text)', textDecoration: s.done ? 'line-through' : undefined }}>{s.label}</span>
+                <span style={{ color: s.done ? 'hsl(var(--muted-foreground))' : 'var(--text)', textDecoration: s.done ? 'line-through' : undefined }}>{s.label}</span>
               </div>
             ))}
           </div>
@@ -258,7 +258,7 @@ export default function MemberDashboard() {
                     {cp.leaderboard.slice(0, 3).map((s) => (
                       <div key={s.membershipId} className="spread" style={{ fontSize: 12 }}>
                         <span className="row" style={{ gap: 6 }}>
-                          <span style={{ width: 18, height: 18, borderRadius: 5, display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 800, background: s.rank === 1 ? 'var(--foil)' : 'var(--panel-2)', color: s.rank === 1 ? 'var(--on-gold)' : 'var(--muted)' }}>{s.rank}</span>
+                          <span style={{ width: 18, height: 18, borderRadius: 5, display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 800, background: s.rank === 1 ? 'var(--foil)' : 'var(--panel-2)', color: s.rank === 1 ? 'var(--on-gold)' : 'hsl(var(--muted-foreground))' }}>{s.rank}</span>
                           {s.name}
                         </span>
                         <span className="tnum faint">{cp.metric === 'revenue' ? money(s.score) : s.score.toLocaleString('en-US')}</span>

@@ -95,7 +95,7 @@ export default function TeamPage() {
           )}
           <div className="row" style={{ gap: 16, marginTop: 'auto', paddingTop: 16, fontSize: 12 }}>
             <span className="row" style={{ gap: 6 }}><i style={{ width: 10, height: 10, borderRadius: 999, background: 'var(--emerald)' }} /> Active {team.totalActive}</span>
-            <span className="row" style={{ gap: 6 }}><i style={{ width: 10, height: 10, borderRadius: 999, background: 'var(--muted)' }} /> Inactive {inactive}</span>
+            <span className="row" style={{ gap: 6 }}><i style={{ width: 10, height: 10, borderRadius: 999, background: 'hsl(var(--muted-foreground))' }} /> Inactive {inactive}</span>
           </div>
         </div>
       </div>

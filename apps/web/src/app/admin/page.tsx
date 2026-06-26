@@ -222,7 +222,7 @@ export default function DashboardPage() {
           <Donut
             segments={[
               { label: 'Net', value: net, color: 'var(--emerald, #34d399)' },
-              { label: t('dash.commission'), value: commission, color: 'var(--primary)' },
+              { label: t('dash.commission'), value: commission, color: 'hsl(var(--primary))' },
             ]}
             center={
               <div className="text-center">
