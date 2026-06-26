@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode, useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
 import { Settings as SettingsIcon, Coins, Award, Users, Diamond, Megaphone, Shield, Share2, Bell, Mail, FileText } from 'lucide-react';
 import { getSession, can } from '@/lib/auth';
 import { t } from '@/lib/i18n';
@@ -71,18 +72,30 @@ export default function SettingsPage() {
           <div key={g} className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <span className="faint" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.08em', minWidth: 64 }}>{g}</span>
             <div className="seg-tabs" role="tablist">
-              {tabs.filter((t) => t.group === g).map((tab) => (
-                <button
-                  key={tab.key}
-                  role="tab"
-                  aria-selected={active === tab.key}
-                  className={`seg-tab ${active === tab.key ? 'on' : ''}`}
-                  onClick={() => select(tab.key)}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-                >
-                  <span aria-hidden className="faint" style={{ display: 'inline-flex' }}>{tab.icon}</span> {tab.label}
-                </button>
-              ))}
+              {tabs.filter((t) => t.group === g).map((tab) => {
+                const on = active === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    role="tab"
+                    aria-selected={on}
+                    className="seg-tab relative"
+                    onClick={() => select(tab.key)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 7, color: on ? 'var(--on-gold)' : undefined }}
+                  >
+                    {on && (
+                      <motion.span
+                        layoutId={`settingsTab-${g}`}
+                        className="absolute inset-0 rounded-[10px]"
+                        style={{ background: 'var(--foil)', boxShadow: '0 6px 16px -8px hsl(var(--primary) / .6)' }}
+                        transition={{ type: 'spring', stiffness: 500, damping: 38 }}
+                      />
+                    )}
+                    <span aria-hidden className="relative z-10" style={{ display: 'inline-flex', color: on ? 'var(--on-gold)' : undefined, opacity: on ? 1 : 0.7 }}>{tab.icon}</span>
+                    <span className="relative z-10">{tab.label}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         ))}
