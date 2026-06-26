@@ -5,6 +5,7 @@ import { api, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
 import { ColumnsMenu, Confirm, Loading, Modal, TableColumn, useTablePrefs, useToast } from '@/components/ui';
 import { Drawer } from '@/components/Drawer';
+import { MemberDrawer as MemberRowDrawer } from '@/components/admin/MemberDrawer';
 import { PrintSheet, PrintHeader } from '@/components/PrintSheet';
 import { activeMembership, getSession, isAdminRole, startImpersonation, type Session } from '@/lib/auth';
 import { dateShort, money } from '@/lib/format';
@@ -116,6 +117,8 @@ export default function MembersPage() {
   const [addResult, setAddResult] = useState<{ referralCode: string; tempPassword?: string; newUser: boolean } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailId, setDetailId] = useState<string | null>(null);
+  // satira tiklayinca acilan, salt-sunum (sadece satir verisi) detay cekmecesi
+  const [rowDetail, setRowDetail] = useState<MemberItem | null>(null);
   const cols = useTablePrefs('members', MEMBER_COLUMNS);
   const colCount = 1 + MEMBER_COLUMNS.filter((c) => cols.isVisible(c.key)).length + 1;
   const [nps, setNps] = useState<{ nps: number | null; total: number } | null>(null);
@@ -341,7 +344,7 @@ export default function MembersPage() {
                       'cursor-pointer border-t border-border transition-colors hover:bg-muted/50',
                       selected.has(m.id) && 'bg-primary/5',
                     )}
-                    onClick={() => setDetailId(m.id)}
+                    onClick={() => setRowDetail(m)}
                   >
                     <td className="no-print px-[18px] py-2.5" onClick={(e) => e.stopPropagation()}>
                       <input type="checkbox" className="accent-primary" checked={selected.has(m.id)} onChange={() => toggle(m.id)} aria-label={`Select ${m.fullName}`} />
@@ -386,7 +389,8 @@ export default function MembersPage() {
                             value={m.role}
                             disabled={roleBusyId === m.id}
                             onChange={(e) => changeRole(m, e.target.value)}
-                            className="h-7 w-[120px] rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:border-primary disabled:opacity-50"
+                            aria-label={`Role for ${m.fullName}`}
+                            className="w-[120px] rounded-lg border border-border bg-secondary px-2.5 py-1.5 text-sm text-foreground outline-none transition-colors hover:border-primary/40 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
                           </select>
@@ -617,6 +621,15 @@ export default function MembersPage() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {rowDetail && (
+        <MemberRowDrawer
+          member={rowDetail}
+          onClose={() => setRowDetail(null)}
+          onEdit={(m) => { setRowDetail(null); setError(''); setEditM(m); setEditName(m.fullName); setEditEmail(m.email); }}
+          onDeactivate={(m) => { setRowDetail(null); setConfirmM(m); }}
+        />
       )}
 
       {detailId && <MemberDrawer id={detailId} onClose={() => setDetailId(null)} onNavigate={setDetailId} onChanged={load} onToast={showToast} />}

@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { CSSProperties, FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
 import { ColumnsMenu, Confirm, Loading, Modal, Pagination, SortableTh, SortDir, MoneyCounter, TableColumn, useTablePrefs, useToast } from '@/components/ui';
@@ -14,7 +14,6 @@ import { dateShort, money, levelLabel, ledgerTypeLabel } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
 interface SaleItem {
@@ -76,12 +75,49 @@ function chipRange(key: ChipKey): { from: string; to: string } {
   };
 }
 
-/* ---- status -> indigo-tema rozet stili ---- */
-function statusBadgeClass(status: string): string {
-  if (status === 'approved') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400';
-  if (status === 'draft') return 'border-amber-500/30 bg-amber-500/10 text-amber-400';
-  if (status === 'void') return 'border-destructive/30 bg-destructive/10 text-destructive';
-  return 'border-border bg-muted text-muted-foreground';
+/* ---- status -> para-anlamli rozet (var() + /15 alfa, light+dark dogru) ---- */
+type MoneyTone = 'emerald' | 'amber' | 'rose';
+function toneStyle(tone: MoneyTone): CSSProperties {
+  const v = `var(--${tone})`;
+  return {
+    color: v,
+    backgroundColor: `color-mix(in srgb, ${v} 15%, transparent)`,
+    borderColor: `color-mix(in srgb, ${v} 30%, transparent)`,
+  };
+}
+function saleTone(status: string): MoneyTone | null {
+  if (status === 'approved') return 'emerald';
+  if (status === 'draft') return 'amber';
+  if (status === 'void') return 'rose';
+  return null;
+}
+/* tutarli durum pill'i — para renkleriyle */
+function StatusPill({ status, className }: { status: string; className?: string }) {
+  const tone = saleTone(status);
+  return (
+    <span
+      style={tone ? toneStyle(tone) : undefined}
+      className={cn(
+        'inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize leading-tight',
+        !tone && 'border-border bg-muted text-muted-foreground',
+        className,
+      )}
+    >
+      {status}
+    </span>
+  );
+}
+/* teslim/self gibi yan rozetler — yumusak emerald/amber */
+function ToneChip({ tone, children, className, title }: { tone: MoneyTone; children: ReactNode; className?: string; title?: string }) {
+  return (
+    <span
+      title={title}
+      style={toneStyle(tone)}
+      className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold leading-tight', className)}
+    >
+      {children}
+    </span>
+  );
 }
 
 export default function SalesPage() {
@@ -310,20 +346,22 @@ export default function SalesPage() {
       </div>
 
       {/* ---- arac cubugu: ara + hizli tarih + filtreler + kayitli gorunumler ---- */}
-      <div className="no-print my-3.5 flex flex-wrap items-center gap-2.5">
-        <div className="flex h-9 min-w-[200px] max-w-[320px] flex-1 items-center gap-2 rounded-lg border border-input bg-card px-3">
+      <div className="no-print my-3.5 flex flex-wrap items-center gap-2">
+        <div className="flex h-9 min-w-[210px] max-w-[320px] flex-1 items-center gap-2 rounded-lg border border-input bg-card px-3 transition-colors focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
           <span className="text-muted-foreground/70">🔍</span>
           <input aria-label="Search sales by seller, code, or customer" value={filters.q} onChange={(e) => patchFilters({ ...filters, q: e.target.value })}
             placeholder="Search seller, code, customer…" className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/70" />
         </div>
 
-        {/* hizli tarih sekmeleri (continuous-tabs benzeri segment) */}
-        <div className="flex gap-1 rounded-lg border border-border bg-muted p-1">
+        {/* hizli tarih cipleri — aktif: primary, pasif: secondary + hover */}
+        <div className="flex items-center gap-1">
           {([['today', 'Today'], ['7d', '7 days'], ['month', 'This month'], ['lastMonth', 'Last month']] as [ChipKey, string][]).map(([k, lbl]) => (
-            <button key={k} type="button" onClick={() => toggleChip(k)}
+            <button key={k} type="button" onClick={() => toggleChip(k)} aria-pressed={activeChip === k}
               className={cn(
-                'rounded-md px-3 py-1 text-xs font-semibold transition-colors',
-                activeChip === k ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                'h-9 whitespace-nowrap rounded-lg px-3 text-xs font-semibold transition-colors',
+                activeChip === k
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'bg-secondary text-muted-foreground hover:bg-accent hover:text-foreground',
               )}>{lbl}</button>
           ))}
         </div>
@@ -353,7 +391,7 @@ export default function SalesPage() {
 
         {/* kayitli gorunumler — SPEC'teki kayitli-filtre cipi gorunumu */}
         {views.map((v) => (
-          <span key={v.id} className="inline-flex items-center gap-1 rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary">
+          <span key={v.id} className="inline-flex h-9 items-center gap-1 rounded-lg border border-primary/30 bg-primary/10 px-2.5 text-xs font-semibold text-primary">
             <button type="button" onClick={() => applyView(v)} title={v.mine ? undefined : `Shared by ${v.ownerName ?? 'team'}`} className="inline-flex items-center gap-1">
               {v.shared && <span>👥</span>}{v.name}
             </button>
@@ -361,10 +399,11 @@ export default function SalesPage() {
           </span>
         ))}
 
-        <span className="flex-1" />
-        <ColumnsMenu prefs={cols} />
-        {activeFilters && <Button variant="ghost" size="sm" onClick={() => patchFilters(EMPTY)}>Clear</Button>}
-        <Button variant="outline" size="sm" onClick={() => { setViewName(''); setViewShared(false); setShowSaveView(true); }}>＋ Save view</Button>
+        <span className="ml-auto flex items-center gap-2">
+          <ColumnsMenu prefs={cols} />
+          {activeFilters && <Button variant="ghost" size="sm" onClick={() => patchFilters(EMPTY)}>Clear</Button>}
+          <Button variant="outline" size="sm" onClick={() => { setViewName(''); setViewShared(false); setShowSaveView(true); }}>＋ Save view</Button>
+        </span>
       </div>
 
       {/* ---- tablo ---- */}
@@ -390,21 +429,21 @@ export default function SalesPage() {
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-[13px]">
               <thead>
-                <tr className="text-left">
+                <tr className="border-b border-border text-left">
                   <th className="no-print w-8 px-4 py-2.5"><input type="checkbox" className="accent-primary" checked={selected.size > 0 && selected.size === list.items.length} onChange={toggleAll} aria-label="Select all" /></th>
-                  {cols.isVisible('seller') && <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Seller</th>}
-                  {cols.isVisible('amount') && <Th><SortableTh label="Amount" field="amountCents" sort={sort} dir={dir} onSort={onSort} /></Th>}
-                  {cols.isVisible('commission') && <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Commission</th>}
-                  {cols.isVisible('customer') && <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Customer</th>}
+                  {cols.isVisible('seller') && <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Seller</th>}
+                  {cols.isVisible('amount') && <Th align="right"><SortableTh label="Amount" field="amountCents" sort={sort} dir={dir} onSort={onSort} /></Th>}
+                  {cols.isVisible('commission') && <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Commission</th>}
+                  {cols.isVisible('customer') && <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Customer</th>}
                   {cols.isVisible('status') && <Th><SortableTh label={t('sales.status')} field="status" sort={sort} dir={dir} onSort={onSort} /></Th>}
                   {cols.isVisible('date') && <Th><SortableTh label="Date" field="saleDate" sort={sort} dir={dir} onSort={onSort} /></Th>}
-                  <th className="no-print px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t('common.actions')}</th>
+                  <th className="no-print px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{t('common.actions')}</th>
                 </tr>
               </thead>
               <tbody>
                 {list.items.map((s) => (
                   <tr key={s.id} onClick={() => setDetailId(s.id)}
-                    className={cn('cursor-pointer border-t border-border transition-colors hover:bg-muted/50', selected.has(s.id) && 'bg-muted/60')}>
+                    className={cn('cursor-pointer border-t border-border transition-colors hover:bg-accent/40', selected.has(s.id) && 'bg-accent/60')}>
                     <td className="no-print px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <input type="checkbox" className="accent-primary" checked={selected.has(s.id)} onChange={() => toggle(s.id)} aria-label={`Select ${s.sellerName}`} />
                     </td>
@@ -417,7 +456,7 @@ export default function SalesPage() {
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
                               <span className="font-semibold text-foreground">{s.sellerName}</span>
-                              {s.selfSubmitted && <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 px-1.5 py-0 text-[10px] text-amber-400" title="Submitted by member">self</Badge>}
+                              {s.selfSubmitted && <ToneChip tone="amber" title="Submitted by member" className="px-1.5 py-0 text-[10px]">self</ToneChip>}
                             </div>
                             <div className="font-mono text-[11px] text-muted-foreground/70">{s.sellerReferralCode}</div>
                           </div>
@@ -438,8 +477,10 @@ export default function SalesPage() {
                     {cols.isVisible('customer') && <td className="px-4 py-2.5 text-[12.5px] text-muted-foreground">{s.customerRef || '—'}</td>}
                     {cols.isVisible('status') && (
                       <td className="px-4 py-2.5">
-                        <Badge variant="outline" className={cn('px-2 py-0.5 text-[11px] font-semibold capitalize', statusBadgeClass(s.status))}>{s.status}</Badge>
-                        {s.deliveredAt && <Badge variant="outline" className="ml-1.5 border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-400">✓ delivered</Badge>}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <StatusPill status={s.status} />
+                          {s.deliveredAt && <ToneChip tone="emerald">✓ delivered</ToneChip>}
+                        </div>
                       </td>
                     )}
                     {cols.isVisible('date') && <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{dateShort(s.saleDate)}</td>}
@@ -447,7 +488,7 @@ export default function SalesPage() {
                       <div className="flex items-center justify-end gap-1.5">
                         {s.status === 'draft' && <Button size="sm" onClick={() => setConfirm({ ids: [s.id], action: 'approve' })}>{t('sales.approve')}</Button>}
                         {s.status === 'approved' && !s.deliveredAt && <Button variant="outline" size="sm" onClick={() => deliver(s.id)}>{t('sales.deliver')}</Button>}
-                        {s.status === 'draft' && <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setConfirm({ ids: [s.id], action: 'delete' })} aria-label="Delete draft">🗑</Button>}
+                        {s.status === 'draft' && <Button variant="ghost" size="sm" className="h-8 w-8 px-0 text-destructive hover:text-destructive" onClick={() => setConfirm({ ids: [s.id], action: 'delete' })} aria-label="Delete draft" title="Delete draft">🗑</Button>}
                         {s.status !== 'void' && <Button variant="destructive" size="sm" onClick={() => setConfirm({ ids: [s.id], action: 'void' })}>{t('sales.void')}</Button>}
                       </div>
                     </td>
@@ -580,8 +621,8 @@ function Kpi({ label, value, hint, accent, valueClass }: { label: string; value:
 }
 
 /* ------------------------------------------------- tablo basligi sarici */
-function Th({ children }: { children: ReactNode }) {
-  return <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground [&_th]:p-0 [&_th]:text-inherit">{children}</th>;
+function Th({ children, align }: { children: ReactNode; align?: 'right' }) {
+  return <th className={cn('px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground [&_th]:p-0 [&_th]:text-inherit', align === 'right' && 'text-right')}>{children}</th>;
 }
 
 /* --------------------------------------------------- satis detay cekmecesi */
@@ -668,9 +709,9 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
               <div className="font-display text-[30px] font-extrabold tabular-nums text-foreground">{money(d.amountCents, d.currency)}</div>
             </div>
             <div className="flex flex-col items-end gap-1.5">
-              <Badge variant="outline" className={cn('px-2 py-0.5 text-[11px] font-semibold capitalize', statusBadgeClass(d.status))}>{d.status}</Badge>
-              {d.deliveredAt && <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-400">delivered</Badge>}
-              {d.selfSubmitted && <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-400">self-submitted</Badge>}
+              <StatusPill status={d.status} />
+              {d.deliveredAt && <ToneChip tone="emerald">delivered</ToneChip>}
+              {d.selfSubmitted && <ToneChip tone="amber">self-submitted</ToneChip>}
             </div>
           </div>
 

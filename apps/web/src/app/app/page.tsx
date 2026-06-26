@@ -37,6 +37,22 @@ function monthLabel(ym: string): string {
   return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' });
 }
 
+/**
+ * Ana-sayfa icin kompakt vesting ozeti. Cuzdan sayfasiyla ayni fikir:
+ * olgunlasmis (payable) komisyon, birikmis (pending+payable) toplama dogru
+ * "yukleniyor". Dashboard payload'inda odeme esigi YOK; bu yuzden hedef =
+ * birikmis toplam (accrued). Tahmini odeme tarihi = ay sonu (TAHMIN, etiketli).
+ */
+function homeVesting(pendingCents: number, payableCents: number) {
+  const accrued = Math.max(1, pendingCents + payableCents);
+  const vested = Math.max(0, payableCents);
+  const pct = Math.min(100, (vested / accrued) * 100);
+  const now = new Date();
+  const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const payoutLabel = periodEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return { vested, accrued, pct, payoutLabel };
+}
+
 export default function MemberDashboard() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [earnings, setEarnings] = useState<Earnings | null>(null);
@@ -159,11 +175,11 @@ export default function MemberDashboard() {
           <div className="v"><MoneyCounter cents={Number(data.soldThisMonthCents)} currency={c} /></div>
           <div className="hint">{data.salesThisMonth} sales · {money(data.soldLifetimeCents, c)} lifetime</div>
         </div>
-        <div className="card stat">
+        <Link href="/app/wallet" className="card stat" style={{ color: 'inherit', display: 'block' }}>
           <div className="spread"><span className="k">You earned (this month)</span><span className="icon" style={{ background: 'var(--foil)' }}>◆</span></div>
           <div className="v" style={{ color: 'var(--gold-500)' }}><MoneyCounter cents={Number(data.earnedThisMonthCents)} currency={c} /></div>
-          <div className="hint">commission (pending + payable + paid)</div>
-        </div>
+          <div className="hint">commission (pending + payable + paid) · view wallet →</div>
+        </Link>
         <div className="card stat">
           <div className="spread"><span className="k">Effective rate</span><span className="icon">%</span></div>
           <div className="v">{data.effectiveRateBps > 0 ? `${(data.effectiveRateBps / 100).toFixed(1)}%` : '—'}</div>
@@ -186,6 +202,28 @@ export default function MemberDashboard() {
             </div>
             {payable > 0 && <Link className="btn success sm" href="/app/wallet">{t('me.requestPayout')} →</Link>}
           </div>
+          {/* kompakt vesting cubugu — cuzdandaki "para yukleme cubugu"nun ozeti */}
+          {(() => {
+            const v = homeVesting(pending, payable);
+            if (v.accrued <= 1) return null;
+            return (
+              <Link href="/app/wallet" style={{ display: 'block', marginTop: 18, color: 'inherit' }}>
+                <div className="spread" style={{ marginBottom: 7 }}>
+                  <span className="row faint" style={{ gap: 6, fontSize: 11.5, alignItems: 'center' }}>
+                    Vesting toward payout
+                    <span className="badge" style={{ fontSize: 9.5, background: 'color-mix(in srgb, var(--gold-500) 14%, transparent)', color: 'var(--gold-500)' }} title="Estimated payout date is end of month; vested/accruing amounts are real.">est.</span>
+                  </span>
+                  <span className="faint tnum" style={{ fontSize: 11.5 }}>
+                    {money(v.vested, c)} / {money(v.accrued, c)} · est. {v.payoutLabel}
+                  </span>
+                </div>
+                <div style={{ height: 9, borderRadius: 6, background: 'rgba(128,128,128,.12)', overflow: 'hidden', boxShadow: 'inset 0 1px 2px rgba(0,0,0,.15)' }}>
+                  <div style={{ height: '100%', width: `${v.pct}%`, borderRadius: 6, background: payable > 0 ? 'var(--foil)' : 'var(--amber)', transition: 'width .8s cubic-bezier(.2,.9,.3,1)' }} />
+                </div>
+              </Link>
+            );
+          })()}
+
           {rankInfo?.rank && (
             <div className="row" style={{ marginTop: 14, gap: 8 }}>
               <span className="badge active" style={{ fontSize: 11, background: 'var(--foil)', color: 'var(--on-gold)' }}>🏆 Rank #{rankInfo.rank} of {rankInfo.total}</span>

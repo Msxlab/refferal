@@ -1,8 +1,10 @@
 'use client';
 
+import type { CSSProperties, ComponentProps } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
+import { cn } from '@/lib/utils';
 import { Confirm, Loading, Modal, MoneyCounter, Pagination, useToast } from '@/components/ui';
 import { Drawer } from '@/components/Drawer';
 import { PrintSheet, PrintHeader, PrintSignatures } from '@/components/PrintSheet';
@@ -58,20 +60,51 @@ function Avatar({ name, size = 'sm' }: { name: string; size?: 'sm' | 'md' }) {
   );
 }
 
-const STATUS_BADGE: Record<string, string> = {
-  paid: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400',
-  requested: 'border-amber-500/30 bg-amber-500/10 text-amber-400',
-  processing: 'border-primary/30 bg-primary/10 text-primary',
-  failed: 'border-destructive/30 bg-destructive/10 text-destructive',
-  payable: 'border-primary/30 bg-primary/10 text-primary',
+/* para-anlamli ton: var() + /15 alfa (light+dark dogru) */
+type MoneyTone = 'emerald' | 'amber' | 'rose';
+function toneStyle(tone: MoneyTone): CSSProperties {
+  const v = `var(--${tone})`;
+  return {
+    color: v,
+    backgroundColor: `color-mix(in srgb, ${v} 15%, transparent)`,
+    borderColor: `color-mix(in srgb, ${v} 30%, transparent)`,
+  };
+}
+
+/* payout durum -> ton/tailwind sinifi. amber=bekliyor, primary=yolda, emerald=tamam, rose=red */
+const STATUS_TONE: Record<string, MoneyTone> = {
+  // tamamlanan akislar
+  paid: 'emerald',
+  delivered: 'emerald',
+  cashed: 'emerald',
+  approved: 'emerald',
+  // bekleyen / yolda
+  requested: 'amber',
+  // basarisiz / reddedilen
+  failed: 'rose',
+  rejected: 'rose',
 };
+// 'processing' / 'in-transit' / 'payable' -> primary (token) sinifiyla
+const STATUS_PRIMARY = new Set(['processing', 'in-transit', 'in_transit', 'payable']);
 
 function StatusPill({ status }: { status: string }) {
+  const tone = STATUS_TONE[status];
+  const primary = STATUS_PRIMARY.has(status);
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize tabular-nums ${STATUS_BADGE[status] ?? 'border-border bg-muted text-muted-foreground'}`}>
-      {status}
+    <span
+      style={tone ? toneStyle(tone) : undefined}
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize tabular-nums ${
+        tone ? '' : primary ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border bg-muted text-muted-foreground'
+      }`}
+    >
+      {status.replace(/[-_]/g, ' ')}
     </span>
   );
+}
+
+/* tablo basligi — Sales ile ayni: muted, uppercase, tracking-wide, 11px */
+function Th({ className, ...props }: ComponentProps<typeof TableHead>) {
+  return <TableHead className={cn('text-[11px] font-semibold uppercase tracking-wide text-muted-foreground', className)} {...props} />;
 }
 
 /** Indigo segmented bar — ready-to-pay vs blocked (clawback) share of the total. */
@@ -340,15 +373,15 @@ export default function PayoutsPage() {
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead>Member</TableHead>
-                  <TableHead>Period</TableHead>
-                  <TableHead className="text-right">Requested</TableHead>
-                  <TableHead className="text-right print:hidden">Decision</TableHead>
+                  <Th>Member</Th>
+                  <Th>Period</Th>
+                  <Th className="text-right">Requested</Th>
+                  <Th className="text-right print:hidden">Decision</Th>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {requests.map((r) => (
-                  <TableRow key={r.id} className="cursor-pointer" onClick={() => setDetailId(r.id)}>
+                  <TableRow key={r.id} className="cursor-pointer hover:bg-accent/40" onClick={() => setDetailId(r.id)}>
                     <TableCell>
                       <div className="flex items-center gap-2.5">
                         <Avatar name={r.fullName} />
@@ -385,10 +418,10 @@ export default function PayoutsPage() {
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead>Period</TableHead>
-                  <TableHead>Members</TableHead>
-                  <TableHead className="text-right">Estimate</TableHead>
-                  <TableHead className="text-right print:hidden">Decision</TableHead>
+                  <Th>Period</Th>
+                  <Th>Members</Th>
+                  <Th className="text-right">Estimate</Th>
+                  <Th className="text-right print:hidden">Decision</Th>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -424,8 +457,8 @@ export default function PayoutsPage() {
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead>Member</TableHead>
-                  <TableHead className="text-right">Owed</TableHead>
+                  <Th>Member</Th>
+                  <Th className="text-right">Owed</Th>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -460,10 +493,10 @@ export default function PayoutsPage() {
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead>Member</TableHead>
-                  <TableHead>Score</TableHead>
-                  <TableHead>Signals</TableHead>
-                  <TableHead className="text-right print:hidden">Decision</TableHead>
+                  <Th>Member</Th>
+                  <Th>Score</Th>
+                  <Th>Signals</Th>
+                  <Th className="text-right print:hidden">Decision</Th>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -509,11 +542,11 @@ export default function PayoutsPage() {
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead>Member</TableHead>
-                  <TableHead>Legal name</TableHead>
-                  <TableHead>Tax ID</TableHead>
-                  <TableHead>Bank</TableHead>
-                  <TableHead className="text-right print:hidden">Decision</TableHead>
+                  <Th>Member</Th>
+                  <Th>Legal name</Th>
+                  <Th>Tax ID</Th>
+                  <Th>Bank</Th>
+                  <Th className="text-right print:hidden">Decision</Th>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -567,14 +600,14 @@ export default function PayoutsPage() {
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className="w-[34px] print:hidden">
+                  <Th className="w-[34px] print:hidden">
                     <input type="checkbox" className="accent-primary" checked={selected.size > 0 && selected.size === payable.members.length} onChange={toggleAll} aria-label="Select all" />
-                  </TableHead>
-                  <TableHead>Member</TableHead>
-                  <TableHead>Code</TableHead>
-                  <TableHead className="text-right">Sold (mo)</TableHead>
-                  <TableHead className="text-right">Net payable</TableHead>
-                  <TableHead className="text-right">Eff. %</TableHead>
+                  </Th>
+                  <Th>Member</Th>
+                  <Th>Code</Th>
+                  <Th className="text-right">Sold (mo)</Th>
+                  <Th className="text-right">Net payable</Th>
+                  <Th className="text-right">Eff. %</Th>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -641,17 +674,17 @@ export default function PayoutsPage() {
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead>Member</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Method</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Period</TableHead>
-                  <TableHead>Date</TableHead>
+                  <Th>Member</Th>
+                  <Th>Amount</Th>
+                  <Th>Method</Th>
+                  <Th>Status</Th>
+                  <Th>Period</Th>
+                  <Th>Date</Th>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {history.items.map((p) => (
-                  <TableRow key={p.id} className="cursor-pointer" onClick={() => setDetailId(p.id)}>
+                  <TableRow key={p.id} className="cursor-pointer hover:bg-accent/40" onClick={() => setDetailId(p.id)}>
                     <TableCell>
                       <div className="flex items-center gap-2.5">
                         <Avatar name={p.fullName} />
@@ -667,7 +700,7 @@ export default function PayoutsPage() {
                       <div className="flex items-center gap-1.5">
                         <StatusPill status={p.status} />
                         {p.clearedAt ? (
-                          <span className="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400" title={p.bankRef ? `Bank ref: ${p.bankRef}` : 'Bank reconciled'}>✓ cleared</span>
+                          <span style={toneStyle('emerald')} className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold" title={p.bankRef ? `Bank ref: ${p.bankRef}` : 'Bank reconciled'}>✓ cleared</span>
                         ) : null}
                       </div>
                     </TableCell>
@@ -856,10 +889,10 @@ function PayoutDrawer({ id, currency, onClose, onChanged, onToast }: { id: strin
                 <Table>
                   <TableHeader>
                     <TableRow className="hover:bg-transparent">
-                      <TableHead>Lvl</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
+                      <Th>Lvl</Th>
+                      <Th>Type</Th>
+                      <Th>Date</Th>
+                      <Th className="text-right">Amount</Th>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

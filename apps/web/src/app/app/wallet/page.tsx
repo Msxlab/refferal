@@ -39,6 +39,37 @@ const CHECK_STATUS: Record<CheckStatus, { label: string; cls: string; hint: stri
 const TYPES = ['', 'commission', 'reversal', 'adjustment'] as const;
 const STATUSES = ['', 'pending', 'payable', 'paid', 'reversed'] as const;
 
+/**
+ * "Para yukleme cubugu" (vesting) — uye baglilik/dopamine ozelligi.
+ * Komisyon zamanla "pending" -> "payable" olgunlasir. Bu yardimci, mevcut
+ * gercek bakiye verisinden (pending + payable) gun-bazli DOGRUSAL bir
+ * vesting tahmini uretir. Hedef = odeme esigi (payoutMin). Tahmini odeme
+ * tarihi = bu ayin sonu (dogal donem siniri) — istemci tarafi TAHMIN, etiketli.
+ */
+function computeVesting(pendingCents: number, payableCents: number, minCents: number) {
+  const accrued = Math.max(0, pendingCents + payableCents); // toplam birikmis (vested + henuz olgunlasmamis)
+  const vested = Math.max(0, payableCents);                 // olgunlasmis = odenebilir
+  // Hedef: esik. Esik zaten asildiysa hedefi birikmise yukselt ki cubuk "dolu" gorunsun.
+  const target = Math.max(minCents, accrued, 1);
+  const pct = Math.min(100, (vested / target) * 100);
+
+  // Tahmini odeme tarihi: bu ayin son gunu (TAHMIN). Gercek bir API alani yok.
+  const now = new Date();
+  const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const msPerDay = 86_400_000;
+  const daysLeft = Math.max(0, Math.ceil((periodEnd.getTime() - now.getTime()) / msPerDay));
+
+  // Gun-bazli dogrusal vesting hizi tahmini: kalan "pending" tutar, kalan gune yayilir.
+  const remainingToVest = Math.max(0, pendingCents);
+  const perDay = daysLeft > 0 ? remainingToVest / daysLeft : remainingToVest;
+
+  return { accrued, vested, target, pct, periodEnd, daysLeft, perDay, remainingToVest };
+}
+
+function payoutDateLabel(d: Date): string {
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 export default function WalletPage() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [history, setHistory] = useState<PayoutReq[]>([]);
@@ -79,11 +110,13 @@ export default function WalletPage() {
   if (!wallet) return <Loading />;
   const b = wallet.balance;
   const c = wallet.currency;
+  const pending = Number(b.pendingCents);
   const payable = Number(b.payableCents);
   const min = Number(wallet.payoutMinCents);
   const reached = payable >= min;
   const pct = min > 0 ? Math.min(100, (payable / min) * 100) : 100;
   const remaining = Math.max(0, min - payable);
+  const vesting = computeVesting(pending, payable, min);
   // Faz A4: cek makbuzu ozeti — postalanan/odenen toplam + yolda olan sayisi
   const receivedCents = history.filter((p) => p.checkStatus === 'mailed' || p.checkStatus === 'paid').reduce((a, p) => a + Number(p.totalCents), 0);
   const receivedCount = history.filter((p) => p.checkStatus === 'mailed' || p.checkStatus === 'paid').length;
@@ -95,7 +128,70 @@ export default function WalletPage() {
       <h1 className="h1 fade-in">Your Wallet</h1>
       <p className="sub fade-in">Track your payable balance and request a payout.</p>
 
-      <div className="card hero fade-in delay-1">
+      {/* Vesting "para yukleme cubugu" — gun-bazli dogrusal olgunlasma (baglilik ozelligi) */}
+      <div className="card hero fade-in delay-1" style={{ overflow: 'hidden', position: 'relative' }}>
+        <div className="spread" style={{ alignItems: 'flex-start' }}>
+          <div>
+            <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+              <span className="faint" style={{ fontSize: 12 }}>Vesting toward payout</span>
+              <span
+                className="badge"
+                style={{ fontSize: 10, background: 'color-mix(in srgb, var(--gold-500) 14%, transparent)', color: 'var(--gold-500)' }}
+                title="The payout date is an estimate based on the current billing period (end of month). Vested and accruing amounts are real."
+              >
+                estimate
+              </span>
+            </div>
+            <div className="bignum gradient-text" style={{ marginTop: 6 }}>
+              <MoneyCounter cents={vesting.vested} currency={c} />
+            </div>
+            <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
+              vested of <b className="tnum" style={{ color: 'var(--text)' }}>{money(vesting.target, c)}</b> target
+              {pending > 0 && (
+                <> · <span style={{ color: 'var(--amber)' }}>{money(pending, c)} still maturing</span></>
+              )}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div className="faint" style={{ fontSize: 11 }}>Est. payout</div>
+            <div className="tnum" style={{ fontWeight: 800, fontSize: 16, marginTop: 2 }}>{payoutDateLabel(vesting.periodEnd)}</div>
+            <div className="faint" style={{ fontSize: 11, marginTop: 2 }}>
+              {vesting.daysLeft === 0 ? 'today' : `in ${vesting.daysLeft} day${vesting.daysLeft === 1 ? '' : 's'}`}
+            </div>
+          </div>
+        </div>
+
+        {/* dogrusal money-loading bar */}
+        <div style={{ marginTop: 18 }}>
+          <div style={{ position: 'relative', height: 14, borderRadius: 8, background: 'rgba(128,128,128,.12)', overflow: 'hidden', boxShadow: 'inset 0 1px 2px rgba(0,0,0,.18)' }}>
+            <div
+              style={{
+                height: '100%',
+                width: `${vesting.pct}%`,
+                borderRadius: 8,
+                background: reached ? 'var(--emerald)' : 'var(--foil)',
+                transition: 'width .9s cubic-bezier(.2,.9,.3,1)',
+                boxShadow: reached ? '0 0 14px -2px color-mix(in srgb, var(--emerald) 60%, transparent)' : '0 0 14px -2px color-mix(in srgb, var(--gold-500) 55%, transparent)',
+              }}
+            />
+          </div>
+          <div className="spread" style={{ marginTop: 8 }}>
+            <span className="faint tnum" style={{ fontSize: 12 }}>{vesting.pct.toFixed(0)}% vested</span>
+            <span className="faint" style={{ fontSize: 12 }}>
+              {reached
+                ? <span style={{ color: 'var(--emerald)', fontWeight: 600 }}>✓ Ready to pay out</span>
+                : <>{money(remaining, c)} to the {money(min, c)} threshold</>}
+            </span>
+          </div>
+          {!reached && vesting.perDay > 0 && (
+            <div className="faint" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.5 }}>
+              At your current pace, roughly <b className="tnum" style={{ color: 'var(--text)' }}>{money(Math.round(vesting.perDay), c)}/day</b> is maturing — an estimate that updates as your sales are approved.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card hero fade-in delay-1" style={{ marginTop: 16 }}>
         <div className="spread">
           <div>
             <div className="faint" style={{ fontSize: 12 }}>{t('me.payable')} balance</div>
