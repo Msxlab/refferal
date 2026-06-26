@@ -3,10 +3,12 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { motion } from 'framer-motion';
 import { activeMembership, clearSession, getSession, isImpersonating, setSession, stopImpersonation, type Session } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { Brand, ThemeToggle } from '@/components/ui';
 import { NotificationBell } from '@/components/NotificationBell';
+import { PageTransition } from '@/components/PageTransition';
 import { t } from '@/lib/i18n';
 import { Network, Wallet, Banknote, Users, Sparkles, Eye, LogOut, User } from 'lucide-react';
 
@@ -72,11 +74,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="inner">
           <Brand />
           <nav>
-            {NAV.map((n) => (
-              <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
-                <span aria-hidden="true" style={{ opacity: 0.85, marginRight: 6, display: 'inline-flex', verticalAlign: 'middle' }}>{n.ic}</span>{t(n.key)}
-              </Link>
-            ))}
+            {NAV.map((n) => {
+              const isActive = pathname === n.href;
+              return (
+                <Link key={n.href} href={n.href} className={`relative ${isActive ? 'active' : ''}`}>
+                  <span aria-hidden="true" style={{ opacity: 0.85, marginRight: 6, display: 'inline-flex', verticalAlign: 'middle' }}>{n.ic}</span>{t(n.key)}
+                  {isActive && (
+                    <motion.span
+                      layoutId="appNavActive"
+                      className="absolute -bottom-1.5 left-2 right-2 h-0.5 rounded-full bg-primary"
+                      transition={{ type: 'spring', stiffness: 500, damping: 38 }}
+                    />
+                  )}
+                </Link>
+              );
+            })}
           </nav>
           <span className="faint" style={{ fontSize: 12 }}>{active?.tenantName}</span>
           <NotificationBell />
@@ -85,7 +97,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <button className="btn ghost sm" onClick={logout} aria-label={t('nav.logout')}><LogOut className="size-4" aria-hidden />{t('nav.logout')}</button>
         </div>
       </header>
-      <main className="appmain">{children}</main>
+      <main className="appmain"><PageTransition>{children}</PageTransition></main>
     </div>
   );
 }

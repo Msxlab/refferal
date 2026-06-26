@@ -5,6 +5,7 @@ import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AppToaster } from '@/components/AppToaster';
+import { InstallPrompt } from '@/components/InstallPrompt';
 import { APP_NAME } from '@/lib/brand';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
@@ -38,6 +39,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <OfflineBanner />
           {children}
           <AppToaster />
+          <InstallPrompt />
           <ServiceWorkerRegister />
         </TooltipProvider>
       </body>
