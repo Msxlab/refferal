@@ -4,6 +4,7 @@ import { CampaignsService } from '../campaigns/campaigns.service';
 import { EngineService } from '../engine/engine.service';
 import { FraudService } from '../fraud/fraud.service';
 import { PayoutsService } from '../payouts/payouts.service';
+import { PayoutEstimateService } from '../payouts/payout-estimate.service';
 import { RanksService } from '../ranks/ranks.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReportsService } from '../reports/reports.service';
@@ -44,6 +45,7 @@ export class SchedulerService {
     private readonly payouts: PayoutsService,
     private readonly alerts: AlertsService,
     private readonly ranks: RanksService,
+    private readonly payoutEstimate: PayoutEstimateService,
   ) {}
 
   /** Gece (07:00): rutbe atlayan uyelere kutlama bildirimi (Faz D5). */
@@ -187,9 +189,22 @@ export class SchedulerService {
     }
     this.running = true;
     await this.runJob('mature-commissions', async () => {
-      const { matured } = await this.engine.matureCommissions();
+      const { matured, affectedMembershipIds } = await this.engine.matureCommissions();
       if (matured > 0) this.logger.log(`olgunlasan komisyon satiri: ${matured}`);
+      if (affectedMembershipIds.length > 0) {
+        // olgunlasma payable'i degistirdi → bu uyelerin tahmini odeme tarihini tazele (Faz E)
+        await this.payoutEstimate.refreshForMemberships(affectedMembershipIds);
+      }
     });
     this.running = false;
+  }
+
+  // Faz E: gunluk tam tarama — payout/void/yeni-satis kaymalarini yakalar (maturation-disi).
+  @Cron(CronExpression.EVERY_DAY_AT_5AM, { name: 'sweep-payout-estimates' })
+  async sweepPayoutEstimates(): Promise<void> {
+    await this.runJob('sweep-payout-estimates', async () => {
+      const { swept, skipped } = await this.payoutEstimate.sweepEstimates();
+      if (!skipped && swept > 0) this.logger.log(`payout tahmin taramasi: ${swept} uye guncellendi`);
+    });
   }
 }

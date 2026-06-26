@@ -7,6 +7,7 @@ import { ReportsService } from '../src/reports/reports.service';
 import { WebhooksService } from '../src/webhooks/webhooks.service';
 import { CampaignsService } from '../src/campaigns/campaigns.service';
 import { PayoutsService } from '../src/payouts/payouts.service';
+import { PayoutEstimateService } from '../src/payouts/payout-estimate.service';
 import { EventsService } from '../src/events/events.service';
 import { SanctionsService } from '../src/sanctions/sanctions.service';
 import { AlertsService } from '../src/observability/alerts.service';
@@ -30,7 +31,7 @@ describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
     await prisma.$connect();
     engine = new EngineService(prisma, new RanksService(prisma));
     payouts = new PayoutsService(prisma, engine, new WebhooksService(prisma), new EventsService(), new SanctionsService(prisma));
-    scheduler = new SchedulerService(engine, new ReportsService(prisma), new FraudService(prisma), new WebhooksService(prisma), new CampaignsService(prisma, engine), prisma, payouts, new AlertsService(), new RanksService(prisma));
+    scheduler = new SchedulerService(engine, new ReportsService(prisma), new FraudService(prisma), new WebhooksService(prisma), new CampaignsService(prisma, engine), prisma, payouts, new AlertsService(), new RanksService(prisma), new PayoutEstimateService(prisma));
   });
 
   afterAll(async () => {
