@@ -21,6 +21,10 @@ export class WalletService {
     q: { page: number; pageSize: number; type?: LedgerType; status?: LedgerStatus },
   ) {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    const membership = await this.prisma.membership.findUniqueOrThrow({
+      where: { id: membershipId },
+      select: { estimatedPayoutDate: true },
+    });
     const grouped = await this.prisma.ledgerEntry.groupBy({
       by: ['status'],
       where: { beneficiaryMembershipId: membershipId, status: { not: LedgerStatus.reversed } },
@@ -59,6 +63,7 @@ export class WalletService {
       currency: tenant.currency,
       // Esik ilerleme cubugu icin: payable >= payoutMinCents olunca odeme istenebilir
       payoutMinCents: tenant.payoutMinCents.toString(),
+      estimatedPayoutDate: membership.estimatedPayoutDate,
       balance: {
         pendingCents: bucket(LedgerStatus.pending).toString(),
         payableCents: bucket(LedgerStatus.payable).toString(),
@@ -180,11 +185,13 @@ export class WalletService {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const targetMonth = month ?? monthKey(new Date(), tenant.timezone);
 
-    const [rows, soldThisMonth, soldLifetime] = await Promise.all([
+    const [rows, soldThisMonth, soldLifetime, membership] = await Promise.all([
       this.prisma.monthlySummary.findMany({ where: { membershipId, month: targetMonth }, orderBy: { level: 'asc' } }),
       // KENDI cirosu (sattigi): bu ay onayli satislari
       this.prisma.sale.aggregate({ where: { tenantId, sellerMembershipId: membershipId, status: SaleStatus.approved, summaryMonth: targetMonth }, _sum: { amountCents: true }, _count: { _all: true } }),
       this.prisma.sale.aggregate({ where: { tenantId, sellerMembershipId: membershipId, status: SaleStatus.approved }, _sum: { amountCents: true } }),
+      // Faz E: saklanan tahmini odeme tarihi (PayoutEstimateService gunceller)
+      this.prisma.membership.findUniqueOrThrow({ where: { id: membershipId }, select: { estimatedPayoutDate: true } }),
     ]);
 
     const levels = rows.map((r) => ({
@@ -200,6 +207,8 @@ export class WalletService {
     return {
       month: targetMonth,
       currency: tenant.currency,
+      payoutMinCents: tenant.payoutMinCents.toString(),
+      estimatedPayoutDate: membership.estimatedPayoutDate,
       // "sattigi vs kazandigi" — urunun uye tarafindaki cekirdek vaadi
       soldThisMonthCents: soldCents.toString(),
       salesThisMonth: soldThisMonth._count._all,
