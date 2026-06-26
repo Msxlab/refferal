@@ -149,6 +149,10 @@ html, body {
    UA varsayilan koyu metniyle SOLUK cikar; .btn vb. kendi rengini set ettiginden etkilenmez.) */
 button, input, select, textarea { font-family: inherit; }
 button, select { color: inherit; }
+/* preflight kapali oldugundan UA, arka plan set etmeyen butonlara gri varsayilan verir
+   (shadcn ghost/link variant'lari beyaz/gri cikiyordu). Preflight'in yaptigi reset'i biz yapalim:
+   bg/border'i set eden siniflar (.btn, bg-primary, border) daha spesifik oldugundan etkilenmez. */
+button { background-color: transparent; background-image: none; border: 0 solid transparent; }
 /* cok hafif grain — plastik hissi kirar (dark'ta) */
 body::before {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
