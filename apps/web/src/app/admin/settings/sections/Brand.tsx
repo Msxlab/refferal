@@ -114,7 +114,7 @@ export default function Brand() {
           </div>
         </div>
         <div className="faint" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.5 }}>
-          Colors apply to member-facing surfaces. The admin theme stays Obsidian &amp; Champagne.
+          Colors apply to member-facing surfaces. The admin theme stays Obsidian &amp; Indigo.
         </div>
       </div>
     </div>

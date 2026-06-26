@@ -74,7 +74,7 @@ function toneStyle(tone: MoneyTone): CSSProperties {
 /* dolu (solid) pozitif aksiyon butonu — var(--emerald) zemin + okunur metin (light+dark dogru) */
 const successBtnStyle: CSSProperties = {
   backgroundColor: 'var(--emerald)',
-  color: 'var(--primary-foreground)',
+  color: 'hsl(var(--primary-foreground))',
   borderColor: 'transparent',
 };
 
@@ -573,7 +573,7 @@ export default function PayoutsPage() {
                     </TableCell>
                     <TableCell className="text-foreground">
                       {k.legalName}
-                      {k.sanctionsHit && <Badge variant="destructive" className="ml-2">⚠ sanctions</Badge>}
+                      {k.sanctionsHit && <Badge variant="destructive" className="ml-2"><span aria-hidden="true">⚠</span> sanctions</Badge>}
                     </TableCell>
                     <TableCell className="tabular-nums text-muted-foreground">{k.taxIdType.toUpperCase()} ••••{k.taxIdLast4}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{k.bankName ? `${k.bankName} · ` : ''}{k.accountType} ••••{k.accountLast4} · {k.routingNumber}</TableCell>

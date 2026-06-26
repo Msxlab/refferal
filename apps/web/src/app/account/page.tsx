@@ -202,7 +202,7 @@ export default function AccountPage() {
           <Brand />
           <span style={{ flex: 1 }} />
           <ThemeToggle />
-          <Link href={backHref} className="btn ghost sm">← Back</Link>
+          <Link href={backHref} className="btn ghost sm"><span aria-hidden="true">←</span> Back</Link>
         </div>
       </header>
 
@@ -223,7 +223,7 @@ export default function AccountPage() {
             <div className="row" style={{ gap: 8, alignItems: 'center' }}>
               <input value={acc.email} disabled style={{ flex: 1 }} />
               <span className={`badge ${acc.emailVerified ? 'active' : 'inactive'}`}>
-                {acc.emailVerified ? '✓ verified' : 'unverified'}
+                {acc.emailVerified ? <><span aria-hidden="true">✓</span> verified</> : 'unverified'}
               </span>
             </div>
             <div className="faint" style={{ fontSize: 'var(--text-xs)', marginTop: 4 }}>Email change with re-verification is coming soon.</div>
@@ -244,7 +244,7 @@ export default function AccountPage() {
                 </div>
               </div>
               <span className={`badge ${mailing.complete ? 'active' : 'inactive'}`} style={{ flexShrink: 0 }}>
-                {mailing.complete ? '✓ complete' : 'incomplete'}
+                {mailing.complete ? <><span aria-hidden="true">✓</span> complete</> : 'incomplete'}
               </span>
             </div>
             <div className="field" style={{ marginTop: 12 }}>

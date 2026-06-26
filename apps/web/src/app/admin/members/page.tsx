@@ -767,7 +767,7 @@ function MemberDrawer({ id, onClose, onNavigate, onChanged, onToast }: {
           {/* status / role chips */}
           <div className="flex flex-wrap items-center gap-1.5">
             <StatusPill status={p.status} />
-            <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">{p.role.replace('tenant_', '')}</Badge>
+            <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">{roleLabel(p.role)}</Badge>
             {p.emailVerified && <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400">email verified</Badge>}
             <span className="text-xs text-muted-foreground/70">· level {p.depth} · joined {dateShort(p.joinedAt)}</span>
           </div>

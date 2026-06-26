@@ -98,7 +98,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
 
               {/* show the opportunity before the form — people join for a reward, not an account */}
               <div className="card" style={{ background: 'color-mix(in srgb, var(--gold-500) 8%, transparent)', borderColor: 'color-mix(in srgb, var(--gold-500) 28%, transparent)', padding: 14, marginBottom: 18 }}>
-                <div style={{ fontWeight: 700, fontSize: 'var(--text-md)', marginBottom: 6 }}>💸 What you’ll earn</div>
+                <div style={{ fontWeight: 700, fontSize: 'var(--text-md)', marginBottom: 6 }}><span aria-hidden="true">💸</span> What you’ll earn</div>
                 <div className="faint" style={{ fontSize: 'var(--text-sm)', lineHeight: 1.55 }}>
                   Earn a commission on every sale you make — and a share of the sales made by the people you bring in. Record a sale, your company verifies it, and your commission is tracked and paid out automatically.
                 </div>

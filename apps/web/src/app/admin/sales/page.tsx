@@ -486,7 +486,7 @@ export default function SalesPage() {
                       <td className="px-4 py-2.5">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <StatusPill status={s.status} />
-                          {s.deliveredAt && <ToneChip tone="emerald">✓ delivered</ToneChip>}
+                          {s.deliveredAt && <ToneChip tone="emerald"><span aria-hidden="true">✓</span> delivered</ToneChip>}
                         </div>
                       </td>
                     )}
@@ -495,7 +495,7 @@ export default function SalesPage() {
                       <div className="flex items-center justify-end gap-1.5">
                         {s.status === 'draft' && <Button size="sm" onClick={() => setConfirm({ ids: [s.id], action: 'approve' })}>{t('sales.approve')}</Button>}
                         {s.status === 'approved' && !s.deliveredAt && <Button variant="outline" size="sm" onClick={() => deliver(s.id)}>{t('sales.deliver')}</Button>}
-                        {s.status === 'draft' && <Button variant="ghost" size="sm" className="h-8 w-8 px-0 text-destructive hover:text-destructive" onClick={() => setConfirm({ ids: [s.id], action: 'delete' })} aria-label="Delete draft" title="Delete draft">🗑</Button>}
+                        {s.status === 'draft' && <Button variant="ghost" size="sm" className="h-8 w-8 px-0 text-destructive hover:text-destructive" onClick={() => setConfirm({ ids: [s.id], action: 'delete' })} aria-label="Delete draft" title="Delete draft"><span aria-hidden="true">🗑</span></Button>}
                         {s.status !== 'void' && <Button variant="destructive" size="sm" onClick={() => setConfirm({ ids: [s.id], action: 'void' })}>{t('sales.void')}</Button>}
                       </div>
                     </td>

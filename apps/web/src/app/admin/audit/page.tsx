@@ -111,15 +111,16 @@ export default function AuditPage() {
               {integrity.ok ? `✓ Chain intact (${integrity.checked})` : '✗ Chain tampered'}
             </span>
           )}
-          <button className="btn ghost" onClick={verifyIntegrity} disabled={verifying}>{verifying ? 'Verifying…' : '🔒 Verify integrity'}</button>
-          <button className="btn ghost" onClick={exportCsv}>⇩ Export CSV</button>
+          <button className="btn ghost" onClick={verifyIntegrity} disabled={verifying}>{verifying ? 'Verifying…' : <><span aria-hidden="true">🔒</span> Verify integrity</>}</button>
+          <button className="btn ghost" onClick={exportCsv}><span aria-hidden="true">⇩</span> Export CSV</button>
         </div>
       </div>
 
       {error && <div className="error" style={{ marginTop: 16 }}>{error}</div>}
 
       <div className="row fade-in delay-1 no-print" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '16px 0' }}>
-        <input aria-label="Search audit log by action or entity" placeholder="🔍  Search action or entity…" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} style={{ flex: 1, minWidth: 180, maxWidth: 280 }} />
+        <span aria-hidden="true">🔍</span>
+        <input aria-label="Search audit log by action or entity" placeholder="Search action or entity…" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} style={{ flex: 1, minWidth: 180, maxWidth: 280 }} />
         <select value={entity} onChange={(e) => { setEntity(e.target.value); setPage(1); }} style={{ width: 'auto' }} aria-label="Entity">
           <option value="">All entities</option>
           {ENTITIES.map((e) => <option key={e} value={e}>{ICON[e] ?? '•'} {e}</option>)}
