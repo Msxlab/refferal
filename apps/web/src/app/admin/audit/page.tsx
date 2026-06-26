@@ -5,6 +5,7 @@ import { api, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
 import { Loading, Pagination } from '@/components/ui';
 import { Drawer } from '@/components/Drawer';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { t } from '@/lib/i18n';
 
 interface AuditItem {
@@ -121,10 +122,13 @@ export default function AuditPage() {
       <div className="row fade-in delay-1 no-print" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '16px 0' }}>
         <span aria-hidden="true">🔍</span>
         <input aria-label="Search audit log by action or entity" placeholder="Search action or entity…" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} style={{ flex: 1, minWidth: 180, maxWidth: 280 }} />
-        <select value={entity} onChange={(e) => { setEntity(e.target.value); setPage(1); }} style={{ width: 'auto' }} aria-label="Entity">
-          <option value="">All entities</option>
-          {ENTITIES.map((e) => <option key={e} value={e}>{ICON[e] ?? '•'} {e}</option>)}
-        </select>
+        <Select value={entity === '' ? '__all__' : entity} onValueChange={(v) => { setEntity(v === '__all__' ? '' : v); setPage(1); }}>
+          <SelectTrigger aria-label="Entity" className="h-9 w-auto"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All entities</SelectItem>
+            {ENTITIES.map((e) => <SelectItem key={e} value={e}>{ICON[e] ?? '•'} {e}</SelectItem>)}
+          </SelectContent>
+        </Select>
         <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1); }} aria-label="From" style={{ width: 'auto', minWidth: 130 }} />
         <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPage(1); }} aria-label="To" style={{ width: 'auto', minWidth: 130 }} />
         <span style={{ flex: 1, minWidth: 12 }} />

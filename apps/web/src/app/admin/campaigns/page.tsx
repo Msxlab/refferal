@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Confirm, Loading, Modal, useToast } from '@/components/ui';
 import { Drawer } from '@/components/Drawer';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { activeMembership, getSession, isAdminRole } from '@/lib/auth';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
@@ -194,9 +195,12 @@ function CampaignForm({ existing, onClose, onSaved, onError }: {
         <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
           <div className="field" style={{ margin: 0 }}>
             <label>Metric</label>
-            <select aria-label="Campaign metric" value={metric} onChange={(e) => setMetric(e.target.value as Metric)} disabled={!isDraft}>
-              {(Object.keys(METRICS) as Metric[]).map((m) => <option key={m} value={m}>{METRICS[m]}</option>)}
-            </select>
+            <Select value={metric} onValueChange={(v) => setMetric(v as Metric)} disabled={!isDraft}>
+              <SelectTrigger aria-label="Campaign metric"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(Object.keys(METRICS) as Metric[]).map((m) => <SelectItem key={m} value={m}>{METRICS[m]}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
           <div className="field" style={{ margin: 0 }}><label>Starts</label><input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} required disabled={!isDraft} /></div>
           <div className="field" style={{ margin: 0 }}><label>Ends</label><input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} required disabled={!isDraft} /></div>

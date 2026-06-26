@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Modal } from '@/components/ui';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 
 interface Mapping { code: string; amount: string; date: string; customer: string; external: string }
 interface PreviewRow { line: number; ok: boolean; code: string; amountCents?: string; saleDate?: string; sellerName?: string; reason?: string }
@@ -165,10 +166,13 @@ function MapRow({ label, value, headers, onChange }: { label: string; value: str
   return (
     <div className="spread" style={{ gap: 12 }}>
       <label style={{ fontSize: 13, minWidth: 140 }}>{label}</label>
-      <select value={value} onChange={(e) => onChange(e.target.value)} style={{ flex: 1, maxWidth: 280 }}>
-        <option value="">— none —</option>
-        {headers.map((h) => <option key={h} value={h}>{h}</option>)}
-      </select>
+      <Select value={value === '' ? '__none__' : value} onValueChange={(v) => onChange(v === '__none__' ? '' : v)}>
+        <SelectTrigger style={{ flex: 1, maxWidth: 280 }}><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__none__">— none —</SelectItem>
+          {headers.map((h) => <SelectItem key={h} value={h}>{h}</SelectItem>)}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

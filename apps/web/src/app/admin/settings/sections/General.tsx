@@ -3,6 +3,7 @@
 import { CSSProperties, FormEvent, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, Toggle, useToast } from '@/components/ui';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 
 interface Settings {
   name: string;
@@ -85,11 +86,14 @@ export default function General() {
           <Read label="Currency" value={s.currency} />
           <div className="field" style={{ margin: 0 }}>
             <label>Time zone</label>
-            <select value={s.timezone} onChange={(e) => setS({ ...s, timezone: e.target.value })}>
-              {(TIMEZONES.includes(s.timezone) ? TIMEZONES : [s.timezone, ...TIMEZONES]).map((tz) => (
-                <option key={tz} value={tz}>{tz}</option>
-              ))}
-            </select>
+            <Select value={s.timezone} onValueChange={(v) => setS({ ...s, timezone: v })}>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(TIMEZONES.includes(s.timezone) ? TIMEZONES : [s.timezone, ...TIMEZONES]).map((tz) => (
+                  <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </div>
@@ -98,9 +102,12 @@ export default function General() {
         <h2 style={SECTION_TITLE}>Commissions &amp; payouts</h2>
         <div className="field" style={{ marginTop: 12 }}>
           <label>Commission maturation rule</label>
-          <select value={s.maturationRule} onChange={(e) => setS({ ...s, maturationRule: e.target.value as Settings['maturationRule'] })}>
-            {MATURATION.map((m) => <option key={m.v} value={m.v}>{m.l}</option>)}
-          </select>
+          <Select value={s.maturationRule} onValueChange={(v) => setS({ ...s, maturationRule: v as Settings['maturationRule'] })}>
+            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {MATURATION.map((m) => <SelectItem key={m.v} value={m.v}>{m.l}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
         {USES_DAYS(s.maturationRule) && (
           <div className="field">

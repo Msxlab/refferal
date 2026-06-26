@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { dateShort, money } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -115,9 +117,11 @@ export function MemberDrawer({
       >
         {/* header */}
         <div className="flex items-start gap-3 border-b border-border px-5 py-4">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/15 font-display text-sm font-bold text-primary">
-            {initialsOf(member.fullName)}
-          </span>
+          <Avatar className="h-11 w-11 rounded-xl">
+            <AvatarFallback className="rounded-xl bg-primary/15 font-display text-sm font-bold text-primary">
+              {initialsOf(member.fullName)}
+            </AvatarFallback>
+          </Avatar>
           <div className="min-w-0 flex-1">
             <div id={titleId} className="truncate font-display text-[17px] font-extrabold tracking-tight">
               {member.fullName}
@@ -127,14 +131,19 @@ export function MemberDrawer({
               <span className="inline-flex items-center rounded-md border border-border bg-secondary px-2 py-0.5 font-mono text-[11px] text-foreground">
                 {member.referralCode}
               </span>
-              <button
-                type="button"
-                title="Copy referral code"
-                onClick={copyCode}
-                className="rounded-md border border-border bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {copied ? 'Copied ✓' : '⧉'}
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    title="Copy referral code"
+                    onClick={copyCode}
+                    className="rounded-md border border-border bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {copied ? 'Copied ✓' : '⧉'}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Copy referral code</TooltipContent>
+              </Tooltip>
             </div>
           </div>
           <button

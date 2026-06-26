@@ -15,6 +15,9 @@ import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 interface SaleItem {
   id: string;
@@ -371,9 +374,12 @@ export default function SalesPage() {
             <div className="grid gap-3">
               <div>
                 <label className="mb-1 block text-xs text-muted-foreground">Status</label>
-                <select value={filters.status} onChange={(e) => patchFilters({ ...filters, status: e.target.value })} className={inputCls}>
-                  {STATUSES.map((s) => <option key={s} value={s}>{s || 'All statuses'}</option>)}
-                </select>
+                <Select value={filters.status || '__all__'} onValueChange={(v) => patchFilters({ ...filters, status: v === '__all__' ? '' : v })}>
+                  <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {STATUSES.map((s) => <SelectItem key={s} value={s || '__all__'}>{s || 'All statuses'}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="grid grid-cols-2 gap-2.5">
                 <div><label className="mb-1 block text-xs text-muted-foreground">From</label><input type="date" value={filters.from} onChange={(e) => patchFilters({ ...filters, from: e.target.value })} className={inputCls} /></div>
@@ -395,7 +401,7 @@ export default function SalesPage() {
             <button type="button" onClick={() => applyView(v)} title={v.mine ? undefined : `Shared by ${v.ownerName ?? 'team'}`} className="inline-flex items-center gap-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               {v.shared && <><span aria-hidden="true">👥</span><span className="sr-only">Shared view: </span></>}{v.name}
             </button>
-            {v.mine && <button type="button" onClick={() => deleteView(v.id)} aria-label={`Delete ${v.name}`} className="ml-0.5 rounded-sm text-primary/70 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><span aria-hidden="true">✕</span></button>}
+            {v.mine && <Tooltip><TooltipTrigger asChild><button type="button" onClick={() => deleteView(v.id)} aria-label={`Delete ${v.name}`} className="ml-0.5 rounded-sm text-primary/70 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><span aria-hidden="true">✕</span></button></TooltipTrigger><TooltipContent>{`Delete ${v.name}`}</TooltipContent></Tooltip>}
           </span>
         ))}
 
@@ -417,11 +423,14 @@ export default function SalesPage() {
                 <strong className="tabular-nums text-primary">{money(summary.byStatus.approved.amountCents, cur)}</strong>
               </span>
             )}
-            <select className="no-print h-8 rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:border-primary" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }} aria-label="Rows per page">
-              <option value={25}>25 / page</option>
-              <option value={50}>50 / page</option>
-              <option value={100}>100 / page</option>
-            </select>
+            <Select value={String(pageSize)} onValueChange={(v) => { setPageSize(Number(v)); setPage(1); }}>
+              <SelectTrigger className="no-print h-8 w-auto rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:border-primary" aria-label="Rows per page"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="25">25 / page</SelectItem>
+                <SelectItem value="50">50 / page</SelectItem>
+                <SelectItem value="100">100 / page</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -457,9 +466,11 @@ export default function SalesPage() {
                     {cols.isVisible('seller') && (
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2.5">
-                          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-border bg-muted text-[11px] font-bold text-muted-foreground">
-                            {(s.sellerName || '?').trim().charAt(0).toUpperCase()}
-                          </span>
+                          <Avatar className="size-7 shrink-0">
+                            <AvatarFallback className="bg-primary/15 text-primary text-xs font-semibold">
+                              {(s.sellerName || '?').trim().charAt(0).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
                               <span className="font-semibold text-foreground">{s.sellerName}</span>
@@ -495,7 +506,7 @@ export default function SalesPage() {
                       <div className="flex items-center justify-end gap-1.5">
                         {s.status === 'draft' && <Button size="sm" onClick={() => setConfirm({ ids: [s.id], action: 'approve' })}>{t('sales.approve')}</Button>}
                         {s.status === 'approved' && !s.deliveredAt && <Button variant="outline" size="sm" onClick={() => deliver(s.id)}>{t('sales.deliver')}</Button>}
-                        {s.status === 'draft' && <Button variant="ghost" size="sm" className="h-8 w-8 px-0 text-destructive hover:text-destructive" onClick={() => setConfirm({ ids: [s.id], action: 'delete' })} aria-label="Delete draft" title="Delete draft"><span aria-hidden="true">🗑</span></Button>}
+                        {s.status === 'draft' && <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" className="h-8 w-8 px-0 text-destructive hover:text-destructive" onClick={() => setConfirm({ ids: [s.id], action: 'delete' })} aria-label="Delete draft" title="Delete draft"><span aria-hidden="true">🗑</span></Button></TooltipTrigger><TooltipContent>Delete draft</TooltipContent></Tooltip>}
                         {s.status !== 'void' && <Button variant="destructive" size="sm" onClick={() => setConfirm({ ids: [s.id], action: 'void' })}>{t('sales.void')}</Button>}
                       </div>
                     </td>

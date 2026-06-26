@@ -3,6 +3,7 @@
 import { CSSProperties, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Confirm, Loading, Modal, useToast } from '@/components/ui';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 
 // Shared section heading: display font, consistent size/weight across settings cards.
 const SECTION_TITLE: CSSProperties = {
@@ -173,14 +174,15 @@ export default function PeopleRoles() {
                       {isOwner ? (
                         <span className="badge active" style={{ fontSize: 10 }}>Owner</span>
                       ) : (
-                        <select
-                          aria-label="Member tier"
+                        <Select
                           value={p.tier}
-                          onChange={(e) => assign(p.membershipId, { tier: e.target.value })}
-                          style={{ padding: '5px 8px', fontSize: 12 }}
+                          onValueChange={(v) => assign(p.membershipId, { tier: v })}
                         >
-                          {ASSIGNABLE_TIERS.map((tr) => <option key={tr.v} value={tr.v}>{tr.l}</option>)}
-                        </select>
+                          <SelectTrigger aria-label="Member tier" className="h-8 w-auto text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {ASSIGNABLE_TIERS.map((tr) => <SelectItem key={tr.v} value={tr.v}>{tr.l}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
                       )}
                     </td>
                     <td>
@@ -189,17 +191,18 @@ export default function PeopleRoles() {
                       ) : isMember ? (
                         <span className="faint" style={{ fontSize: 12 }}>—</span>
                       ) : (
-                        <select
-                          aria-label="Member custom role"
-                          value={p.role?.id ?? ''}
-                          onChange={(e) => assign(p.membershipId, { roleId: e.target.value || null })}
-                          style={{ padding: '5px 8px', fontSize: 12 }}
+                        <Select
+                          value={p.role?.id ?? '__none__'}
+                          onValueChange={(v) => assign(p.membershipId, { roleId: v === '__none__' ? null : v })}
                         >
-                          <option value="">No role</option>
-                          {roles.filter((r) => r.key !== 'owner').map((r) => (
-                            <option key={r.id} value={r.id}>{r.name}</option>
-                          ))}
-                        </select>
+                          <SelectTrigger aria-label="Member custom role" className="h-8 w-auto text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">No role</SelectItem>
+                            {roles.filter((r) => r.key !== 'owner').map((r) => (
+                              <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       )}
                     </td>
                     <td>

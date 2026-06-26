@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 
 interface Sub { frequency: 'weekly' | 'monthly'; recipients: string[]; lastSentAt: string | null }
 
@@ -44,10 +45,13 @@ export default function Reports() {
       <div className="faint" style={{ fontSize: 12, marginBottom: 14 }}>A period summary (revenue, commission, payouts) is emailed to recipients automatically.</div>
       <div className="field">
         <label>Frequency</label>
-        <select value={frequency} onChange={(e) => setFrequency(e.target.value as 'weekly' | 'monthly')}>
-          <option value="weekly">Weekly</option>
-          <option value="monthly">Monthly</option>
-        </select>
+        <Select value={frequency} onValueChange={(v) => setFrequency(v as 'weekly' | 'monthly')}>
+          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="weekly">Weekly</SelectItem>
+            <SelectItem value="monthly">Monthly</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
       <div className="field">
         <label>Recipients (comma or line separated)</label>

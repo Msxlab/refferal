@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 
@@ -311,17 +312,17 @@ export default function NetworkPage() {
               onChange={(e) => setQuery(e.target.value)}
               className="h-9 max-w-[300px] flex-1 sm:min-w-[180px]"
             />
-            <select
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as SortKey)}
-              aria-label="Sort leaders"
-              className="h-9 rounded-lg border border-border bg-card px-3 text-[12.5px] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <option value="volume">Sort: group volume</option>
-              <option value="team">Team size</option>
-              <option value="growth">Growth</option>
-              <option value="active">Activity</option>
-            </select>
+            <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+              <SelectTrigger aria-label="Sort leaders" className="h-9 w-auto text-[12.5px] text-muted-foreground">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="volume">Sort: group volume</SelectItem>
+                <SelectItem value="team">Team size</SelectItem>
+                <SelectItem value="growth">Growth</SelectItem>
+                <SelectItem value="active">Activity</SelectItem>
+              </SelectContent>
+            </Select>
             <Tabs value={view} onValueChange={(v) => setView(v as 'cards' | 'table')}>
               <TabsList>
                 <TabsTrigger value="cards">▦ Cards</TabsTrigger>

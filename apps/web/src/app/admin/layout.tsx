@@ -5,6 +5,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { activeMembership, clearSession, getSession, isAdminRole, type Session } from '@/lib/auth';
 import { ThemeToggle } from '@/components/ui';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { NotificationBell } from '@/components/NotificationBell';
 import { CommandPalette } from '@/components/CommandPalette';
 import { LiveIndicator } from '@/components/LiveIndicator';
@@ -181,15 +183,20 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className="flex min-h-screen bg-background text-foreground">
       {/* ===== Mobile topbar ===== */}
       <div className="no-print fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-card px-4 md:hidden">
-        <button
-          type="button"
-          aria-label={t('nav.menu')}
-          aria-expanded={navOpen}
-          onClick={() => setNavOpen((v) => !v)}
-          className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-muted text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={t('nav.menu')}
+              aria-expanded={navOpen}
+              onClick={() => setNavOpen((v) => !v)}
+              className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-muted text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{t('nav.menu')}</TooltipContent>
+        </Tooltip>
         <div className="flex items-center gap-2">
           <span aria-hidden="true" className="grid h-7 w-7 place-items-center rounded-lg bg-primary font-display text-sm font-extrabold text-primary-foreground">{APP_MONOGRAM}</span>
           <span className="font-display text-[15px] font-extrabold tracking-tight">{APP_NAME}</span>
@@ -282,9 +289,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         {/* User footer card */}
         <div className="mt-auto border-t border-border px-4 py-3">
           <div className="flex items-center gap-2.5">
-            <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-lg border border-input bg-muted text-sm font-bold text-foreground">
-              {userInitial}
-            </span>
+            <Avatar className="size-8">
+              <AvatarFallback className="bg-primary/15 text-primary text-xs font-semibold">{userInitial}</AvatarFallback>
+            </Avatar>
             <Link
               href="/account"
               title="Account settings"

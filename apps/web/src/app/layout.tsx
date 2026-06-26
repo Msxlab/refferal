@@ -3,6 +3,7 @@ import { Inter, Sora } from 'next/font/google';
 import './globals.css';
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister';
 import { OfflineBanner } from '@/components/OfflineBanner';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { APP_NAME } from '@/lib/brand';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
@@ -32,9 +33,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: themeInit }} />
       </head>
       <body>
-        <OfflineBanner />
-        {children}
-        <ServiceWorkerRegister />
+        <TooltipProvider delayDuration={250} skipDelayDuration={400}>
+          <OfflineBanner />
+          {children}
+          <ServiceWorkerRegister />
+        </TooltipProvider>
       </body>
     </html>
   );

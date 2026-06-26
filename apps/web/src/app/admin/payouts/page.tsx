@@ -15,6 +15,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import {
   Table,
   TableHeader,
@@ -670,14 +671,17 @@ export default function PayoutsPage() {
             <strong className="text-[13.5px] text-foreground">{t('payouts.history')}{history ? ` · ${history.total}` : ''}</strong>
             <div className="flex gap-2 print:hidden">
               <Input type="month" value={hPeriod} onChange={(e) => { setHPeriod(e.target.value); setHPage(1); }} aria-label="Period" className="h-8 w-auto text-xs" />
-              <select
-                value={hStatus}
-                onChange={(e) => { setHStatus(e.target.value); setHPage(1); }}
-                aria-label="Status"
-                className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              <Select
+                value={hStatus === '' ? '__all__' : hStatus}
+                onValueChange={(v) => { setHStatus(v === '__all__' ? '' : v); setHPage(1); }}
               >
-                {HISTORY_STATUS.map((s) => <option key={s} value={s}>{s || 'All statuses'}</option>)}
-              </select>
+                <SelectTrigger aria-label="Status" className="h-8 w-auto text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {HISTORY_STATUS.map((s) => <SelectItem key={s} value={s === '' ? '__all__' : s}>{s || 'All statuses'}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           {!history ? <div className="p-5"><Loading rows={2} /></div> : (

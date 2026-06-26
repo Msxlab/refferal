@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, Modal, MoneyCounter, Pagination, useToast } from '@/components/ui';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { dateShort, money, levelLabel, ledgerTypeLabel } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -263,12 +264,18 @@ export default function WalletPage() {
         <div className="spread" style={{ marginBottom: 12 }}>
           <strong>{t('me.ledger')}{wallet.ledger.total ? ` · ${wallet.ledger.total}` : ''}</strong>
           <div className="row" style={{ gap: 8 }}>
-            <select value={fType} onChange={(e) => { setFType(e.target.value); setPage(1); }} style={{ width: 'auto' }} aria-label="Type">
-              {TYPES.map((v) => <option key={v} value={v}>{v || 'All types'}</option>)}
-            </select>
-            <select value={fStatus} onChange={(e) => { setFStatus(e.target.value); setPage(1); }} style={{ width: 'auto' }} aria-label="Status">
-              {STATUSES.map((v) => <option key={v} value={v}>{v || 'All statuses'}</option>)}
-            </select>
+            <Select value={fType || '__all__'} onValueChange={(v) => { setFType(v === '__all__' ? '' : v); setPage(1); }}>
+              <SelectTrigger aria-label="Type" className="h-9 w-auto"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {TYPES.map((v) => <SelectItem key={v} value={v || '__all__'}>{v || 'All types'}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={fStatus || '__all__'} onValueChange={(v) => { setFStatus(v === '__all__' ? '' : v); setPage(1); }}>
+              <SelectTrigger aria-label="Status" className="h-9 w-auto"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {STATUSES.map((v) => <SelectItem key={v} value={v || '__all__'}>{v || 'All statuses'}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
         </div>
         <div style={{ overflowX: 'auto' }}>
@@ -416,7 +423,13 @@ function ProfileForm({ existing, onClose, onSaved }: { existing: PayoutProfile |
         <div className="field"><label>Legal name (as on tax documents)</label><input value={legalName} onChange={(e) => setLegalName(e.target.value)} required autoFocus /></div>
         <div className="grid" style={{ gridTemplateColumns: '1fr 2fr', gap: 10 }}>
           <div className="field" style={{ margin: 0 }}><label>Tax ID type</label>
-            <select aria-label="Tax ID type" value={taxIdType} onChange={(e) => setTaxIdType(e.target.value as 'ssn' | 'ein')}><option value="ssn">SSN</option><option value="ein">EIN</option></select>
+            <Select value={taxIdType} onValueChange={(v) => setTaxIdType(v as 'ssn' | 'ein')}>
+              <SelectTrigger aria-label="Tax ID type"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ssn">SSN</SelectItem>
+                <SelectItem value="ein">EIN</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="field" style={{ margin: 0 }}><label>Tax ID (9 digits){existing ? ' — re-enter to update' : ''}</label><input value={taxId} onChange={(e) => setTaxId(e.target.value)} inputMode="numeric" placeholder="123456789" required /></div>
         </div>
@@ -424,7 +437,13 @@ function ProfileForm({ existing, onClose, onSaved }: { existing: PayoutProfile |
         <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <div className="field" style={{ margin: 0 }}><label>Routing number (9 digits)</label><input value={routingNumber} onChange={(e) => setRoutingNumber(e.target.value)} inputMode="numeric" required /></div>
           <div className="field" style={{ margin: 0 }}><label>Account type</label>
-            <select aria-label="Account type" value={accountType} onChange={(e) => setAccountType(e.target.value as 'checking' | 'savings')}><option value="checking">Checking</option><option value="savings">Savings</option></select>
+            <Select value={accountType} onValueChange={(v) => setAccountType(v as 'checking' | 'savings')}>
+              <SelectTrigger aria-label="Account type"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="checking">Checking</SelectItem>
+                <SelectItem value="savings">Savings</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
         <div className="field"><label>Account number{existing ? ' — re-enter to update' : ''}</label><input value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} inputMode="numeric" placeholder="account number" required /></div>

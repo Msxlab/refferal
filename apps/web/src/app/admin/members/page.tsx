@@ -14,6 +14,9 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 type SortDir = 'asc' | 'desc';
@@ -352,7 +355,7 @@ export default function MembersPage() {
                     {cols.isVisible('member') && (
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2.5">
-                          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/15 font-display text-[11px] font-bold text-primary">{initialsOf(m.fullName)}</span>
+                          <Avatar className="h-7 w-7 rounded-lg"><AvatarFallback className="rounded-lg bg-primary/15 font-display text-[11px] font-bold text-primary">{initialsOf(m.fullName)}</AvatarFallback></Avatar>
                           <div className="min-w-0">
                             <div className="font-semibold text-foreground">{m.fullName}</div>
                             <div className="text-[11px] text-muted-foreground/70">{m.email}</div>
@@ -364,12 +367,17 @@ export default function MembersPage() {
                       <td className="px-4 py-2.5 font-mono text-muted-foreground" onClick={(e) => e.stopPropagation()}>
                         <span className="inline-flex items-center gap-1.5">
                           {m.referralCode}
-                          <button
-                            title="Copy code"
-                            aria-label={`Copy ${m.referralCode}`}
-                            className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            onClick={() => { navigator.clipboard.writeText(m.referralCode).then(() => showToast('Copied ✓')).catch(() => {}); }}
-                          >⧉</button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                title="Copy code"
+                                aria-label={`Copy ${m.referralCode}`}
+                                className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                onClick={() => { navigator.clipboard.writeText(m.referralCode).then(() => showToast('Copied ✓')).catch(() => {}); }}
+                              >⧉</button>
+                            </TooltipTrigger>
+                            <TooltipContent>Copy {m.referralCode}</TooltipContent>
+                          </Tooltip>
                         </span>
                       </td>
                     )}
@@ -386,15 +394,14 @@ export default function MembersPage() {
                     {cols.isVisible('role') && (
                       <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
                         {m.role === 'tenant_owner' ? <span className="text-muted-foreground/70">Owner</span> : (
-                          <select
-                            value={m.role}
-                            disabled={roleBusyId === m.id}
-                            onChange={(e) => changeRole(m, e.target.value)}
-                            aria-label={`Role for ${m.fullName}`}
-                            className="w-[120px] rounded-lg border border-border bg-secondary px-2.5 py-1.5 text-sm text-foreground outline-none transition-colors hover:border-primary/40 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
-                          </select>
+                          <Select value={m.role} disabled={roleBusyId === m.id} onValueChange={(v) => changeRole(m, v)}>
+                            <SelectTrigger aria-label={`Role for ${m.fullName}`} className="h-auto w-[120px] rounded-lg border-border bg-secondary px-2.5 py-1.5 text-sm text-foreground shadow-none transition-colors hover:border-primary/40">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ROLES.map((r) => <SelectItem key={r} value={r}>{roleLabel(r)}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
                         )}
                       </td>
                     )}
@@ -402,12 +409,17 @@ export default function MembersPage() {
                     {cols.isVisible('joined') && <td className="px-4 py-2.5 tabular-nums text-muted-foreground/70">{dateShort(m.joinedAt)}</td>}
                     <td className="no-print px-4 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1.5">
-                        <button
-                          title="Edit profile"
-                          aria-label={`Edit ${m.fullName}`}
-                          className="rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          onClick={() => { setError(''); setEditM(m); setEditName(m.fullName); setEditEmail(m.email); }}
-                        >✎</button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              title="Edit profile"
+                              aria-label={`Edit ${m.fullName}`}
+                              className="rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              onClick={() => { setError(''); setEditM(m); setEditName(m.fullName); setEditEmail(m.email); }}
+                            >✎</button>
+                          </TooltipTrigger>
+                          <TooltipContent>Edit {m.fullName}</TooltipContent>
+                        </Tooltip>
                         {m.role !== 'tenant_owner' && (
                           <button
                             className="rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -459,14 +471,14 @@ export default function MembersPage() {
           <Button size="sm" disabled={selActivatable === 0} onClick={() => openBulk('activate')}>Activate {selActivatable || ''}</Button>
           <Button size="sm" variant="destructive" disabled={selDeactivatable === 0} onClick={() => openBulk('deactivate')}>Deactivate {selDeactivatable || ''}</Button>
           <span className="flex items-center gap-1.5">
-            <select
-              value={bulkRole}
-              onChange={(e) => setBulkRole(e.target.value)}
-              aria-label="Bulk role"
-              className="h-8 rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:border-primary"
-            >
-              {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
-            </select>
+            <Select value={bulkRole} onValueChange={(v) => setBulkRole(v)}>
+              <SelectTrigger aria-label="Bulk role" className="h-8 w-auto rounded-md border-input bg-card px-2 text-xs text-foreground shadow-none">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ROLES.map((r) => <SelectItem key={r} value={r}>{roleLabel(r)}</SelectItem>)}
+              </SelectContent>
+            </Select>
             <Button size="sm" variant="outline" onClick={() => openBulk('set_role')}>Set role</Button>
           </span>
           <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
@@ -544,9 +556,14 @@ export default function MembersPage() {
                   </div>
                   <div className="flex-1">
                     <label className="mb-1.5 block text-xs text-muted-foreground">Role</label>
-                    <select value={addRole} onChange={(e) => setAddRole(e.target.value)} className="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary">
-                      {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
-                    </select>
+                    <Select value={addRole} onValueChange={(v) => setAddRole(v)}>
+                      <SelectTrigger aria-label="Role" className="h-auto w-full rounded-lg border-input bg-card px-3 py-2 text-sm text-foreground shadow-none">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ROLES.map((r) => <SelectItem key={r} value={r}>{roleLabel(r)}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
                 <label className="my-2 flex cursor-pointer items-center gap-2 text-[13px]">
@@ -732,14 +749,14 @@ function MemberDrawer({ id, onClose, onNavigate, onChanged, onToast }: {
           )}
           <div className="flex-1" />
           {p.role !== 'tenant_owner' && (
-            <select
-              value={p.role}
-              disabled={busy}
-              onChange={(e) => changeRole(e.target.value)}
-              className="h-8 w-[140px] rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:border-primary disabled:opacity-50"
-            >
-              {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
-            </select>
+            <Select value={p.role} disabled={busy} onValueChange={(v) => changeRole(v)}>
+              <SelectTrigger aria-label="Role" className="h-8 w-[140px] rounded-md border-input bg-card px-2 text-xs text-foreground shadow-none">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ROLES.map((r) => <SelectItem key={r} value={r}>{roleLabel(r)}</SelectItem>)}
+              </SelectContent>
+            </Select>
           )}
           {p.role !== 'tenant_owner' && (
             <Button
