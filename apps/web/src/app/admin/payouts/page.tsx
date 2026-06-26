@@ -359,7 +359,7 @@ export default function PayoutsPage() {
       )}
 
       {/* ---- ready to pay banner ---- */}
-      <Card className="relative mt-5 overflow-hidden border-primary/30 shadow-lg">
+      <Card className="beam glow-primary relative mt-5 overflow-hidden border-primary/30 shadow-lg">
         <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-primary to-transparent opacity-50" />
         <CardContent className="flex flex-wrap items-center justify-between gap-5 p-6">
           <div>
@@ -415,7 +415,7 @@ export default function PayoutsPage() {
 
       {/* ---- talep kuyrugu (request queue) ---- */}
       {requests && requests.length > 0 && (
-        <Card className="mt-4 shadow-lg" style={{ borderColor: 'color-mix(in srgb, var(--amber) 30%, transparent)' }}>
+        <Card className="lift mt-4 shadow-lg" style={{ borderColor: 'color-mix(in srgb, var(--amber) 30%, transparent)' }}>
           <CardContent className="p-0">
             <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
               <strong className="text-[13.5px] text-foreground">Payout requests</strong>
@@ -460,7 +460,7 @@ export default function PayoutsPage() {
 
       {/* ---- maker-checker: bekleyen payout onaylari ---- */}
       {batches.length > 0 && (
-        <Card className="mt-4 border-primary/40 shadow-lg">
+        <Card className="lift mt-4 border-primary/40 shadow-lg">
           <CardContent className="p-0">
             <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
               <strong className="text-[13.5px] text-foreground">Payout approvals (4-eyes)</strong>
@@ -498,7 +498,7 @@ export default function PayoutsPage() {
 
       {/* ---- clawback / negatif bakiye detay ---- */}
       {clawbacks && clawbacks.members.length > 0 && (
-        <Card className="mt-4 border-destructive/30 shadow-lg">
+        <Card className="lift mt-4 border-destructive/30 shadow-lg">
           <CardContent className="p-0">
             <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3.5">
               <strong className="text-[13.5px] text-foreground">Clawbacks — negative balances</strong>
@@ -535,7 +535,7 @@ export default function PayoutsPage() {
 
       {/* ---- fraud inceleme kuyrugu ---- */}
       {fraud.length > 0 && (
-        <Card className="mt-4 border-destructive/30 shadow-lg">
+        <Card className="lift mt-4 border-destructive/30 shadow-lg">
           <CardContent className="p-0">
             <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
               <strong className="text-[13.5px] text-foreground">Fraud review</strong>
@@ -587,7 +587,7 @@ export default function PayoutsPage() {
 
       {/* ---- KYC inceleme kuyrugu ---- */}
       {kyc.length > 0 && (
-        <Card className="mt-4 border-primary/30 shadow-lg">
+        <Card className="lift mt-4 border-primary/30 shadow-lg">
           <CardContent className="p-0">
             <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
               <strong className="text-[13.5px] text-foreground">Payout profiles to review</strong>
@@ -636,7 +636,7 @@ export default function PayoutsPage() {
       )}
 
       {/* ---- odenebilir uyeler (secimli odeme) ---- */}
-      <Card className="mt-4 shadow-lg">
+      <Card className="lift mt-4 shadow-lg">
         <CardContent className="p-0">
           <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
             <strong className="text-[13.5px] text-foreground">{t('payouts.payable')}</strong>
@@ -708,7 +708,7 @@ export default function PayoutsPage() {
       </Card>
 
       {/* ---- gecmis (filtreli + sayfali) ---- */}
-      <Card className="mt-4 shadow-lg">
+      <Card className="lift mt-4 shadow-lg">
         <CardContent className="p-0">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3.5">
             <strong className="text-[13.5px] text-foreground">{t('payouts.history')}{history ? ` · ${history.total}` : ''}</strong>

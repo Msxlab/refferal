@@ -142,7 +142,7 @@ export default function WalletPage() {
       <p className="sub fade-in">Track your payable balance and request a payout.</p>
 
       {/* Vesting "para yukleme cubugu" — gun-bazli dogrusal olgunlasma (baglilik ozelligi) */}
-      <div className="card hero fade-in delay-1" style={{ overflow: 'hidden', position: 'relative' }}>
+      <div className="card hero beam glow-primary fade-in delay-1" style={{ overflow: 'hidden', position: 'relative' }}>
         <div className="spread" style={{ alignItems: 'flex-start' }}>
           <div>
             <div className="row" style={{ gap: 8, alignItems: 'center' }}>
@@ -204,7 +204,7 @@ export default function WalletPage() {
         </div>
       </div>
 
-      <div className="card hero fade-in delay-1" style={{ marginTop: 16 }}>
+      <div className="card hero lift fade-in delay-1" style={{ marginTop: 16 }}>
         <div className="spread">
           <div>
             <div className="faint" style={{ fontSize: 12 }}>{t('me.payable')} balance</div>
@@ -234,7 +234,7 @@ export default function WalletPage() {
       </div>
 
       {/* Faz D2: guven — odeme nasil isliyor seffafligi */}
-      <div className="card fade-in delay-1" style={{ marginTop: 16 }}>
+      <div className="card lift fade-in delay-1" style={{ marginTop: 16 }}>
         <strong style={{ fontSize: 15, display: 'block', marginBottom: 14 }}>How you get paid</strong>
         <div style={{ display: 'grid', gap: 14 }}>
           {[
@@ -263,7 +263,7 @@ export default function WalletPage() {
 
       <PayoutProfileCard />
 
-      <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
+      <div className="card lift fade-in delay-2" style={{ marginTop: 16 }}>
         <div className="spread" style={{ marginBottom: 12 }}>
           <strong>{t('me.ledger')}{wallet.ledger.total ? ` · ${wallet.ledger.total}` : ''}</strong>
           <div className="row" style={{ gap: 8 }}>
@@ -301,7 +301,7 @@ export default function WalletPage() {
         <Pagination page={wallet.ledger.page} pageSize={wallet.ledger.pageSize} total={wallet.ledger.total} onPage={setPage} />
       </div>
 
-      <div className="card fade-in delay-3" style={{ marginTop: 16 }}>
+      <div className="card lift fade-in delay-3" style={{ marginTop: 16 }}>
         <div className="spread" style={{ alignItems: 'flex-start', marginBottom: 12 }}>
           <strong>Your checks</strong>
           {history.length > 0 && (
@@ -366,7 +366,7 @@ function PayoutProfileCard() {
   const status = p?.status ?? 'unverified';
 
   return (
-    <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
+    <div className="card lift fade-in delay-2" style={{ marginTop: 16 }}>
       <div className="spread">
         <div>
           <strong>Payout profile</strong>

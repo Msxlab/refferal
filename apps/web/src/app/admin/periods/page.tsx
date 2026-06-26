@@ -99,9 +99,9 @@ export default function PeriodsPage() {
       </div>
 
       {rows.length === 0 ? (
-        <div className="card" style={{ marginTop: 16 }}><span className="muted">No period data yet — periods appear here as approved sales come in.</span></div>
+        <div className="card lift" style={{ marginTop: 16 }}><span className="muted">No period data yet — periods appear here as approved sales come in.</span></div>
       ) : (
-        <div className="card" style={{ marginTop: 16, overflowX: 'auto' }}>
+        <div className="card lift" style={{ marginTop: 16, overflowX: 'auto' }}>
           <table>
             <thead>
               <tr>

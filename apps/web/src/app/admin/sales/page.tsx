@@ -423,7 +423,7 @@ export default function SalesPage() {
       </div>
 
       {/* ---- tablo ---- */}
-      <Card className="overflow-hidden shadow-lg">
+      <Card className="lift overflow-hidden shadow-lg">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <strong className="text-sm text-foreground">Sales{list ? ` · ${list.total}` : ''}</strong>
           <div className="flex items-center gap-3">
@@ -640,7 +640,7 @@ export default function SalesPage() {
 /* ------------------------------------------------- KPI karti (sayfa-ici) */
 function Kpi({ label, value, hint, accent, valueClass, valueStyle }: { label: ReactNode; value: ReactNode; hint?: string; accent?: boolean; valueClass?: string; valueStyle?: CSSProperties }) {
   return (
-    <Card className={cn('p-4 shadow-lg', accent && 'border-primary/30')}>
+    <Card className={cn('lift p-4 shadow-lg', accent && 'beam glow-primary border-primary/30')}>
       <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
       <div style={valueStyle} className={cn('mt-1.5 font-display text-2xl font-extrabold tabular-nums tracking-tight text-foreground', accent && 'text-primary', valueClass)}>{value}</div>
       {hint && <div className="mt-1 text-[11px] text-muted-foreground/70">{hint}</div>}

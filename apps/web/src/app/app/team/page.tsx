@@ -95,11 +95,11 @@ export default function TeamPage() {
       </div>
 
       <div className="grid fade-in delay-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 16, alignItems: 'stretch' }}>
-        <div className="card" style={{ display: 'grid', placeItems: 'center', padding: 18 }}>
+        <div className="card lift" style={{ display: 'grid', placeItems: 'center', padding: 18 }}>
           <RadialNetwork levels={team.levels} totalMembers={team.totalMembers} />
         </div>
 
-        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+        <div className="card lift" style={{ display: 'flex', flexDirection: 'column' }}>
           <div className="spread" style={{ marginBottom: 14 }}>
             <strong>Level distribution</strong>
           </div>
@@ -120,7 +120,7 @@ export default function TeamPage() {
 
       {/* ---- Direkt recruit'ler: uyenin kendi davet ettikleri (isimli) ---- */}
       {recruits && (
-        <div className="card fade-in delay-3" style={{ marginTop: 16 }}>
+        <div className="card lift fade-in delay-3" style={{ marginTop: 16 }}>
           <div className="spread" style={{ alignItems: 'flex-start', marginBottom: 4 }}>
             <div>
               <strong style={{ fontSize: 15 }}>Your direct recruits</strong>

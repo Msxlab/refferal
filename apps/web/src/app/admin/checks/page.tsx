@@ -153,7 +153,7 @@ export default function ChecksPage() {
           {/* durum sayaclari */}
           <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
             {(['needs_address', 'ready_to_print', 'printed', 'mailed'] as CheckState[]).map((st) => (
-              <Card key={st} className="shadow-sm">
+              <Card key={st} className="lift shadow-sm">
                 <CardContent className="p-3.5">
                   <div className="text-[11px] text-muted-foreground">{STATE_META[st].label}</div>
                   <div className="mt-1 font-display text-2xl font-bold tabular-nums text-foreground">{counts?.[st] ?? 0}</div>
@@ -163,7 +163,7 @@ export default function ChecksPage() {
           </div>
 
           {/* eylem cubugu */}
-          <Card className="mt-4 shadow-sm">
+          <Card className="lift mt-4 shadow-sm">
             <CardContent className="flex flex-wrap items-center gap-2.5 p-3">
               <span className="text-xs text-muted-foreground">
                 {sel.size ? `${sel.size} selected` : 'No selection — actions apply to all eligible'}
@@ -182,7 +182,7 @@ export default function ChecksPage() {
           </Card>
 
           {items.length === 0 ? (
-            <Card className="mt-4 shadow-lg">
+            <Card className="lift mt-4 shadow-lg">
               <CardContent className="px-6 py-12 text-center">
                 <div className="text-[15px] font-semibold text-foreground">No checks yet</div>
                 <p className="mt-1.5 text-[13px] text-muted-foreground">
@@ -191,7 +191,7 @@ export default function ChecksPage() {
               </CardContent>
             </Card>
           ) : (
-            <Card className="mt-4 shadow-lg">
+            <Card className="lift mt-4 shadow-lg">
               <CardContent className="p-0">
                 <Table>
                   <TableHeader>

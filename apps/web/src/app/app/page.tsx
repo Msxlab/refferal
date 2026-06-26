@@ -190,17 +190,17 @@ export default function MemberDashboard() {
 
       {/* sold vs earned (this month) — the product's core promise */}
       <div className="stat-grid fade-in delay-1" style={{ marginBottom: 16 }}>
-        <div className="card stat">
+        <div className="card stat lift">
           <div className="spread"><span className="k">You sold (this month)</span><span className="icon"><Banknote className="size-[18px]" aria-hidden /></span></div>
           <div className="v"><MoneyCounter cents={Number(data.soldThisMonthCents)} currency={c} /></div>
           <div className="hint">{data.salesThisMonth} sales · {money(data.soldLifetimeCents, c)} lifetime</div>
         </div>
-        <Link href="/app/wallet" className="card stat" style={{ color: 'inherit', display: 'block' }}>
+        <Link href="/app/wallet" className="card stat lift" style={{ color: 'inherit', display: 'block' }}>
           <div className="spread"><span className="k">You earned (this month)</span><span className="icon" style={{ background: 'var(--foil)' }}><Wallet className="size-[18px]" aria-hidden /></span></div>
           <div className="v" style={{ color: 'var(--gold-500)' }}><MoneyCounter cents={Number(data.earnedThisMonthCents)} currency={c} /></div>
           <div className="hint row" style={{ gap: 4, alignItems: 'center' }}>commission (pending + payable + paid) · view wallet <ArrowRight className="size-3.5" aria-hidden /></div>
         </Link>
-        <div className="card stat">
+        <div className="card stat lift">
           <div className="spread"><span className="k">Effective rate</span><span className="icon"><TrendingUp className="size-[18px]" aria-hidden /></span></div>
           <div className="v">{data.effectiveRateBps > 0 ? `${(data.effectiveRateBps / 100).toFixed(1)}%` : '—'}</div>
           <div className="hint">earned / sold</div>
@@ -209,7 +209,7 @@ export default function MemberDashboard() {
 
       {/* hero + donut */}
       <div className="grid fade-in delay-1" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', alignItems: 'stretch' }}>
-        <div className="card hero">
+        <div className="card hero beam glow-primary">
           <div className="faint" style={{ fontSize: 12 }}>{t('me.monthTotal')}</div>
           <div className="bignum gradient-text" style={{ marginTop: 6 }}>
             <MoneyCounter cents={total} currency={c} />
@@ -252,7 +252,7 @@ export default function MemberDashboard() {
           )}
         </div>
 
-        <div className="card" style={{ display: 'grid', placeItems: 'center' }}>
+        <div className="card lift" style={{ display: 'grid', placeItems: 'center' }}>
           <Donut
             segments={segs}
             center={
@@ -268,7 +268,7 @@ export default function MemberDashboard() {
 
       {/* kariyer rutbesi + rozetler (#20) */}
       {rank && (rank.current || rank.badges.some((b) => b.earned)) && (
-        <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
+        <div className="card lift fade-in delay-2" style={{ marginTop: 16 }}>
           <div className="spread" style={{ marginBottom: 10 }}>
             <strong className="row" style={{ fontSize: 14, gap: 6, alignItems: 'center' }}><Award className="size-4" aria-hidden />{rank.current ?? 'Unranked'}{rank.next && <span className="faint row" style={{ fontWeight: 400, gap: 4, alignItems: 'center' }}><ArrowRight className="size-3.5" aria-hidden />{rank.next}</span>}{rank.overrideBps ? <span className="badge active" style={{ fontSize: 10, marginLeft: 8 }}>+{(rank.overrideBps / 100).toFixed(rank.overrideBps % 100 ? 1 : 0)}% on your sales</span> : null}</strong>
             {rank.next && <span className="faint" style={{ fontSize: 12 }}>{rank.overallPct}% to {rank.next}</span>}
@@ -288,7 +288,7 @@ export default function MemberDashboard() {
           {campaigns.map((cp) => {
             const topPrize = cp.prizes.reduce((a, p) => Math.max(a, p.bonusCents), 0);
             return (
-              <div key={cp.id} className="card" style={{ borderColor: 'color-mix(in srgb, var(--gold-500) 35%, transparent)' }}>
+              <div key={cp.id} className="card lift" style={{ borderColor: 'color-mix(in srgb, var(--gold-500) 35%, transparent)' }}>
                 <div className="spread">
                   <strong className="row" style={{ fontSize: 14, gap: 6, alignItems: 'center' }}><Flag className="size-4" aria-hidden />{cp.name}</strong>
                   <span className="faint" style={{ fontSize: 11 }}>ends {dateShort(cp.endsAt)}</span>
@@ -328,7 +328,7 @@ export default function MemberDashboard() {
 
       {/* son 6 ay kazanc trendi */}
       {earnings && earnings.series.some((p) => Number(p.totalCents) > 0) && (
-        <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
+        <div className="card lift fade-in delay-2" style={{ marginTop: 16 }}>
           <div className="spread" style={{ marginBottom: 14 }}>
             <strong>Last 6 months</strong>
             <span className="faint" style={{ fontSize: 12 }}>Your total commission per month</span>
@@ -341,7 +341,7 @@ export default function MemberDashboard() {
       )}
 
       {/* seviye dokumu */}
-      <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
+      <div className="card lift fade-in delay-2" style={{ marginTop: 16 }}>
         <div className="spread" style={{ marginBottom: 14 }}>
           <strong>{t('me.levelBreakdown')}</strong>
           <span className="faint" style={{ fontSize: 12 }}>{t('me.levelHint')}</span>

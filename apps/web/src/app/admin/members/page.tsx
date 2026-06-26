@@ -315,7 +315,7 @@ export default function MembersPage() {
       </div>
 
       {/* table card */}
-      <Card className="overflow-hidden rounded-2xl border-border bg-card shadow-lg">
+      <Card className="lift overflow-hidden rounded-2xl border-border bg-card shadow-lg">
         <div className="flex items-center justify-between border-b border-border px-[18px] py-3.5">
           <strong className="text-sm">Members {list && <span className="font-normal text-muted-foreground/70">({list.total})</span>}</strong>
         </div>
@@ -913,7 +913,7 @@ function MemberDrawer({ id, onClose, onNavigate, onChanged, onToast }: {
 
 function Mini({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-xl border border-border bg-muted/40 p-3">
+    <div className="lift rounded-xl border border-border bg-muted/40 p-3">
       <div className="text-[11px] text-muted-foreground/70">{label}</div>
       <div className="mt-1 font-display text-lg font-bold tabular-nums text-foreground">{value}</div>
       {hint && <div className="mt-0.5 text-[11px] text-muted-foreground/70">{hint}</div>}

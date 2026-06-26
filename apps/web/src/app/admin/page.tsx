@@ -165,7 +165,7 @@ export default function DashboardPage() {
 
       {/* ---- Yapilacaklar (C4): bekleyen eylemler / Needs your attention ---- */}
       {todo && todo.total > 0 && (
-        <Card className="mt-5 border-primary/30 bg-card p-4 shadow-lg sm:p-[18px]">
+        <Card className="beam mt-5 border-primary/25 bg-card p-4 glow-primary sm:p-[18px]">
           <div className="mb-3 flex items-center justify-between">
             <strong className="text-sm text-foreground">Needs your attention</strong>
             <Badge
@@ -199,7 +199,7 @@ export default function DashboardPage() {
 
       {/* ---- ilk-kurulum rehberi: %100'de gizlenir ---- */}
       {onboarding && onboarding.percent < 100 && (
-        <Card className="mt-4 border-primary/50 bg-card p-[18px] shadow-lg ring-1 ring-primary/20">
+        <Card className="lift mt-4 border-primary/50 bg-card p-[18px] shadow-lg ring-1 ring-primary/20">
           <div className="mb-3 flex items-start justify-between">
             <div>
               <strong className="text-base text-foreground">Get your referral program running</strong>
@@ -230,7 +230,7 @@ export default function DashboardPage() {
 
       {/* ---- hero revenue + donut ---- */}
       <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
-        <Card className="relative overflow-hidden bg-card p-6 shadow-lg">
+        <Card className="lift relative overflow-hidden bg-card p-6 shadow-lg">
           <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-primary to-transparent opacity-45" />
           <div className="text-xs text-muted-foreground">{t('dash.revenue')}</div>
           <div className="mt-1.5 font-display text-[46px] font-extrabold leading-[1.04] tracking-tight text-foreground tabular-nums">
@@ -256,7 +256,7 @@ export default function DashboardPage() {
           </div>
         </Card>
 
-        <Card className="grid place-items-center bg-card p-[18px] shadow-lg">
+        <Card className="lift grid place-items-center bg-card p-[18px] shadow-lg">
           <Donut
             segments={[
               { label: 'Net', value: net, color: 'var(--emerald)' },
@@ -283,7 +283,7 @@ export default function DashboardPage() {
 
       {/* ---- borc kirilimi (stacked bar) + en cok kazananlar ---- */}
       <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-        <Card className="bg-card p-[18px] shadow-lg">
+        <Card className="lift bg-card p-[18px] shadow-lg">
           <strong className="text-[13px] text-foreground">Commission owed (to members)</strong>
           <div className="mb-3.5 mt-[3px] text-[11px] text-muted-foreground/70">What the company owes members — by maturation and payout state.</div>
           <div className="flex flex-col gap-2.5">
@@ -307,7 +307,7 @@ export default function DashboardPage() {
           </div>
         </Card>
 
-        <Card className="bg-card p-[18px] shadow-lg">
+        <Card className="lift bg-card p-[18px] shadow-lg">
           <strong className="text-[13px] text-foreground">Top earners · {data.month}</strong>
           <div className="mb-3 mt-[3px] text-[11px] text-muted-foreground/70">Members with the highest commission this month.</div>
           {data.topEarners.length === 0 ? (
@@ -348,7 +348,7 @@ export default function DashboardPage() {
         <Loading rows={3} />
       ) : (
         <>
-          <Card className="mb-4 bg-card p-[18px] shadow-lg">
+          <Card className="lift mb-4 bg-card p-[18px] shadow-lg">
             <div className="mb-3.5 flex flex-wrap gap-x-6 gap-y-4 sm:gap-x-8">
               <Metric label="Revenue" value={money(analytics.totals.revenueCents, c)} delta={analytics.deltas.revenuePct} />
               <Metric label="Commission" value={money(analytics.totals.commissionCents, c)} delta={analytics.deltas.commissionPct} invertGood />
@@ -359,13 +359,13 @@ export default function DashboardPage() {
           </Card>
 
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
-            <Card className="bg-card p-[18px] shadow-lg">
+            <Card className="lift bg-card p-[18px] shadow-lg">
               <strong className="text-sm text-foreground">Sales funnel</strong>
               <div className="mb-4 mt-[3px] text-xs text-muted-foreground/70">Status mix over the selected window.</div>
               <Funnel funnel={analytics.funnel} currency={c} />
             </Card>
 
-            <Card className="overflow-hidden bg-card p-0 shadow-lg">
+            <Card className="lift overflow-hidden bg-card p-0 shadow-lg">
               <div className="px-[18px] pb-2 pt-4">
                 <strong className="text-sm text-foreground">Top performers</strong>
                 <div className="text-xs text-muted-foreground/70">By approved revenue in this window.</div>
@@ -407,7 +407,7 @@ export default function DashboardPage() {
 
       {/* ---- Kohort retention/churn (D3) — yazdirilabilir ---- */}
       {cohorts && cohorts.cohorts.length > 0 && (
-        <Card className="mt-4 bg-card p-[18px] shadow-lg">
+        <Card className="lift mt-4 bg-card p-[18px] shadow-lg">
           <div className="mb-1 flex items-center justify-between">
             <strong className="text-[15px] text-foreground">Member cohorts — retention &amp; churn</strong>
             <span className="text-xs text-muted-foreground/70">{cohorts.totals.retentionPct}% still active · {cohorts.totals.churned} churned</span>

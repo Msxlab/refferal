@@ -1,7 +1,7 @@
 'use client';
 
 import { ReactNode, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, Settings } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, Minus, Settings, TrendingDown, TrendingUp } from 'lucide-react';
 import { Popover } from './Popover';
 import { APP_MONOGRAM, APP_NAME } from '@/lib/brand';
 
@@ -120,16 +120,33 @@ export function Bars({ data, max, format }: { data: Array<{ label: string; value
   );
 }
 
-/* ----------------------------------------------------- stat kart */
-export function StatCard({ label, value, icon, grad, hint, delay }: { label: string; value: ReactNode; icon?: ReactNode; grad?: string; hint?: string; delay?: string }) {
+/* ----------------------------------------------------- trend rozeti (KPI delta) */
+export function TrendBadge({ delta, suffix = '%' }: { delta: number | null | undefined; suffix?: string }) {
+  if (delta === null || delta === undefined || Number.isNaN(delta)) return null;
+  const dir = delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
+  const Icon = delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : Minus;
   return (
-    <div className={`card hover stat fade-in ${delay ?? ''}`}>
+    <span className={`trend ${dir}`}>
+      <Icon aria-hidden />{delta > 0 ? '+' : ''}{delta}{suffix}
+    </span>
+  );
+}
+
+/* ----------------------------------------------------- stat kart */
+export function StatCard({ label, value, icon, grad, hint, trend, beam, delay }: { label: string; value: ReactNode; icon?: ReactNode; grad?: string; hint?: string; trend?: number | null; beam?: boolean; delay?: string }) {
+  return (
+    <div className={`card hover lift stat fade-in ${beam ? 'beam' : ''} ${delay ?? ''}`}>
       <div className="spread">
         <span className="k">{label}</span>
         {icon && <span className="icon" style={grad ? { background: grad } : undefined}>{icon}</span>}
       </div>
       <div className="v">{value}</div>
-      {hint && <div className="faint" style={{ fontSize: 'var(--text-xs)', marginTop: 'var(--space-2)' }}>{hint}</div>}
+      {(hint || (trend !== undefined && trend !== null)) && (
+        <div className="row" style={{ gap: 'var(--space-2)', marginTop: 'var(--space-2)', alignItems: 'center' }}>
+          {trend !== undefined && trend !== null && <TrendBadge delta={trend} />}
+          {hint && <span className="faint" style={{ fontSize: 'var(--text-xs)' }}>{hint}</span>}
+        </div>
+      )}
     </div>
   );
 }

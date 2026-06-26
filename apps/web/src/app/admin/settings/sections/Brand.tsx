@@ -71,7 +71,7 @@ export default function Brand() {
 
   return (
     <div className="grid stack-sm" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,360px)', gap: 20, alignItems: 'start' }}>
-      <div className="card">
+      <div className="card lift">
         <h2 style={SECTION_TITLE}>Brand identity</h2>
         <div className="faint" style={{ fontSize: 12, marginTop: 4, marginBottom: 12 }}>Shown on the member portal, emails and invitations.</div>
 
@@ -95,7 +95,7 @@ export default function Brand() {
       </div>
 
       {/* canli onizleme — uye portalinin sabit-koyu cihaz cercevesi (mock) */}
-      <div className="card" style={{ position: 'sticky', top: 16 }}>
+      <div className="card lift" style={{ position: 'sticky', top: 16 }}>
         <div className="faint" style={{ fontSize: 11, marginBottom: 10, letterSpacing: '.08em' }}>PREVIEW</div>
         <div style={{ borderRadius: 14, overflow: 'hidden', border: '1px solid hsl(var(--border))' }}>
           <div style={PREVIEW_FRAME}>

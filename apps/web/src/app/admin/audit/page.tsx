@@ -157,7 +157,7 @@ export default function AuditPage() {
         <span className="faint" style={{ fontSize: '0.75rem', marginLeft: 'auto', whiteSpace: 'nowrap' }}>{list ? `${list.total} events` : ''}</span>
       </div>
 
-      <div className="card fade-in delay-2" style={{ padding: 0, overflow: 'hidden' }}>
+      <div className="card lift fade-in delay-2" style={{ padding: 0, overflow: 'hidden' }}>
         {!list ? <div style={{ padding: 16 }}><Loading rows={6} /></div> : items.length === 0 ? (
           <div style={{ padding: 18 }}>
             <div className="muted">

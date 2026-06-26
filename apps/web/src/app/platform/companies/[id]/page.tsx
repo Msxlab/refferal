@@ -158,7 +158,7 @@ export default function CompanyPage() {
       </div>
 
       {/* ---- Billing (C2 — manuel, Stripe yok) ---- */}
-      <div className="card fade-in delay-2" style={{ marginBottom: 20 }}>
+      <div className="card lift beam glow-primary fade-in delay-2" style={{ marginBottom: 20 }}>
         <div className="spread" style={{ alignItems: 'flex-start', marginBottom: 14 }}>
           <div>
             <strong style={{ fontSize: 15 }}>Billing</strong>
@@ -210,7 +210,7 @@ export default function CompanyPage() {
         </div>
       </div>
 
-      <div className="card fade-in delay-2" style={{ marginBottom: 20 }}>
+      <div className="card lift fade-in delay-2" style={{ marginBottom: 20 }}>
         <div className="spread" style={{ marginBottom: 14 }}>
           <strong style={{ fontSize: 15 }}>Referral network</strong>
           <span className="faint" style={{ fontSize: 12 }}>Tree / list · drill into anyone</span>
@@ -253,7 +253,7 @@ export default function CompanyPage() {
 
 function Kpi({ label, value, icon, hint }: { label: string; value: string; icon: ReactNode; hint?: string }) {
   return (
-    <div className="card stat">
+    <div className="card stat lift">
       <div className="spread"><span className="k">{label}</span><span className="icon" aria-hidden="true">{icon}</span></div>
       <div className="v">{value}</div>
       {hint && <div className="faint" style={{ fontSize: 11, marginTop: 6 }}>{hint}</div>}

@@ -66,7 +66,7 @@ export default function Integrations() {
     <div className="grid" style={{ gap: 20, maxWidth: 680 }}>
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
 
-      <div className="card">
+      <div className="card lift">
         <strong style={{ fontFamily: 'var(--font-display)', fontSize: 14 }}>API keys</strong>
         <div className="faint" style={{ fontSize: 12, marginBottom: 12 }}>Use <code>X-Api-Key</code> header. A key acts with the creating admin&apos;s role.</div>
         {createdKey && (
@@ -98,7 +98,7 @@ export default function Integrations() {
         </div>
       </div>
 
-      <div className="card">
+      <div className="card lift">
         <div className="spread"><strong style={{ fontFamily: 'var(--font-display)', fontSize: 14 }}>Webhooks</strong><button className="btn ghost sm" onClick={testHook} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send className="size-4" aria-hidden /> Send test</button></div>
         <div className="faint" style={{ fontSize: 12, margin: '4px 0 12px' }}>HMAC-SHA256 signed (<code>X-Refearn-Signature</code>). Events: payout.paid, … (empty = all).</div>
         {createdSecret && (

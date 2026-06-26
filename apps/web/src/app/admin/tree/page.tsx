@@ -223,7 +223,7 @@ export default function NetworkPage() {
 
       {/* ---- ag saglik seridi ---- */}
       {health && (
-        <Card className="fade-in mt-[18px] p-4 shadow-lg sm:px-[18px]">
+        <Card className="lift fade-in mt-[18px] p-4 shadow-lg sm:px-[18px]">
           <div className={cn('grid grid-cols-2 gap-4 sm:grid-cols-4', health.dormantClusters.length > 0 && 'mb-3.5')}>
             <div>
               <div className="text-[11px] text-muted-foreground/70">Members</div>
@@ -287,7 +287,7 @@ export default function NetworkPage() {
               <div className="mt-[18px] mb-[7px] inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground/70"><Star className="size-3.5" aria-hidden /> Top performer this month</div>
               <button
                 onClick={() => openTree(spotlight.id, spotlight.fullName)}
-                className="w-full cursor-pointer rounded-2xl border border-primary bg-card px-[18px] py-4 text-left shadow-[0_0_0_1px_hsl(var(--primary)/0.4),0_18px_50px_-28px_hsl(var(--primary)/0.5)] transition-transform hover:-translate-y-0.5"
+                className="beam glow-primary w-full cursor-pointer rounded-2xl border border-primary bg-card px-[18px] py-4 text-left shadow-[0_0_0_1px_hsl(var(--primary)/0.4),0_18px_50px_-28px_hsl(var(--primary)/0.5)] transition-transform hover:-translate-y-0.5"
               >
                 <div className="flex flex-wrap items-center gap-3.5">
                   <span className="grid size-[46px] shrink-0 place-items-center rounded-full bg-primary font-display text-[17px] font-extrabold text-primary-foreground">
@@ -359,9 +359,9 @@ export default function NetworkPage() {
                   <button
                     key={l.id}
                     onClick={() => openTree(l.id, l.fullName)}
-                    className="cursor-pointer text-left transition-transform hover:-translate-y-0.5"
+                    className="cursor-pointer text-left"
                   >
-                    <Card className="h-full p-4 shadow-lg transition-colors hover:border-primary/40">
+                    <Card className="lift h-full p-4 shadow-lg transition-colors hover:border-primary/40">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex min-w-0 items-center gap-2.5">
                           <span className={cn(
@@ -404,7 +404,7 @@ export default function NetworkPage() {
               })}
             </div>
           ) : (
-            <Card className="overflow-x-auto p-0 shadow-lg">
+            <Card className="lift overflow-x-auto p-0 shadow-lg">
               <Table>
                 <TableHeader>
                   <TableRow>

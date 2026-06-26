@@ -88,7 +88,7 @@ export default function CampaignsPage() {
           {list.map((c) => {
             const topPrize = c.prizes.reduce((a, p) => Math.max(a, p.bonusCents), 0);
             return (
-              <button key={c.id} className="card hover" onClick={() => setDetailId(c.id)} style={{ textAlign: 'left', cursor: 'pointer' }}>
+              <button key={c.id} className="card hover lift" onClick={() => setDetailId(c.id)} style={{ textAlign: 'left', cursor: 'pointer' }}>
                 <div className="spread" style={{ marginBottom: 8 }}>
                   <span className="row" style={{ gap: 6 }}>
                     <span className={`badge ${c.status === 'active' ? 'active' : c.status === 'ended' ? 'paid' : 'draft'}`}>{c.status}</span>

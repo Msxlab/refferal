@@ -84,7 +84,7 @@ export default function CompaniesPage() {
 
       {/* Billing (AR) — manuel takip: faturalandır, ödeme gelince şirket sayfasından işaretle */}
       {ar && (
-        <div className="card fade-in delay-1" style={{ marginBottom: 18, display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="card lift beam glow-primary fade-in delay-1" style={{ marginBottom: 18, display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center' }}>
           <div>
             <div className="faint" style={{ fontSize: 11 }}>Outstanding</div>
             <div className="tnum" style={{ fontSize: 18, fontWeight: 700 }}>{money(ar.totals.openCents, 'USD')}</div>
@@ -115,7 +115,7 @@ export default function CompaniesPage() {
 
       <div className="grid fade-in delay-2" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(300px,1fr))', gap: 14 }}>
         {filtered.map((c) => (
-          <button key={c.id} className="card hover" aria-label={`Open ${c.name} company details`} onClick={() => router.push(`/platform/companies/${c.id}`)}
+          <button key={c.id} className="card hover lift" aria-label={`Open ${c.name} company details`} onClick={() => router.push(`/platform/companies/${c.id}`)}
             style={{ textAlign: 'left', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="spread">
               <div className="row" style={{ gap: 12 }}>
@@ -153,7 +153,7 @@ export default function CompaniesPage() {
 
 function Kpi({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
   return (
-    <div className="card stat">
+    <div className="card stat lift">
       <div className="spread"><span className="k">{label}</span><span className="icon" aria-hidden="true">{icon}</span></div>
       <div className="v">{value}</div>
     </div>

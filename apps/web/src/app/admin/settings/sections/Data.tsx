@@ -23,7 +23,7 @@ const RETENTION: Item[] = [
 export default function Data() {
   return (
     <div className="grid" style={{ gap: 20 }}>
-      <div className="card" style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+      <div className="card lift" style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
         <Stat label="Backup cadence" value="Nightly" hint="pg_dump + age encryption" />
         <Stat label="Offsite target" value="Google Drive" hint="rclone, encrypted" />
         <Stat label="Money integrity" value="Integer cents" hint="No floats, ever" />
@@ -40,7 +40,7 @@ function Panel({ title, items }: { title: string; items: Item[] }) {
       <strong style={{ fontFamily: 'var(--font-display)', fontSize: 15 }}>{title}</strong>
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 12, marginTop: 12 }}>
         {items.map((it) => (
-          <div key={it.title} className="card" style={{ padding: 16 }}>
+          <div key={it.title} className="card lift" style={{ padding: 16 }}>
             <div className="spread">
               <strong style={{ fontSize: 14 }}>{it.title}</strong>
               <span className={`badge ${it.state === 'on' ? 'active' : 'pending'}`} style={{ fontSize: 10 }}>

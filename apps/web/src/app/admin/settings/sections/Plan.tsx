@@ -84,7 +84,7 @@ export default function Plan() {
   return (
     <div className="grid" style={{ gap: 16, maxWidth: 620 }}>
       {/* ---- cekirdek komisyon plani (yuzdeler) ---- */}
-      <div className="card">
+      <div className="card lift beam glow-primary">
         <div className="spread" style={{ marginBottom: 10 }}>
           <div>
             <h2 style={SECTION_TITLE}>Commission plan (percentages)</h2>
@@ -138,11 +138,11 @@ export default function Plan() {
       </div>
 
       {/* ---- bonus katmanlari (mevcut) ---- */}
-      <div className="card">
+      <div className="card lift">
         <h2 style={SECTION_TITLE}>Plan bonus layers (MLM)</h2>
         <div className="faint" style={{ fontSize: 12, marginTop: 4, marginBottom: 14 }}>Extra payouts to the direct sponsor, on top of the base unilevel plan{p.planName ? ` — “${p.planName}”` : ''}. Set 0 to disable.</div>
 
-        <div className="card" style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 12 }}>
+        <div className="card lift" style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 12 }}>
           <h3 style={{ ...SECTION_TITLE, fontSize: 13, display: 'flex', alignItems: 'center', gap: 7 }}><Sparkles className="size-4" aria-hidden /> Fast-start bonus</h3>
           <div className="faint" style={{ fontSize: 11, marginBottom: 8 }}>Direct sponsor earns this % of a new member&apos;s sale, if the sale is within the window after they joined.</div>
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -151,7 +151,7 @@ export default function Plan() {
           </div>
         </div>
 
-        <div className="card" style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 12 }}>
+        <div className="card lift" style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 12 }}>
           <h3 style={{ ...SECTION_TITLE, fontSize: 13, display: 'flex', alignItems: 'center', gap: 7 }}><HandCoins className="size-4" aria-hidden /> Sponsor matching bonus</h3>
           <div className="faint" style={{ fontSize: 11, marginBottom: 8 }}>Direct sponsor earns this % of the seller&apos;s own (level-0) commission on every sale.</div>
           <div className="field" style={{ margin: 0, maxWidth: 200 }}><label>Match rate (%)</label><input type="number" step="0.01" min={0} value={p.matchingBps / 100} onChange={(e) => setP({ ...p, matchingBps: Math.round(Number(e.target.value) * 100) })} /></div>
