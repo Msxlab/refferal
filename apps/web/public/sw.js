@@ -11,7 +11,7 @@
  * - Statik varliklar (_next/static, font, ikon): cache-first + arka planda tazele (hizli tekrar yukleme).
  * - HMR/hot-update: cache'lenmez (dev'de bayat chunk vermesin).
  */
-const CACHE = 'refearn-shell-v1';
+const CACHE = 'refearn-shell-v2';
 const OFFLINE_URL = '/offline.html';
 const PRECACHE = ['/offline.html', '/icon.svg'];
 
@@ -69,4 +69,37 @@ self.addEventListener('fetch', (event) => {
 
   // Diger same-origin GET: network-first, hata olursa cache.
   event.respondWith(fetch(req).catch(() => caches.match(req)));
+});
+
+// ---- Web Push: gelen push'u bildirim olarak goster ----
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; }
+  catch (e) { payload = { title: 'Refearn', body: event.data ? event.data.text() : '' }; }
+  const title = payload.title || 'Refearn';
+  const data = payload.data || {};
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: payload.body || '',
+      icon: '/icon.svg',
+      badge: '/icon.svg',
+      tag: data.template || 'refearn',
+      data,
+    }),
+  );
+});
+
+// ---- Bildirime tiklayinca: acik sekmeyi odakla, yoksa uygulamayi ac ----
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || '/app';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const c of clients) {
+        if (c.url.includes(target) && 'focus' in c) return c.focus();
+      }
+      for (const c of clients) { if ('focus' in c) { c.navigate(target); return c.focus(); } }
+      if (self.clients.openWindow) return self.clients.openWindow(target);
+    }),
+  );
 });

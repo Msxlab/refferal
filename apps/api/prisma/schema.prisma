@@ -292,12 +292,30 @@ model User {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  memberships   Membership[]
-  devices       Device[]
-  refreshTokens RefreshToken[]
-  userTokens    UserToken[]
+  memberships       Membership[]
+  devices           Device[]
+  refreshTokens     RefreshToken[]
+  userTokens        UserToken[]
+  pushSubscriptions PushSubscription[]
 
   @@map("users")
+}
+
+// Web Push (tarayici) aboneligi — VAPID. Cihaz (Expo) push'tan ayri; ayni kullanicinin
+// birden cok tarayici/cihaz aboneligi olabilir. endpoint unique (idempotent kayit).
+model PushSubscription {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscription")
 }
 
 // Rotasyonlu refresh token (SPEC 5): DB'de yalnizca SHA-256 hash saklanir.

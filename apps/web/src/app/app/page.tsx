@@ -9,6 +9,7 @@ import { Progress } from '@/components/ui/progress';
 import { dateShort, money, levelLabel } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { Megaphone, X, Check, CheckCircle2, Banknote, Wallet, TrendingUp, Award, Flag, ArrowRight, Trophy, Star, Crown } from 'lucide-react';
+import { EnableNotifications } from '@/components/app/EnableNotifications';
 
 interface LevelRow {
   level: number;
@@ -187,6 +188,8 @@ export default function MemberDashboard() {
         </div>
       )}
       {npsDone && <div className="card fade-in" style={{ marginBottom: 16 }}><span className="muted row" style={{ gap: 6, alignItems: 'center' }}><CheckCircle2 className="size-4" aria-hidden style={{ color: 'var(--emerald)' }} />Thanks for your feedback!</span></div>}
+
+      <EnableNotifications />
 
       {/* sold vs earned (this month) — the product's core promise */}
       <div className="stat-grid fade-in delay-1" style={{ marginBottom: 16 }}>

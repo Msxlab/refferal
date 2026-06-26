@@ -1,6 +1,7 @@
 import { NotificationChannel, NotificationStatus } from '@prisma/client';
 import { EmailAdapter, EmailMessage, PushAdapter, PushMessage } from '../src/notifications/adapters';
 import { NotificationRelayService } from '../src/notifications/notification-relay.service';
+import { WebPushService } from '../src/notifications/web-push.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createChain, createTenant, truncateAll } from './helpers';
 
@@ -25,7 +26,8 @@ describe('bildirim relay (entegrasyon)', () => {
   beforeAll(async () => {
     prisma = new PrismaService();
     await prisma.$connect();
-    relay = new NotificationRelayService(prisma, email, push);
+    // VAPID env yok -> WebPushService no-op (sendToUser erken doner); relay yine email/push'i test eder.
+    relay = new NotificationRelayService(prisma, email, push, new WebPushService(prisma));
   });
 
   afterAll(async () => {

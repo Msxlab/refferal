@@ -4,6 +4,7 @@ import { NotificationChannel, NotificationStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EMAIL_ADAPTER, EmailAdapter, PUSH_ADAPTER, PushAdapter } from './adapters';
 import { render } from './templates';
+import { WebPushService } from './web-push.service';
 
 const MAX_ATTEMPTS = 5;
 const BATCH = 20;
@@ -54,6 +55,7 @@ export class NotificationRelayService {
     private readonly prisma: PrismaService,
     @Inject(EMAIL_ADAPTER) private readonly email: EmailAdapter,
     @Inject(PUSH_ADAPTER) private readonly push: PushAdapter,
+    private readonly webPush: WebPushService,
   ) {}
 
   @Interval('outbox-relay', 10_000)
@@ -131,8 +133,10 @@ export class NotificationRelayService {
     if (n.channel === NotificationChannel.email) {
       await this.email.send({ to: membership.user.email, subject, text: body, html: toHtml(subject, body) });
     } else {
+      // Mobil (Expo) + tarayici (Web Push) — ikisine de paralel gonder.
       const tokens = membership.user.devices.map((d) => d.expoPushToken);
       await this.push.send({ tokens, title: subject, body, data: { template: n.template } });
+      await this.webPush.sendToUser(membership.userId, { title: subject, body, data: { template: n.template } });
     }
   }
 }
