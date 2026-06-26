@@ -4,6 +4,7 @@ import './globals.css';
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { AppToaster } from '@/components/AppToaster';
 import { APP_NAME } from '@/lib/brand';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
@@ -36,6 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <TooltipProvider delayDuration={250} skipDelayDuration={400}>
           <OfflineBanner />
           {children}
+          <AppToaster />
           <ServiceWorkerRegister />
         </TooltipProvider>
       </body>

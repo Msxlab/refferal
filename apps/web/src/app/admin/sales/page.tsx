@@ -3,7 +3,7 @@
 import { CSSProperties, FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
-import { ColumnsMenu, Confirm, Loading, Modal, Pagination, SortableTh, SortDir, MoneyCounter, TableColumn, useTablePrefs, useToast } from '@/components/ui';
+import { ColumnsMenu, Confirm, CountUp, Loading, Modal, Pagination, SortableTh, SortDir, MoneyCounter, TableColumn, useTablePrefs, useToast } from '@/components/ui';
 import { Drawer } from '@/components/Drawer';
 import { Popover } from '@/components/Popover';
 import { ImportWizard } from '@/components/ImportWizard';
@@ -345,7 +345,7 @@ export default function SalesPage() {
           hint={summary ? `${summary.byStatus.approved.count} approved sales` : undefined} />
         <button type="button" onClick={() => patchFilters({ ...EMPTY, status: 'draft' })} title="Show drafts awaiting approval" aria-label="Show drafts awaiting approval" className="rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <Kpi label={<>Awaiting approval <ArrowRight className="inline size-[15px] align-text-bottom" aria-hidden /></>}
-            value={summary ? summary.byStatus.draft.count : '—'}
+            value={summary ? <CountUp value={summary.byStatus.draft.count} /> : '—'}
             valueStyle={{ color: 'var(--amber)' }}
             hint={summary ? money(summary.byStatus.draft.amountCents, cur) : undefined} />
         </button>
@@ -353,7 +353,7 @@ export default function SalesPage() {
           value={summary ? <MoneyCounter cents={summary.avgCents} currency={cur} /> : '—'}
           hint={summary ? `${summary.count} sales in view` : undefined} />
         <Kpi label="Voided"
-          value={summary ? summary.byStatus.void.count : '—'}
+          value={summary ? <CountUp value={summary.byStatus.void.count} /> : '—'}
           valueClass="text-destructive"
           hint={summary ? money(summary.byStatus.void.amountCents, cur) : undefined} />
       </div>

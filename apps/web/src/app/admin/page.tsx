@@ -2,9 +2,10 @@
 
 import Link from 'next/link';
 import type { ComponentType } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import { Donut, Loading, MoneyCounter, StatCard } from '@/components/ui';
+import { sparkle } from '@/lib/celebrate';
+import { CountUp, Donut, Loading, MoneyCounter, StatCard, TrendBadge } from '@/components/ui';
 import { TrendChart } from '@/components/TrendChart';
 import { useLiveRefresh } from '@/components/LiveIndicator';
 import { bps, money } from '@/lib/format';
@@ -15,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { ContinuousTabs } from '@/components/ui/continuous-tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
-import { RefreshCw, Check, X, Scale, Printer, Wallet, Flag, Clock, ArrowRight, CheckCircle2, Circle, Users, TrendingUp, TrendingDown, Diamond } from 'lucide-react';
+import { RefreshCw, Check, X, Scale, Printer, Wallet, Flag, Clock, ArrowRight, CheckCircle2, Circle, Users, Diamond, Sparkles } from 'lucide-react';
 
 interface Dashboard {
   month: string;
@@ -100,6 +101,16 @@ export default function DashboardPage() {
     setAnalytics(null);
     api.get<Analytics>(`/admin/analytics?months=${months}`).then(setAnalytics).catch(() => {});
   }, [months]);
+
+  // kucuk kutlama: bir kurulum adimi tamamlandikca tek seferlik parlama (her render'da degil)
+  const prevPercentRef = useRef<number | null>(null);
+  useEffect(() => {
+    const p = onboarding?.percent;
+    if (p === undefined) return;
+    const prev = prevPercentRef.current;
+    if (prev !== null && p > prev && p < 100) sparkle();
+    prevPercentRef.current = p;
+  }, [onboarding?.percent]);
 
   if (error)
     return (
@@ -197,34 +208,65 @@ export default function DashboardPage() {
         </Card>
       )}
 
-      {/* ---- ilk-kurulum rehberi: %100'de gizlenir ---- */}
+      {/* ---- ilk-kurulum rehberi (premium kilavuzlu kontrol listesi): %100'de gizlenir ---- */}
       {onboarding && onboarding.percent < 100 && (
-        <Card className="lift mt-4 border-primary/50 bg-card p-[18px] shadow-lg ring-1 ring-primary/20">
-          <div className="mb-3 flex items-start justify-between">
-            <div>
-              <strong className="text-base text-foreground">Get your referral program running</strong>
-              <div className="mt-0.5 text-[13px] text-muted-foreground/70">Finish setup to start tracking referrals and paying commissions.</div>
+        <Card className="beam lift relative mt-4 overflow-hidden border-primary/50 bg-card p-[18px] shadow-lg ring-1 ring-primary/20 glow-primary">
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary to-transparent opacity-60" />
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Sparkles aria-hidden className="size-[18px] text-primary" />
+                <strong className="text-base text-foreground">Get your referral program running</strong>
+              </div>
+              <div className="mt-1 text-[13px] text-muted-foreground/70">Finish setup to start tracking referrals and paying commissions.</div>
+              <div className="mt-3 flex items-center gap-2.5">
+                <Progress value={onboarding.percent} className="h-1.5 w-40 bg-muted sm:w-56" />
+                <span className="text-xs font-medium text-muted-foreground/70 tabular-nums">{onboarding.done} of {onboarding.total} done</span>
+              </div>
             </div>
-            <div className="flex-shrink-0 text-right">
-              <div className="font-display text-[22px] font-extrabold text-foreground tabular-nums">{onboarding.percent}%</div>
-              <div className="text-xs text-muted-foreground/70">{onboarding.done} of {onboarding.total}</div>
+            {/* ilerleme halkasi */}
+            <div className="relative flex-shrink-0" aria-hidden>
+              <svg viewBox="0 0 72 72" width="72" height="72" className="-rotate-90">
+                <circle cx="36" cy="36" r="30" fill="none" stroke="hsl(var(--muted))" strokeWidth="7" />
+                <circle
+                  cx="36" cy="36" r="30" fill="none" stroke="hsl(var(--primary))" strokeWidth="7" strokeLinecap="round"
+                  strokeDasharray={2 * Math.PI * 30}
+                  strokeDashoffset={(2 * Math.PI * 30) * (1 - onboarding.percent / 100)}
+                  style={{ transition: 'stroke-dashoffset 700ms ease-out' }}
+                />
+              </svg>
+              <div className="absolute inset-0 grid place-items-center">
+                <span className="font-display text-[17px] font-extrabold text-foreground tabular-nums">{onboarding.percent}%</span>
+              </div>
             </div>
           </div>
-          <Progress value={onboarding.percent} className="mb-3.5 h-1.5 bg-muted" />
-          <div>
-            {onboarding.steps.map((s) => (
-              <div key={s.key} className="flex items-center gap-3 border-t border-border py-[9px]">
-                <span aria-hidden className={`flex w-[18px] justify-center ${s.done ? '' : 'text-muted-foreground/70'}`} style={s.done ? { color: 'var(--emerald)' } : undefined}>{s.done ? <CheckCircle2 className="size-4" aria-hidden /> : <Circle className="size-4" aria-hidden />}</span>
-                <span className={`flex-1 text-sm ${s.done ? 'text-muted-foreground' : 'text-foreground'}`}>{s.label}</span>
+          <div className="flex flex-col gap-2">
+            {onboarding.steps.map((s, i) => (
+              <div
+                key={s.key}
+                className={`flex items-center gap-3 rounded-xl border p-3 transition-colors ${s.done ? 'border-border bg-muted/30' : 'border-border bg-muted/40 hover:border-input hover:bg-muted'}`}
+              >
+                <span
+                  aria-hidden
+                  className="grid size-7 flex-shrink-0 place-items-center rounded-full"
+                  style={s.done
+                    ? { color: 'var(--emerald)', background: 'color-mix(in srgb, var(--emerald) 12%, transparent)' }
+                    : { borderWidth: 1, borderStyle: 'solid', borderColor: 'hsl(var(--border))' }}
+                >
+                  {s.done
+                    ? <CheckCircle2 className="size-[18px]" aria-hidden />
+                    : <span className="text-[11px] font-bold text-muted-foreground/70 tabular-nums">{i + 1}</span>}
+                </span>
+                <span className={`flex-1 text-sm font-medium ${s.done ? 'text-muted-foreground line-through decoration-muted-foreground/40' : 'text-foreground'}`}>{s.label}</span>
                 {s.done
-                  ? <span className="text-xs text-muted-foreground/70">Done</span>
+                  ? <span className="flex items-center gap-1 text-xs font-medium" style={{ color: 'var(--emerald)' }}><Check className="size-3.5" aria-hidden /> Done</span>
                   : s.cta
                     ? <Button asChild variant="ghost" size="sm"><Link href={s.cta}>{CTA_LABEL[s.key] ?? 'Open'} <ArrowRight className="size-4" aria-hidden /></Link></Button>
                     : <span className="text-xs text-muted-foreground/70">Pending</span>}
               </div>
             ))}
           </div>
-          <div className="mt-2.5 text-[11px] text-muted-foreground/70">This guide hides automatically once every step is done.</div>
+          <div className="mt-3 text-[11px] text-muted-foreground/70">This guide hides automatically once every step is done.</div>
         </Card>
       )}
 
@@ -239,7 +281,7 @@ export default function DashboardPage() {
           <div className="mt-[22px] flex flex-wrap gap-x-6 gap-y-4 sm:gap-x-8">
             <div>
               <div className="text-[11px] text-muted-foreground/70">{t('dash.commission')}</div>
-              <div className="mt-[3px] text-[15px] font-bold text-foreground tabular-nums">{money(commission, c)}</div>
+              <div className="mt-[3px] text-[15px] font-bold text-foreground tabular-nums"><MoneyCounter cents={commission} currency={c} /></div>
             </div>
             <div>
               <div className="text-[11px] text-muted-foreground/70">{t('dash.effRate')}</div>
@@ -247,11 +289,11 @@ export default function DashboardPage() {
             </div>
             <div>
               <div className="text-[11px] text-muted-foreground/70">{t('dash.approvedSales')}</div>
-              <div className="mt-[3px] text-[15px] font-bold text-foreground tabular-nums">{data.thisMonth.approvedSalesCount}</div>
+              <div className="mt-[3px] text-[15px] font-bold text-foreground tabular-nums"><CountUp value={data.thisMonth.approvedSalesCount} /></div>
             </div>
             <div>
               <div className="text-[11px]" style={{ color: 'var(--emerald)' }}>Net to company</div>
-              <div className="mt-[3px] text-[15px] font-bold tabular-nums" style={{ color: 'var(--emerald)' }}>{money(net, c)}</div>
+              <div className="mt-[3px] text-[15px] font-bold tabular-nums" style={{ color: 'var(--emerald)' }}><MoneyCounter cents={net} currency={c} /></div>
             </div>
           </div>
         </Card>
@@ -274,11 +316,11 @@ export default function DashboardPage() {
 
       {/* ---- 3-up stat cards ---- */}
       <div className="mt-4 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-        <StatCard label={t('dash.payable')} value={money(data.outstandingPayableCents, c)} icon={<Wallet className="size-[18px]" aria-hidden />} hint={t('dash.payableHint')} />
-        <StatCard label={t('dash.members')} value={`${data.members.active} / ${data.members.total}`} icon={<Users className="size-[18px]" aria-hidden />} hint={t('dash.membersHint')} />
+        <StatCard label={t('dash.payable')} value={<MoneyCounter cents={data.outstandingPayableCents} currency={c} />} icon={<Wallet className="size-[18px]" aria-hidden />} hint={t('dash.payableHint')} />
+        <StatCard label={t('dash.members')} value={<><CountUp value={data.members.active} /> / <CountUp value={data.members.total} /></>} icon={<Users className="size-[18px]" aria-hidden />} hint={t('dash.membersHint')} />
         {data.pendingPayoutRequests > 0
-          ? <Link href="/admin/payouts" title="Go to payouts" className="block"><StatCard label={`${t('dash.pendingReq')} →`} value={String(data.pendingPayoutRequests)} icon={<Clock className="size-[18px]" aria-hidden />} hint={t('dash.requestsHint')} /></Link>
-          : <StatCard label={t('dash.pendingReq')} value={String(data.pendingPayoutRequests)} icon={<Clock className="size-[18px]" aria-hidden />} hint={t('dash.requestsHint')} />}
+          ? <Link href="/admin/payouts" title="Go to payouts" className="block"><StatCard label={`${t('dash.pendingReq')} →`} value={<CountUp value={data.pendingPayoutRequests} />} icon={<Clock className="size-[18px]" aria-hidden />} hint={t('dash.requestsHint')} /></Link>
+          : <StatCard label={t('dash.pendingReq')} value={<CountUp value={data.pendingPayoutRequests} />} icon={<Clock className="size-[18px]" aria-hidden />} hint={t('dash.requestsHint')} />}
       </div>
 
       {/* ---- borc kirilimi (stacked bar) + en cok kazananlar ---- */}
@@ -351,7 +393,7 @@ export default function DashboardPage() {
           <Card className="lift mb-4 bg-card p-[18px] shadow-lg">
             <div className="mb-3.5 flex flex-wrap gap-x-6 gap-y-4 sm:gap-x-8">
               <Metric label="Revenue" value={money(analytics.totals.revenueCents, c)} delta={analytics.deltas.revenuePct} />
-              <Metric label="Commission" value={money(analytics.totals.commissionCents, c)} delta={analytics.deltas.commissionPct} invertGood />
+              <Metric label="Commission" value={money(analytics.totals.commissionCents, c)} delta={analytics.deltas.commissionPct} />
               <Metric label="Approved sales" value={String(analytics.totals.approvedSales)} delta={analytics.deltas.salesPct} />
               <Metric label="Effective rate" value={bps(analytics.totals.effectiveRateBps)} />
             </div>
@@ -465,27 +507,23 @@ export default function DashboardPage() {
   );
 }
 
-function Metric({ label, value, delta, invertGood }: { label: string; value: string; delta?: number | null; invertGood?: boolean }) {
+function Metric({ label, value, delta }: { label: string; value: string; delta?: number | null }) {
   return (
     <div>
       <div className="text-[11px] text-muted-foreground/70">{label}</div>
       <div className="mt-0.5 text-[19px] font-[750] text-foreground tabular-nums">{value}</div>
-      {delta !== undefined && <Delta pct={delta} invertGood={invertGood} />}
+      {/* delta omitted entirely (e.g. effective rate) → render nothing; null → "new"; number → TrendBadge */}
+      {delta !== undefined && (
+        delta === null
+          ? <span className="mt-[3px] block text-[11px] text-muted-foreground/70">— new</span>
+          : (
+            <span className="mt-[3px] flex items-center gap-1.5">
+              <TrendBadge delta={delta} />
+              <span className="text-[11px] font-normal text-muted-foreground/70">vs prev</span>
+            </span>
+          )
+      )}
     </div>
-  );
-}
-
-function Delta({ pct, invertGood }: { pct: number | null; invertGood?: boolean }) {
-  if (pct === null) return <span className="text-[11px] text-muted-foreground/70">— new</span>;
-  const up = pct > 0;
-  const flat = pct === 0;
-  const good = flat ? null : invertGood ? !up : up;
-  const className = good === null ? 'text-muted-foreground' : good ? '' : 'text-destructive';
-  return (
-    <span className={`mt-[3px] flex items-center gap-1 text-[11.5px] font-[650] ${className}`} style={good ? { color: 'var(--emerald)' } : undefined}>
-      {flat ? <ArrowRight className="size-[13px]" aria-hidden /> : up ? <TrendingUp className="size-[13px]" aria-hidden /> : <TrendingDown className="size-[13px]" aria-hidden />} {Math.abs(pct)}%
-      <span className="font-normal text-muted-foreground/70">vs prev</span>
-    </span>
   );
 }
 

@@ -1,7 +1,8 @@
 'use client';
 
-import { ReactNode, useEffect, useRef, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, ArrowRight, Check, Minus, Settings, TrendingDown, TrendingUp } from 'lucide-react';
+import { toast as sonnerToast } from 'sonner';
 import { Popover } from './Popover';
 import { APP_MONOGRAM, APP_NAME } from '@/lib/brand';
 
@@ -353,14 +354,17 @@ export function Error({ message, onRetry }: { message: string; onRetry?: () => v
   );
 }
 
-/* ----------------------------------------------------- basit toast hook */
+/* ----------------------------------------------------- toast hook (Sonner'a delege)
+   showToast(msg) artik premium Sonner toast'u tetikler; donen "msg" daima null
+   (mevcut {toast} render'lari bos kalir, UI'yi Sonner'in <Toaster> bileseni cizer). */
 export function useToast(): [string | null, (msg: string) => void] {
-  const [msg, setMsg] = useState<string | null>(null);
-  const show = (m: string) => {
-    setMsg(m);
-    setTimeout(() => setMsg(null), 2800);
-  };
-  return [msg, show];
+  const show = useCallback((m: string) => {
+    const low = m.toLowerCase();
+    if (/fail|error|could not|couldn't|invalid|denied|rejected|too\b/.test(low)) sonnerToast.error(m);
+    else if (/✓|success|saved|added|created|approved|sent|done|updated|paid|delivered|copied|enabled|disabled|requested/.test(low)) sonnerToast.success(m);
+    else sonnerToast(m);
+  }, []);
+  return [null, show];
 }
 
 /* ----------------------------------------------------- sayfalama */

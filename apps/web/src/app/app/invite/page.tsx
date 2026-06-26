@@ -5,6 +5,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { ReferralShare } from '@/components/app/ReferralShare';
 import { dateShort } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { Sparkles, Copy, Save } from 'lucide-react';
@@ -27,8 +28,10 @@ export default function InvitePage() {
   const [message, setMessage] = useState('');
   const [savingMsg, setSavingMsg] = useState(false);
   const [toast, showToast] = useToast();
+  // SSR-guvenli origin: ilk client render'inda doldur (hydration mismatch'i onler)
+  const [origin, setOrigin] = useState('');
+  useEffect(() => { setOrigin(window.location.origin); }, []);
 
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const linkFor = (code: string) => `${origin}/i/${code}`;
 
   const load = useCallback(async () => {
@@ -78,7 +81,12 @@ export default function InvitePage() {
       <h1 className="h1 fade-in">Grow Your Team</h1>
       <p className="sub fade-in">Share your invite link; everyone who joins becomes part of your tree.</p>
 
-      <div className="card fade-in" style={{ marginBottom: 16 }}>
+      {/* premium referans paylasim karti — QR + kopyala + native paylas */}
+      {latest && origin && (
+        <ReferralShare code={latest} url={linkFor(latest)} className="fade-in" />
+      )}
+
+      <div className="card fade-in" style={{ marginBottom: 16, marginTop: latest && origin ? 16 : 0 }}>
         <label style={{ fontSize: 12, color: 'hsl(var(--muted-foreground))' }}>Personal welcome message (shown on your invite page)</label>
         <textarea value={message} onChange={(e) => setMessage(e.target.value)} maxLength={280} rows={2} placeholder="e.g. Hey! Join my team and let's grow together." style={{ marginTop: 6, resize: 'vertical' }} />
         <div className="row" style={{ justifyContent: 'space-between', marginTop: 8 }}>

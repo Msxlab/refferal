@@ -1,12 +1,13 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, Modal, MoneyCounter, Pagination, useToast } from '@/components/ui';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { dateShort, money, levelLabel, ledgerTypeLabel } from '@/lib/format';
 import { t } from '@/lib/i18n';
+import { celebrate } from '@/lib/celebrate';
 import { CheckCircle2, ShieldCheck } from 'lucide-react';
 
 interface LedgerItem {
@@ -82,6 +83,8 @@ export default function WalletPage() {
   const [fType, setFType] = useState('');
   const [fStatus, setFStatus] = useState('');
   const [page, setPage] = useState(1);
+  // kutlama: odeme esigine ILK ulasildiginda tek sefer confetti (poll/render basina tekrar atmaz)
+  const celebratedRef = useRef(false);
 
   const ledgerQuery = useMemo(() => {
     const p = new URLSearchParams({ page: String(page), pageSize: '50' });
@@ -99,6 +102,29 @@ export default function WalletPage() {
   }, [ledgerQuery]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Esige ilk kez ulasildiginda kutlama. Guard: bu render dongusunde useRef +
+  // kalici olarak localStorage anahtari — boylece her poll/yeniden yuklemede tekrar atilmaz.
+  useEffect(() => {
+    if (!wallet) return;
+    const payableNow = Number(wallet.balance.payableCents);
+    const minNow = Number(wallet.payoutMinCents);
+    const key = 'wallet:payout-threshold-celebrated';
+    // Esigin altina dustuyse (or. payout sonrasi) bayragi sifirla — bir sonraki
+    // gercek gecisin yeniden kutlanabilmesi icin.
+    if (minNow <= 0 || payableNow < minNow) {
+      celebratedRef.current = false;
+      try { localStorage.removeItem(key); } catch { /* yok say */ }
+      return;
+    }
+    if (celebratedRef.current) return;
+    let already = false;
+    try { already = localStorage.getItem(key) === '1'; } catch { /* SSR/private mode */ }
+    if (already) { celebratedRef.current = true; return; }
+    celebratedRef.current = true;
+    try { localStorage.setItem(key, '1'); } catch { /* yok say */ }
+    celebrate();
+  }, [wallet]);
 
   async function requestPayout() {
     setBusy(true); setError('');

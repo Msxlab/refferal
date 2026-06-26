@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { dateShort, money, levelLabel } from '@/lib/format';
 import { t } from '@/lib/i18n';
-import { Megaphone, X, Check, CheckCircle2, Banknote, Wallet, TrendingUp, Award, Flag, ArrowRight } from 'lucide-react';
+import { Megaphone, X, Check, CheckCircle2, Banknote, Wallet, TrendingUp, Award, Flag, ArrowRight, Trophy, Star, Crown } from 'lucide-react';
 
 interface LevelRow {
   level: number;
@@ -266,21 +266,144 @@ export default function MemberDashboard() {
         </div>
       </div>
 
-      {/* kariyer rutbesi + rozetler (#20) */}
-      {rank && (rank.current || rank.badges.some((b) => b.earned)) && (
-        <div className="card lift fade-in delay-2" style={{ marginTop: 16 }}>
-          <div className="spread" style={{ marginBottom: 10 }}>
-            <strong className="row" style={{ fontSize: 14, gap: 6, alignItems: 'center' }}><Award className="size-4" aria-hidden />{rank.current ?? 'Unranked'}{rank.next && <span className="faint row" style={{ fontWeight: 400, gap: 4, alignItems: 'center' }}><ArrowRight className="size-3.5" aria-hidden />{rank.next}</span>}{rank.overrideBps ? <span className="badge active" style={{ fontSize: 10, marginLeft: 8 }}>+{(rank.overrideBps / 100).toFixed(rank.overrideBps % 100 ? 1 : 0)}% on your sales</span> : null}</strong>
-            {rank.next && <span className="faint" style={{ fontSize: 12 }}>{rank.overallPct}% to {rank.next}</span>}
+      {/* kariyer rutbesi + rozetler (#20) — premium gamification */}
+      {rank && (rank.current || rank.badges.some((b) => b.earned)) && (() => {
+        const earnedBadges = rank.badges.filter((b) => b.earned).length;
+        const ringPct = Math.max(0, Math.min(100, rank.overallPct));
+        const ringSegments = [
+          { label: 'progress', value: ringPct, color: 'var(--brand)' },
+          { label: 'remaining', value: 100 - ringPct, color: 'hsl(var(--muted))' },
+        ];
+        // kampanya liderlik tablosu — uyenin kendi satiri vurgulu (#leaderboard)
+        const campaignBoard = campaigns.find((cp) => cp.leaderboard.length > 0);
+        return (
+          <div className="card lift fade-in delay-2 glow-primary" style={{ marginTop: 16 }}>
+            <div className="spread" style={{ marginBottom: 16, alignItems: 'center' }}>
+              <strong className="row" style={{ fontSize: 14, gap: 8, alignItems: 'center' }}>
+                <Crown className="size-4" aria-hidden style={{ color: 'var(--gold-500)' }} />
+                Your rank &amp; badges
+                {rank.overrideBps ? <span className="badge active" style={{ fontSize: 10, marginLeft: 4 }}>+{(rank.overrideBps / 100).toFixed(rank.overrideBps % 100 ? 1 : 0)}% on your sales</span> : null}
+              </strong>
+              {earnedBadges > 0 && (
+                <span className="badge active row" style={{ fontSize: 11, gap: 4, alignItems: 'center' }}>
+                  <Star className="size-3" aria-hidden />{earnedBadges} earned
+                </span>
+              )}
+            </div>
+
+            <div className="row" style={{ gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* dairesel ilerleme halkasi — sonraki rutbeye */}
+              <div style={{ width: 120, flexShrink: 0 }}>
+                <Donut
+                  segments={ringSegments}
+                  size={120}
+                  thickness={14}
+                  center={
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 22, lineHeight: 1 }}>{Math.round(ringPct)}%</div>
+                      <div className="faint" style={{ fontSize: 10, marginTop: 3 }}>{rank.next ? 'to next' : 'maxed'}</div>
+                    </div>
+                  }
+                />
+              </div>
+
+              {/* mevcut -> sonraki rutbe etiketleri */}
+              <div style={{ flex: '1 1 200px', minWidth: 180 }}>
+                <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span className="row" style={{ gap: 6, alignItems: 'center', fontWeight: 800, fontSize: 18 }}>
+                    <Award className="size-[18px]" aria-hidden style={{ color: 'var(--gold-500)' }} />
+                    {rank.current ?? 'Unranked'}
+                  </span>
+                  {rank.next && (
+                    <span className="faint row" style={{ gap: 6, alignItems: 'center', fontSize: 13 }}>
+                      <ArrowRight className="size-4" aria-hidden />
+                      <span style={{ fontWeight: 600, color: 'var(--text)' }}>{rank.next}</span>
+                    </span>
+                  )}
+                </div>
+                <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
+                  {rank.next
+                    ? <>You&apos;re <b className="tnum" style={{ color: 'var(--gold-500)' }}>{rank.overallPct}%</b> of the way to <b style={{ color: 'var(--text)' }}>{rank.next}</b>.</>
+                    : <>You&apos;ve reached the top rank. Keep it up!</>}
+                </div>
+
+                {/* leaderboard pozisyon vurgusu */}
+                {rankInfo?.rank != null && (
+                  <div className="row" style={{ gap: 8, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span className="badge active row" style={{ fontSize: 11, background: 'var(--foil)', color: 'var(--on-gold)', gap: 5, alignItems: 'center' }}>
+                      <Trophy className="size-3.5" aria-hidden />#{rankInfo.rank} of {rankInfo.total}
+                    </span>
+                    {rankInfo.topPercent != null && (
+                      <span className="faint" style={{ fontSize: 11 }}>top {rankInfo.topPercent}% this month</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* kazanilan / kilitli rozet cipleri */}
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 18, paddingTop: 16, borderTop: '1px solid hsl(var(--border))' }}>
+              {rank.badges.map((b) => (
+                <span
+                  key={b.key}
+                  className="row"
+                  style={{
+                    fontSize: 11.5, fontWeight: 600, gap: 5, alignItems: 'center', display: 'inline-flex',
+                    padding: '5px 10px', borderRadius: 999,
+                    background: b.earned ? 'color-mix(in srgb, var(--brand) 12%, transparent)' : 'var(--panel-2)',
+                    color: b.earned ? 'var(--brand)' : 'hsl(var(--muted-foreground))',
+                    border: b.earned ? '1px solid color-mix(in srgb, var(--brand) 28%, transparent)' : '1px solid hsl(var(--border))',
+                    opacity: b.earned ? 1 : 0.55,
+                  }}
+                  title={b.earned ? 'Earned' : 'Locked'}
+                >
+                  {b.earned ? <Award className="size-3.5" aria-hidden /> : <Star className="size-3.5" aria-hidden />}
+                  {b.label}
+                </span>
+              ))}
+            </div>
+
+            {/* kampanya liderlik tablosu — ilk birkac satir, kendi satirin vurgulu */}
+            {campaignBoard && (
+              <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid hsl(var(--border))' }}>
+                <div className="spread" style={{ marginBottom: 10 }}>
+                  <span className="row faint" style={{ gap: 6, fontSize: 12, alignItems: 'center' }}>
+                    <Trophy className="size-3.5" aria-hidden style={{ color: 'var(--gold-500)' }} />
+                    {campaignBoard.name} leaderboard
+                  </span>
+                  {campaignBoard.myRank != null && (
+                    <span className="badge active" style={{ fontSize: 11 }}>You&apos;re #{campaignBoard.myRank}</span>
+                  )}
+                </div>
+                <div className="grid" style={{ gap: 6 }}>
+                  {campaignBoard.leaderboard.slice(0, 5).map((s) => {
+                    const isMe = campaignBoard.myRank != null && s.rank === campaignBoard.myRank;
+                    return (
+                      <div
+                        key={s.membershipId}
+                        className="spread"
+                        style={{
+                          fontSize: 12.5, padding: '7px 10px', borderRadius: 10,
+                          background: isMe ? 'color-mix(in srgb, var(--gold-500) 14%, transparent)' : 'transparent',
+                          border: isMe ? '1px solid color-mix(in srgb, var(--gold-500) 35%, transparent)' : '1px solid transparent',
+                          fontWeight: isMe ? 700 : 400,
+                        }}
+                      >
+                        <span className="row" style={{ gap: 8, alignItems: 'center' }}>
+                          <span style={{ width: 20, height: 20, borderRadius: 6, display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 800, background: s.rank === 1 ? 'var(--foil)' : 'var(--panel-2)', color: s.rank === 1 ? 'var(--on-gold)' : 'hsl(var(--muted-foreground))' }}>{s.rank}</span>
+                          {s.name}
+                          {isMe && <span className="faint" style={{ fontSize: 10, fontWeight: 600 }}>(you)</span>}
+                        </span>
+                        <span className="tnum faint">{campaignBoard.metric === 'revenue' ? money(s.score) : s.score.toLocaleString('en-US')}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
-          {rank.next && <Progress value={rank.overallPct} className="h-2 mb-3" />}
-          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-            {rank.badges.map((b) => (
-              <span key={b.key} className={`badge ${b.earned ? 'active' : 'draft'} row`} style={{ fontSize: 11, opacity: b.earned ? 1 : 0.5, gap: 4, alignItems: 'center', display: 'inline-flex' }}>{b.earned ? <Check className="size-3" aria-hidden /> : null}{b.label}</span>
-            ))}
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* aktif kampanyalar — kendi siram */}
       {campaigns.length > 0 && (

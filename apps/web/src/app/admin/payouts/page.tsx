@@ -6,7 +6,7 @@ import { ArrowRight, Download, ChevronDown, AlertTriangle, RefreshCw, Check, Pri
 import { api, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
 import { cn } from '@/lib/utils';
-import { Confirm, Loading, Modal, MoneyCounter, Pagination, useToast } from '@/components/ui';
+import { Confirm, CountUp, Loading, Modal, MoneyCounter, Pagination, useToast } from '@/components/ui';
 import { Drawer } from '@/components/Drawer';
 import { PrintSheet, PrintHeader, PrintSignatures } from '@/components/PrintSheet';
 import { activeMembership, getSession } from '@/lib/auth';
@@ -368,7 +368,7 @@ export default function PayoutsPage() {
               <MoneyCounter cents={totalPayable} currency={c} />
             </div>
             <div className="mt-1 text-xs text-muted-foreground/70">
-              {payable?.members.length ?? 0} members · min threshold {payable ? money(payable.payoutMinCents, c) : '—'}
+              <CountUp value={payable?.members.length ?? 0} /> members · min threshold {payable ? money(payable.payoutMinCents, c) : '—'}
             </div>
             <PayoutProgress ready={totalPayable} blocked={totalOwed} currency={c} />
           </div>

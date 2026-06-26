@@ -33,6 +33,15 @@ export function TrendChart({ series, currency }: { series: Point[]; currency: st
 
   const linePts = com.map((v, i) => `${x(i)},${y(v)}`).join(' ');
 
+  // gradient area fill: cizgiyi izle → baseline'a in → basa don (cizginin arkasinda derinlik)
+  const baseline = PAD.t + innerH;
+  const areaPath =
+    n > 1
+      ? `M ${x(0)},${baseline} ` +
+        com.map((v, i) => `L ${x(i)},${y(v)}`).join(' ') +
+        ` L ${x(n - 1)},${baseline} Z`
+      : '';
+
   return (
     <div>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Revenue and commission trend">
@@ -40,6 +49,10 @@ export function TrendChart({ series, currency }: { series: Point[]; currency: st
           <linearGradient id="tc-bar" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="var(--gold-500)" stopOpacity="0.95" />
             <stop offset="100%" stopColor="var(--gold-600)" stopOpacity="0.35" />
+          </linearGradient>
+          <linearGradient id="tc-area" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="0.28" />
+            <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0" />
           </linearGradient>
         </defs>
 
@@ -60,6 +73,9 @@ export function TrendChart({ series, currency }: { series: Point[]; currency: st
             </g>
           );
         })}
+
+        {/* komisyon cizgisi altinda yumusak gradient alan (cizginin arkasinda derinlik) */}
+        {n > 1 && <path d={areaPath} fill="url(#tc-area)" stroke="none" />}
 
         {/* komisyon cizgisi + noktalar */}
         {n > 1 && <polyline points={linePts} fill="none" stroke="var(--emerald)" strokeWidth={2} strokeLinejoin="round" />}
