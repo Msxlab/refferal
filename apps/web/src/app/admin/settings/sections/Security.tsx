@@ -1,5 +1,7 @@
 'use client';
 
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+
 interface Item { title: string; desc: string; state: 'on' | 'soon' }
 
 const ACCESS: Item[] = [
@@ -23,13 +25,13 @@ export default function Security() {
     <div className="grid" style={{ gap: 20 }}>
       <Panel title="Account access" subtitle="How identities are protected." items={ACCESS} />
       <Panel title="Governance & detection" subtitle="Controls that keep the workspace honest." items={GOVERNANCE} />
-      <div className="card" style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+      <Alert className="flex flex-wrap items-center gap-4">
         <div style={{ flex: 1, minWidth: 220 }}>
-          <strong style={{ fontFamily: 'var(--font-display)', fontSize: 14 }}>Your account security</strong>
-          <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>Two-factor setup and active-session management arrive in the next update.</div>
+          <AlertTitle style={{ fontFamily: 'var(--font-display)', fontSize: 14 }}>Your account security</AlertTitle>
+          <AlertDescription className="faint" style={{ fontSize: 12, marginTop: 4 }}>Two-factor setup and active-session management arrive in the next update.</AlertDescription>
         </div>
         <span className="badge pending" style={{ fontSize: 10 }}>coming soon</span>
-      </div>
+      </Alert>
     </div>
   );
 }

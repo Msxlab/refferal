@@ -4,6 +4,8 @@ import { CSSProperties, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Confirm, Loading, Modal, useToast } from '@/components/ui';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
 
 // Shared section heading: display font, consistent size/weight across settings cards.
 const SECTION_TITLE: CSSProperties = {
@@ -89,7 +91,7 @@ export default function PeopleRoles() {
     } catch (e) { showToast(String((e as ApiError).message)); } finally { setBusy(false); }
   }
 
-  if (error && !roles) return <div className="error">{error}</div>;
+  if (error && !roles) return <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>;
   if (!groups || !roles || !people) return <Loading rows={5} />;
 
   return (
@@ -342,6 +344,11 @@ function RoleEditor({ groups, role, onClose, onSaved }: {
             </div>
           )}
         </div>
+        <Progress
+          value={allKeys.length ? (perms.size / allKeys.length) * 100 : 0}
+          aria-label={`${perms.size} of ${allKeys.length} permissions selected`}
+          className="mb-2.5"
+        />
 
         <div style={{ maxHeight: '42vh', overflow: 'auto', display: 'grid', gap: 14, paddingRight: 4 }}>
           {groups.map((g) => {
@@ -384,7 +391,7 @@ function RoleEditor({ groups, role, onClose, onSaved }: {
           })}
         </div>
 
-        {err && <div className="error" style={{ marginTop: 12 }}>{err}</div>}
+        {err && <Alert variant="destructive" className="mt-3"><AlertDescription>{err}</AlertDescription></Alert>}
         <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
           <button className="btn ghost" onClick={onClose}>{locked ? 'Close' : 'Cancel'}</button>
           {!locked && <button className="btn" onClick={save} disabled={busy || !name.trim()}>{busy ? 'Saving…' : 'Save role'}</button>}

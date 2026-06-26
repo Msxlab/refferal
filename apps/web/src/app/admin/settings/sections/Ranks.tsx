@@ -3,6 +3,7 @@
 import { CSSProperties, useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 // Shared section heading: display font, consistent size/weight across settings cards.
 const SECTION_TITLE: CSSProperties = {
@@ -52,7 +53,7 @@ export default function Ranks() {
     setData((d) => d ? { ...d, tiers: d.tiers.map((t, idx) => idx === i ? { ...t, [field]: value } : t) } : d);
   }
 
-  if (error && !data) return <div className="error">{error}</div>;
+  if (error && !data) return <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>;
   if (!data) return <Loading rows={3} />;
 
   return (

@@ -4,6 +4,8 @@ import { CSSProperties, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
 import { money, levelLabel } from '@/lib/format';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
 
 // Shared section heading: display font, consistent size/weight across settings cards.
 const SECTION_TITLE: CSSProperties = {
@@ -75,7 +77,7 @@ export default function Plan() {
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
   }
 
-  if (error && !p && !list) return <div className="error">{error}</div>;
+  if (error && !p && !list) return <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>;
   if (!p || !list) return <Loading rows={3} />;
 
   return (
@@ -119,13 +121,18 @@ export default function Plan() {
             Levels total {levelSumPct.toFixed(2)}% / pool {poolPct.toFixed(2)}% {overPool ? '— exceeds the pool!' : ''}
           </span>
         </div>
+        <Progress
+          value={Math.min(100, poolPct > 0 ? (levelSumPct / poolPct) * 100 : 0)}
+          aria-label="Share of the pool allocated to levels"
+          className={`mt-2 ${overPool ? '[&>div]:bg-destructive' : ''}`}
+        />
 
         <div className="card" style={{ background: 'var(--panel-2)', marginTop: 12, padding: 12 }}>
           <div className="row spread"><span className="faint" style={{ fontSize: 12 }}>Preview: total commission distributed on a $1,000 sale</span><strong className="tnum" style={{ color: 'var(--gold-500)' }}>{money(previewTotal)}</strong></div>
           <div className="faint" style={{ fontSize: 11, marginTop: 4 }}>The remaining {money(PREVIEW_CENTS - previewTotal)} stays with the company (a missing upline level also stays with the company).</div>
         </div>
 
-        {error && <div className="error" style={{ marginTop: 10 }}>{error}</div>}
+        {error && <Alert variant="destructive" className="mt-2.5"><AlertDescription>{error}</AlertDescription></Alert>}
         <div className="row" style={{ marginTop: 12 }}><button className="btn" onClick={savePlan} disabled={savingPlan || overPool}>{savingPlan ? 'Saving…' : 'Save new version'}</button></div>
       </div>
 

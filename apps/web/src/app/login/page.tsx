@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { login, loginTwoFactor } from '@/lib/api';
 import { landingForSession, setSession, type Session } from '@/lib/auth';
 import { Brand } from '@/components/ui';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { t } from '@/lib/i18n';
 
 export default function LoginPage() {
@@ -83,7 +84,7 @@ export default function LoginPage() {
                 <button type="button" aria-label={showPw ? 'Hide password' : 'Show password'} onClick={() => setShowPw((v) => !v)} className="faint" style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)' }}>{showPw ? 'Hide' : 'Show'}</button>
               </div>
             </div>
-            {error && <div className="error" role="alert">{error}</div>}
+            {error && <Alert variant="destructive" className="mb-3"><AlertDescription>{error}</AlertDescription></Alert>}
             <button className="btn block" style={{ marginTop: 6 }} disabled={busy}>
               {busy ? t('common.loading') : t('login.submit')} {!busy && <span aria-hidden="true">→</span>}
             </button>
@@ -98,7 +99,7 @@ export default function LoginPage() {
               <input value={code} onChange={(e) => setCode(e.target.value)} required autoFocus inputMode="numeric" autoComplete="one-time-code"
                 placeholder="123456" style={{ letterSpacing: '0.25em', fontFamily: 'ui-monospace, monospace', fontSize: 'var(--text-lg)' }} />
             </div>
-            {error && <div className="error" role="alert">{error}</div>}
+            {error && <Alert variant="destructive" className="mb-3"><AlertDescription>{error}</AlertDescription></Alert>}
             <button className="btn block" style={{ marginTop: 6 }} disabled={busy || code.trim().length < 6}>
               {busy ? t('common.loading') : 'Verify'} {!busy && <span aria-hidden="true">→</span>}
             </button>

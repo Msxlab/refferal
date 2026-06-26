@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface Sub { frequency: 'weekly' | 'monthly'; recipients: string[]; lastSentAt: string | null }
 
@@ -58,7 +59,7 @@ export default function Reports() {
         <textarea value={recipients} onChange={(e) => setRecipients(e.target.value)} rows={3} placeholder="owner@company.com, finance@company.com" style={{ resize: 'vertical' }} />
       </div>
       {lastSentAt && <div className="faint" style={{ fontSize: 11, marginBottom: 10 }}>Last sent: {new Date(lastSentAt).toLocaleString()}</div>}
-      {error && <div className="error">{error}</div>}
+      {error && <Alert variant="destructive" className="mb-2.5"><AlertDescription>{error}</AlertDescription></Alert>}
       <div className="row" style={{ gap: 10 }}>
         <button className="btn" onClick={save} disabled={busy}>Save</button>
         <button className="btn ghost" onClick={sendTest} disabled={busy}>Send test now</button>

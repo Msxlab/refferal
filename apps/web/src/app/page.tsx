@@ -9,6 +9,7 @@ import {
 import { getSession, landingForSession } from '@/lib/auth';
 import { APP_NAME, APP_MONOGRAM } from '@/lib/brand';
 import { Button } from '@/components/ui/button';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 const FEATURES = [
   { icon: Network, title: 'Referral network', body: 'A permanent, tamper-proof sponsorship tree. Drill into anyone, see their downline, placement that never moves.' },
@@ -143,17 +144,14 @@ export default function Home() {
           <p className="text-xs font-bold uppercase tracking-[0.15em] text-primary">FAQ</p>
           <h2 className="mt-2 font-display text-3xl font-bold">Questions, answered</h2>
         </div>
-        <div className="divide-y divide-border rounded-2xl border border-border bg-card">
+        <Accordion type="single" collapsible className="divide-y divide-border rounded-2xl border border-border bg-card [&>[data-state]]:border-b-0">
           {FAQS.map((f) => (
-            <details key={f.q} className="group px-5 py-4">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium">
-                {f.q}
-                <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
-              </summary>
-              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{f.a}</p>
-            </details>
+            <AccordionItem key={f.q} value={f.q} className="border-b border-border last:border-b-0">
+              <AccordionTrigger className="px-5 py-4 font-medium hover:no-underline">{f.q}</AccordionTrigger>
+              <AccordionContent className="px-5 text-sm leading-relaxed text-muted-foreground">{f.a}</AccordionContent>
+            </AccordionItem>
           ))}
-        </div>
+        </Accordion>
       </section>
 
       <section className="mx-auto max-w-6xl px-5 pb-20">

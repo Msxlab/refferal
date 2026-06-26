@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Bars, CountUp, Loading, MoneyCounter, StatCard, useToast } from '@/components/ui';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card';
 import { RadialNetwork } from '@/components/RadialNetwork';
 import { EarningsSimulator } from '@/components/EarningsSimulator';
 import { money, dateShort } from '@/lib/format';
@@ -68,10 +70,10 @@ export default function TeamPage() {
       <div className="eyebrow fade-in">{t('anav.team')}</div>
       <h1 className="h1 fade-in">My Network</h1>
       <p className="sub fade-in">Your downline at a glance — sized by level, shaded by activity.</p>
-      <div className="card fade-in" style={{ textAlign: 'center', padding: '32px 18px' }}>
-        <div className="error" style={{ margin: '0 0 14px' }}>{error}</div>
+      <Alert variant="destructive" className="fade-in" style={{ textAlign: 'center', padding: '32px 18px' }}>
+        <AlertDescription style={{ marginBottom: 14 }}>{error}</AlertDescription>
         <button className="btn ghost sm" onClick={loadTeam} style={{ margin: '0 auto' }}>Try again</button>
-      </div>
+      </Alert>
     </div>
   );
   if (!team) return <Loading />;
@@ -130,11 +132,12 @@ export default function TeamPage() {
           </div>
 
           {recruits.summary.needsNudgeCount > 0 && (
-            <div className="row" style={{ gap: 8, padding: '8px 12px', borderRadius: 10, margin: '8px 0 12px', fontSize: 13,
-              background: 'color-mix(in srgb, var(--amber) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--amber) 32%, transparent)' }}>
-              <span aria-hidden="true">👋</span>
-              <span><strong>{recruits.summary.needsNudgeCount}</strong> active teammate{recruits.summary.needsNudgeCount > 1 ? 's' : ''} haven&apos;t sold this month — a quick nudge can help them get started.</span>
-            </div>
+            <Alert style={{ margin: '8px 0 12px', background: 'color-mix(in srgb, var(--amber) 12%, transparent)', borderColor: 'color-mix(in srgb, var(--amber) 32%, transparent)' }}>
+              <AlertDescription className="row" style={{ gap: 8, fontSize: 13 }}>
+                <span aria-hidden="true">👋</span>
+                <span><strong>{recruits.summary.needsNudgeCount}</strong> active teammate{recruits.summary.needsNudgeCount > 1 ? 's' : ''} haven&apos;t sold this month — a quick nudge can help them get started.</span>
+              </AlertDescription>
+            </Alert>
           )}
 
           {recruits.recruits.length > 0 && recruits.growthTrend.some((g) => g.joined > 0) && (
@@ -158,7 +161,19 @@ export default function TeamPage() {
                     <tr key={r.id} style={r.needsNudge ? { background: 'color-mix(in srgb, var(--amber) 6%, transparent)' } : undefined}>
                       <td>
                         <div style={{ fontWeight: 600, fontSize: 13 }}>{r.fullName}</div>
-                        <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{r.referralCode}</div>
+                        <HoverCard>
+                          <HoverCardTrigger asChild>
+                            <span className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace', cursor: 'help' }}>{r.referralCode}</span>
+                          </HoverCardTrigger>
+                          <HoverCardContent align="start" className="w-auto">
+                            <div style={{ fontWeight: 600, fontSize: 13 }}>{r.fullName}</div>
+                            <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>{r.email}</div>
+                            <div className="row" style={{ gap: 8, marginTop: 8, alignItems: 'center' }}>
+                              <span className={`badge ${r.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>{r.status}</span>
+                              <span className="faint" style={{ fontSize: 11 }}>joined {dateShort(r.joinedAt)}</span>
+                            </div>
+                          </HoverCardContent>
+                        </HoverCard>
                       </td>
                       <td><span className={`badge ${r.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>{r.status}</span></td>
                       <td className="faint" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{dateShort(r.joinedAt)}</td>

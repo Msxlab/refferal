@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { dateShort } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -102,7 +103,7 @@ export default function InvitePage() {
             <button className="btn ghost sm" onClick={create} disabled={busy} style={{ margin: '14px auto 0' }}>New invite</button>
           </>
         )}
-        {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
+        {error && <Alert variant="destructive" style={{ marginTop: 12, textAlign: 'left' }}><AlertDescription>{error}</AlertDescription></Alert>}
       </div>
 
       <div className="card fade-in delay-2" style={{ marginTop: 16 }}>

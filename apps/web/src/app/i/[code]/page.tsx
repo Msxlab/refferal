@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
 import { landingPath, setSession, activeMembership, type Session } from '@/lib/auth';
 import { Brand, Loading } from '@/components/ui';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { t } from '@/lib/i18n';
 
 interface InviteResolve {
@@ -70,7 +71,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
           {loadError || (invite && !invite.valid) ? (
             <>
               <h1 className="h1">Invitation Unavailable</h1>
-              <div className="error" role="alert">{t('reg.invalid')}</div>
+              <Alert variant="destructive"><AlertDescription>{t('reg.invalid')}</AlertDescription></Alert>
               <Link href="/login" className="btn block" style={{ marginTop: 14 }}>Go to sign in</Link>
             </>
           ) : !invite ? (
@@ -137,7 +138,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
                     <a href="/terms" target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: 'var(--accent, var(--gold-500))', textDecoration: 'underline' }}>program terms</a>.
                   </span>
                 </label>
-                {error && <div className="error" role="alert">{error}</div>}
+                {error && <Alert variant="destructive" className="mt-2"><AlertDescription>{error}</AlertDescription></Alert>}
                 <button type="submit" className="btn block" style={{ marginTop: 6 }} disabled={busy || !accept}>
                   {busy ? t('common.loading') : t('reg.submit')} {!busy && <span aria-hidden="true">→</span>}
                 </button>

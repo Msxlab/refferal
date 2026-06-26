@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
 import { Loading, Modal, useToast } from '@/components/ui';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { money } from '@/lib/format';
 import { APP_NAME } from '@/lib/brand';
 
@@ -65,7 +66,7 @@ export default function CompaniesPage() {
     };
   }, [companies]);
 
-  if (error) return <div className="error">{error}</div>;
+  if (error) return <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>;
   if (!companies) return <Loading rows={4} />;
 
   return (
@@ -257,7 +258,7 @@ function NewCompanyModal({ onClose, onCreated }: { onClose: () => void; onCreate
           <label>Owner email</label>
           <input type="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} required placeholder="owner@acme.com" />
         </div>
-        {err && <div className="error">{err}</div>}
+        {err && <Alert variant="destructive" className="mt-2"><AlertDescription>{err}</AlertDescription></Alert>}
         <div className="row" style={{ justifyContent: 'flex-end', marginTop: 16, gap: 8 }}>
           <button type="button" className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="btn" disabled={busy}>{busy ? 'Creating…' : 'Create company'}</button>

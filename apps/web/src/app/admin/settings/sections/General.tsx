@@ -4,6 +4,7 @@ import { CSSProperties, FormEvent, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, Toggle, useToast } from '@/components/ui';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface Settings {
   name: string;
@@ -73,7 +74,7 @@ export default function General() {
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
   }
 
-  if (error && !s) return <div className="error">{error}</div>;
+  if (error && !s) return <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>;
   if (!s) return <Loading rows={4} />;
 
   return (
@@ -134,7 +135,7 @@ export default function General() {
         </div>
       </div>
 
-      {error && <div className="error">{error}</div>}
+      {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
       <div className="row"><button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button></div>
       {toast && <div className="toast" role="status">{toast}</div>}
     </form>

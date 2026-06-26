@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
 import { Bars, Donut, Loading, MoneyCounter } from '@/components/ui';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
 import { dateShort, money, levelLabel } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -98,10 +100,10 @@ export default function MemberDashboard() {
       <div className="eyebrow fade-in">{t('anav.home')}</div>
       <h1 className="h1 fade-in">{t('me.title')}</h1>
       <p className="sub fade-in">{t('me.sub')}</p>
-      <div className="card fade-in" style={{ textAlign: 'center', padding: '32px 18px' }}>
-        <div className="error" style={{ margin: '0 0 14px' }}>{error}</div>
+      <Alert variant="destructive" className="fade-in" style={{ textAlign: 'center', padding: '32px 18px' }}>
+        <AlertDescription style={{ marginBottom: 14 }}>{error}</AlertDescription>
         <button className="btn ghost sm" onClick={loadDashboard} style={{ margin: '0 auto' }}>Try again</button>
-      </div>
+      </Alert>
     </div>
   );
   if (!data) return <Loading />;
@@ -153,9 +155,8 @@ export default function MemberDashboard() {
             <strong style={{ fontSize: 14 }}>Get started</strong>
             <span className="faint" style={{ fontSize: 12 }}>{onboarding.percent}% complete</span>
           </div>
-          <div style={{ height: 8, borderRadius: 6, background: 'var(--panel-2)', overflow: 'hidden', marginBottom: 12 }}>
-            <div style={{ height: '100%', width: `${onboarding.percent}%`, borderRadius: 6, background: 'var(--grad-primary)', transition: 'width .7s' }} />
-          </div>
+          <Progress value={onboarding.percent} className="h-2 mb-3" />
+
           <div className="grid" style={{ gap: 6 }}>
             {onboarding.steps.map((s) => (
               <div key={s.key} className="row" style={{ gap: 8, fontSize: 13 }}>
@@ -271,11 +272,7 @@ export default function MemberDashboard() {
             <strong style={{ fontSize: 14 }}><span aria-hidden="true">🏅 </span>{rank.current ?? 'Unranked'}{rank.next && <span className="faint" style={{ fontWeight: 400 }}> → {rank.next}</span>}{rank.overrideBps ? <span className="badge active" style={{ fontSize: 10, marginLeft: 8 }}>+{(rank.overrideBps / 100).toFixed(rank.overrideBps % 100 ? 1 : 0)}% on your sales</span> : null}</strong>
             {rank.next && <span className="faint" style={{ fontSize: 12 }}>{rank.overallPct}% to {rank.next}</span>}
           </div>
-          {rank.next && (
-            <div style={{ height: 8, borderRadius: 6, background: 'var(--panel-2)', overflow: 'hidden', marginBottom: 12 }}>
-              <div style={{ height: '100%', width: `${rank.overallPct}%`, borderRadius: 6, background: 'var(--foil)', transition: 'width .7s' }} />
-            </div>
-          )}
+          {rank.next && <Progress value={rank.overallPct} className="h-2 mb-3" />}
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
             {rank.badges.map((b) => (
               <span key={b.key} className={`badge ${b.earned ? 'active' : 'draft'}`} style={{ fontSize: 11, opacity: b.earned ? 1 : 0.5 }}>{b.earned ? '✓ ' : ''}{b.label}</span>

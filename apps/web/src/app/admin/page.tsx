@@ -12,6 +12,8 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ContinuousTabs } from '@/components/ui/continuous-tabs';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
 
 interface Dashboard {
   month: string;
@@ -102,17 +104,19 @@ export default function DashboardPage() {
       <div className="mx-auto max-w-[1160px]">
         <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-primary">{t('nav.dashboard')}</div>
         <h1 className="mt-1 font-display text-[27px] font-extrabold tracking-tight text-foreground">{t('dash.title')}</h1>
-        <div className="mt-4 flex flex-col gap-3 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3.5 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between">
-          <span>{error}</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="self-start sm:self-auto"
-            onClick={() => { setError(''); loadDashboard(); }}
-          >
-            <span aria-hidden>↻</span> Retry
-          </Button>
-        </div>
+        <Alert variant="destructive" className="mt-4">
+          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>{error}</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="self-start sm:self-auto"
+              onClick={() => { setError(''); loadDashboard(); }}
+            >
+              <span aria-hidden>↻</span> Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
       </div>
     );
   if (!data) return <Loading />;
@@ -202,9 +206,7 @@ export default function DashboardPage() {
               <div className="text-xs text-muted-foreground/70">{onboarding.done} of {onboarding.total}</div>
             </div>
           </div>
-          <div className="mb-3.5 h-1.5 overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-primary transition-[width] duration-700" style={{ width: `${onboarding.percent}%` }} />
-          </div>
+          <Progress value={onboarding.percent} className="mb-3.5 h-1.5 bg-muted" />
           <div>
             {onboarding.steps.map((s) => (
               <div key={s.key} className="flex items-center gap-3 border-t border-border py-[9px]">

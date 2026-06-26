@@ -7,6 +7,14 @@ import { activeMembership, clearSession, getSession, isAdminRole, type Session }
 import { ThemeToggle } from '@/components/ui';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import { NotificationBell } from '@/components/NotificationBell';
 import { CommandPalette } from '@/components/CommandPalette';
 import { LiveIndicator } from '@/components/LiveIndicator';
@@ -292,14 +300,32 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <Avatar className="size-8">
               <AvatarFallback className="bg-primary/15 text-primary text-xs font-semibold">{userInitial}</AvatarFallback>
             </Avatar>
-            <Link
-              href="/account"
-              title="Account settings"
-              className="min-w-0 flex-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <div className="truncate text-sm font-semibold text-foreground">{session.user.fullName}</div>
-              <div className="truncate text-xs text-muted-foreground">{session.user.email}</div>
-            </Link>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  title="Account settings"
+                  className="min-w-0 flex-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <div className="truncate text-sm font-semibold text-foreground">{session.user.fullName}</div>
+                  <div className="truncate text-xs text-muted-foreground">{session.user.email}</div>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="top" className="w-56">
+                <DropdownMenuLabel className="truncate">{session.user.fullName}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/account">Account settings</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/account">Switch workspace</Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={logout} className="text-destructive focus:text-destructive">
+                  {t('nav.logout')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <span className="rounded-md bg-primary/15 px-1.5 py-1 text-[10px] font-bold uppercase tracking-wide text-primary">
               {active?.role?.replace('tenant_', '') ?? 'staff'}
             </span>

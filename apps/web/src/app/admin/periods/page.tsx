@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Confirm, Loading, Modal, StatCard, useToast } from '@/components/ui';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useLiveRefresh } from '@/components/LiveIndicator';
 import { money } from '@/lib/format';
 
@@ -67,7 +68,14 @@ export default function PeriodsPage() {
   }
 
   // Full-page error only on the initial load failure (with a retry); otherwise an inline banner.
-  if (error && !rows) return <div className="error" style={{ margin: 24 }}>{error} <button className="btn ghost sm" onClick={() => void load()} style={{ marginLeft: 8 }}>Retry</button></div>;
+  if (error && !rows) return (
+    <Alert variant="destructive" style={{ margin: 24, width: 'auto' }}>
+      <AlertDescription className="row" style={{ alignItems: 'center', gap: 8 }}>
+        <span>{error}</span>
+        <button className="btn ghost sm" onClick={() => void load()}>Retry</button>
+      </AlertDescription>
+    </Alert>
+  );
   if (!rows) return <Loading />;
 
   return (
@@ -81,7 +89,7 @@ export default function PeriodsPage() {
         <button className="btn ghost no-print" onClick={() => window.print()} aria-label="Print page"><span aria-hidden>🖶</span> Print</button>
       </div>
 
-      {error && <div className="error" style={{ marginTop: 16 }}>{error}</div>}
+      {error && <Alert variant="destructive" style={{ marginTop: 16 }}><AlertDescription>{error}</AlertDescription></Alert>}
 
       <div className="stat-grid" style={{ marginTop: 16 }}>
         <StatCard label="Locked periods" value={String(stats.lockedCount)} icon="▥" />

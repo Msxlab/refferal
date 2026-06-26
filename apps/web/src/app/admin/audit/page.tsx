@@ -6,6 +6,8 @@ import { downloadCsv } from '@/lib/download';
 import { Loading, Pagination } from '@/components/ui';
 import { Drawer } from '@/components/Drawer';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 import { t } from '@/lib/i18n';
 
 interface AuditItem {
@@ -95,7 +97,14 @@ export default function AuditPage() {
   }
 
   // Fatal yalniz ilk yukleme basarisizsa (tekrar-dene ile); aksi halde inline banner (sayfa korunur).
-  if (error && !list) return <div className="error" style={{ margin: 24 }}>{error} <button className="btn ghost sm" onClick={() => void load()} style={{ marginLeft: 8 }}>Retry</button></div>;
+  if (error && !list) return (
+    <Alert variant="destructive" style={{ margin: 24, width: 'auto' }}>
+      <AlertDescription className="row" style={{ alignItems: 'center', gap: 8 }}>
+        <span>{error}</span>
+        <button className="btn ghost sm" onClick={() => void load()}>Retry</button>
+      </AlertDescription>
+    </Alert>
+  );
   const items = list?.items ?? [];
 
   return (
@@ -117,7 +126,7 @@ export default function AuditPage() {
         </div>
       </div>
 
-      {error && <div className="error" style={{ marginTop: 16 }}>{error}</div>}
+      {error && <Alert variant="destructive" style={{ marginTop: 16 }}><AlertDescription>{error}</AlertDescription></Alert>}
 
       <div className="row fade-in delay-1 no-print" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '16px 0' }}>
         <span aria-hidden="true">🔍</span>
@@ -179,13 +188,15 @@ export default function AuditPage() {
               <Field label="Entity ID" value={detail.entityId ?? '—'} />
             </div>
             <FieldDiff before={detail.before} after={detail.after} />
-            <details>
-              <summary className="faint" style={{ fontSize: '0.75rem', cursor: 'pointer' }}>Raw JSON</summary>
-              <div style={{ marginTop: 8 }}>
-                <Diff label="Before" data={detail.before} />
-                <Diff label="After" data={detail.after} />
-              </div>
-            </details>
+            <Accordion type="single" collapsible>
+              <AccordionItem value="raw-json" style={{ borderBottom: 'none' }}>
+                <AccordionTrigger className="faint" style={{ fontSize: '0.75rem', paddingTop: 0, paddingBottom: 8 }}>Raw JSON</AccordionTrigger>
+                <AccordionContent>
+                  <Diff label="Before" data={detail.before} />
+                  <Diff label="After" data={detail.after} />
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </div>
         </Drawer>
       )}

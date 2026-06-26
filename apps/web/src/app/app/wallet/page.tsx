@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, Modal, MoneyCounter, Pagination, useToast } from '@/components/ui';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { dateShort, money, levelLabel, ledgerTypeLabel } from '@/lib/format';
 import { t } from '@/lib/i18n';
@@ -112,10 +113,10 @@ export default function WalletPage() {
       <div className="eyebrow fade-in">{t('anav.wallet')}</div>
       <h1 className="h1 fade-in">Your Wallet</h1>
       <p className="sub fade-in">Track your payable balance and request a payout.</p>
-      <div className="card fade-in" style={{ textAlign: 'center', padding: '32px 18px' }}>
-        <div className="error" style={{ margin: '0 0 14px' }}>{error}</div>
+      <Alert variant="destructive" className="fade-in" style={{ textAlign: 'center', padding: '32px 18px' }}>
+        <AlertDescription style={{ marginBottom: 14 }}>{error}</AlertDescription>
         <button className="btn ghost sm" onClick={() => { setError(''); void load(); }} style={{ margin: '0 auto' }}>Try again</button>
-      </div>
+      </Alert>
     </div>
   );
   if (!wallet) return <Loading />;
@@ -228,7 +229,7 @@ export default function WalletPage() {
               : <>{money(remaining, c)} to go until the {money(min, c)} payout threshold.</>}
           </div>
         </div>
-        {error && <div className="error" style={{ marginTop: 10 }}>{error}</div>}
+        {error && <Alert variant="destructive" style={{ marginTop: 10 }}><AlertDescription>{error}</AlertDescription></Alert>}
       </div>
 
       {/* Faz D2: guven — odeme nasil isliyor seffafligi */}
@@ -381,7 +382,7 @@ function PayoutProfileCard() {
       ) : (
         <div className="muted" style={{ fontSize: 13, marginTop: 12 }}>You haven&apos;t added your payout details yet.</div>
       )}
-      {p?.status === 'rejected' && p.rejectionReason && <div className="error" style={{ marginTop: 10 }}>Rejected: {p.rejectionReason}</div>}
+      {p?.status === 'rejected' && p.rejectionReason && <Alert variant="destructive" style={{ marginTop: 10 }}><AlertDescription>Rejected: {p.rejectionReason}</AlertDescription></Alert>}
       <div className="row" style={{ marginTop: 14 }}>
         <button className="btn ghost sm" onClick={() => setEdit(true)}>{p ? 'Edit payout details' : 'Set up payout details'}</button>
       </div>
@@ -448,7 +449,7 @@ function ProfileForm({ existing, onClose, onSaved }: { existing: PayoutProfile |
         </div>
         <div className="field"><label>Account number{existing ? ' — re-enter to update' : ''}</label><input value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} inputMode="numeric" placeholder="account number" required /></div>
         <div className="faint" style={{ fontSize: 11 }}>We store only the last 4 digits. Changing these details restarts verification and a short security hold.</div>
-        {err && <div className="error">{err}</div>}
+        {err && <Alert variant="destructive" style={{ marginTop: 10 }}><AlertDescription>{err}</AlertDescription></Alert>}
         <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
           <button type="button" className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="btn" disabled={busy}>{busy ? 'Submitting…' : 'Submit for verification'}</button>

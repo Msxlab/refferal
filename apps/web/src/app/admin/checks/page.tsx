@@ -6,9 +6,11 @@ import { api, ApiError } from '@/lib/api';
 import { downloadPdf } from '@/lib/download';
 import { money, dateShort } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { Confirm, Loading, useToast } from '@/components/ui';
+import { Confirm, useToast } from '@/components/ui';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableHeader,
@@ -117,14 +119,34 @@ export default function ChecksPage() {
       <p className="mt-1 text-sm text-muted-foreground">Print and mail commission checks. Money already moved when each payout was approved — this is the physical check run.</p>
 
       {error && (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
-          <span>{error}</span>
-          <Button size="sm" variant="outline" onClick={load}>Retry</Button>
-        </div>
+        <Alert variant="destructive" className="mt-4">
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+            <span>{error}</span>
+            <Button size="sm" variant="outline" onClick={load}>Retry</Button>
+          </AlertDescription>
+        </Alert>
       )}
 
       {!data ? (
-        <Card className="mt-5 shadow-lg"><CardContent className="p-5"><Loading rows={4} /></CardContent></Card>
+        <>
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Card key={i} className="shadow-sm">
+                <CardContent className="p-3.5">
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="mt-2 h-7 w-10" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <Card className="mt-4 shadow-lg">
+            <CardContent className="space-y-3 p-5">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-9 w-full" />
+              ))}
+            </CardContent>
+          </Card>
+        </>
       ) : (
         <>
           {/* durum sayaclari */}

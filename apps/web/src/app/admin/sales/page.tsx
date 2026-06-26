@@ -18,6 +18,8 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 
 interface SaleItem {
   id: string;
@@ -319,14 +321,21 @@ export default function SalesPage() {
           <p className="mt-1 text-sm text-muted-foreground">Every booked sale, its status, and the commission it generates.</p>
         </div>
         <div className="no-print flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={exportCsv}><span aria-hidden="true">⇩</span> Export CSV</Button>
-          <Button variant="outline" size="sm" onClick={() => window.print()}><span aria-hidden="true">🖶</span> Print</Button>
-          <Button variant="outline" size="sm" onClick={() => setShowImport(true)}><span aria-hidden="true">⇪</span> Import</Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">More <span aria-hidden="true">▾</span></Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={exportCsv}><span aria-hidden="true">⇩</span> Export CSV</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => window.print()}><span aria-hidden="true">🖶</span> Print</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setShowImport(true)}><span aria-hidden="true">⇪</span> Import</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button size="sm" onClick={() => { setError(''); setCode(''); setSellerOpts([]); setSellerPicked(false); setNewDate(new Date().toLocaleDateString('en-CA')); setShowNew(true); }}><span aria-hidden="true">＋</span> New sale</Button>
         </div>
       </div>
 
-      {error && <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+      {error && <Alert variant="destructive" className="mt-4"><AlertDescription>{error}</AlertDescription></Alert>}
 
       {/* ---- KPI seridi ---- */}
       <div className="my-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -436,9 +445,9 @@ export default function SalesPage() {
 
         {error && !list ? (
           <div className="px-4 py-12 text-center">
-            <div className="mx-auto max-w-sm rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-4 text-sm text-destructive">
-              Couldn&apos;t load sales. {error}
-            </div>
+            <Alert variant="destructive" className="mx-auto max-w-sm text-left">
+              <AlertDescription>Couldn&apos;t load sales. {error}</AlertDescription>
+            </Alert>
             <Button variant="outline" size="sm" className="mt-3" onClick={() => { setError(''); void load(); }}>Try again</Button>
           </div>
         ) : !list ? <div className="p-4"><Loading rows={3} /></div> : (
@@ -592,7 +601,7 @@ export default function SalesPage() {
               <div className="flex-1"><label className="mb-1 block text-xs text-muted-foreground">Customer (optional)</label><input value={newCustomer} onChange={(e) => setNewCustomer(e.target.value)} placeholder="e.g. Smith kitchen" className={inputCls} /></div>
             </div>
             <div className="mt-3"><label className="mb-1 block text-xs text-muted-foreground">External ref (optional)</label><input value={newExternalRef} onChange={(e) => setNewExternalRef(e.target.value)} placeholder="e.g. INV-2026-014" className={inputCls} /></div>
-            {error && <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+            {error && <Alert variant="destructive" className="mt-3"><AlertDescription>{error}</AlertDescription></Alert>}
             <div className="mt-3.5 flex justify-end gap-2.5">
               <Button type="button" variant="ghost" onClick={() => setShowNew(false)} disabled={busy}>Cancel</Button>
               <Button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Create draft'}</Button>
@@ -722,7 +731,7 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
         </>
       )}
     >
-      {err && <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</div>}
+      {err && <Alert variant="destructive" className="mb-3"><AlertDescription>{err}</AlertDescription></Alert>}
       {!d ? <Loading rows={4} /> : (
         <div className="flex flex-col gap-[18px]">
           {/* tutar + status — SPEC: buyuk Sora rakam + rozet */}

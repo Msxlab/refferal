@@ -1,10 +1,12 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { CSSProperties, FormEvent, useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Confirm, Loading, Modal, useToast } from '@/components/ui';
 import { Drawer } from '@/components/Drawer';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
 import { activeMembership, getSession, isAdminRole } from '@/lib/auth';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
@@ -61,7 +63,7 @@ export default function CampaignsPage() {
         {isAdmin && <button className="btn fade-in" onClick={() => { setEditing(null); setShowForm(true); }} aria-label="Create a new campaign">＋ New campaign</button>}
       </div>
 
-      {error && <div className="error fade-in" role="alert">{error}</div>}
+      {error && <Alert variant="destructive" className="fade-in"><AlertDescription>{error}</AlertDescription></Alert>}
 
       {!list && error ? null : !list ? (
         <div className="grid fade-in delay-1" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }} role="status" aria-label="Loading campaigns">
@@ -102,9 +104,11 @@ export default function CampaignsPage() {
                   if (c.status === 'ended') return null;
                   return (
                     <div style={{ marginTop: 8 }}>
-                      <div style={{ height: 5, borderRadius: 4, background: 'var(--panel-2)', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${pct}%`, borderRadius: 4, background: daysLeft <= 0 ? 'var(--amber)' : 'var(--grad-primary)' }} />
-                      </div>
+                      <Progress
+                        value={pct}
+                        className="h-[5px] bg-[color:var(--panel-2)] [&>div]:bg-[image:var(--grad-primary)]"
+                        style={daysLeft <= 0 ? ({ '--grad-primary': 'var(--amber)' } as CSSProperties) : undefined}
+                      />
                       <div className="faint" style={{ marginTop: 4 }}>{now < start ? 'Not started yet' : daysLeft > 0 ? `${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : 'Window ended'}</div>
                     </div>
                   );
@@ -223,7 +227,7 @@ function CampaignForm({ existing, onClose, onSaved, onError }: {
           {isDraft && <button type="button" className="btn ghost sm" style={{ marginTop: 8 }} onClick={addPrize}>＋ Add prize</button>}
         </div>
 
-        {err && <div className="error" role="alert">{err}</div>}
+        {err && <Alert variant="destructive"><AlertDescription>{err}</AlertDescription></Alert>}
         <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
           <button type="button" className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="btn" disabled={busy}>{busy ? 'Saving…' : existing ? 'Save' : 'Create'}</button>
@@ -285,7 +289,7 @@ function CampaignDrawer({ id, isAdmin, onClose, onChanged, onEdit, onToast }: {
         </>
       )}
     >
-      {err && <div className="error">{err}</div>}
+      {err && <Alert variant="destructive"><AlertDescription>{err}</AlertDescription></Alert>}
       {!d ? <Loading rows={4} /> : (
         <div className="grid" style={{ gap: 18 }}>
           {d.description && <div className="muted" style={{ fontSize: 13 }}>{d.description}</div>}

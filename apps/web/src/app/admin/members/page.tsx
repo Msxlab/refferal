@@ -17,6 +17,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 
 type SortDir = 'asc' | 'desc';
@@ -277,7 +278,9 @@ export default function MembersPage() {
       </div>
 
       {error && (
-        <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>
+        <Alert variant="destructive" className="mt-4 bg-destructive/10">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
       {/* filter bar */}
@@ -498,7 +501,7 @@ export default function MembersPage() {
                 className="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
               />
             </div>
-            {error && <div className="mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+            {error && <Alert variant="destructive" className="mb-2 bg-destructive/10"><AlertDescription>{error}</AlertDescription></Alert>}
             {latest ? (
               <div className="mt-1 rounded-xl border border-primary/20 bg-primary/10 p-3">
                 <div className="mb-1.5 text-[11px] text-muted-foreground/70">Invite link — share it:</div>
@@ -571,7 +574,7 @@ export default function MembersPage() {
                   🎖 Add as a new team leader (top of the tree, no sponsor)
                 </label>
                 <div className="text-xs text-muted-foreground/70">A temporary password is generated; the person signs in with it and changes it. (Placement is permanent.)</div>
-                {error && <div className="mt-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+                {error && <Alert variant="destructive" className="mt-2 bg-destructive/10"><AlertDescription>{error}</AlertDescription></Alert>}
                 <div className="mt-3.5 flex justify-end gap-2.5">
                   <Button type="button" variant="ghost" onClick={() => setShowAdd(false)} disabled={busy}>Cancel</Button>
                   <Button type="submit" disabled={busy}>{busy ? 'Adding…' : '＋ Add member'}</Button>
@@ -594,7 +597,7 @@ export default function MembersPage() {
               <input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} required className="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary" />
             </div>
             <div className="text-xs text-muted-foreground/70">Changing the email requires the person to re-verify. Placement (sponsor) does not change.</div>
-            {error && <div className="mt-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+            {error && <Alert variant="destructive" className="mt-2 bg-destructive/10"><AlertDescription>{error}</AlertDescription></Alert>}
             <div className="mt-3.5 flex justify-end gap-2.5">
               <Button type="button" variant="ghost" onClick={() => setEditM(null)} disabled={busy}>Cancel</Button>
               <Button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save'}</Button>
@@ -771,7 +774,7 @@ function MemberDrawer({ id, onClose, onNavigate, onChanged, onToast }: {
         </div>
       )}
     >
-      {err && <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</div>}
+      {err && <Alert variant="destructive" className="mb-3 bg-destructive/10"><AlertDescription>{err}</AlertDescription></Alert>}
       {!d || !p ? (
         err ? (
           <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">

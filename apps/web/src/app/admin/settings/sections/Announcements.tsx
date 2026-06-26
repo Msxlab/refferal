@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
 import { dateShort } from '@/lib/format';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface Item { id: string; title: string; body: string; reads: number; createdAt: string }
 
@@ -31,13 +32,13 @@ export default function Announcements() {
   }
 
   if (!list) {
-    if (error) return <div className="error">{error}</div>;
+    if (error) return <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>;
     return <Loading rows={3} />;
   }
 
   return (
     <div className="grid" style={{ gap: 20, maxWidth: 620 }}>
-      {error && <div className="error">{error}</div>}
+      {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
       <div className="card">
         <strong style={{ fontFamily: 'var(--font-display)', fontSize: 14 }}>New announcement</strong>
         <div className="faint" style={{ fontSize: 12, marginBottom: 10 }}>Members see this on their dashboard until they mark it read.</div>

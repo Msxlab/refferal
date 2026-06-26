@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, Modal, MoneyCounter, Pagination, useToast } from '@/components/ui';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -72,7 +73,7 @@ export default function MySalesPage() {
         <button className="btn fade-in" onClick={() => { setFormErr(''); setShowNew(true); }}><span aria-hidden="true">＋ </span>Record sale</button>
       </div>
 
-      {error && <div className="error">{error}</div>}
+      {error && <Alert variant="destructive" style={{ marginBottom: 16 }}><AlertDescription>{error}</AlertDescription></Alert>}
 
       {summary && (
         <div className="stat-grid fade-in delay-1" style={{ marginBottom: 16 }}>
@@ -84,11 +85,11 @@ export default function MySalesPage() {
 
       {/* the drafts explainer only matters before the first sale */}
       {list && list.total === 0 && (
-        <div className="card fade-in delay-1" style={{ background: 'color-mix(in srgb, var(--sky) 7%, transparent)', borderColor: 'color-mix(in srgb, var(--sky) 30%, transparent)', marginBottom: 16 }}>
-          <div className="faint" style={{ fontSize: 12, lineHeight: 1.5 }}>
+        <Alert className="fade-in delay-1" style={{ background: 'color-mix(in srgb, var(--sky) 7%, transparent)', borderColor: 'color-mix(in srgb, var(--sky) 30%, transparent)', marginBottom: 16 }}>
+          <AlertDescription className="faint" style={{ fontSize: 12, lineHeight: 1.5 }}>
             <span aria-hidden="true">◆ </span>Sales you record are <b>drafts</b> until verified by your company. Commission is distributed across your network after approval.
-          </div>
-        </div>
+          </AlertDescription>
+        </Alert>
       )}
 
       <div className="card fade-in delay-2">
@@ -134,7 +135,7 @@ export default function MySalesPage() {
             </div>
             <div className="field"><label>Sale date</label><input type="date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} required /></div>
             <div className="field"><label>Customer reference (optional)</label><input value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder="e.g. order #1234" /></div>
-            {formErr && <div className="error">{formErr}</div>}
+            {formErr && <Alert variant="destructive" style={{ marginTop: 10 }}><AlertDescription>{formErr}</AlertDescription></Alert>}
             <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
               <button type="button" className="btn ghost" onClick={() => setShowNew(false)} disabled={busy}>Cancel</button>
               <button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Submit sale'}</button>

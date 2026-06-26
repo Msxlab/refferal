@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { api, ApiError, switchTenant } from '@/lib/api';
 import { applyTenantSwitch, getSession, membershipForTenant } from '@/lib/auth';
 import { Confirm, Loading, Modal, useToast } from '@/components/ui';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { NetworkExplorer, type ApiNode } from '@/components/NetworkExplorer';
 import { bps, money, dateShort } from '@/lib/format';
 
@@ -116,7 +117,7 @@ export default function CompanyPage() {
     catch (e) { showToast(String((e as ApiError).message)); } finally { setBusy(false); setConfirmStatus(false); }
   }
 
-  if (error) return <div className="error">{error}</div>;
+  if (error) return <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>;
   if (!company) return <Loading rows={4} />;
 
   const c = company.currency;
@@ -146,7 +147,7 @@ export default function CompanyPage() {
           </button>
         </div>
       </div>
-      {enterMsg && <div className="error" style={{ marginTop: 10 }}>{enterMsg}</div>}
+      {enterMsg && <Alert variant="destructive" style={{ marginTop: 10 }}><AlertDescription>{enterMsg}</AlertDescription></Alert>}
 
       <div className="stat-grid fade-in delay-1" style={{ margin: '18px 0' }}>
         <Kpi label="Members" value={`${company.kpis.activeMembers} / ${company.kpis.members}`} icon="⬡" hint="active / total" />

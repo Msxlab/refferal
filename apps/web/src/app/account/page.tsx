@@ -7,6 +7,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { api, ApiError } from '@/lib/api';
 import { activeMembership, getSession, isAdminRole, setSession } from '@/lib/auth';
 import { Brand, Loading, ThemeToggle, useToast } from '@/components/ui';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { dateShort } from '@/lib/format';
 
 interface Account {
@@ -189,7 +190,7 @@ export default function AccountPage() {
     }
   }
 
-  if (error) return <div className="center error" role="alert">{error}</div>;
+  if (error) return <div className="center"><Alert variant="destructive" style={{ maxWidth: 420 }}><AlertDescription>{error}</AlertDescription></Alert></div>;
   if (!acc) return <div className="center"><Loading /></div>;
 
   const dirty = fullName.trim() !== acc.fullName;
@@ -273,7 +274,7 @@ export default function AccountPage() {
                 <input value={maPostal} onChange={(e) => setMaPostal(e.target.value)} inputMode="numeric" placeholder="90001" required />
               </div>
             </div>
-            {maError && <div className="error" role="alert" style={{ marginBottom: 10 }}>{maError}</div>}
+            {maError && <Alert variant="destructive" style={{ marginBottom: 10 }}><AlertDescription>{maError}</AlertDescription></Alert>}
             <div className="spread" style={{ alignItems: 'center' }}>
               <span className="faint" style={{ fontSize: 'var(--text-xs)' }}>United States only.</span>
               <button className="btn" type="submit" disabled={savingMa}>{savingMa ? 'Saving…' : 'Save address'}</button>
@@ -301,7 +302,7 @@ export default function AccountPage() {
             <label>Confirm new password</label>
             <input type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} autoComplete="new-password" minLength={10} required />
           </div>
-          {pwError && <div className="error" role="alert" style={{ marginBottom: 10 }}>{pwError}</div>}
+          {pwError && <Alert variant="destructive" style={{ marginBottom: 10 }}><AlertDescription>{pwError}</AlertDescription></Alert>}
           <div className="spread" style={{ alignItems: 'center' }}>
             <span className="faint" style={{ fontSize: 'var(--text-xs)' }}>Changing your password signs out your other devices.</span>
             <button className="btn" type="submit" disabled={savingPw || !curPw || !newPw || !confirmPw}>{savingPw ? 'Saving…' : 'Change password'}</button>
@@ -327,7 +328,7 @@ export default function AccountPage() {
             </span>
           </div>
 
-          {twoFaError && <div className="error" role="alert" style={{ marginTop: 12 }}>{twoFaError}</div>}
+          {twoFaError && <Alert variant="destructive" style={{ marginTop: 12 }}><AlertDescription>{twoFaError}</AlertDescription></Alert>}
 
           {twoFaStep === 'setup' && setupData && (
             <form onSubmit={enableTwoFa} style={{ marginTop: 14, borderTop: '1px solid hsl(var(--border))', paddingTop: 14 }}>

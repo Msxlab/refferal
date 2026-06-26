@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import { Loading, useToast } from '@/components/ui';
+import { useToast } from '@/components/ui';
 import { NetworkExplorer, type ApiNode, type RankTierLite } from '@/components/NetworkExplorer';
 import { money } from '@/lib/format';
 import { t } from '@/lib/i18n';
@@ -12,6 +12,9 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 
 interface Leader {
@@ -27,10 +30,10 @@ type LeaderStatus = 'healthy' | 'cooling' | 'dormant';
 type SortKey = 'volume' | 'team' | 'growth' | 'active';
 
 /** Durum -> indigo temasinda Tailwind sinif eslesmesi (pill + ilerleme cubugu + sparkline). */
-const STATUS_META: Record<LeaderStatus, { label: string; pill: string; bar: string; spark: string }> = {
-  healthy: { label: 'healthy', pill: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/30', bar: 'bg-emerald-400', spark: 'var(--emerald)' },
-  cooling: { label: 'cooling', pill: 'text-amber-400 bg-amber-400/10 border-amber-400/30', bar: 'bg-amber-400', spark: 'var(--amber)' },
-  dormant: { label: 'dormant', pill: 'text-destructive bg-destructive/10 border-destructive/30', bar: 'bg-destructive', spark: 'var(--rose)' },
+const STATUS_META: Record<LeaderStatus, { label: string; pill: string; bar: string; barIndicator: string; spark: string }> = {
+  healthy: { label: 'healthy', pill: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/30', bar: 'bg-emerald-400', barIndicator: '[&>div]:bg-emerald-400', spark: 'var(--emerald)' },
+  cooling: { label: 'cooling', pill: 'text-amber-400 bg-amber-400/10 border-amber-400/30', bar: 'bg-amber-400', barIndicator: '[&>div]:bg-amber-400', spark: 'var(--amber)' },
+  dormant: { label: 'dormant', pill: 'text-destructive bg-destructive/10 border-destructive/30', bar: 'bg-destructive', barIndicator: '[&>div]:bg-destructive', spark: 'var(--rose)' },
 };
 
 /** Lider durumu: bu-ay grup cirosu + trend yonu + aktif oranindan turetilir. */
@@ -167,7 +170,9 @@ export default function NetworkPage() {
   if (error) {
     return (
       <div className="mx-auto max-w-[1160px] px-7 py-7">
-        <Card className="border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">{error}</Card>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       </div>
     );
   }
@@ -187,7 +192,11 @@ export default function NetworkPage() {
             <h1 className="mt-0.5 font-display text-[22px] font-extrabold tracking-tight text-foreground">{root.name}</h1>
           </div>
         </div>
-        {!nodes ? <Loading rows={5} /> : <NetworkExplorer nodes={nodes} tiers={tiers} title={root.name} onToggleLeader={toggleLeader} />}
+        {!nodes ? (
+          <div className="space-y-2.5" role="status" aria-label="Loading">
+            {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
+          </div>
+        ) : <NetworkExplorer nodes={nodes} tiers={tiers} title={root.name} onToggleLeader={toggleLeader} />}
         {toast && <div className="toast" role="status">{toast}</div>}
       </div>
     );
@@ -203,10 +212,12 @@ export default function NetworkPage() {
       </p>
 
       {meta?.truncated && (
-        <div className="fade-in mt-4 flex items-center gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-[13px] text-foreground">
+        <Alert className="fade-in mt-4 flex items-center gap-2 border-amber-400/30 bg-amber-400/10 py-2 text-[13px] text-foreground">
           <span aria-hidden className="text-amber-400">⚠</span>
-          <span>Showing the first <strong>{meta.shownLeaders}</strong> of <strong>{meta.totalLeaders}</strong> leaders. Search &amp; pagination are coming soon.</span>
-        </div>
+          <AlertDescription className="text-[13px] text-foreground">
+            Showing the first <strong>{meta.shownLeaders}</strong> of <strong>{meta.totalLeaders}</strong> leaders. Search &amp; pagination are coming soon.
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* ---- ag saglik seridi ---- */}
@@ -254,7 +265,11 @@ export default function NetworkPage() {
         </Card>
       )}
 
-      {!leaders ? <div className="mt-4"><Loading rows={4} /></div> : (
+      {!leaders ? (
+        <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3.5" role="status" aria-label="Loading">
+          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-[148px] w-full rounded-xl" />)}
+        </div>
+      ) : (
         <>
           {/* tum ag girisi */}
           <button
@@ -368,9 +383,10 @@ export default function NetworkPage() {
                       </div>
                       <div className="mt-3 flex items-center gap-2">
                         <span className="min-w-[38px] text-[10px] text-muted-foreground/70">⬡ {l.teamSize}</span>
-                        <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-                          <div className={cn('h-full rounded-full', STATUS_META[st].bar)} style={{ width: `${Math.round(activeRatioOf(l) * 100)}%` }} />
-                        </div>
+                        <Progress
+                          value={Math.round(activeRatioOf(l) * 100)}
+                          className={cn('h-1 flex-1 bg-muted', STATUS_META[st].barIndicator)}
+                        />
                         <span className="text-[10px] text-muted-foreground/70">{Math.round(activeRatioOf(l) * 100)}%</span>
                       </div>
                       <div className="mt-3 flex items-end justify-between">

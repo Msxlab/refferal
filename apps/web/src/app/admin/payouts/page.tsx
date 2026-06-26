@@ -15,6 +15,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import {
   Table,
@@ -113,6 +121,21 @@ function StatusPill({ status }: { status: string }) {
 /* tablo basligi — Sales ile ayni: muted, uppercase, tracking-wide, 11px */
 function Th({ className, ...props }: ComponentProps<typeof TableHead>) {
   return <TableHead className={cn('text-[11px] font-semibold uppercase tracking-wide text-muted-foreground', className)} {...props} />;
+}
+
+/* tablo yuklenirken iskelet satirlari — spinner yerine icerik-bicimli placeholder */
+function TableSkeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="space-y-3 p-5">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-2.5">
+          <Skeleton className="h-6 w-6 rounded-md" />
+          <Skeleton className="h-4 flex-1" />
+          <Skeleton className="h-4 w-20" />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /** Indigo segmented bar — ready-to-pay vs blocked (clawback) share of the total. */
@@ -329,7 +352,9 @@ export default function PayoutsPage() {
       <p className="mt-1 text-sm text-muted-foreground">Approve member requests, pay members above the threshold, and download the bank CSV.</p>
 
       {error && (
-        <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">{error}</div>
+        <Alert variant="destructive" className="mt-4">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
       {/* ---- ready to pay banner ---- */}
@@ -351,23 +376,40 @@ export default function PayoutsPage() {
               <span aria-hidden>→</span> {t('payouts.run')}
             </Button>
             <Button variant="outline" onClick={downloadExport}><span aria-hidden>⇩</span> {t('payouts.export')}</Button>
-            <Button variant="outline" onClick={runFraudScan} disabled={scanning}>{scanning ? 'Scanning…' : <><span aria-hidden>⚠</span> Fraud scan</>}</Button>
-            <Button variant="outline" onClick={() => { const y = new Date().getFullYear(); downloadCsv(`/admin/tax/1099.csv?year=${y}`, `1099-nec-${y}.csv`).catch((e) => setError(String((e as ApiError).message))); }}><span aria-hidden>⇩</span> 1099-NEC</Button>
-            <Button variant="outline" onClick={() => { downloadCsv('/admin/payouts/ach.txt', 'payouts-ach.txt').catch((e) => setError(String((e as ApiError).message))); }} title="Self-hosted bank file (NACHA) — upload to your bank"><span aria-hidden>⇩</span> ACH file</Button>
-            <Button variant="outline" onClick={() => { setReconcileOpen(true); setReconcileText(''); setReconcileResult(null); }} title="Match the bank statement against paid payouts"><span aria-hidden>⇄</span> Reconcile</Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline">More <span aria-hidden>▾</span></Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem disabled={scanning} onSelect={() => { void runFraudScan(); }}>
+                  <span aria-hidden>⚠</span> {scanning ? 'Scanning…' : 'Fraud scan'}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => { const y = new Date().getFullYear(); downloadCsv(`/admin/tax/1099.csv?year=${y}`, `1099-nec-${y}.csv`).catch((e) => setError(String((e as ApiError).message))); }}>
+                  <span aria-hidden>⇩</span> 1099-NEC
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => { downloadCsv('/admin/payouts/ach.txt', 'payouts-ach.txt').catch((e) => setError(String((e as ApiError).message))); }}>
+                  <span aria-hidden>⇩</span> ACH file
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => { setReconcileOpen(true); setReconcileText(''); setReconcileResult(null); }}>
+                  <span aria-hidden>⇄</span> Reconcile
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </CardContent>
       </Card>
 
       {/* ---- negatif bakiye band ---- */}
       {clawbacks && clawbacks.members.length > 0 && (
-        <div className="mt-3.5 flex items-center gap-2.5 rounded-xl border border-destructive/30 bg-destructive/10 px-3.5 py-2.5 text-[12.5px] text-destructive">
-          <span aria-hidden className="text-base leading-none">⚠</span>
-          <span>
-            <strong>{clawbacks.members.length} member{clawbacks.members.length > 1 ? 's' : ''}</strong> {clawbacks.members.length > 1 ? 'have' : 'has'} a negative balance
-            {' '}(owed {money(clawbacks.totalOwedCents, c)} from a reversal) — excluded from this run until covered.
-          </span>
-        </div>
+        <Alert variant="destructive" className="mt-3.5">
+          <AlertDescription className="flex items-center gap-2.5 text-[12.5px]">
+            <span aria-hidden className="text-base leading-none">⚠</span>
+            <span>
+              <strong>{clawbacks.members.length} member{clawbacks.members.length > 1 ? 's' : ''}</strong> {clawbacks.members.length > 1 ? 'have' : 'has'} a negative balance
+              {' '}(owed {money(clawbacks.totalOwedCents, c)} from a reversal) — excluded from this run until covered.
+            </span>
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* ---- talep kuyrugu (request queue) ---- */}
@@ -607,7 +649,7 @@ export default function PayoutsPage() {
               )
             ) : null}
           </div>
-          {!payable ? <div className="p-5"><Loading rows={2} /></div> : (
+          {!payable ? <TableSkeleton rows={4} /> : (
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
@@ -684,7 +726,7 @@ export default function PayoutsPage() {
               </Select>
             </div>
           </div>
-          {!history ? <div className="p-5"><Loading rows={2} /></div> : (
+          {!history ? <TableSkeleton rows={4} /> : (
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
