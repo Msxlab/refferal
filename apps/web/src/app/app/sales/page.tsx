@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import { Loading, Modal, MoneyCounter, Pagination, useToast } from '@/components/ui';
+import { CountUp, Loading, Modal, MoneyCounter, Pagination, useToast } from '@/components/ui';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
@@ -80,7 +80,7 @@ export default function MySalesPage() {
         <div className="stat-grid fade-in delay-1" style={{ marginBottom: 16 }}>
           <div className="card stat lift"><div className="spread"><span className="k">Sold (this month)</span><span className="icon"><Banknote className="size-[18px]" aria-hidden /></span></div><div className="v"><MoneyCounter cents={Number(summary.soldThisMonthCents)} currency={summary.currency} /></div><div className="hint">{summary.salesThisMonth} sales · {money(summary.soldLifetimeCents, summary.currency)} lifetime</div></div>
           <div className="card stat lift"><div className="spread"><span className="k">Earned (this month)</span><span className="icon" style={{ background: 'var(--foil)' }}><Wallet className="size-[18px]" aria-hidden /></span></div><div className="v" style={{ color: 'var(--gold-500)' }}><MoneyCounter cents={Number(summary.earnedThisMonthCents)} currency={summary.currency} /></div><div className="hint">commission you earned</div></div>
-          <div className="card stat lift"><div className="spread"><span className="k">Awaiting approval</span><span className="icon"><Clock className="size-[18px]" aria-hidden /></span></div><div className="v">{list?.items.filter((s) => s.status === 'draft').length ?? 0}</div><div className="hint">drafts on this page</div></div>
+          <div className="card stat lift"><div className="spread"><span className="k">Awaiting approval</span><span className="icon"><Clock className="size-[18px]" aria-hidden /></span></div><div className="v"><CountUp value={list?.items.filter((s) => s.status === 'draft').length ?? 0} /></div><div className="hint">drafts on this page</div></div>
         </div>
       )}
 

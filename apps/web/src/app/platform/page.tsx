@@ -4,7 +4,7 @@ import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Building2, Plus, Users, Wallet } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
-import { Loading, Modal, useToast } from '@/components/ui';
+import { CountUp, Loading, Modal, MoneyCounter, useToast } from '@/components/ui';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { money } from '@/lib/format';
 import { APP_NAME } from '@/lib/brand';
@@ -77,9 +77,9 @@ export default function CompaniesPage() {
       <p className="sub fade-in" style={{ marginBottom: 16 }}>Every workspace on {APP_NAME}. Open one to manage its network and settings.</p>
 
       <div className="stat-grid fade-in delay-1" style={{ marginBottom: 18 }}>
-        <Kpi label="Companies" value={String(totals.companies)} icon={<Building2 className="size-[18px]" aria-hidden />} />
-        <Kpi label="Members (all)" value={totals.members.toLocaleString('en-US')} icon={<Users className="size-[18px]" aria-hidden />} />
-        <Kpi label="Revenue this month" value={money(totals.revenue, 'USD')} icon={<Wallet className="size-[18px]" aria-hidden />} />
+        <Kpi label="Companies" value={<CountUp value={totals.companies} />} icon={<Building2 className="size-[18px]" aria-hidden />} />
+        <Kpi label="Members (all)" value={<CountUp value={totals.members} />} icon={<Users className="size-[18px]" aria-hidden />} />
+        <Kpi label="Revenue this month" value={<MoneyCounter cents={totals.revenue} currency="USD" />} icon={<Wallet className="size-[18px]" aria-hidden />} />
       </div>
 
       {/* Billing (AR) — manuel takip: faturalandır, ödeme gelince şirket sayfasından işaretle */}
@@ -151,7 +151,7 @@ export default function CompaniesPage() {
   );
 }
 
-function Kpi({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
+function Kpi({ label, value, icon }: { label: string; value: ReactNode; icon: ReactNode }) {
   return (
     <div className="card stat lift">
       <div className="spread"><span className="k">{label}</span><span className="icon" aria-hidden="true">{icon}</span></div>

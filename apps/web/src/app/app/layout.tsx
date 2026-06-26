@@ -9,6 +9,7 @@ import { api } from '@/lib/api';
 import { Brand, ThemeToggle } from '@/components/ui';
 import { NotificationBell } from '@/components/NotificationBell';
 import { PageTransition } from '@/components/PageTransition';
+import { MemberDock } from '@/components/app/MemberDock';
 import { t } from '@/lib/i18n';
 import { Network, Wallet, Banknote, Users, Sparkles, Eye, LogOut, User } from 'lucide-react';
 
@@ -97,7 +98,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <button className="btn ghost sm" onClick={logout} aria-label={t('nav.logout')}><LogOut className="size-4" aria-hidden />{t('nav.logout')}</button>
         </div>
       </header>
-      <main className="appmain"><PageTransition>{children}</PageTransition></main>
+      <main className="appmain" style={{ paddingBottom: 104 }}><PageTransition>{children}</PageTransition></main>
+      <MemberDock />
     </div>
   );
 }

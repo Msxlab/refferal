@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { ArrowLeft, ArrowRight, Clock, Diamond, Plus, Users, Wallet } from 'lucide-react';
 import { api, ApiError, switchTenant } from '@/lib/api';
 import { applyTenantSwitch, getSession, membershipForTenant } from '@/lib/auth';
-import { Confirm, Loading, Modal, useToast } from '@/components/ui';
+import { Confirm, CountUp, Loading, Modal, MoneyCounter, useToast } from '@/components/ui';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { NetworkExplorer, type ApiNode } from '@/components/NetworkExplorer';
 import { bps, money, dateShort } from '@/lib/format';
@@ -151,9 +151,9 @@ export default function CompanyPage() {
       {enterMsg && <Alert variant="destructive" style={{ marginTop: 10 }}><AlertDescription>{enterMsg}</AlertDescription></Alert>}
 
       <div className="stat-grid fade-in delay-1" style={{ margin: '18px 0' }}>
-        <Kpi label="Members" value={`${company.kpis.activeMembers} / ${company.kpis.members}`} icon={<Users className="size-[18px]" aria-hidden />} hint="active / total" />
-        <Kpi label="Revenue this month" value={money(company.kpis.revenueThisMonthCents, c)} icon={<Wallet className="size-[18px]" aria-hidden />} hint={`${company.kpis.salesThisMonth} approved sales`} />
-        <Kpi label="Outstanding payable" value={money(company.kpis.outstandingPayableCents, c)} icon={<Clock className="size-[18px]" aria-hidden />} hint="awaiting payout" />
+        <Kpi label="Members" value={<><CountUp value={company.kpis.activeMembers} /> / {company.kpis.members}</>} icon={<Users className="size-[18px]" aria-hidden />} hint="active / total" />
+        <Kpi label="Revenue this month" value={<MoneyCounter cents={company.kpis.revenueThisMonthCents} currency={c} />} icon={<Wallet className="size-[18px]" aria-hidden />} hint={`${company.kpis.salesThisMonth} approved sales`} />
+        <Kpi label="Outstanding payable" value={<MoneyCounter cents={company.kpis.outstandingPayableCents} currency={c} />} icon={<Clock className="size-[18px]" aria-hidden />} hint="awaiting payout" />
         <Kpi label="Plan" value={company.plan ? bps(company.plan.poolRateBps) : '—'} icon={<Diamond className="size-[18px]" aria-hidden />} hint={company.plan ? `${company.plan.name} · depth ${company.plan.depth}` : 'no plan'} />
       </div>
 
