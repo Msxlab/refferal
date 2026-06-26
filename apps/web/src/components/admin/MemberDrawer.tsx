@@ -37,12 +37,8 @@ const roleLabel = (r: string): string => ROLE_LABELS[r] ?? r;
 const initialsOf = (name: string): string =>
   name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? '').join('') || '?';
 
-/** money-semantic tint helper (emerald/amber/rose CSS vars) — light + dark uyumlu */
-const tint = (cssVar: string) => ({
-  borderColor: `color-mix(in srgb, ${cssVar} 30%, transparent)`,
-  backgroundColor: `color-mix(in srgb, ${cssVar} 12%, transparent)`,
-  color: cssVar,
-});
+/** money-semantic emerald badge — token classes, light + dark uyumlu (page.tsx ile ozdes) */
+const EMERALD_BADGE = 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400';
 
 /**
  * Sagdan kayan, salt-sunum (presentational) uye detay cekmecesi.
@@ -103,7 +99,7 @@ export function MemberDrawer({
       {/* backdrop */}
       <div
         className={cn(
-          'absolute inset-0 bg-black/60 backdrop-blur-[1px] transition-opacity duration-300',
+          'absolute inset-0 bg-foreground/40 backdrop-blur-[1px] transition-opacity duration-300',
           shown ? 'opacity-100' : 'opacity-0',
         )}
         onClick={onClose}
@@ -113,7 +109,7 @@ export function MemberDrawer({
       {/* panel */}
       <div
         className={cn(
-          'relative flex h-full w-[min(440px,94vw)] flex-col border-l border-border bg-card text-foreground shadow-[0_24px_70px_-30px_rgba(0,0,0,.8)] transition-transform duration-300 ease-out',
+          'relative flex h-full w-[min(440px,94vw)] flex-col border-l border-border bg-card text-foreground shadow-xl transition-transform duration-300 ease-out',
           shown ? 'translate-x-0' : 'translate-x-full',
         )}
       >
@@ -157,11 +153,11 @@ export function MemberDrawer({
           {/* role + status chips */}
           <div className="mb-4 flex flex-wrap items-center gap-1.5">
             {member.status === 'active'
-              ? <Badge variant="outline" style={tint('var(--emerald)')}>active</Badge>
+              ? <Badge variant="outline" className={EMERALD_BADGE}>active</Badge>
               : <Badge variant="outline" className="border-border bg-muted text-muted-foreground">inactive</Badge>}
             <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">{roleLabel(member.role)}</Badge>
             {member.emailVerified && (
-              <Badge variant="outline" style={tint('var(--emerald)')}>email verified</Badge>
+              <Badge variant="outline" className={EMERALD_BADGE}>email verified</Badge>
             )}
           </div>
 
@@ -177,7 +173,7 @@ export function MemberDrawer({
             <Stat
               label="Earned $"
               value={earned}
-              valueColor={earnedPositive ? 'var(--emerald)' : undefined}
+              valueClass={earnedPositive ? 'text-emerald-400' : undefined}
             />
             <Stat label="Status" value={member.status === 'active' ? 'Active' : 'Inactive'} />
             <Stat label="Joined" value={dateShort(member.joinedAt)} />
@@ -208,22 +204,22 @@ function Stat({
   label,
   value,
   mono,
-  valueColor,
+  valueClass,
 }: {
   label: string;
   value: string;
   mono?: boolean;
-  valueColor?: string;
+  valueClass?: string;
 }) {
   return (
     <div className="rounded-xl border border-border bg-muted/40 p-3">
       <dt className="text-[11px] text-muted-foreground/70">{label}</dt>
       <dd
         className={cn(
-          'mt-1 truncate font-display text-[15px] font-bold tabular-nums text-foreground',
+          'mt-1 truncate font-display text-[15px] font-bold tabular-nums',
+          valueClass ?? 'text-foreground',
           mono && 'font-mono',
         )}
-        style={valueColor ? { color: valueColor } : undefined}
       >
         {value}
       </dd>

@@ -23,9 +23,9 @@ export default function Security() {
     <div className="grid" style={{ gap: 20 }}>
       <Panel title="Account access" subtitle="How identities are protected." items={ACCESS} />
       <Panel title="Governance & detection" subtitle="Controls that keep the workspace honest." items={GOVERNANCE} />
-      <div className="card" style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div className="card" style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 220 }}>
-          <strong style={{ fontSize: 14 }}>Your account security</strong>
+          <strong style={{ fontFamily: 'var(--font-display)', fontSize: 14 }}>Your account security</strong>
           <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>Two-factor setup and active-session management arrive in the next update.</div>
         </div>
         <span className="badge pending" style={{ fontSize: 10 }}>coming soon</span>
@@ -38,19 +38,19 @@ function Panel({ title, subtitle, items }: { title: string; subtitle: string; it
   return (
     <section>
       <div style={{ marginBottom: 12 }}>
-        <strong style={{ fontSize: 15 }}>{title}</strong>
+        <strong style={{ fontFamily: 'var(--font-display)', fontSize: 15 }}>{title}</strong>
         <div className="faint" style={{ fontSize: 12 }}>{subtitle}</div>
       </div>
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 12 }}>
         {items.map((it) => (
-          <div key={it.title} className="card" style={{ padding: 15 }}>
+          <div key={it.title} className="card" style={{ padding: 16 }}>
             <div className="spread">
-              <strong style={{ fontSize: 13.5 }}>{it.title}</strong>
-              <span className={`badge ${it.state === 'on' ? 'active' : 'pending'}`} style={{ fontSize: 9 }}>
+              <strong style={{ fontSize: 14 }}>{it.title}</strong>
+              <span className={`badge ${it.state === 'on' ? 'active' : 'pending'}`} style={{ fontSize: 10 }}>
                 {it.state === 'on' ? 'active' : 'coming'}
               </span>
             </div>
-            <div className="faint" style={{ fontSize: 12, marginTop: 7, lineHeight: 1.5 }}>{it.desc}</div>
+            <div className="faint" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>{it.desc}</div>
           </div>
         ))}
       </div>

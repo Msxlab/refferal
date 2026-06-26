@@ -125,9 +125,10 @@ export default function CompanyPage() {
       <div className="row fade-in" style={{ gap: 8, marginBottom: 6 }}>
         <Link href="/platform" className="faint" style={{ fontSize: 12, textDecoration: 'none' }}>← Companies</Link>
       </div>
+      <div className="eyebrow fade-in" style={{ marginBottom: 6 }}>Company</div>
       <div className="spread fade-in" style={{ alignItems: 'flex-start' }}>
-        <div className="row" style={{ gap: 13 }}>
-          <span style={{ width: 46, height: 46, borderRadius: 13, display: 'grid', placeItems: 'center', background: 'var(--foil)', color: 'var(--on-gold)', fontWeight: 800, fontSize: 20, fontFamily: 'var(--font-display)' }}>
+        <div className="row" style={{ gap: 12 }}>
+          <span aria-hidden="true" style={{ width: 46, height: 46, borderRadius: 13, display: 'grid', placeItems: 'center', background: 'var(--foil)', color: 'var(--on-gold)', fontWeight: 800, fontSize: 20, fontFamily: 'var(--font-display)' }}>
             {company.name.charAt(0).toUpperCase()}
           </span>
           <div>
@@ -161,7 +162,7 @@ export default function CompanyPage() {
             <strong style={{ fontSize: 15 }}>Billing</strong>
             <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>Subscription fee for this company. Payments are tracked manually (no card on file) — issue an invoice, mark it paid when the check/wire arrives.</div>
           </div>
-          <span className="faint" style={{ fontSize: 12, textAlign: 'right' }}>Outstanding<br /><strong style={{ color: Number(billing?.outstandingCents ?? 0) > 0 ? 'var(--gold-600)' : 'var(--text)' }}>{money(billing?.outstandingCents ?? '0', c)}</strong></span>
+          <span className="faint" style={{ fontSize: 12, textAlign: 'right' }}>Outstanding<br /><strong style={{ color: Number(billing?.outstandingCents ?? 0) > 0 ? 'var(--amber)' : 'var(--text)' }}>{money(billing?.outstandingCents ?? '0', c)}</strong></span>
         </div>
 
         <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
@@ -170,15 +171,15 @@ export default function CompanyPage() {
             <input value={feeInput} onChange={(e) => setFeeInput(e.target.value)} inputMode="decimal" placeholder="99.00" style={{ maxWidth: 130 }} />
           </div>
           <label className="row" style={{ gap: 6, fontSize: 13, alignItems: 'center', paddingBottom: 8 }}>
-            <input type="checkbox" checked={activeInput} onChange={(e) => setActiveInput(e.target.checked)} /> Active
+            <input type="checkbox" aria-label="Billing active" checked={activeInput} onChange={(e) => setActiveInput(e.target.checked)} /> Active
           </label>
           <button className="btn sm" onClick={saveBilling} disabled={busy}>Save</button>
           <span style={{ flex: 1 }} />
           <div className="field" style={{ margin: 0 }}>
-            <label>Issue invoice</label>
-            <input value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="2026-06" style={{ maxWidth: 110 }} />
+            <label htmlFor="issue-invoice-period">Issue invoice</label>
+            <input id="issue-invoice-period" value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="2026-06" style={{ maxWidth: 110 }} disabled={!billing} />
           </div>
-          <button className="btn ghost sm" onClick={issueInvoice} disabled={busy || !billing?.config?.active}>+ Issue</button>
+          <button className="btn ghost sm" onClick={issueInvoice} disabled={busy || !billing || !billing?.config?.active}>+ Issue</button>
         </div>
 
         <div className="card" style={{ background: 'var(--panel-2)', padding: 0, overflowX: 'auto' }}>
@@ -251,7 +252,7 @@ export default function CompanyPage() {
 function Kpi({ label, value, icon, hint }: { label: string; value: string; icon: string; hint?: string }) {
   return (
     <div className="card stat">
-      <div className="spread"><span className="k">{label}</span><span className="icon">{icon}</span></div>
+      <div className="spread"><span className="k">{label}</span><span className="icon" aria-hidden="true">{icon}</span></div>
       <div className="v">{value}</div>
       {hint && <div className="faint" style={{ fontSize: 11, marginTop: 6 }}>{hint}</div>}
     </div>

@@ -189,7 +189,7 @@ export default function AccountPage() {
     }
   }
 
-  if (error) return <div className="center error">{error}</div>;
+  if (error) return <div className="center error" role="alert">{error}</div>;
   if (!acc) return <div className="center"><Loading /></div>;
 
   const dirty = fullName.trim() !== acc.fullName;
@@ -213,7 +213,7 @@ export default function AccountPage() {
 
         {/* ---- Profil ---- */}
         <form onSubmit={saveProfile} className="card fade-in delay-1" style={{ marginBottom: 16 }}>
-          <strong style={{ fontSize: 15 }}>Profile</strong>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--text-lg)', fontWeight: 700, margin: 0 }}>Profile</h2>
           <div className="field" style={{ marginTop: 12 }}>
             <label>Full name</label>
             <input value={fullName} onChange={(e) => setFullName(e.target.value)} minLength={2} maxLength={120} required />
@@ -222,11 +222,11 @@ export default function AccountPage() {
             <label>Email</label>
             <div className="row" style={{ gap: 8, alignItems: 'center' }}>
               <input value={acc.email} disabled style={{ flex: 1 }} />
-              <span className={`badge ${acc.emailVerified ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>
+              <span className={`badge ${acc.emailVerified ? 'active' : 'inactive'}`}>
                 {acc.emailVerified ? '✓ verified' : 'unverified'}
               </span>
             </div>
-            <div className="faint" style={{ fontSize: 11, marginTop: 4 }}>Email change with re-verification is coming soon.</div>
+            <div className="faint" style={{ fontSize: 'var(--text-xs)', marginTop: 4 }}>Email change with re-verification is coming soon.</div>
           </div>
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button className="btn" type="submit" disabled={!dirty || savingProfile}>{savingProfile ? 'Saving…' : 'Save changes'}</button>
@@ -238,12 +238,12 @@ export default function AccountPage() {
           <form onSubmit={saveMailing} className="card fade-in delay-1" style={{ marginBottom: 16 }}>
             <div className="spread" style={{ alignItems: 'flex-start' }}>
               <div>
-                <strong style={{ fontSize: 15 }}>Mailing address</strong>
-                <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
+                <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--text-lg)', fontWeight: 700, margin: 0 }}>Mailing address</h2>
+                <div className="faint" style={{ fontSize: 'var(--text-sm)', marginTop: 2 }}>
                   Commission checks are mailed here. Keep it current — you can&apos;t request a payout without a complete address.
                 </div>
               </div>
-              <span className={`badge ${mailing.complete ? 'active' : 'inactive'}`} style={{ fontSize: 9, flexShrink: 0 }}>
+              <span className={`badge ${mailing.complete ? 'active' : 'inactive'}`} style={{ flexShrink: 0 }}>
                 {mailing.complete ? '✓ complete' : 'incomplete'}
               </span>
             </div>
@@ -260,35 +260,35 @@ export default function AccountPage() {
               <input value={maLine2} onChange={(e) => setMaLine2(e.target.value)} maxLength={120} placeholder="Apt 4B" />
             </div>
             <div className="row" style={{ gap: 10 }}>
-              <div className="field" style={{ flex: 2 }}>
+              <div className="field" style={{ flex: '2 1 160px' }}>
                 <label>City</label>
                 <input value={maCity} onChange={(e) => setMaCity(e.target.value)} minLength={2} maxLength={80} placeholder="Los Angeles" required />
               </div>
-              <div className="field" style={{ flex: 1 }}>
+              <div className="field" style={{ flex: '1 1 84px' }}>
                 <label>State</label>
                 <input value={maState} onChange={(e) => setMaState(e.target.value.toUpperCase())} maxLength={2} placeholder="CA" style={{ textTransform: 'uppercase' }} required />
               </div>
-              <div className="field" style={{ flex: 1 }}>
+              <div className="field" style={{ flex: '1 1 100px' }}>
                 <label>ZIP</label>
                 <input value={maPostal} onChange={(e) => setMaPostal(e.target.value)} inputMode="numeric" placeholder="90001" required />
               </div>
             </div>
-            {maError && <div className="error" style={{ marginBottom: 10 }}>{maError}</div>}
+            {maError && <div className="error" role="alert" style={{ marginBottom: 10 }}>{maError}</div>}
             <div className="spread" style={{ alignItems: 'center' }}>
-              <span className="faint" style={{ fontSize: 11 }}>United States only.</span>
+              <span className="faint" style={{ fontSize: 'var(--text-xs)' }}>United States only.</span>
               <button className="btn" type="submit" disabled={savingMa}>{savingMa ? 'Saving…' : 'Save address'}</button>
             </div>
           </form>
         )}
         {mailing && !mailing.hasMembership && (
-          <div className="card faint fade-in delay-1" style={{ marginBottom: 16, fontSize: 13 }}>
+          <div className="card faint fade-in delay-1" style={{ marginBottom: 16, fontSize: 'var(--text-md)' }}>
             A mailing address (for commission checks) becomes available once you have an active membership in a company.
           </div>
         )}
 
         {/* ---- Sifre ---- */}
         <form onSubmit={changePassword} className="card fade-in delay-2" style={{ marginBottom: 16 }}>
-          <strong style={{ fontSize: 15 }}>Change password</strong>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--text-lg)', fontWeight: 700, margin: 0 }}>Change password</h2>
           <div className="field" style={{ marginTop: 12 }}>
             <label>Current password</label>
             <input type="password" value={curPw} onChange={(e) => setCurPw(e.target.value)} autoComplete="current-password" required />
@@ -301,9 +301,9 @@ export default function AccountPage() {
             <label>Confirm new password</label>
             <input type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} autoComplete="new-password" minLength={10} required />
           </div>
-          {pwError && <div className="error" style={{ marginBottom: 10 }}>{pwError}</div>}
+          {pwError && <div className="error" role="alert" style={{ marginBottom: 10 }}>{pwError}</div>}
           <div className="spread" style={{ alignItems: 'center' }}>
-            <span className="faint" style={{ fontSize: 11 }}>Changing your password signs out your other devices.</span>
+            <span className="faint" style={{ fontSize: 'var(--text-xs)' }}>Changing your password signs out your other devices.</span>
             <button className="btn" type="submit" disabled={savingPw || !curPw || !newPw || !confirmPw}>{savingPw ? 'Saving…' : 'Change password'}</button>
           </div>
         </form>
@@ -312,37 +312,37 @@ export default function AccountPage() {
         <div className="card fade-in delay-3" style={{ marginBottom: 16 }}>
           <div className="spread" style={{ alignItems: 'flex-start' }}>
             <div>
-              <strong style={{ fontSize: 15 }}>Two-factor authentication</strong>
-              <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
+              <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--text-lg)', fontWeight: 700, margin: 0 }}>Two-factor authentication</h2>
+              <div className="faint" style={{ fontSize: 'var(--text-sm)', marginTop: 2 }}>
                 {acc.twoFactorEnabled
                   ? 'Enabled — sign-in requires a code from your authenticator app.'
                   : 'Add an authenticator app (Google Authenticator, 1Password, Authy…) for an extra layer of security. Optional.'}
               </div>
             </div>
             <span className="row" style={{ gap: 8, flexShrink: 0 }}>
-              <span className={`badge ${acc.twoFactorEnabled ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>{acc.twoFactorEnabled ? 'on' : 'off'}</span>
-              {twoFaStep === 'idle' && !acc.twoFactorEnabled && <button className="btn ghost sm" onClick={startSetup} disabled={twoFaBusy}>{twoFaBusy ? '…' : 'Set up'}</button>}
+              <span className={`badge ${acc.twoFactorEnabled ? 'active' : 'inactive'}`}>{acc.twoFactorEnabled ? 'on' : 'off'}</span>
+              {twoFaStep === 'idle' && !acc.twoFactorEnabled && <button className="btn ghost sm" onClick={startSetup} disabled={twoFaBusy}>{twoFaBusy ? <span aria-label="Loading">…</span> : 'Set up'}</button>}
               {twoFaStep === 'idle' && acc.twoFactorEnabled && <button className="btn ghost sm" onClick={() => { setTwoFaError(''); setTwoFaStep('disable'); }}>Disable</button>}
               {twoFaStep !== 'idle' && twoFaStep !== 'recovery' && <button className="btn ghost sm" onClick={resetTwoFa}>Cancel</button>}
             </span>
           </div>
 
-          {twoFaError && <div className="error" style={{ marginTop: 12 }}>{twoFaError}</div>}
+          {twoFaError && <div className="error" role="alert" style={{ marginTop: 12 }}>{twoFaError}</div>}
 
           {twoFaStep === 'setup' && setupData && (
             <form onSubmit={enableTwoFa} style={{ marginTop: 14, borderTop: '1px solid hsl(var(--border))', paddingTop: 14 }}>
-              <div style={{ fontSize: 13, marginBottom: 10 }}>1. Scan this QR code with your authenticator app:</div>
+              <div style={{ fontSize: 'var(--text-md)', marginBottom: 10 }}>1. Scan this QR code with your authenticator app:</div>
               <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
                 <div className="qr"><QRCodeSVG value={setupData.otpauthUrl} size={144} /></div>
                 <div style={{ minWidth: 170, flex: 1 }}>
-                  <div className="faint" style={{ fontSize: 11, marginBottom: 4 }}>Or enter this key manually:</div>
-                  <code style={{ fontSize: 12, wordBreak: 'break-all', fontFamily: 'ui-monospace, monospace' }}>{setupData.secret}</code>
+                  <div className="faint" style={{ fontSize: 'var(--text-xs)', marginBottom: 4 }}>Or enter this key manually:</div>
+                  <code style={{ fontSize: 'var(--text-sm)', wordBreak: 'break-all', fontFamily: 'ui-monospace, monospace' }}>{setupData.secret}</code>
                 </div>
               </div>
               <div className="field">
                 <label>2. Enter the 6-digit code to confirm</label>
                 <input value={twoFaCode} onChange={(e) => setTwoFaCode(e.target.value)} inputMode="numeric" placeholder="123456" autoFocus
-                  style={{ maxWidth: 180, letterSpacing: '0.2em', fontFamily: 'ui-monospace, monospace', fontSize: 16 }} />
+                  style={{ maxWidth: 180, letterSpacing: '0.2em', fontFamily: 'ui-monospace, monospace', fontSize: 'var(--text-lg)' }} />
               </div>
               <div className="row" style={{ justifyContent: 'flex-end' }}>
                 <button className="btn" type="submit" disabled={twoFaBusy || twoFaCode.trim().length < 6}>{twoFaBusy ? 'Verifying…' : 'Enable 2FA'}</button>
@@ -352,15 +352,15 @@ export default function AccountPage() {
 
           {twoFaStep === 'recovery' && (
             <div style={{ marginTop: 14, borderTop: '1px solid hsl(var(--border))', paddingTop: 14 }}>
-              <strong style={{ fontSize: 13, color: 'var(--emerald)' }}>✓ Two-factor authentication enabled</strong>
-              <p className="faint" style={{ fontSize: 12, margin: '6px 0 10px' }}>
+              <strong style={{ fontSize: 'var(--text-md)', color: 'var(--emerald)' }}>✓ Two-factor authentication enabled</strong>
+              <p className="faint" style={{ fontSize: 'var(--text-sm)', margin: '6px 0 10px' }}>
                 Save these recovery codes somewhere safe. Each works once if you lose your authenticator — they won&apos;t be shown again.
               </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 6, fontFamily: 'ui-monospace, monospace', fontSize: 13, background: 'var(--panel-2)', padding: 12, borderRadius: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 6, fontFamily: 'ui-monospace, monospace', fontSize: 'var(--text-md)', background: 'var(--panel-2)', padding: 12, borderRadius: 10 }}>
                 {recoveryCodes.map((c) => <span key={c}>{c}</span>)}
               </div>
               <div className="row" style={{ justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-                <button className="btn ghost sm" onClick={copyRecovery}>⧉ Copy</button>
+                <button className="btn ghost sm" onClick={copyRecovery} aria-label="Copy recovery codes"><span aria-hidden="true">⧉</span> Copy</button>
                 <button className="btn" onClick={resetTwoFa}>Done</button>
               </div>
             </div>
@@ -384,8 +384,8 @@ export default function AccountPage() {
           <div className="card fade-in" style={{ marginBottom: 16 }}>
             <div className="spread" style={{ alignItems: 'flex-start', marginBottom: sessions.length ? 10 : 0 }}>
               <div>
-                <strong style={{ fontSize: 15 }}>Active sessions</strong>
-                <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>Devices currently signed in to your account.</div>
+                <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--text-lg)', fontWeight: 700, margin: 0 }}>Active sessions</h2>
+                <div className="faint" style={{ fontSize: 'var(--text-sm)', marginTop: 2 }}>Devices currently signed in to your account.</div>
               </div>
               {sessions.filter((s) => !s.current).length > 0 && <button className="btn ghost sm" onClick={revokeOtherSessions}>Sign out others</button>}
             </div>
@@ -394,11 +394,11 @@ export default function AccountPage() {
                 {sessions.map((s) => (
                   <tr key={s.id}>
                     <td>
-                      <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ fontWeight: 600, fontSize: 'var(--text-md)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         {s.device}
-                        {s.current && <span className="badge active" style={{ fontSize: 9 }}>this device</span>}
+                        {s.current && <span className="badge active">this device</span>}
                       </div>
-                      <div className="faint" style={{ fontSize: 11 }}>{s.ip ?? 'unknown IP'} · active {dateShort(s.lastActive)}</div>
+                      <div className="faint" style={{ fontSize: 'var(--text-xs)' }}>{s.ip ?? 'unknown IP'} · active {dateShort(s.lastActive)}</div>
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       {!s.current && <button className="btn ghost sm" onClick={() => revokeSession(s.id)}>Sign out</button>}

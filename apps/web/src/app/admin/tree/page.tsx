@@ -211,7 +211,7 @@ export default function NetworkPage() {
       {/* ---- ag saglik seridi ---- */}
       {health && (
         <Card className="fade-in mt-[18px] p-4 shadow-lg sm:px-[18px]">
-          <div className={cn('grid grid-cols-2 gap-4 sm:grid-cols-4', health.dormantClusters.length > 0 && 'mb-[14px]')}>
+          <div className={cn('grid grid-cols-2 gap-4 sm:grid-cols-4', health.dormantClusters.length > 0 && 'mb-3.5')}>
             <div>
               <div className="text-[11px] text-muted-foreground/70">Members</div>
               <div className="mt-0.5 text-[18px] font-bold tabular-nums text-foreground">⬡ {health.totals.members}</div>
@@ -257,22 +257,22 @@ export default function NetworkPage() {
         <>
           {/* tum ag girisi */}
           <button
-            className="fade-in mt-[14px] w-full cursor-pointer rounded-xl border border-dashed border-input bg-card px-4 py-[13px] text-left transition-colors hover:border-primary/50 hover:bg-muted"
+            className="fade-in mt-3.5 w-full cursor-pointer rounded-xl border border-dashed border-input bg-card px-4 py-3 text-left transition-colors hover:border-primary/50 hover:bg-muted"
             onClick={() => openTree(null, 'Whole network')}
           >
-            <span className="text-sm font-bold text-foreground">◈ Whole network</span>
+            <span className="text-sm font-bold text-foreground"><span aria-hidden>◈</span> Whole network</span>
             <span className="text-xs text-muted-foreground/70"> — see the entire company as one tree</span>
           </button>
 
           {/* spotlight: en iyi saha lideri (arama yokken) */}
           {!q && spotlight && (
             <>
-              <div className="mt-[18px] mb-[7px] text-[11px] font-semibold text-muted-foreground/70">★ Top performer this month</div>
+              <div className="mt-[18px] mb-[7px] text-[11px] font-semibold text-muted-foreground/70"><span aria-hidden>★</span> Top performer this month</div>
               <button
                 onClick={() => openTree(spotlight.id, spotlight.fullName)}
                 className="w-full cursor-pointer rounded-2xl border border-primary bg-card px-[18px] py-4 text-left shadow-[0_0_0_1px_hsl(var(--primary)/0.4),0_18px_50px_-28px_hsl(var(--primary)/0.5)] transition-transform hover:-translate-y-0.5"
               >
-                <div className="flex flex-wrap items-center gap-[15px]">
+                <div className="flex flex-wrap items-center gap-3.5">
                   <span className="grid size-[46px] shrink-0 place-items-center rounded-full bg-primary font-display text-[17px] font-extrabold text-primary-foreground">
                     {spotlight.fullName.charAt(0).toUpperCase()}
                   </span>
@@ -283,10 +283,10 @@ export default function NetworkPage() {
                       <StatusPill s={leaderStatus(spotlight)} />
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground/70">
-                      ⬡ {spotlight.teamSize} team · {Math.round(activeRatioOf(spotlight) * 100)}% active
+                      <span aria-hidden>⬡</span> {spotlight.teamSize} team · {Math.round(activeRatioOf(spotlight) * 100)}% active
                       {growthOf(spotlight) !== 0 && (
                         <span className={growthOf(spotlight) > 0 ? 'text-emerald-400' : 'text-destructive'}>
-                          {' · '}{growthOf(spotlight) > 0 ? '▲' : '▼'} {compactMoney(Math.abs(growthOf(spotlight)))} vs last mo
+                          {' · '}<span aria-hidden>{growthOf(spotlight) > 0 ? '▲' : '▼'}</span> {compactMoney(Math.abs(growthOf(spotlight)))} vs last mo
                         </span>
                       )}
                     </div>
@@ -303,7 +303,7 @@ export default function NetworkPage() {
           )}
 
           {/* toolbar: arama + siralama + gorunum */}
-          <div className="mt-5 mb-[14px] flex flex-wrap items-center gap-2.5">
+          <div className="mt-5 mb-3.5 flex flex-wrap items-center gap-2.5">
             <Input
               aria-label="Search leaders by name or code"
               placeholder="Search leader or code…"
@@ -335,7 +335,7 @@ export default function NetworkPage() {
           {sortedLeaders.length === 0 ? (
             <div className="py-[18px] text-sm text-muted-foreground">No leaders match “{query}”.</div>
           ) : view === 'cards' ? (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-[14px]">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3.5">
               {sortedLeaders.map((l) => {
                 const st = leaderStatus(l);
                 return (
@@ -365,14 +365,14 @@ export default function NetworkPage() {
                           <StatusPill s={st} />
                         </div>
                       </div>
-                      <div className="mt-[13px] flex items-center gap-2">
+                      <div className="mt-3 flex items-center gap-2">
                         <span className="min-w-[38px] text-[10px] text-muted-foreground/70">⬡ {l.teamSize}</span>
                         <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
                           <div className={cn('h-full rounded-full', STATUS_META[st].bar)} style={{ width: `${Math.round(activeRatioOf(l) * 100)}%` }} />
                         </div>
                         <span className="text-[10px] text-muted-foreground/70">{Math.round(activeRatioOf(l) * 100)}%</span>
                       </div>
-                      <div className="mt-[13px] flex items-end justify-between">
+                      <div className="mt-3 flex items-end justify-between">
                         <div>
                           <div className="text-[10px] text-muted-foreground/70">Volume (mo)</div>
                           <div className="text-[15px] font-bold tabular-nums text-foreground">{money(l.monthlyGroupVolumeCents)}</div>

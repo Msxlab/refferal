@@ -18,18 +18,18 @@ export default function TermsPage() {
 
           {SECTIONS.map((s) => (
             <section key={s.h} style={{ marginBottom: 18 }}>
-              <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>{s.h}</h2>
-              <p className="faint" style={{ fontSize: 13.5, lineHeight: 1.6, margin: 0 }}>{s.b}</p>
+              <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--text-lg)', fontWeight: 700, marginBottom: 6 }}>{s.h}</h2>
+              <p className="faint" style={{ fontSize: 'var(--text-md)', lineHeight: 1.6, margin: 0 }}>{s.b}</p>
             </section>
           ))}
 
-          <div className="faint" style={{ fontSize: 11.5, marginTop: 18, paddingTop: 14, borderTop: '1px solid hsl(var(--border))', lineHeight: 1.55 }}>
+          <div className="faint" style={{ fontSize: 'var(--text-xs)', marginTop: 18, paddingTop: 14, borderTop: '1px solid hsl(var(--border))', lineHeight: 1.55 }}>
             Past earnings are not a guarantee of future income. Commission is earned only from real, approved
             product sales. These terms may be updated; continued participation means you accept the current terms.
           </div>
 
           <div style={{ marginTop: 20 }}>
-            <Link href="/login" className="btn ghost sm">← Back</Link>
+            <Link href="/login" className="btn ghost sm"><span aria-hidden="true">←</span> Back</Link>
           </div>
         </div>
       </div>

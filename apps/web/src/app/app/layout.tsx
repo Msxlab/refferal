@@ -62,9 +62,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div>
       {imp && (
-        <div className="no-print" style={{ background: 'var(--amber)', color: '#1a1404', padding: '8px 18px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, fontSize: 13, fontWeight: 600 }}>
-          <span>👁 Viewing as <b>{session.user.fullName}</b> — read only</span>
-          <button className="btn sm" style={{ background: '#1a1404', color: 'var(--amber)' }} onClick={exitImpersonation}>Exit impersonation</button>
+        <div className="no-print" style={{ background: 'var(--amber)', color: 'color-mix(in srgb, var(--amber) 24%, black)', padding: '8px 18px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, fontSize: 13, fontWeight: 600 }}>
+          <span><span aria-hidden="true">👁 </span>Viewing as <b>{session.user.fullName}</b> — read only</span>
+          <button className="btn sm" style={{ background: 'color-mix(in srgb, var(--amber) 24%, black)', color: 'var(--amber)' }} onClick={exitImpersonation}>Exit impersonation</button>
         </div>
       )}
       <header className="topbar">
@@ -73,15 +73,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <nav>
             {NAV.map((n) => (
               <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
-                <span style={{ opacity: 0.85, marginRight: 6 }}>{n.ic}</span>{t(n.key)}
+                <span aria-hidden="true" style={{ opacity: 0.85, marginRight: 6 }}>{n.ic}</span>{t(n.key)}
               </Link>
             ))}
           </nav>
           <span className="faint" style={{ fontSize: 12 }}>{active?.tenantName}</span>
           <NotificationBell />
           <ThemeToggle />
-          <Link href="/account" className="btn ghost sm" title="Account settings">Account</Link>
-          <button className="btn ghost sm" onClick={logout}>{t('nav.logout')}</button>
+          <Link href="/account" className="btn ghost sm" title="Account settings" aria-label="Account settings">Account</Link>
+          <button className="btn ghost sm" onClick={logout} aria-label={t('nav.logout')}>{t('nav.logout')}</button>
         </div>
       </header>
       <main className="appmain">{children}</main>

@@ -60,7 +60,7 @@ export function Donut({ segments, size = 168, thickness = 20, center }: { segmen
   return (
     <div role="img" aria-label={ariaLabel} style={{ position: 'relative', width: '100%', maxWidth: size, aspectRatio: '1 / 1', margin: '0 auto' }}>
       <svg viewBox={`0 0 ${size} ${size}`} width="100%" height="100%" aria-hidden="true" style={{ transform: 'rotate(-90deg)', display: 'block' }}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,.06)" strokeWidth={thickness} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="hsl(var(--muted))" strokeWidth={thickness} />
         {total > 0 &&
           segments.map((s, i) => {
             const frac = Math.max(0, s.value) / total;
@@ -77,7 +77,7 @@ export function Donut({ segments, size = 168, thickness = 20, center }: { segmen
                 strokeLinecap="round"
                 strokeDasharray={`${len} ${c - len}`}
                 strokeDashoffset={-offset}
-                style={{ transition: 'stroke-dasharray .7s ease, stroke-dashoffset .7s ease' }}
+                style={{ transition: 'stroke-dasharray var(--dur-slow) var(--ease-out), stroke-dashoffset var(--dur-slow) var(--ease-out)' }}
               />
             );
             offset += len;
@@ -98,18 +98,18 @@ export function Bars({ data, max, format }: { data: Array<{ label: string; value
     <div className="grid" role="list" style={{ gap: 'var(--space-3)' }}>
       {data.map((d, i) => (
         <div key={i} role="listitem" aria-label={`${d.label}: ${format ? format(d.value) : d.value}`}>
-          <div className="spread" style={{ marginBottom: 5 }}>
-            <span className="muted" style={{ fontSize: 12 }}>{d.label}</span>
-            <span className="tnum" style={{ fontSize: 13, fontWeight: 650 }}>{format ? format(d.value) : d.value}</span>
+          <div className="spread" style={{ marginBottom: 'var(--space-1)' }}>
+            <span className="muted" style={{ fontSize: 'var(--text-sm)' }}>{d.label}</span>
+            <span className="tnum" style={{ fontSize: 'var(--text-md)', fontWeight: 600 }}>{format ? format(d.value) : d.value}</span>
           </div>
-          <div style={{ height: 9, borderRadius: 6, background: 'rgba(255,255,255,.05)', overflow: 'hidden' }}>
+          <div style={{ height: 9, borderRadius: 6, background: 'hsl(var(--muted))', overflow: 'hidden' }}>
             <div
               style={{
                 height: '100%',
                 width: `${Math.min(100, (d.value / top) * 100)}%`,
                 borderRadius: 6,
                 background: d.color ?? 'var(--grad-primary)',
-                transition: 'width .7s cubic-bezier(.2,.9,.3,1)',
+                transition: 'width var(--dur-slow) var(--ease-out)',
               }}
             />
           </div>
@@ -128,7 +128,7 @@ export function StatCard({ label, value, icon, grad, hint, delay }: { label: str
         {icon && <span className="icon" style={grad ? { background: grad } : undefined}>{icon}</span>}
       </div>
       <div className="v">{value}</div>
-      {hint && <div className="faint" style={{ fontSize: 11, marginTop: 6 }}>{hint}</div>}
+      {hint && <div className="faint" style={{ fontSize: 'var(--text-xs)', marginTop: 'var(--space-2)' }}>{hint}</div>}
     </div>
   );
 }
@@ -163,7 +163,7 @@ export function Modal({ title, children, onClose }: { title: string; children: R
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ fontWeight: 720, fontSize: 'var(--text-lg)', marginBottom: 'var(--space-3)' }}>{title}</div>
+        <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 'var(--text-lg)', marginBottom: 'var(--space-3)', letterSpacing: '-.01em' }}>{title}</div>
         {children}
       </div>
     </div>
@@ -182,7 +182,7 @@ export function Confirm({ title, message, confirmLabel, danger, onConfirm, onClo
   return (
     <Modal title={title} onClose={onClose}>
       <p className="muted" style={{ marginTop: 0 }}>{message}</p>
-      <div className="row" style={{ justifyContent: 'flex-end', marginTop: 18 }}>
+      <div className="row" style={{ justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 'var(--space-5)' }}>
         <button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
         <button className={`btn ${danger ? 'danger' : ''}`} onClick={onConfirm} disabled={busy}>{confirmLabel}</button>
       </div>
@@ -194,13 +194,13 @@ export function Confirm({ title, message, confirmLabel, danger, onConfirm, onClo
 export function Brand({ size = 'md' }: { size?: 'md' | 'lg' }) {
   const dot = size === 'lg' ? 34 : 26;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
       <span
         style={{
           width: dot, height: dot, borderRadius: dot * 0.32, background: 'var(--foil)',
           display: 'grid', placeItems: 'center', color: 'var(--on-gold)',
           fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: dot * 0.56,
-          boxShadow: '0 8px 20px -8px rgba(212,175,55,.7)',
+          boxShadow: '0 8px 20px -8px hsl(var(--primary) / .7)',
         }}
       >
         {APP_MONOGRAM}
@@ -231,7 +231,7 @@ export function ThemeToggle() {
   }
   return (
     <button className="theme-toggle" onClick={toggle} aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
-      {theme === 'dark' ? '☾' : '☀'}
+      <span aria-hidden="true">{theme === 'dark' ? '☾' : '☀'}</span>
     </button>
   );
 }
@@ -255,8 +255,8 @@ export function Toggle({ label, checked, onChange, disabled }: { label: string; 
           border: 'none',
           cursor: disabled ? 'not-allowed' : 'pointer',
           position: 'relative',
-          background: checked ? 'var(--grad-emerald)' : 'rgba(255,255,255,.12)',
-          transition: 'background var(--dur-fast) ease',
+          background: checked ? 'var(--emerald)' : 'hsl(var(--muted))',
+          transition: 'background var(--dur-fast) var(--ease-out)',
           opacity: disabled ? 0.5 : 1,
         }}
       >
@@ -269,8 +269,9 @@ export function Toggle({ label, checked, onChange, disabled }: { label: string; 
             width: 20,
             height: 20,
             borderRadius: '50%',
-            background: '#fff',
-            transition: 'left var(--dur-fast) ease',
+            background: 'hsl(var(--card))',
+            boxShadow: '0 1px 3px hsl(var(--foreground) / .25)',
+            transition: 'left var(--dur-fast) var(--ease-out)',
           }}
         />
       </button>
@@ -281,10 +282,54 @@ export function Toggle({ label, checked, onChange, disabled }: { label: string; 
 /* ----------------------------------------------------- yukleme iskeleti */
 export function Loading({ rows = 3 }: { rows?: number }) {
   return (
-    <div className="grid" role="status" aria-label="Loading">
+    <div className="grid" role="status" aria-live="polite" aria-label="Loading">
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="skeleton" style={{ height: 64 }} />
       ))}
+    </div>
+  );
+}
+
+/* ----------------------------------------------------- bos durum */
+export function Empty({ icon, title, message, action }: { icon?: ReactNode; title?: string; message: string; action?: ReactNode }) {
+  return (
+    <div
+      role="status"
+      style={{
+        display: 'grid',
+        placeItems: 'center',
+        textAlign: 'center',
+        gap: 'var(--space-2)',
+        padding: 'var(--space-8) var(--space-4)',
+      }}
+    >
+      {icon && <div aria-hidden="true" style={{ fontSize: 'var(--text-2xl)', opacity: 0.5 }}>{icon}</div>}
+      {title && <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 'var(--text-md)' }}>{title}</div>}
+      <p className="muted" style={{ margin: 0, maxWidth: 320, fontSize: 'var(--text-md)' }}>{message}</p>
+      {action && <div style={{ marginTop: 'var(--space-2)' }}>{action}</div>}
+    </div>
+  );
+}
+
+/* ----------------------------------------------------- hata durumu */
+export function Error({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <div
+      role="alert"
+      style={{
+        display: 'grid',
+        placeItems: 'center',
+        textAlign: 'center',
+        gap: 'var(--space-3)',
+        padding: 'var(--space-8) var(--space-4)',
+        color: 'var(--rose)',
+      }}
+    >
+      <span aria-hidden="true" style={{ fontSize: 'var(--text-2xl)' }}>⚠</span>
+      <p style={{ margin: 0, maxWidth: 320, fontSize: 'var(--text-md)', fontWeight: 600 }}>{message}</p>
+      {onRetry && (
+        <button className="btn ghost sm" onClick={onRetry} style={{ color: 'var(--text)' }}>Try again</button>
+      )}
     </div>
   );
 }
@@ -306,11 +351,11 @@ export function Pagination({ page, pageSize, total, onPage }: { page: number; pa
   const first = (page - 1) * pageSize + 1;
   const last = Math.min(page * pageSize, total);
   return (
-    <div className="row no-print" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
-      <span className="faint tnum" style={{ fontSize: 12 }}>{first}–{last} / {total}</span>
-      <button className="btn ghost sm" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page">‹</button>
-      <span className="tnum" style={{ fontSize: 12 }}>{page} / {pages}</span>
-      <button className="btn ghost sm" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page">›</button>
+    <div className="row no-print" style={{ justifyContent: 'flex-end', flexWrap: 'wrap', gap: 'var(--space-2)', marginTop: 'var(--space-3)' }}>
+      <span className="faint tnum" style={{ fontSize: 'var(--text-sm)' }}>{first}–{last} / {total}</span>
+      <button className="btn ghost sm" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page"><span aria-hidden="true">‹</span></button>
+      <span className="tnum" style={{ fontSize: 'var(--text-sm)' }}>{page} / {pages}</span>
+      <button className="btn ghost sm" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page"><span aria-hidden="true">›</span></button>
     </div>
   );
 }
@@ -365,22 +410,30 @@ export function useTablePrefs(tableId: string, columns: TableColumn[]): TablePre
 /** Kolon/yogunluk menusu (Popover). Kilitli kolonlar her zaman acik. */
 export function ColumnsMenu({ prefs }: { prefs: TablePrefs }) {
   return (
-    <Popover label={<>⚙ Columns</>} badge={prefs.hiddenCount} width={240}>
-      <div className="grid" style={{ gap: 4 }}>
+    <Popover label={<><span aria-hidden="true">⚙</span> Columns</>} badge={prefs.hiddenCount} width={240}>
+      <div className="grid" style={{ gap: 'var(--space-1)' }}>
         {prefs.columns.map((c) => {
           const on = c.locked || prefs.isVisible(c.key);
+          const toggle = () => { if (!c.locked) prefs.toggle(c.key); };
           return (
-            <label key={c.key} onClick={(e) => { e.preventDefault(); if (!c.locked) prefs.toggle(c.key); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', borderRadius: 8, cursor: c.locked ? 'default' : 'pointer', fontSize: 13, opacity: c.locked ? 0.6 : 1 }}>
-              <span style={{ width: 14, height: 14, borderRadius: 4, display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 900, background: on ? 'var(--gold-500)' : 'transparent', border: on ? 'none' : '1.5px solid var(--border-strong)', color: 'var(--on-gold)' }}>{on ? '✓' : ''}</span>
-              {c.label}{c.locked && <span className="faint" style={{ fontSize: 10 }}>(fixed)</span>}
-            </label>
+            <div
+              key={c.key}
+              role="checkbox"
+              aria-checked={on}
+              aria-disabled={c.locked || undefined}
+              tabIndex={c.locked ? -1 : 0}
+              onClick={toggle}
+              onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); } }}
+              style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: 'var(--space-2) var(--space-3)', borderRadius: 8, cursor: c.locked ? 'default' : 'pointer', fontSize: 'var(--text-md)', opacity: c.locked ? 0.6 : 1 }}>
+              <span aria-hidden="true" style={{ width: 14, height: 14, borderRadius: 4, display: 'grid', placeItems: 'center', fontSize: 'var(--text-xs)', fontWeight: 900, background: on ? 'var(--gold-500)' : 'transparent', border: on ? 'none' : '1.5px solid var(--border-strong)', color: 'var(--on-gold)' }}>{on ? '✓' : ''}</span>
+              {c.label}{c.locked && <span className="faint" style={{ fontSize: 'var(--text-xs)' }}>(fixed)</span>}
+            </div>
           );
         })}
-        <div className="row" style={{ justifyContent: 'space-between', borderTop: '1px solid hsl(var(--border))', marginTop: 4, paddingTop: 8 }}>
+        <div className="row" style={{ justifyContent: 'space-between', borderTop: '1px solid hsl(var(--border))', marginTop: 'var(--space-1)', paddingTop: 'var(--space-2)' }}>
           <div className="seg-tabs" style={{ padding: 3 }}>
-            <button className={`seg-tab ${prefs.density === 'comfortable' ? 'on' : ''}`} style={{ padding: '5px 9px', fontSize: 12 }} onClick={() => prefs.setDensity('comfortable')}>Comfortable</button>
-            <button className={`seg-tab ${prefs.density === 'compact' ? 'on' : ''}`} style={{ padding: '5px 9px', fontSize: 12 }} onClick={() => prefs.setDensity('compact')}>Compact</button>
+            <button className={`seg-tab ${prefs.density === 'comfortable' ? 'on' : ''}`} onClick={() => prefs.setDensity('comfortable')}>Comfortable</button>
+            <button className={`seg-tab ${prefs.density === 'compact' ? 'on' : ''}`} onClick={() => prefs.setDensity('compact')}>Compact</button>
           </div>
           <button className="btn ghost sm" onClick={prefs.reset}>Reset</button>
         </div>
@@ -405,10 +458,12 @@ export function SortableTh({ label, field, sort, dir, onSort, align }: {
       className="sortable"
       style={align === 'right' ? { textAlign: 'right' } : undefined}
       aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      tabIndex={0}
       onClick={() => onSort(field, active && dir === 'desc' ? 'asc' : 'desc')}
+      onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); onSort(field, active && dir === 'desc' ? 'asc' : 'desc'); } }}
     >
       {label}
-      {active && <span className="sort-ind">{dir === 'asc' ? '▲' : '▼'}</span>}
+      {active && <span className="sort-ind" aria-hidden="true">{dir === 'asc' ? '▲' : '▼'}</span>}
     </th>
   );
 }

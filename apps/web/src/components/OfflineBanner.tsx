@@ -27,8 +27,8 @@ export function OfflineBanner() {
       aria-live="polite"
       style={{
         position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1000,
-        background: '#b45309', color: '#fff', textAlign: 'center',
-        padding: '6px 12px', fontSize: 13, fontWeight: 600,
+        background: 'var(--amber)', color: 'var(--on-gold)', textAlign: 'center',
+        padding: '6px 12px', fontSize: 'var(--text-md)', fontWeight: 600,
       }}
     >
       ⚠ You&apos;re offline — live data can&apos;t update. Some actions are paused until you reconnect.

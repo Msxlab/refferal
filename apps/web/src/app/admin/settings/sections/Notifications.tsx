@@ -21,45 +21,52 @@ const EVENTS: EventRow[] = [
 
 export default function Notifications() {
   return (
-    <div className="grid" style={{ gap: 18 }}>
-      <div className="card" style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+    <div className="grid" style={{ gap: 20 }}>
+      <div className="card" style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
         <Stat label="Delivery" value="Transactional outbox" hint="At-least-once with retry & backoff" />
         <Stat label="Email transport" value="SMTP / provider" hint="Pluggable adapter (env-selected)" />
         <Stat label="Mobile push" value="Expo" hint="Per-device tokens" />
       </div>
 
       <section>
-        <div style={{ marginBottom: 10 }}>
-          <strong style={{ fontSize: 15 }}>Event routing <span className="badge draft" style={{ fontSize: 10, marginLeft: 6, verticalAlign: 'middle' }}>Read-only defaults</span></strong>
+        <div style={{ marginBottom: 12 }}>
+          <strong style={{ fontFamily: 'var(--font-display)', fontSize: 15 }}>Event routing <span className="badge draft" style={{ fontSize: 10, marginLeft: 6, verticalAlign: 'middle' }}>Read-only defaults</span></strong>
           <div className="faint" style={{ fontSize: 12 }}>Default channels per event (not editable yet). Per-member overrides arrive with the in-app inbox.</div>
         </div>
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Event</th><th>Recipient</th>
-                {CHANNELS.map((c) => <th key={c} style={{ textAlign: 'center' }}>{c}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {EVENTS.map((e) => (
-                <tr key={e.event}>
-                  <td style={{ fontWeight: 600 }}>{e.event}</td>
-                  <td className="faint" style={{ fontSize: 12 }}>{e.who}</td>
-                  {e.def.map((on, i) => (
-                    <td key={i} style={{ textAlign: 'center' }}>
-                      <span style={{
-                        display: 'inline-block', width: 16, height: 16, borderRadius: 5,
-                        background: on ? 'var(--emerald)' : 'transparent',
-                        border: on ? 'none' : '1.5px solid var(--border-strong)',
-                        color: '#fff', fontSize: 11, fontWeight: 900, lineHeight: '16px',
-                      }}>{on ? '✓' : ''}</span>
-                    </td>
-                  ))}
+          <div style={{ overflowX: 'auto' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Event</th><th>Recipient</th>
+                  {CHANNELS.map((c) => <th key={c} style={{ textAlign: 'center' }}>{c}</th>)}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {EVENTS.map((e) => (
+                  <tr key={e.event}>
+                    <td style={{ fontWeight: 600 }}>{e.event}</td>
+                    <td className="faint" style={{ fontSize: 12 }}>{e.who}</td>
+                    {e.def.map((on, i) => (
+                      <td key={i} style={{ textAlign: 'center' }}>
+                        <span
+                          role="img"
+                          aria-label={`${CHANNELS[i]} ${on ? 'enabled' : 'disabled'}`}
+                          className="rounded-sm"
+                          style={{
+                            display: 'inline-block', width: 16, height: 16,
+                            background: on ? 'var(--emerald)' : 'transparent',
+                            border: on ? 'none' : '1.5px solid var(--border-strong)',
+                            color: 'hsl(var(--primary-foreground))', fontSize: 11, fontWeight: 900, lineHeight: '16px',
+                          }}
+                        >{on ? '✓' : ''}</span>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
     </div>
@@ -70,7 +77,7 @@ function Stat({ label, value, hint }: { label: string; value: string; hint: stri
   return (
     <div style={{ flex: 1, minWidth: 160 }}>
       <div className="faint" style={{ fontSize: 11 }}>{label}</div>
-      <div style={{ fontWeight: 700, fontSize: 14, marginTop: 3 }}>{value}</div>
+      <div style={{ fontWeight: 700, fontSize: 15, marginTop: 3 }}>{value}</div>
       <div className="faint" style={{ fontSize: 11, marginTop: 2 }}>{hint}</div>
     </div>
   );

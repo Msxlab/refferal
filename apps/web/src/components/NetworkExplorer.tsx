@@ -49,8 +49,8 @@ function compactMoney(cents: number): string {
 const ROLE_BG: Record<string, string> = {
   tenant_owner: 'var(--foil)',
   tenant_admin: 'var(--foil)',
-  tenant_staff: 'rgba(91,124,250,.9)',
-  member: 'rgba(255,255,255,.1)',
+  tenant_staff: 'hsl(var(--primary) / .9)',
+  member: 'hsl(var(--muted))',
 };
 
 /* ---- ozel agac dugumu ---- */
@@ -75,7 +75,7 @@ function MemberNode({ data }: NodeProps<Node<NodeData>>) {
       <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 13,
-          color: owner ? 'var(--on-gold)' : 'var(--text)', background: ROLE_BG[n.role] ?? 'rgba(255,255,255,.1)', flexShrink: 0, fontFamily: 'var(--font-display)' }}>
+          color: owner ? 'var(--on-gold)' : 'var(--text)', background: ROLE_BG[n.role] ?? 'hsl(var(--muted))', flexShrink: 0, fontFamily: 'var(--font-display)' }}>
           {n.fullName.charAt(0).toUpperCase()}
         </span>
         <div style={{ minWidth: 0, flex: 1 }}>
@@ -112,23 +112,42 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
   const [mode, setMode] = useState<'dark' | 'light'>('dark');
   const [heat, setHeat] = useState<'none' | 'revenue' | 'earnings'>('none');
   const [printing, setPrinting] = useState(false);
+  // hafif disa-aktarim geri bildirimi (PNG/CSV basari/hata) — sessiz no-op yerine
+  const [notice, setNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const flowRef = useRef<HTMLDivElement>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashNotice = useCallback((kind: 'ok' | 'err', text: string) => {
+    setNotice({ kind, text });
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(null), 3200);
+  }, []);
+  useEffect(() => () => { if (noticeTimer.current) clearTimeout(noticeTimer.current); }, []);
   const tenantName = useMemo(() => { const s = getSession(); return (s && activeMembership(s)?.tenantName) || 'Refearn'; }, []);
   const toggleExpand = (id: string) => setExpanded((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   // bu ay ciro var mi? (tree ucu doldurur; platform ag verisinde olmayabilir)
   const hasRevenue = useMemo(() => nodes.some((n) => Number(n.revenueCents ?? 0) > 0), [nodes]);
 
-  // react-flow viewport'unu PNG indir
+  // react-flow viewport'unu PNG indir.
+  // html-to-image RASTER canvas'a cizer (DOM degil), o yuzden CSS var() dogrudan calismaz —
+  // sayfa arka planini canli temadan (--bg-0) cozup gecirerek PNG'nin gercek zemine uymasini saglariz.
   const exportPng = useCallback(async () => {
     const el = flowRef.current?.querySelector('.react-flow__viewport') as HTMLElement | null;
-    if (!el) return;
+    if (!el) { flashNotice('err', 'Nothing to export yet.'); return; }
     try {
-      const dataUrl = await toPng(el, { backgroundColor: mode === 'dark' ? '#0c0e13' : '#ffffff', pixelRatio: 2, cacheBust: true });
+      // canli temadan zemini coz: once --bg-0, yoksa --background triplet'i; ikisi de yoksa seffaf birak
+      const cs = getComputedStyle(document.documentElement);
+      const bg0 = cs.getPropertyValue('--bg-0').trim();
+      const bgTriplet = cs.getPropertyValue('--background').trim();
+      const bg = bg0 || (bgTriplet ? `hsl(${bgTriplet})` : undefined);
+      const dataUrl = await toPng(el, { backgroundColor: bg, pixelRatio: 2, cacheBust: true });
       const a = document.createElement('a');
       a.href = dataUrl; a.download = `${title}-network.png`; a.click();
-    } catch { /* export basarisiz — sessiz gec */ }
-  }, [mode, title]);
+      flashNotice('ok', 'PNG downloaded.');
+    } catch {
+      flashNotice('err', 'Could not export PNG.');
+    }
+  }, [title, flashNotice]);
 
   useEffect(() => {
     setMode((document.documentElement.getAttribute('data-theme') as 'dark' | 'light') ?? 'dark');
@@ -267,7 +286,8 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
     const a = document.createElement('a');
     a.href = url; a.download = `${title}-network.csv`; a.click();
     URL.revokeObjectURL(url);
-  }, [subtree, byId, childrenOf, teamOf, rankOf, subtreeRevById, title]);
+    flashNotice('ok', `Exported ${subtree.length} ${subtree.length === 1 ? 'row' : 'rows'} to CSV.`);
+  }, [subtree, byId, childrenOf, teamOf, rankOf, subtreeRevById, title, flashNotice]);
 
   /* ---- agac layout ---- */
   const { rfNodes, rfEdges } = useMemo<{ rfNodes: Node<NodeData>[]; rfEdges: Edge[] }>(() => {
@@ -364,11 +384,17 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
 
       {/* ---- temiz arac cubugu ---- */}
       <div className="row" style={{ gap: 10, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
-        <div className="seg-tabs" role="tablist" style={{ padding: 4 }}>
-          <button className={`seg-tab ${view === 'tree' ? 'on' : ''}`} onClick={() => setView('tree')}>⤳ Tree</button>
-          <button className={`seg-tab ${view === 'list' ? 'on' : ''}`} onClick={() => setView('list')}>☰ List</button>
+        <div className="seg-tabs" role="tablist" aria-label="Network view" style={{ padding: 4 }}>
+          <button role="tab" aria-selected={view === 'tree'} className={`seg-tab ${view === 'tree' ? 'on' : ''}`} onClick={() => setView('tree')}><span aria-hidden>⤳</span> Tree</button>
+          <button role="tab" aria-selected={view === 'list'} className={`seg-tab ${view === 'list' ? 'on' : ''}`} onClick={() => setView('list')}><span aria-hidden>☰</span> List</button>
         </div>
-        <input placeholder="Search name or code…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ maxWidth: 240, flex: 1, minWidth: 160 }} />
+        <input
+          aria-label="Search network by name or code"
+          placeholder="Search name or code…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          style={{ maxWidth: 240, flex: 1, minWidth: 160 }}
+        />
         {view === 'list' && !query && (
           <>
             <button className="btn ghost sm" onClick={() => setExpanded(new Set(parentIds))}>Expand all</button>
@@ -380,12 +406,18 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
             className={`btn sm ${heat === 'none' ? 'ghost' : ''}`}
             onClick={() => setHeat((h) => h === 'none' ? 'revenue' : h === 'revenue' ? 'earnings' : 'none')}
             title="Shade nodes by metric (heat map)"
-          >◉ Heat: {heat === 'none' ? 'off' : heat === 'revenue' ? 'revenue' : 'earnings'}</button>
+            aria-pressed={heat !== 'none'}
+          ><span aria-hidden>◉</span> Heat: {heat === 'none' ? 'off' : heat === 'revenue' ? 'revenue' : 'earnings'}</button>
         )}
-        <button className="btn ghost sm" onClick={exportCsv}>⇩ CSV</button>
-        <button className="btn ghost sm" onClick={() => setPrinting(true)}>⇩ Print</button>
-        {view === 'tree' && <button className="btn ghost sm" onClick={exportPng}>⇩ PNG</button>}
+        <button className="btn ghost sm" onClick={exportCsv}><span aria-hidden>⇩</span> CSV</button>
+        <button className="btn ghost sm" onClick={() => setPrinting(true)}><span aria-hidden>⇩</span> Print</button>
+        {view === 'tree' && <button className="btn ghost sm" onClick={exportPng}><span aria-hidden>⇩</span> PNG</button>}
         <span className="faint" style={{ fontSize: 12 }}>{subtree.length} {subtree.length === 1 ? 'person' : 'people'}</span>
+        {notice && (
+          <span role="status" aria-live="polite" style={{ fontSize: 12, fontWeight: 600, color: notice.kind === 'ok' ? 'var(--emerald)' : 'var(--rose)' }}>
+            {notice.text}
+          </span>
+        )}
       </div>
 
       {/* ---- breadcrumb (odak) ---- */}
@@ -402,17 +434,29 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
       )}
 
       {view === 'tree' ? (
-        <div ref={flowRef} className="card" style={{ padding: 0, overflow: 'hidden', height: '66vh' }}>
-          <ReactFlow
-            nodes={rfNodes} edges={rfEdges} nodeTypes={nodeTypes} fitView colorMode={mode}
-            onNodeClick={onNodeClick}
-            minZoom={0.2} maxZoom={1.8} proOptions={{ hideAttribution: true }}
-            nodesDraggable={false} nodesConnectable={false}
-          >
-            <Background gap={20} size={1} color="hsl(var(--border))" />
-            <Controls showInteractive={false} />
-            <MiniMap pannable zoomable nodeColor={() => 'var(--gold-600)'} maskColor="rgba(0,0,0,.5)" style={{ background: 'var(--panel-2)' }} />
-          </ReactFlow>
+        <div ref={flowRef} className="card" style={{ padding: 0, overflow: 'hidden', height: '66vh', minHeight: 360 }}>
+          {rfNodes.length === 0 ? (
+            <div style={{ display: 'grid', placeItems: 'center', height: '100%', padding: 24 }}>
+              <div style={{ textAlign: 'center' }}>
+                <div aria-hidden style={{ fontSize: 28, opacity: 0.6 }}>⬡</div>
+                <div style={{ fontWeight: 600, fontSize: 14, marginTop: 8 }}>No members in this branch</div>
+                <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
+                  {query ? 'Try a different search.' : 'This branch has no one to show yet.'}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <ReactFlow
+              nodes={rfNodes} edges={rfEdges} nodeTypes={nodeTypes} fitView colorMode={mode}
+              onNodeClick={onNodeClick}
+              minZoom={0.2} maxZoom={1.8} proOptions={{ hideAttribution: true }}
+              nodesDraggable={false} nodesConnectable={false}
+            >
+              <Background gap={20} size={1} color="hsl(var(--border))" />
+              <Controls showInteractive={false} />
+              <MiniMap pannable zoomable nodeColor={() => 'var(--gold-600)'} maskColor="hsl(var(--background) / .5)" style={{ background: 'var(--panel-2)' }} />
+            </ReactFlow>
+          )}
         </div>
       ) : (
         <div className="card" style={{ padding: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
@@ -514,7 +558,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
           <PrintHeader tenantName={tenantName} title="Network Genealogy" subtitle={`${title} · ${printRows.length} people`} />
           <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid #999', textAlign: 'left' }}>
+              <tr style={{ borderBottom: '1px solid hsl(var(--foreground) / .4)', textAlign: 'left' }}>
                 <th style={{ padding: '4px 6px' }}>Member</th>
                 <th style={{ padding: '4px 6px' }}>Code</th>
                 <th style={{ padding: '4px 6px', textAlign: 'right' }}>Lvl</th>
@@ -527,7 +571,7 @@ export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggle
             </thead>
             <tbody>
               {printRows.map(({ n, rel }) => (
-                <tr key={n.id} style={{ borderBottom: '1px solid #eee', breakInside: 'avoid' }}>
+                <tr key={n.id} style={{ borderBottom: '1px solid hsl(var(--border))', breakInside: 'avoid' }}>
                   <td style={{ padding: `3px 6px 3px ${6 + rel * 16}px` }}>{rel > 0 ? '└ ' : ''}{n.fullName}{n.isTeamLeader ? ' 🎖' : ''}</td>
                   <td style={{ padding: '3px 6px', fontFamily: 'ui-monospace, monospace' }}>{n.referralCode}</td>
                   <td style={{ padding: '3px 6px', textAlign: 'right' }}>{n.depth}</td>

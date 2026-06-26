@@ -37,7 +37,21 @@ export function EarningsSimulator() {
       }));
   }, [plan, dollars]);
 
-  if (!plan) return null;
+  // plan henuz yuklenmedi: kart pop'lamasin diye hafif iskelet goster (kardes kartlarla uyumlu)
+  if (!plan) {
+    return (
+      <div className="card fade-in delay-2" style={{ marginTop: 16 }} aria-busy="true" aria-label="Loading earnings simulator">
+        <div className="spread" style={{ alignItems: 'flex-start', marginBottom: 12 }}>
+          <div style={{ flex: 1 }}>
+            <div className="skeleton" style={{ width: 160, height: 16, borderRadius: 6 }} />
+            <div className="skeleton" style={{ width: 240, height: 12, borderRadius: 6, marginTop: 8 }} />
+          </div>
+          <div className="skeleton" style={{ width: 96, height: 34, borderRadius: 8 }} />
+        </div>
+        <div className="skeleton" style={{ width: '100%', height: 64, borderRadius: 12 }} />
+      </div>
+    );
+  }
   if (!plan.active) return null;
 
   const direct = rows.find((r) => r.level === 0);
@@ -47,11 +61,11 @@ export function EarningsSimulator() {
     <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
       <div className="spread" style={{ alignItems: 'flex-start', marginBottom: 12 }}>
         <div>
-          <strong style={{ fontSize: 15 }}>Earnings simulator</strong>
-          <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>See what you&apos;d earn on a sale — by you, or by your team.</div>
+          <strong style={{ fontSize: 'var(--text-lg)' }}>Earnings simulator</strong>
+          <div className="faint" style={{ fontSize: 'var(--text-sm)', marginTop: 2 }}>See what you&apos;d earn on a sale — by you, or by your team.</div>
         </div>
         <div className="field" style={{ margin: 0 }}>
-          <label style={{ fontSize: 11 }}>Sale amount ($)</label>
+          <label style={{ fontSize: 'var(--text-xs)' }}>Sale amount ($)</label>
           <input value={dollars} onChange={(e) => setDollars(e.target.value)} inputMode="decimal" style={{ maxWidth: 120 }} />
         </div>
       </div>
@@ -61,16 +75,16 @@ export function EarningsSimulator() {
           <div className="spread" style={{ alignItems: 'center' }}>
             <div>
               <div style={{ fontWeight: 700 }}>If <span style={{ color: 'var(--emerald)' }}>you</span> make this sale</div>
-              <div className="faint" style={{ fontSize: 12 }}>Your direct commission ({(direct.rateBps / 100).toFixed(2)}%)</div>
+              <div className="faint" style={{ fontSize: 'var(--text-sm)' }}>Your direct commission ({(direct.rateBps / 100).toFixed(2)}%)</div>
             </div>
-            <div className="tnum" style={{ fontSize: 22, fontWeight: 800, color: 'var(--emerald)' }}>{money(direct.earnCents, 'USD')}</div>
+            <div className="tnum" style={{ fontSize: 'var(--text-xl)', fontWeight: 800, color: 'var(--emerald)' }}>{money(direct.earnCents, 'USD')}</div>
           </div>
         </div>
       )}
 
       {teamRows.length > 0 && (
         <>
-          <div className="faint" style={{ fontSize: 12, marginBottom: 6 }}>…and when your team sells, you earn too:</div>
+          <div className="faint" style={{ fontSize: 'var(--text-sm)', marginBottom: 6 }}>…and when your team sells, you earn too:</div>
           <div className="card" style={{ background: 'var(--panel-2)', padding: 0, overflowX: 'auto' }}>
             <table>
               <thead><tr><th>If a teammate sells</th><th>Your rate</th><th style={{ textAlign: 'right' }}>You earn</th></tr></thead>
@@ -87,7 +101,7 @@ export function EarningsSimulator() {
           </div>
         </>
       )}
-      <div className="faint" style={{ fontSize: 11, marginTop: 12, lineHeight: 1.5 }}>
+      <div className="faint" style={{ fontSize: 'var(--text-xs)', marginTop: 12, lineHeight: 1.5 }}>
         Estimates from your company&apos;s active plan{plan.name ? ` (“${plan.name}”)` : ''}. Actual commission depends on approval, your rank, and active campaigns.
       </div>
     </div>

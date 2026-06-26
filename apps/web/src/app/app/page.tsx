@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
 import { Bars, Donut, Loading, MoneyCounter } from '@/components/ui';
@@ -67,8 +67,13 @@ export default function MemberDashboard() {
   const [npsDone, setNpsDone] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
+  const loadDashboard = useCallback(() => {
+    setError('');
     api.get<Dashboard>('/app/dashboard').then(setData).catch((e) => setError(String((e as ApiError).message)));
+  }, []);
+
+  useEffect(() => {
+    loadDashboard();
     api.get<Earnings>('/app/earnings?months=6').then(setEarnings).catch(() => { /* grafik opsiyonel */ });
     api.get<MyCampaign[]>('/app/campaigns').then(setCampaigns).catch(() => { /* opsiyonel */ });
     api.get<{ rank: number | null; total: number; topPercent: number | null }>('/app/leaderboard').then(setRankInfo).catch(() => { /* opsiyonel */ });
@@ -76,7 +81,7 @@ export default function MemberDashboard() {
     api.get<{ steps: { key: string; label: string; done: boolean }[]; percent: number }>('/app/onboarding').then(setOnboarding).catch(() => { /* opsiyonel */ });
     api.get<{ current: string | null; next: string | null; overallPct: number; overrideBps?: number; badges: { key: string; label: string; earned: boolean }[] }>('/app/rank').then(setRank).catch(() => { /* opsiyonel */ });
     api.get<{ id: string; title: string; body: string; createdAt: string; read: boolean }[]>('/app/announcements').then(setAnnouncements).catch(() => { /* opsiyonel */ });
-  }, []);
+  }, [loadDashboard]);
 
   async function dismissAnnouncement(id: string) {
     try { await api.post(`/app/announcements/${id}/read`); setAnnouncements((a) => a.map((x) => x.id === id ? { ...x, read: true } : x)); } catch { /* sessiz */ }
@@ -88,7 +93,17 @@ export default function MemberDashboard() {
     catch { /* sessiz */ }
   }
 
-  if (error) return <div className="error">{error}</div>;
+  if (error) return (
+    <div>
+      <div className="eyebrow fade-in">{t('anav.home')}</div>
+      <h1 className="h1 fade-in">{t('me.title')}</h1>
+      <p className="sub fade-in">{t('me.sub')}</p>
+      <div className="card fade-in" style={{ textAlign: 'center', padding: '32px 18px' }}>
+        <div className="error" style={{ margin: '0 0 14px' }}>{error}</div>
+        <button className="btn ghost sm" onClick={loadDashboard} style={{ margin: '0 auto' }}>Try again</button>
+      </div>
+    </div>
+  );
   if (!data) return <Loading />;
 
   const c = data.currency;
@@ -111,7 +126,10 @@ export default function MemberDashboard() {
 
   return (
     <div>
-      <div className="eyebrow fade-in">{t('anav.home')} · {data.month}</div>
+      <div className="row fade-in" style={{ gap: 10, alignItems: 'center' }}>
+        <div className="eyebrow">{t('anav.home')}</div>
+        <span className="badge" style={{ fontSize: 10 }}>{data.month}</span>
+      </div>
       <h1 className="h1 fade-in">{t('me.title')}</h1>
       <p className="sub fade-in">{t('me.sub')}</p>
 
@@ -120,8 +138,8 @@ export default function MemberDashboard() {
           {announcements.filter((a) => !a.read).map((a) => (
             <div key={a.id} className="card" style={{ borderColor: 'color-mix(in srgb, var(--gold-500) 35%, transparent)' }}>
               <div className="spread" style={{ marginBottom: 4 }}>
-                <strong style={{ fontSize: 14 }}>📣 {a.title}</strong>
-                <button className="faint" onClick={() => dismissAnnouncement(a.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>Mark read ✕</button>
+                <strong style={{ fontSize: 14 }}><span aria-hidden="true">📣 </span>{a.title}</strong>
+                <button className="faint" onClick={() => dismissAnnouncement(a.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>Mark read <span aria-hidden="true">✕</span></button>
               </div>
               <div className="muted" style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{a.body}</div>
             </div>
@@ -135,13 +153,13 @@ export default function MemberDashboard() {
             <strong style={{ fontSize: 14 }}>Get started</strong>
             <span className="faint" style={{ fontSize: 12 }}>{onboarding.percent}% complete</span>
           </div>
-          <div style={{ height: 8, borderRadius: 6, background: 'rgba(255,255,255,.06)', overflow: 'hidden', marginBottom: 12 }}>
+          <div style={{ height: 8, borderRadius: 6, background: 'var(--panel-2)', overflow: 'hidden', marginBottom: 12 }}>
             <div style={{ height: '100%', width: `${onboarding.percent}%`, borderRadius: 6, background: 'var(--grad-primary)', transition: 'width .7s' }} />
           </div>
           <div className="grid" style={{ gap: 6 }}>
             {onboarding.steps.map((s) => (
               <div key={s.key} className="row" style={{ gap: 8, fontSize: 13 }}>
-                <span style={{ width: 18, height: 18, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 11, background: s.done ? 'var(--grad-emerald, var(--emerald))' : 'var(--panel-2)', color: s.done ? '#03130d' : 'var(--faint)' }}>{s.done ? '✓' : ''}</span>
+                <span aria-hidden="true" style={{ width: 18, height: 18, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 11, background: s.done ? 'var(--grad-emerald, var(--emerald))' : 'var(--panel-2)', color: s.done ? 'color-mix(in srgb, var(--emerald) 22%, black)' : 'var(--faint)' }}>{s.done ? '✓' : ''}</span>
                 <span style={{ color: s.done ? 'hsl(var(--muted-foreground))' : 'var(--text)', textDecoration: s.done ? 'line-through' : undefined }}>{s.label}</span>
               </div>
             ))}
@@ -153,7 +171,7 @@ export default function MemberDashboard() {
         <div className="card fade-in" style={{ marginBottom: 16, borderColor: 'color-mix(in srgb, var(--sky) 30%, transparent)' }}>
           <div className="spread" style={{ marginBottom: 10 }}>
             <strong style={{ fontSize: 14 }}>How likely are you to recommend us? (0–10)</strong>
-            <button className="faint" onClick={() => setNpsPrompt(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13 }}>✕</button>
+            <button className="faint" onClick={() => setNpsPrompt(false)} aria-label="Dismiss" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13 }}><span aria-hidden="true">✕</span></button>
           </div>
           <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
             {Array.from({ length: 11 }).map((_, n) => (
@@ -188,14 +206,14 @@ export default function MemberDashboard() {
       </div>
 
       {/* hero + donut */}
-      <div className="grid fade-in delay-1" style={{ gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', alignItems: 'stretch' }}>
+      <div className="grid fade-in delay-1" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', alignItems: 'stretch' }}>
         <div className="card hero">
           <div className="faint" style={{ fontSize: 12 }}>{t('me.monthTotal')}</div>
           <div className="bignum gradient-text" style={{ marginTop: 6 }}>
             <MoneyCounter cents={total} currency={c} />
           </div>
-          <div className="row spread" style={{ marginTop: 20, gap: 18 }}>
-            <div className="row" style={{ gap: 18 }}>
+          <div className="row spread" style={{ marginTop: 20, gap: 18, flexWrap: 'wrap' }}>
+            <div className="row" style={{ gap: 18, flexWrap: 'wrap' }}>
               <Chip color="var(--amber)" label={t('me.pending')} value={money(pending, c)} />
               <Chip color="var(--sky)" label={t('me.payable')} value={money(payable, c)} />
               <Chip color="var(--emerald)" label={t('me.paid')} value={money(paid, c)} />
@@ -209,15 +227,15 @@ export default function MemberDashboard() {
             return (
               <Link href="/app/wallet" style={{ display: 'block', marginTop: 18, color: 'inherit' }}>
                 <div className="spread" style={{ marginBottom: 7 }}>
-                  <span className="row faint" style={{ gap: 6, fontSize: 11.5, alignItems: 'center' }}>
+                  <span className="row faint" style={{ gap: 6, fontSize: 12, alignItems: 'center' }}>
                     Vesting toward payout
-                    <span className="badge" style={{ fontSize: 9.5, background: 'color-mix(in srgb, var(--gold-500) 14%, transparent)', color: 'var(--gold-500)' }} title="Estimated payout date is end of month; vested/accruing amounts are real.">est.</span>
+                    <span className="badge" style={{ fontSize: 10, background: 'color-mix(in srgb, var(--gold-500) 14%, transparent)', color: 'var(--gold-500)' }} title="Estimated payout date is end of month; vested/accruing amounts are real.">est.</span>
                   </span>
-                  <span className="faint tnum" style={{ fontSize: 11.5 }}>
+                  <span className="faint tnum" style={{ fontSize: 12 }}>
                     {money(v.vested, c)} / {money(v.accrued, c)} · est. {v.payoutLabel}
                   </span>
                 </div>
-                <div style={{ height: 9, borderRadius: 6, background: 'rgba(128,128,128,.12)', overflow: 'hidden', boxShadow: 'inset 0 1px 2px rgba(0,0,0,.15)' }}>
+                <div style={{ height: 9, borderRadius: 6, background: 'color-mix(in srgb, hsl(var(--muted-foreground)) 12%, transparent)', overflow: 'hidden', boxShadow: 'inset 0 1px 2px color-mix(in srgb, hsl(var(--foreground)) 15%, transparent)' }}>
                   <div style={{ height: '100%', width: `${v.pct}%`, borderRadius: 6, background: payable > 0 ? 'var(--foil)' : 'var(--amber)', transition: 'width .8s cubic-bezier(.2,.9,.3,1)' }} />
                 </div>
               </Link>
@@ -226,7 +244,7 @@ export default function MemberDashboard() {
 
           {rankInfo?.rank && (
             <div className="row" style={{ marginTop: 14, gap: 8 }}>
-              <span className="badge active" style={{ fontSize: 11, background: 'var(--foil)', color: 'var(--on-gold)' }}>🏆 Rank #{rankInfo.rank} of {rankInfo.total}</span>
+              <span className="badge active" style={{ fontSize: 11, background: 'var(--foil)', color: 'var(--on-gold)' }}><span aria-hidden="true">🏆 </span>Rank #{rankInfo.rank} of {rankInfo.total}</span>
               {rankInfo.topPercent != null && <span className="faint" style={{ fontSize: 11 }}>top {rankInfo.topPercent}% this month</span>}
             </div>
           )}
@@ -250,11 +268,11 @@ export default function MemberDashboard() {
       {rank && (rank.current || rank.badges.some((b) => b.earned)) && (
         <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
           <div className="spread" style={{ marginBottom: 10 }}>
-            <strong style={{ fontSize: 14 }}>🏅 {rank.current ?? 'Unranked'}{rank.next && <span className="faint" style={{ fontWeight: 400 }}> → {rank.next}</span>}{rank.overrideBps ? <span className="badge active" style={{ fontSize: 10, marginLeft: 8 }}>+{(rank.overrideBps / 100).toFixed(rank.overrideBps % 100 ? 1 : 0)}% on your sales</span> : null}</strong>
+            <strong style={{ fontSize: 14 }}><span aria-hidden="true">🏅 </span>{rank.current ?? 'Unranked'}{rank.next && <span className="faint" style={{ fontWeight: 400 }}> → {rank.next}</span>}{rank.overrideBps ? <span className="badge active" style={{ fontSize: 10, marginLeft: 8 }}>+{(rank.overrideBps / 100).toFixed(rank.overrideBps % 100 ? 1 : 0)}% on your sales</span> : null}</strong>
             {rank.next && <span className="faint" style={{ fontSize: 12 }}>{rank.overallPct}% to {rank.next}</span>}
           </div>
           {rank.next && (
-            <div style={{ height: 8, borderRadius: 6, background: 'rgba(255,255,255,.06)', overflow: 'hidden', marginBottom: 12 }}>
+            <div style={{ height: 8, borderRadius: 6, background: 'var(--panel-2)', overflow: 'hidden', marginBottom: 12 }}>
               <div style={{ height: '100%', width: `${rank.overallPct}%`, borderRadius: 6, background: 'var(--foil)', transition: 'width .7s' }} />
             </div>
           )}
@@ -274,7 +292,7 @@ export default function MemberDashboard() {
             return (
               <div key={cp.id} className="card" style={{ borderColor: 'color-mix(in srgb, var(--gold-500) 35%, transparent)' }}>
                 <div className="spread">
-                  <strong style={{ fontSize: 14 }}>⚑ {cp.name}</strong>
+                  <strong style={{ fontSize: 14 }}><span aria-hidden="true">⚑ </span>{cp.name}</strong>
                   <span className="faint" style={{ fontSize: 11 }}>ends {dateShort(cp.endsAt)}</span>
                 </div>
                 <div className="row" style={{ gap: 16, margin: '12px 0' }}>
@@ -335,7 +353,7 @@ export default function MemberDashboard() {
         ) : (
           <div className="muted" style={{ textAlign: 'center', padding: '18px 0' }}>
             No commissions yet.<br />
-            <span className="faint" style={{ fontSize: 12.5 }}>Record a sale or invite your team — your earnings by level will show up here.</span>
+            <span className="faint" style={{ fontSize: 12 }}>Record a sale or invite your team — your earnings by level will show up here.</span>
           </div>
         )}
       </div>

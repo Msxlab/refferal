@@ -57,15 +57,30 @@ export default function CampaignsPage() {
           <h1 className="h1 fade-in">Campaigns &amp; Contests</h1>
           <p className="sub fade-in">Time-boxed contests with live leaderboards and end-of-campaign bonuses.</p>
         </div>
-        {isAdmin && <button className="btn fade-in" onClick={() => { setEditing(null); setShowForm(true); }}>＋ New campaign</button>}
+        {isAdmin && <button className="btn fade-in" onClick={() => { setEditing(null); setShowForm(true); }} aria-label="Create a new campaign">＋ New campaign</button>}
       </div>
 
-      {error && <div className="error">{error}</div>}
+      {error && <div className="error fade-in" role="alert">{error}</div>}
 
-      {!list ? <Loading rows={3} /> : list.length === 0 ? (
+      {!list && error ? null : !list ? (
+        <div className="grid fade-in delay-1" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }} role="status" aria-label="Loading campaigns">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="card" style={{ display: 'grid', gap: 12 }}>
+              <div className="row" style={{ justifyContent: 'space-between' }}>
+                <div className="skeleton" style={{ height: 20, width: 72 }} />
+                <div className="skeleton" style={{ height: 14, width: 56 }} />
+              </div>
+              <div className="skeleton" style={{ height: 18, width: '70%' }} />
+              <div className="skeleton" style={{ height: 12, width: '50%' }} />
+              <div className="skeleton" style={{ height: 5, width: '100%' }} />
+              <div className="skeleton" style={{ height: 16, width: '40%' }} />
+            </div>
+          ))}
+        </div>
+      ) : list.length === 0 ? (
         <div className="card fade-in delay-1 muted">No campaigns yet. {isAdmin ? 'Create one to start a contest.' : ''}</div>
       ) : (
-        <div className="grid fade-in delay-1" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
+        <div className="grid fade-in delay-1" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
           {list.map((c) => {
             const topPrize = c.prizes.reduce((a, p) => Math.max(a, p.bonusCents), 0);
             return (
@@ -73,12 +88,12 @@ export default function CampaignsPage() {
                 <div className="spread" style={{ marginBottom: 8 }}>
                   <span className="row" style={{ gap: 6 }}>
                     <span className={`badge ${c.status === 'active' ? 'active' : c.status === 'ended' ? 'paid' : 'draft'}`}>{c.status}</span>
-                    {c.status === 'active' && new Date(c.endsAt) < new Date() && <span className="badge requested" title="The window has ended — finalize to pay bonuses">⏳ needs finalization</span>}
+                    {c.status === 'active' && new Date(c.endsAt) < new Date() && <span className="badge requested" title="The window has ended — finalize to pay bonuses" aria-label="Needs finalization — the window has ended">⏳ needs finalization</span>}
                   </span>
-                  <span className="faint" style={{ fontSize: 11 }}>{METRICS[c.metric]}</span>
+                  <span className="faint">{METRICS[c.metric]}</span>
                 </div>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name}</div>
-                <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>{dateShort(c.startsAt)} → {dateShort(c.endsAt)}</div>
+                <div className="faint" style={{ marginTop: 4 }}>{dateShort(c.startsAt)} → {dateShort(c.endsAt)}</div>
                 {(() => {
                   const start = new Date(c.startsAt).getTime(), end = new Date(c.endsAt).getTime(), now = Date.now();
                   const pct = end > start ? Math.max(0, Math.min(100, ((now - start) / (end - start)) * 100)) : 100;
@@ -86,10 +101,10 @@ export default function CampaignsPage() {
                   if (c.status === 'ended') return null;
                   return (
                     <div style={{ marginTop: 8 }}>
-                      <div style={{ height: 5, borderRadius: 4, background: 'rgba(255,255,255,.07)', overflow: 'hidden' }}>
+                      <div style={{ height: 5, borderRadius: 4, background: 'var(--panel-2)', overflow: 'hidden' }}>
                         <div style={{ height: '100%', width: `${pct}%`, borderRadius: 4, background: daysLeft <= 0 ? 'var(--amber)' : 'var(--grad-primary)' }} />
                       </div>
-                      <div className="faint" style={{ fontSize: 10.5, marginTop: 3 }}>{now < start ? 'Not started yet' : daysLeft > 0 ? `${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : 'Window ended'}</div>
+                      <div className="faint" style={{ marginTop: 4 }}>{now < start ? 'Not started yet' : daysLeft > 0 ? `${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : 'Window ended'}</div>
                     </div>
                   );
                 })()}
@@ -189,22 +204,22 @@ function CampaignForm({ existing, onClose, onSaved, onError }: {
 
         <div className="field" style={{ marginTop: 6 }}>
           <label>Prizes (bonus paid on finalize)</label>
-          {!isDraft && <div className="faint" style={{ fontSize: 11, marginBottom: 6 }}>Metric, dates and prizes are locked once a campaign is active.</div>}
-          <div className="grid" style={{ gap: 6 }}>
+          {!isDraft && <div className="faint" style={{ marginBottom: 8 }}>Metric, dates and prizes are locked once a campaign is active.</div>}
+          <div className="grid" style={{ gap: 8 }}>
             {prizes.map((p, i) => (
               <div key={i} className="row" style={{ gap: 8 }}>
-                <span className="faint" style={{ fontSize: 12, width: 36 }}>Rank</span>
+                <span className="faint" style={{ width: 36 }}>Rank</span>
                 <input type="number" min={1} value={p.rank} onChange={(e) => setPrize(i, 'rank', e.target.value)} style={{ width: 70 }} disabled={!isDraft} />
-                <span className="faint" style={{ fontSize: 12 }}>$</span>
+                <span className="faint">$</span>
                 <input type="number" step="0.01" min="0" value={p.dollars} onChange={(e) => setPrize(i, 'dollars', e.target.value)} placeholder="bonus" disabled={!isDraft} />
-                {isDraft && prizes.length > 1 && <button type="button" className="btn ghost sm" onClick={() => removePrize(i)}>✕</button>}
+                {isDraft && prizes.length > 1 && <button type="button" className="btn ghost sm" onClick={() => removePrize(i)} aria-label={`Remove prize for rank ${p.rank}`}>✕</button>}
               </div>
             ))}
           </div>
           {isDraft && <button type="button" className="btn ghost sm" style={{ marginTop: 8 }} onClick={addPrize}>＋ Add prize</button>}
         </div>
 
-        {err && <div className="error">{err}</div>}
+        {err && <div className="error" role="alert">{err}</div>}
         <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
           <button type="button" className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="btn" disabled={busy}>{busy ? 'Saving…' : existing ? 'Save' : 'Create'}</button>
@@ -296,24 +311,26 @@ function CampaignDrawer({ id, isAdmin, onClose, onChanged, onEdit, onToast }: {
             {d.standings.length === 0 ? (
               <div className="muted" style={{ fontSize: 13 }}>No qualifying activity in this window yet.</div>
             ) : (
-              <table>
-                <thead><tr><th style={{ width: 36 }}>#</th><th>Member</th><th style={{ textAlign: 'right' }}>Score</th><th style={{ textAlign: 'right' }}>Bonus</th></tr></thead>
-                <tbody>
-                  {d.standings.map((s) => (
-                    <tr key={s.membershipId}>
-                      <td>
-                        <span style={{ width: 22, height: 22, borderRadius: 6, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, background: s.rank === 1 ? 'var(--foil)' : 'var(--panel-2)', color: s.rank === 1 ? 'var(--on-gold)' : 'hsl(var(--muted-foreground))' }}>{s.rank}</span>
-                      </td>
-                      <td>
-                        {s.name}{s.inactive && <span className="badge inactive" style={{ marginLeft: 6, fontSize: 9 }}>inactive</span>}
-                        <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{s.code}</div>
-                      </td>
-                      <td className="tnum" style={{ textAlign: 'right', fontWeight: 650 }}>{scoreLabel(d.metric, s.score)}</td>
-                      <td className="tnum" style={{ textAlign: 'right', color: s.bonusCents > 0 ? 'var(--gold-500)' : 'var(--faint)' }}>{s.bonusCents > 0 ? money(s.bonusCents) : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                <table>
+                  <thead><tr><th style={{ width: 36 }}>#</th><th>Member</th><th style={{ textAlign: 'right' }}>Score</th><th style={{ textAlign: 'right' }}>Bonus</th></tr></thead>
+                  <tbody>
+                    {d.standings.map((s) => (
+                      <tr key={s.membershipId}>
+                        <td>
+                          <span style={{ width: 22, height: 22, borderRadius: 6, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, background: s.rank === 1 ? 'var(--foil)' : 'var(--panel-2)', color: s.rank === 1 ? 'var(--on-gold)' : 'hsl(var(--muted-foreground))' }}>{s.rank}</span>
+                        </td>
+                        <td>
+                          {s.name}{s.inactive && <span className="badge inactive" style={{ marginLeft: 6, fontSize: 9 }}>inactive</span>}
+                          <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{s.code}</div>
+                        </td>
+                        <td className="tnum" style={{ textAlign: 'right', fontWeight: 650 }}>{scoreLabel(d.metric, s.score)}</td>
+                        <td className="tnum" style={{ textAlign: 'right', color: s.bonusCents > 0 ? 'var(--gold-500)' : 'var(--faint)' }}>{s.bonusCents > 0 ? money(s.bonusCents) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </div>

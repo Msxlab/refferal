@@ -88,7 +88,7 @@ export default function InvitePage() {
       <div className="card card-glow fade-in delay-1" style={{ textAlign: 'center' }}>
         {!latest ? (
           <>
-            <div style={{ fontSize: 40, marginBottom: 8 }}>✦</div>
+            <div aria-hidden="true" style={{ fontSize: 40, marginBottom: 8 }}>✦</div>
             <p className="muted" style={{ marginTop: 0 }}>Create a new invite link.</p>
             <button className="btn" onClick={create} disabled={busy} style={{ margin: '0 auto' }}>{t('me.inviteCreate')}</button>
           </>
@@ -110,23 +110,25 @@ export default function InvitePage() {
         {!invites ? (
           <Loading rows={2} />
         ) : (
-          <table>
-            <thead><tr><th>Code</th><th>Status</th><th>Expires</th><th>Created</th><th></th></tr></thead>
-            <tbody>
-              {invites.map((i) => (
-                <tr key={i.id}>
-                  <td style={{ fontFamily: 'ui-monospace, monospace' }}>{i.code}</td>
-                  <td><span className={`badge ${i.status}`}>{i.status}</span></td>
-                  <td className="muted">{dateShort(i.expiresAt)}</td>
-                  <td className="muted">{dateShort(i.createdAt)}</td>
-                  <td style={{ textAlign: 'right' }}>
-                    {i.status === 'active' && <button className="btn ghost sm" onClick={() => copy(i.code)}>{t('me.copy')}</button>}
-                  </td>
-                </tr>
-              ))}
-              {invites.length === 0 && <tr><td colSpan={5} className="muted">{t('me.noData')}</td></tr>}
-            </tbody>
-          </table>
+          <div style={{ overflowX: 'auto' }}>
+            <table>
+              <thead><tr><th>Code</th><th>Status</th><th>Expires</th><th>Created</th><th></th></tr></thead>
+              <tbody>
+                {invites.map((i) => (
+                  <tr key={i.id}>
+                    <td style={{ fontFamily: 'ui-monospace, monospace' }}>{i.code}</td>
+                    <td><span className={`badge ${i.status}`}>{i.status}</span></td>
+                    <td className="muted">{dateShort(i.expiresAt)}</td>
+                    <td className="muted">{dateShort(i.createdAt)}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      {i.status === 'active' && <button className="btn ghost sm" onClick={() => copy(i.code)}>{t('me.copy')}</button>}
+                    </td>
+                  </tr>
+                ))}
+                {invites.length === 0 && <tr><td colSpan={5} className="muted">{t('me.noData')}</td></tr>}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 

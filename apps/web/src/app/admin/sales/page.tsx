@@ -316,10 +316,10 @@ export default function SalesPage() {
           <p className="mt-1 text-sm text-muted-foreground">Every booked sale, its status, and the commission it generates.</p>
         </div>
         <div className="no-print flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={exportCsv}>⇩ Export CSV</Button>
-          <Button variant="outline" size="sm" onClick={() => window.print()}>🖶 Print</Button>
-          <Button variant="outline" size="sm" onClick={() => setShowImport(true)}>⇪ Import</Button>
-          <Button size="sm" onClick={() => { setError(''); setCode(''); setSellerOpts([]); setSellerPicked(false); setNewDate(new Date().toLocaleDateString('en-CA')); setShowNew(true); }}>＋ New sale</Button>
+          <Button variant="outline" size="sm" onClick={exportCsv}><span aria-hidden="true">⇩</span> Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => window.print()}><span aria-hidden="true">🖶</span> Print</Button>
+          <Button variant="outline" size="sm" onClick={() => setShowImport(true)}><span aria-hidden="true">⇪</span> Import</Button>
+          <Button size="sm" onClick={() => { setError(''); setCode(''); setSellerOpts([]); setSellerPicked(false); setNewDate(new Date().toLocaleDateString('en-CA')); setShowNew(true); }}><span aria-hidden="true">＋</span> New sale</Button>
         </div>
       </div>
 
@@ -330,10 +330,10 @@ export default function SalesPage() {
         <Kpi label="Revenue (approved)" accent
           value={summary ? <MoneyCounter cents={summary.byStatus.approved.amountCents} currency={cur} /> : '—'}
           hint={summary ? `${summary.byStatus.approved.count} approved sales` : undefined} />
-        <button type="button" onClick={() => patchFilters({ ...EMPTY, status: 'draft' })} title="Show drafts awaiting approval" className="text-left">
-          <Kpi label="Awaiting approval →"
+        <button type="button" onClick={() => patchFilters({ ...EMPTY, status: 'draft' })} title="Show drafts awaiting approval" aria-label="Show drafts awaiting approval" className="rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <Kpi label={<>Awaiting approval <span aria-hidden="true">→</span></>}
             value={summary ? summary.byStatus.draft.count : '—'}
-            valueClass="text-amber-400"
+            valueStyle={{ color: 'var(--amber)' }}
             hint={summary ? money(summary.byStatus.draft.amountCents, cur) : undefined} />
         </button>
         <Kpi label="Average sale"
@@ -346,9 +346,9 @@ export default function SalesPage() {
       </div>
 
       {/* ---- arac cubugu: ara + hizli tarih + filtreler + kayitli gorunumler ---- */}
-      <div className="no-print my-3.5 flex flex-wrap items-center gap-2">
-        <div className="flex h-9 min-w-[210px] max-w-[320px] flex-1 items-center gap-2 rounded-lg border border-input bg-card px-3 transition-colors focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
-          <span className="text-muted-foreground/70">🔍</span>
+      <div className="no-print my-4 flex flex-wrap items-center gap-2">
+        <div className="flex h-9 basis-full items-center gap-2 rounded-lg border border-input bg-card px-3 transition-colors focus-within:border-primary focus-within:ring-1 focus-within:ring-primary sm:min-w-[210px] sm:max-w-[320px] sm:flex-1 sm:basis-auto">
+          <span className="text-muted-foreground/70" aria-hidden="true">🔍</span>
           <input aria-label="Search sales by seller, code, or customer" value={filters.q} onChange={(e) => patchFilters({ ...filters, q: e.target.value })}
             placeholder="Search seller, code, customer…" className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/70" />
         </div>
@@ -358,7 +358,7 @@ export default function SalesPage() {
           {([['today', 'Today'], ['7d', '7 days'], ['month', 'This month'], ['lastMonth', 'Last month']] as [ChipKey, string][]).map(([k, lbl]) => (
             <button key={k} type="button" onClick={() => toggleChip(k)} aria-pressed={activeChip === k}
               className={cn(
-                'h-9 whitespace-nowrap rounded-lg px-3 text-xs font-semibold transition-colors',
+                'h-9 whitespace-nowrap rounded-lg px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 activeChip === k
                   ? 'bg-primary text-primary-foreground shadow-sm'
                   : 'bg-secondary text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -392,23 +392,23 @@ export default function SalesPage() {
         {/* kayitli gorunumler — SPEC'teki kayitli-filtre cipi gorunumu */}
         {views.map((v) => (
           <span key={v.id} className="inline-flex h-9 items-center gap-1 rounded-lg border border-primary/30 bg-primary/10 px-2.5 text-xs font-semibold text-primary">
-            <button type="button" onClick={() => applyView(v)} title={v.mine ? undefined : `Shared by ${v.ownerName ?? 'team'}`} className="inline-flex items-center gap-1">
-              {v.shared && <span>👥</span>}{v.name}
+            <button type="button" onClick={() => applyView(v)} title={v.mine ? undefined : `Shared by ${v.ownerName ?? 'team'}`} className="inline-flex items-center gap-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              {v.shared && <><span aria-hidden="true">👥</span><span className="sr-only">Shared view: </span></>}{v.name}
             </button>
-            {v.mine && <button type="button" onClick={() => deleteView(v.id)} aria-label={`Delete ${v.name}`} className="ml-0.5 text-primary/70 hover:text-primary">✕</button>}
+            {v.mine && <button type="button" onClick={() => deleteView(v.id)} aria-label={`Delete ${v.name}`} className="ml-0.5 rounded-sm text-primary/70 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><span aria-hidden="true">✕</span></button>}
           </span>
         ))}
 
         <span className="ml-auto flex items-center gap-2">
           <ColumnsMenu prefs={cols} />
           {activeFilters && <Button variant="ghost" size="sm" onClick={() => patchFilters(EMPTY)}>Clear</Button>}
-          <Button variant="outline" size="sm" onClick={() => { setViewName(''); setViewShared(false); setShowSaveView(true); }}>＋ Save view</Button>
+          <Button variant="outline" size="sm" onClick={() => { setViewName(''); setViewShared(false); setShowSaveView(true); }}><span aria-hidden="true">＋</span> Save view</Button>
         </span>
       </div>
 
       {/* ---- tablo ---- */}
       <Card className="overflow-hidden shadow-lg">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <strong className="text-sm text-foreground">Sales{list ? ` · ${list.total}` : ''}</strong>
           <div className="flex items-center gap-3">
             {summary && (
@@ -425,7 +425,14 @@ export default function SalesPage() {
           </div>
         </div>
 
-        {!list ? <div className="p-4"><Loading rows={3} /></div> : (
+        {error && !list ? (
+          <div className="px-4 py-12 text-center">
+            <div className="mx-auto max-w-sm rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-4 text-sm text-destructive">
+              Couldn&apos;t load sales. {error}
+            </div>
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => { setError(''); void load(); }}>Try again</Button>
+          </div>
+        ) : !list ? <div className="p-4"><Loading rows={3} /></div> : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-[13px]">
               <thead>
@@ -610,11 +617,11 @@ export default function SalesPage() {
 }
 
 /* ------------------------------------------------- KPI karti (sayfa-ici) */
-function Kpi({ label, value, hint, accent, valueClass }: { label: string; value: ReactNode; hint?: string; accent?: boolean; valueClass?: string }) {
+function Kpi({ label, value, hint, accent, valueClass, valueStyle }: { label: ReactNode; value: ReactNode; hint?: string; accent?: boolean; valueClass?: string; valueStyle?: CSSProperties }) {
   return (
     <Card className={cn('p-4 shadow-lg', accent && 'border-primary/30')}>
       <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
-      <div className={cn('mt-1.5 font-display text-2xl font-extrabold tabular-nums tracking-tight text-foreground', accent && 'text-primary', valueClass)}>{value}</div>
+      <div style={valueStyle} className={cn('mt-1.5 font-display text-2xl font-extrabold tabular-nums tracking-tight text-foreground', accent && 'text-primary', valueClass)}>{value}</div>
       {hint && <div className="mt-1 text-[11px] text-muted-foreground/70">{hint}</div>}
     </Card>
   );
@@ -668,19 +675,24 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
   const totalCommission = d?.ledger.filter((l) => l.type === 'commission').reduce((a, l) => a + Number(l.amountCents), 0) ?? 0;
 
   // ---- yasam dongusu (lifecycle) adimlari: kayit -> onay -> teslim/iptal
-  const steps: { t: string; d: string; done: boolean; color: string }[] = d ? [
-    { t: 'Recorded', d: dateShort(d.createdAt), done: true, color: 'bg-primary' },
+  // nokta renkleri tek tip token/var() ile (primary token, emerald/rose para-token, muted token)
+  const dotPrimary: CSSProperties = { backgroundColor: 'hsl(var(--primary))' };
+  const dotEmerald: CSSProperties = { backgroundColor: 'var(--emerald)' };
+  const dotDestructive: CSSProperties = { backgroundColor: 'hsl(var(--destructive))' };
+  const dotMuted: CSSProperties = { backgroundColor: 'hsl(var(--muted))' };
+  const steps: { t: string; d: string; done: boolean; dot: CSSProperties }[] = d ? [
+    { t: 'Recorded', d: dateShort(d.createdAt), done: true, dot: dotPrimary },
     {
       t: d.status === 'void' ? 'Voided' : 'Approved',
       d: d.status === 'draft' ? 'pending' : (d.status === 'void' ? '—' : dateShort(d.createdAt)),
       done: d.status !== 'draft',
-      color: d.status === 'void' ? 'bg-destructive' : d.status === 'approved' ? 'bg-emerald-400' : 'bg-muted',
+      dot: d.status === 'void' ? dotDestructive : d.status === 'approved' ? dotEmerald : dotMuted,
     },
     {
       t: 'Delivered',
       d: d.deliveredAt ? dateShort(d.deliveredAt) : '—',
       done: !!d.deliveredAt,
-      color: d.deliveredAt ? 'bg-emerald-400' : 'bg-muted',
+      dot: d.deliveredAt ? dotEmerald : dotMuted,
     },
   ] : [];
 
@@ -691,7 +703,7 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
       onClose={onClose}
       footer={d && (
         <>
-          <Button variant="outline" size="sm" disabled={busy} onClick={() => setPrinting(true)}>🖶 Print receipt</Button>
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => setPrinting(true)}><span aria-hidden="true">🖶</span> Print receipt</Button>
           {d.status === 'draft' && <Button size="sm" disabled={busy} onClick={() => action('approve')}>Approve</Button>}
           {d.status === 'approved' && !d.deliveredAt && <Button variant="outline" size="sm" disabled={busy} onClick={() => action('deliver')}>Mark delivered</Button>}
           {d.status === 'draft' && <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" disabled={busy} onClick={() => setConfirmDel(true)}>Delete</Button>}
@@ -748,7 +760,7 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
                       <div className="text-[12.5px] font-semibold text-foreground">{levelLabel(l.level)}</div>
                       <div className="truncate text-[11px] text-muted-foreground/70">{l.beneficiaryName} · {l.beneficiaryCode}</div>
                     </div>
-                    <strong className={cn('text-[13px] tabular-nums', l.type === 'reversal' ? 'text-destructive' : 'text-emerald-400')}>{money(l.amountCents, d.currency)}</strong>
+                    <strong style={l.type === 'reversal' ? undefined : { color: 'var(--emerald)' }} className={cn('text-[13px] tabular-nums', l.type === 'reversal' && 'text-destructive')}>{money(l.amountCents, d.currency)}</strong>
                   </div>
                 ))}
               </div>
@@ -761,7 +773,7 @@ function SaleDrawer({ id, onClose, onChanged, onToast }: { id: string; onClose: 
             <div className="flex flex-col">
               {steps.map((st, i) => (
                 <div key={i} className="flex items-center gap-3 py-1.5">
-                  <span className={cn('h-3 w-3 shrink-0 rounded-full ring-4 ring-muted', st.done ? st.color : 'bg-muted-foreground/30')} />
+                  <span style={st.done ? st.dot : undefined} className={cn('h-3 w-3 shrink-0 rounded-full ring-4 ring-muted', !st.done && 'bg-muted-foreground/30')} />
                   <span className={cn('flex-1 text-[13px] font-medium', st.done ? 'text-foreground' : 'text-muted-foreground/70')}>{st.t}</span>
                   <span className="text-xs tabular-nums text-muted-foreground/70">{st.d}</span>
                 </div>

@@ -53,9 +53,17 @@ function VerifyEmailInner() {
           <div className="eyebrow" style={{ marginBottom: 4 }}>Account security</div>
           <h1 className="h1" style={{ marginBottom: 12 }}>{title}</h1>
           {status === 'checking' ? (
-            <p className="muted" style={{ marginTop: 0 }}>Please wait while we verify your email address.</p>
+            <div className="row" style={{ gap: 10, alignItems: 'center' }} role="status" aria-live="polite">
+              <span className="skeleton" aria-hidden="true" style={{ width: 18, height: 18, borderRadius: '50%', flex: 'none' }} />
+              <p className="muted" style={{ margin: 0 }}>Please wait while we verify your email address.</p>
+            </div>
           ) : (
-            <p className={status === 'success' ? 'muted' : 'error'} style={{ marginTop: 0 }}>
+            <p
+              className={status === 'success' ? 'muted' : 'error'}
+              style={{ marginTop: 0 }}
+              role={status === 'success' ? 'status' : 'alert'}
+              aria-live="polite"
+            >
               {message || 'Open the verification link from your email again.'}
             </p>
           )}

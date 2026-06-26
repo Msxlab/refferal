@@ -71,6 +71,13 @@ function toneStyle(tone: MoneyTone): CSSProperties {
   };
 }
 
+/* dolu (solid) pozitif aksiyon butonu — var(--emerald) zemin + okunur metin (light+dark dogru) */
+const successBtnStyle: CSSProperties = {
+  backgroundColor: 'var(--emerald)',
+  color: 'var(--primary-foreground)',
+  borderColor: 'transparent',
+};
+
 /* payout durum -> ton/tailwind sinifi. amber=bekliyor, primary=yolda, emerald=tamam, rose=red */
 const STATUS_TONE: Record<string, MoneyTone> = {
   // tamamlanan akislar
@@ -342,11 +349,11 @@ export default function PayoutsPage() {
             <Button onClick={() => setConfirmRun('all')} disabled={busy || !payable?.members.length}>
               <span aria-hidden>→</span> {t('payouts.run')}
             </Button>
-            <Button variant="outline" onClick={downloadExport}>⇩ {t('payouts.export')}</Button>
-            <Button variant="outline" onClick={runFraudScan} disabled={scanning}>{scanning ? 'Scanning…' : '⚠ Fraud scan'}</Button>
-            <Button variant="outline" onClick={() => { const y = new Date().getFullYear(); downloadCsv(`/admin/tax/1099.csv?year=${y}`, `1099-nec-${y}.csv`).catch((e) => setError(String((e as ApiError).message))); }}>⇩ 1099-NEC</Button>
-            <Button variant="outline" onClick={() => { downloadCsv('/admin/payouts/ach.txt', 'payouts-ach.txt').catch((e) => setError(String((e as ApiError).message))); }} title="Self-hosted bank file (NACHA) — upload to your bank">⇩ ACH file</Button>
-            <Button variant="outline" onClick={() => { setReconcileOpen(true); setReconcileText(''); setReconcileResult(null); }} title="Match the bank statement against paid payouts">⇄ Reconcile</Button>
+            <Button variant="outline" onClick={downloadExport}><span aria-hidden>⇩</span> {t('payouts.export')}</Button>
+            <Button variant="outline" onClick={runFraudScan} disabled={scanning}>{scanning ? 'Scanning…' : <><span aria-hidden>⚠</span> Fraud scan</>}</Button>
+            <Button variant="outline" onClick={() => { const y = new Date().getFullYear(); downloadCsv(`/admin/tax/1099.csv?year=${y}`, `1099-nec-${y}.csv`).catch((e) => setError(String((e as ApiError).message))); }}><span aria-hidden>⇩</span> 1099-NEC</Button>
+            <Button variant="outline" onClick={() => { downloadCsv('/admin/payouts/ach.txt', 'payouts-ach.txt').catch((e) => setError(String((e as ApiError).message))); }} title="Self-hosted bank file (NACHA) — upload to your bank"><span aria-hidden>⇩</span> ACH file</Button>
+            <Button variant="outline" onClick={() => { setReconcileOpen(true); setReconcileText(''); setReconcileResult(null); }} title="Match the bank statement against paid payouts"><span aria-hidden>⇄</span> Reconcile</Button>
           </div>
         </CardContent>
       </Card>
@@ -364,11 +371,11 @@ export default function PayoutsPage() {
 
       {/* ---- talep kuyrugu (request queue) ---- */}
       {requests && requests.length > 0 && (
-        <Card className="mt-4 border-amber-500/30 shadow-lg">
+        <Card className="mt-4 shadow-lg" style={{ borderColor: 'color-mix(in srgb, var(--amber) 30%, transparent)' }}>
           <CardContent className="p-0">
             <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
               <strong className="text-[13.5px] text-foreground">Payout requests</strong>
-              <Badge className="border-transparent bg-amber-500/15 text-amber-400">{requests.length} pending</Badge>
+              <Badge style={toneStyle('amber')} className="border-transparent">{requests.length} pending</Badge>
             </div>
             <Table>
               <TableHeader>
@@ -395,7 +402,7 @@ export default function PayoutsPage() {
                     <TableCell className="text-right font-semibold tabular-nums text-foreground">{money(r.totalCents, c)}</TableCell>
                     <TableCell className="text-right print:hidden" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-2">
-                        <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-600/90" onClick={() => { setDecideRef(''); setDecide({ p: r, action: 'approve' }); }}>Approve</Button>
+                        <Button size="sm" style={successBtnStyle} onClick={() => { setDecideRef(''); setDecide({ p: r, action: 'approve' }); }}>Approve</Button>
                         <Button size="sm" variant="destructive" onClick={() => { setDecideRef(''); setDecide({ p: r, action: 'reject' }); }}>Reject</Button>
                       </div>
                     </TableCell>
@@ -432,7 +439,7 @@ export default function PayoutsPage() {
                     <TableCell className="text-right font-semibold tabular-nums text-foreground">{money(b.estimateCents, c)}</TableCell>
                     <TableCell className="text-right print:hidden">
                       <div className="flex justify-end gap-2">
-                        <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-600/90" disabled={busyId === b.id} onClick={() => decideBatch(b.id, 'approve')}>Approve &amp; pay</Button>
+                        <Button size="sm" style={successBtnStyle} disabled={busyId === b.id} onClick={() => decideBatch(b.id, 'approve')}>Approve &amp; pay</Button>
                         <Button size="sm" variant="destructive" disabled={busyId === b.id} onClick={() => decideBatch(b.id, 'reject')}>Reject</Button>
                       </div>
                     </TableCell>
@@ -512,14 +519,17 @@ export default function PayoutsPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold tabular-nums ${f.blocked ? 'border-destructive/30 bg-destructive/10 text-destructive' : 'border-amber-500/30 bg-amber-500/10 text-amber-400'}`}>
+                      <span
+                        style={f.blocked ? undefined : toneStyle('amber')}
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold tabular-nums ${f.blocked ? 'border-destructive/30 bg-destructive/10 text-destructive' : ''}`}
+                      >
                         {f.score}{f.blocked ? ' · blocked' : ''}
                       </span>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">{f.reasons.join(', ')}</TableCell>
                     <TableCell className="text-right print:hidden">
                       <div className="flex justify-end gap-2">
-                        <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-600/90" disabled={busyId === f.membershipId} onClick={() => decideFraud(f.membershipId, 'clear')}>Clear</Button>
+                        <Button size="sm" style={successBtnStyle} disabled={busyId === f.membershipId} onClick={() => decideFraud(f.membershipId, 'clear')}>Clear</Button>
                         <Button size="sm" variant="destructive" disabled={busyId === f.membershipId} onClick={() => decideFraud(f.membershipId, 'confirm')}>Confirm</Button>
                       </div>
                     </TableCell>
@@ -569,7 +579,7 @@ export default function PayoutsPage() {
                     <TableCell className="text-xs text-muted-foreground">{k.bankName ? `${k.bankName} · ` : ''}{k.accountType} ••••{k.accountLast4} · {k.routingNumber}</TableCell>
                     <TableCell className="text-right print:hidden">
                       <div className="flex justify-end gap-2">
-                        <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-600/90" disabled={busyId === k.membershipId} onClick={() => decideKyc(k.membershipId, 'verify')}>Verify</Button>
+                        <Button size="sm" style={successBtnStyle} disabled={busyId === k.membershipId} onClick={() => decideKyc(k.membershipId, 'verify')}>Verify</Button>
                         <Button size="sm" variant="destructive" disabled={busyId === k.membershipId} onClick={() => decideKyc(k.membershipId, 'reject')}>Reject</Button>
                       </div>
                     </TableCell>
@@ -624,7 +634,7 @@ export default function PayoutsPage() {
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground/70">{m.referralCode}</TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">{Number(m.soldThisMonthCents) > 0 ? money(m.soldThisMonthCents, c) : '—'}</TableCell>
-                    <TableCell className="text-right font-semibold tabular-nums text-emerald-400">{money(m.netCents, c)}</TableCell>
+                    <TableCell className="text-right font-semibold tabular-nums" style={{ color: 'var(--emerald)' }}>{money(m.netCents, c)}</TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground/70">{Number(m.soldThisMonthCents) > 0 ? `%${((Number(m.netCents) / Number(m.soldThisMonthCents)) * 100).toFixed(1)}` : '—'}</TableCell>
                   </TableRow>
                 ))}
@@ -700,7 +710,7 @@ export default function PayoutsPage() {
                       <div className="flex items-center gap-1.5">
                         <StatusPill status={p.status} />
                         {p.clearedAt ? (
-                          <span style={toneStyle('emerald')} className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold" title={p.bankRef ? `Bank ref: ${p.bankRef}` : 'Bank reconciled'}>✓ cleared</span>
+                          <span style={toneStyle('emerald')} className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold" title={p.bankRef ? `Bank ref: ${p.bankRef}` : 'Bank reconciled'}><span aria-hidden>✓</span>&nbsp;cleared</span>
                         ) : null}
                       </div>
                     </TableCell>
@@ -748,7 +758,7 @@ export default function PayoutsPage() {
             <div className="mt-3.5 flex justify-end gap-2.5">
               <Button variant="ghost" onClick={() => setDecide(null)} disabled={busy}>Cancel</Button>
               <Button
-                className={decide.action === 'reject' ? '' : 'bg-emerald-600 text-white hover:bg-emerald-600/90'}
+                style={decide.action === 'reject' ? undefined : successBtnStyle}
                 variant={decide.action === 'reject' ? 'destructive' : 'default'}
                 onClick={submitDecide}
                 disabled={busy}
@@ -805,7 +815,7 @@ export default function PayoutsPage() {
             </div>
             {reconcileResult && (
               <div className="mt-3 rounded-lg border border-border bg-muted p-3 text-sm">
-                <div className="flex items-center justify-between"><span className="text-emerald-400">✓ Cleared</span><strong className="tabular-nums text-foreground">{reconcileResult.clearedCount}</strong></div>
+                <div className="flex items-center justify-between"><span style={{ color: 'var(--emerald)' }}><span aria-hidden>✓</span> Cleared</span><strong className="tabular-nums text-foreground">{reconcileResult.clearedCount}</strong></div>
                 <div className="mt-1 flex items-center justify-between"><span className="text-muted-foreground">Unmatched lines</span><strong className="tabular-nums text-foreground">{reconcileResult.unmatched.length}</strong></div>
                 <div className="mt-1 flex items-center justify-between"><span className="text-muted-foreground/70">Still uncleared payouts</span><span className="tabular-nums text-muted-foreground/70">{reconcileResult.remainingUncleared}</span></div>
                 {reconcileResult.unmatched.length > 0 && (
@@ -817,7 +827,7 @@ export default function PayoutsPage() {
             )}
             <div className="mt-3.5 flex justify-end gap-2.5">
               <Button variant="ghost" onClick={() => setReconcileOpen(false)} disabled={busy}>Close</Button>
-              <Button onClick={runReconcile} disabled={busy || !reconcileText.trim()}>{busy ? 'Matching…' : '⇄ Match'}</Button>
+              <Button onClick={runReconcile} disabled={busy || !reconcileText.trim()}>{busy ? 'Matching…' : <><span aria-hidden>⇄</span> Match</>}</Button>
             </div>
           </div>
         </Modal>
@@ -865,7 +875,7 @@ function PayoutDrawer({ id, currency, onClose, onChanged, onToast }: { id: strin
       width={520}
       footer={d && (
         <>
-          <Button variant="outline" onClick={() => setPrinting(true)}>🖶 Print slip</Button>
+          <Button variant="outline" onClick={() => setPrinting(true)}><span aria-hidden>🖶</span> Print slip</Button>
           {d.status === 'failed' && <Button disabled={busy} onClick={() => setConfirmRetry(true)}>Retry</Button>}
         </>
       )}

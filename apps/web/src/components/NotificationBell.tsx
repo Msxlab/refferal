@@ -102,11 +102,11 @@ export function NotificationBell({ placement = 'down' }: { placement?: 'down' | 
         aria-expanded={open}
         style={{ position: 'relative' }}
       >
-        <span aria-hidden style={{ fontSize: 15 }}>◔</span>
+        <span aria-hidden style={{ fontSize: 'var(--text-lg)' }}>◔</span>
         {unread > 0 && (
           <span aria-hidden style={{
             position: 'absolute', top: -3, right: -3, minWidth: 16, height: 16, padding: '0 4px',
-            borderRadius: 999, background: 'var(--rose)', color: '#fff', fontSize: 10, fontWeight: 800,
+            borderRadius: 999, background: 'var(--rose)', color: 'var(--on-gold)', fontSize: 'var(--text-xs)', fontWeight: 800,
             display: 'grid', placeItems: 'center', lineHeight: 1, boxShadow: '0 0 0 2px var(--panel)',
           }}>{unread > 9 ? '9+' : unread}</span>
         )}
@@ -120,16 +120,16 @@ export function NotificationBell({ placement = 'down' }: { placement?: 'down' | 
           style={placement === 'up' ? { bottom: 'calc(100% + 10px)', left: 0 } : { top: 'calc(100% + 10px)', right: 0 }}
         >
           <div className="spread" style={{ padding: '12px 14px', borderBottom: '1px solid hsl(var(--border))' }}>
-            <strong style={{ fontSize: 13 }}>Notifications</strong>
+            <strong style={{ fontSize: 'var(--text-md)' }}>Notifications</strong>
             <button className="link-btn" onClick={markAll}
-              style={{ fontSize: 11, color: 'var(--gold-500)', background: 'none', border: 'none', cursor: 'pointer' }}>
+              style={{ fontSize: 'var(--text-xs)', color: 'var(--gold-500)', background: 'none', border: 'none', cursor: 'pointer' }}>
               Mark all read
             </button>
           </div>
           <div style={{ maxHeight: 380, overflow: 'auto' }}>
-            {loading && <div className="faint" style={{ padding: 18, fontSize: 12 }}>Loading…</div>}
+            {loading && <div className="faint" style={{ padding: 18, fontSize: 'var(--text-sm)' }}>Loading…</div>}
             {!loading && inbox && inbox.items.length === 0 && (
-              <div className="faint" style={{ padding: 24, textAlign: 'center', fontSize: 12.5 }}>
+              <div className="faint" style={{ padding: 24, textAlign: 'center', fontSize: 'var(--text-sm)' }}>
                 You&apos;re all caught up.
               </div>
             )}
@@ -140,14 +140,14 @@ export function NotificationBell({ placement = 'down' }: { placement?: 'down' | 
                   style={{ background: it.read ? 'transparent' : 'var(--panel-2)' }}>
                   <span style={{
                     width: 28, height: 28, borderRadius: 8, flexShrink: 0, display: 'grid', placeItems: 'center',
-                    background: `color-mix(in srgb, ${k.color} 16%, transparent)`, color: k.color, fontWeight: 800, fontSize: 13,
+                    background: `color-mix(in srgb, ${k.color} 16%, transparent)`, color: k.color, fontWeight: 800, fontSize: 'var(--text-md)',
                   }}>{k.ic}</span>
                   <span style={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
                     <span className="spread" style={{ gap: 8 }}>
-                      <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--text)' }}>{it.title}</span>
-                      <span className="faint" style={{ fontSize: 10.5, flexShrink: 0 }}>{ago(it.createdAt)}</span>
+                      <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)', color: 'var(--text)' }}>{it.title}</span>
+                      <span className="faint" style={{ fontSize: 'var(--text-xs)', flexShrink: 0 }}>{ago(it.createdAt)}</span>
                     </span>
-                    <span className="faint" style={{ fontSize: 11.5, lineHeight: 1.45, display: 'block', marginTop: 2 }}>{it.body}</span>
+                    <span className="faint" style={{ fontSize: 'var(--text-xs)', lineHeight: 1.45, display: 'block', marginTop: 2 }}>{it.body}</span>
                   </span>
                   {!it.read && <span style={{ width: 7, height: 7, borderRadius: 999, background: 'var(--gold-500)', flexShrink: 0, alignSelf: 'center' }} />}
                 </button>

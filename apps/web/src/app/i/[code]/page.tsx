@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, use, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
 import { landingPath, setSession, activeMembership, type Session } from '@/lib/auth';
@@ -69,7 +70,8 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
           {loadError || (invite && !invite.valid) ? (
             <>
               <h1 className="h1">Invitation Unavailable</h1>
-              <div className="error">{t('reg.invalid')}</div>
+              <div className="error" role="alert">{t('reg.invalid')}</div>
+              <Link href="/login" className="btn block" style={{ marginTop: 14 }}>Go to sign in</Link>
             </>
           ) : !invite ? (
             <Loading rows={2} />
@@ -79,15 +81,15 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
                 <span className="gradient-text">{invite.inviterName}</span> invited you
               </h1>
               {invite.inviterMessage && (
-                <div className="card" style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 14, fontStyle: 'italic', fontSize: 13.5 }}>
+                <div className="card" style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 14, fontStyle: 'italic', fontSize: 'var(--text-md)' }}>
                   “{invite.inviterMessage}”
-                  <div className="faint" style={{ fontStyle: 'normal', fontSize: 11, marginTop: 6 }}>— {invite.inviterName}</div>
+                  <div className="faint" style={{ fontStyle: 'normal', fontSize: 'var(--text-xs)', marginTop: 6 }}>— {invite.inviterName}</div>
                 </div>
               )}
-              <div className="card" style={{ background: 'rgba(124,139,255,.08)', padding: 14, marginBottom: 14 }}>
+              <div className="card" style={{ background: 'color-mix(in srgb, var(--brand) 8%, transparent)', padding: 14, marginBottom: 14 }}>
                 <div className="spread">
                   <div>
-                    <div className="faint" style={{ fontSize: 11 }}>{t('reg.tenant')}</div>
+                    <div className="faint" style={{ fontSize: 'var(--text-xs)' }}>{t('reg.tenant')}</div>
                     <div style={{ fontWeight: 700 }}>{invite.tenantName}</div>
                   </div>
                   <span className="badge active">Active invitation</span>
@@ -96,8 +98,8 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
 
               {/* show the opportunity before the form — people join for a reward, not an account */}
               <div className="card" style={{ background: 'color-mix(in srgb, var(--gold-500) 8%, transparent)', borderColor: 'color-mix(in srgb, var(--gold-500) 28%, transparent)', padding: 14, marginBottom: 18 }}>
-                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>💸 What you’ll earn</div>
-                <div className="faint" style={{ fontSize: 12.5, lineHeight: 1.55 }}>
+                <div style={{ fontWeight: 700, fontSize: 'var(--text-md)', marginBottom: 6 }}>💸 What you’ll earn</div>
+                <div className="faint" style={{ fontSize: 'var(--text-sm)', lineHeight: 1.55 }}>
                   Earn a commission on every sale you make — and a share of the sales made by the people you bring in. Record a sale, your company verifies it, and your commission is tracked and paid out automatically.
                 </div>
               </div>
@@ -127,7 +129,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
                     required
                     style={{ width: 16, height: 16, marginTop: 2, flexShrink: 0 }}
                   />
-                  <span className="faint" style={{ fontSize: 11.5, lineHeight: 1.55 }}>
+                  <span className="faint" style={{ fontSize: 'var(--text-xs)', lineHeight: 1.55 }}>
                     I confirm that the name and information I provide are accurate and that I am the
                     person registering. I understand commissions are paid by check mailed to the
                     address on my account once my balance reaches the payout minimum, and that I am
@@ -135,14 +137,14 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
                     <a href="/terms" target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: 'var(--accent, var(--gold-500))', textDecoration: 'underline' }}>program terms</a>.
                   </span>
                 </label>
-                {error && <div className="error">{error}</div>}
+                {error && <div className="error" role="alert">{error}</div>}
                 <button type="submit" className="btn block" style={{ marginTop: 6 }} disabled={busy || !accept}>
-                  {busy ? t('common.loading') : t('reg.submit')} {!busy && <span>→</span>}
+                  {busy ? t('common.loading') : t('reg.submit')} {!busy && <span aria-hidden="true">→</span>}
                 </button>
               </form>
             </>
           )}
-          <div className="faint" style={{ fontSize: 11, marginTop: 16, lineHeight: 1.5 }}>{t('me.incomeNote')}</div>
+          <div className="faint" style={{ fontSize: 'var(--text-xs)', marginTop: 16, lineHeight: 1.5 }}>{t('me.incomeNote')}</div>
         </div>
       </div>
     </div>

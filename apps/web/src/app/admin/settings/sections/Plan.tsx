@@ -1,9 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { CSSProperties, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
 import { money, levelLabel } from '@/lib/format';
+
+// Shared section heading: display font, consistent size/weight across settings cards.
+const SECTION_TITLE: CSSProperties = {
+  fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, letterSpacing: '-.01em', margin: 0,
+};
 
 interface PlanBonus { planName: string | null; fastStartBps: number; fastStartDays: number; matchingBps: number }
 interface PlanLevel { level: number; rateBps: number }
@@ -79,8 +84,8 @@ export default function Plan() {
       <div className="card">
         <div className="spread" style={{ marginBottom: 10 }}>
           <div>
-            <strong style={{ fontSize: 14 }}>Commission plan (percentages)</strong>
-            <div className="faint" style={{ fontSize: 12 }}>Pool rate + each level (tier) %. Saving creates a new <em>version</em>; past sales keep the plan that was effective on their date.</div>
+            <h2 style={SECTION_TITLE}>Commission plan (percentages)</h2>
+            <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>Pool rate + each level (tier) %. Saving creates a new <em>version</em>; past sales keep the plan that was effective on their date.</div>
           </div>
           <span className="badge active" style={{ fontSize: 10 }}>{list.plans.length} versions</span>
         </div>
@@ -90,19 +95,24 @@ export default function Plan() {
           <div className="field" style={{ flex: 1, margin: 0 }}><label>Pool rate (%)</label><input type="number" step="0.01" min={0} max={100} value={poolPct} onChange={(e) => setPoolPct(Number(e.target.value))} /></div>
         </div>
 
-        <table>
-          <thead><tr><th>Tier</th><th style={{ textAlign: 'right' }}>Rate (%)</th><th style={{ textAlign: 'right' }}>On a $1,000 sale</th><th /></tr></thead>
-          <tbody>
-            {levels.map((l, i) => (
-              <tr key={i}>
-                <td>{levelLabel(i)}{i === 0 && <span className="faint" style={{ fontSize: 11 }}> (seller)</span>}</td>
-                <td style={{ textAlign: 'right' }}><input type="number" step="0.01" min={0} max={100} value={l.ratePct} onChange={(e) => setLevels(levels.map((x, j) => j === i ? { ratePct: Number(e.target.value) } : x))} style={{ width: 90, textAlign: 'right' }} /></td>
-                <td className="tnum" style={{ textAlign: 'right' }}>{money(preview[i]?.amountCents ?? 0)}</td>
-                <td style={{ textAlign: 'right' }}>{i === levels.length - 1 && levels.length > 1 && <button className="btn ghost sm" onClick={() => setLevels(levels.slice(0, -1))} title="Remove last tier">✕</button>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div style={{ overflowX: 'auto' }}>
+          <table>
+            <thead><tr><th>Tier</th><th style={{ textAlign: 'right' }}>Rate (%)</th><th style={{ textAlign: 'right' }}>On a $1,000 sale</th><th /></tr></thead>
+            <tbody>
+              {levels.length === 0 && (
+                <tr><td colSpan={4} className="muted" style={{ textAlign: 'center', padding: '20px 0', fontSize: 13 }}>No tiers yet — add a tier to start distributing commission down the upline.</td></tr>
+              )}
+              {levels.map((l, i) => (
+                <tr key={i}>
+                  <td>{levelLabel(i)}{i === 0 && <span className="faint" style={{ fontSize: 11 }}> (seller)</span>}</td>
+                  <td style={{ textAlign: 'right' }}><input type="number" step="0.01" min={0} max={100} value={l.ratePct} onChange={(e) => setLevels(levels.map((x, j) => j === i ? { ratePct: Number(e.target.value) } : x))} style={{ width: 90, textAlign: 'right' }} /></td>
+                  <td className="tnum" style={{ textAlign: 'right' }}>{money(preview[i]?.amountCents ?? 0)}</td>
+                  <td style={{ textAlign: 'right' }}>{i === levels.length - 1 && levels.length > 1 && <button className="btn ghost sm" onClick={() => setLevels(levels.slice(0, -1))} title="Remove last tier" aria-label="Remove last tier">✕</button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         <div className="row spread" style={{ marginTop: 8 }}>
           <button className="btn ghost sm" onClick={() => setLevels([...levels, { ratePct: 0 }])} disabled={levels.length >= 20}>＋ Add tier</button>
           <span className={overPool ? 'badge failed' : 'faint'} style={{ fontSize: 12 }}>
@@ -121,11 +131,11 @@ export default function Plan() {
 
       {/* ---- bonus katmanlari (mevcut) ---- */}
       <div className="card">
-        <strong style={{ fontSize: 14 }}>Plan bonus layers (MLM)</strong>
-        <div className="faint" style={{ fontSize: 12, marginBottom: 14 }}>Extra payouts to the direct sponsor, on top of the base unilevel plan{p.planName ? ` — “${p.planName}”` : ''}. Set 0 to disable.</div>
+        <h2 style={SECTION_TITLE}>Plan bonus layers (MLM)</h2>
+        <div className="faint" style={{ fontSize: 12, marginTop: 4, marginBottom: 14 }}>Extra payouts to the direct sponsor, on top of the base unilevel plan{p.planName ? ` — “${p.planName}”` : ''}. Set 0 to disable.</div>
 
         <div className="card" style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 12 }}>
-          <strong style={{ fontSize: 13 }}>⚡ Fast-start bonus</strong>
+          <h3 style={{ ...SECTION_TITLE, fontSize: 13 }}><span aria-hidden>⚡</span> Fast-start bonus</h3>
           <div className="faint" style={{ fontSize: 11, marginBottom: 8 }}>Direct sponsor earns this % of a new member&apos;s sale, if the sale is within the window after they joined.</div>
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="field" style={{ margin: 0 }}><label>Rate (%)</label><input type="number" step="0.01" min={0} value={p.fastStartBps / 100} onChange={(e) => setP({ ...p, fastStartBps: Math.round(Number(e.target.value) * 100) })} /></div>
@@ -134,7 +144,7 @@ export default function Plan() {
         </div>
 
         <div className="card" style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 12 }}>
-          <strong style={{ fontSize: 13 }}>🤝 Sponsor matching bonus</strong>
+          <h3 style={{ ...SECTION_TITLE, fontSize: 13 }}><span aria-hidden>🤝</span> Sponsor matching bonus</h3>
           <div className="faint" style={{ fontSize: 11, marginBottom: 8 }}>Direct sponsor earns this % of the seller&apos;s own (level-0) commission on every sale.</div>
           <div className="field" style={{ margin: 0, maxWidth: 200 }}><label>Match rate (%)</label><input type="number" step="0.01" min={0} value={p.matchingBps / 100} onChange={(e) => setP({ ...p, matchingBps: Math.round(Number(e.target.value) * 100) })} /></div>
         </div>

@@ -1,8 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { CSSProperties, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Confirm, Loading, Modal, useToast } from '@/components/ui';
+
+// Shared section heading: display font, consistent size/weight across settings cards.
+const SECTION_TITLE: CSSProperties = {
+  fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, letterSpacing: '-.01em', margin: 0,
+};
 
 interface PermDef { key: string; label: string }
 interface PermGroup { key: string; label: string; permissions: PermDef[] }
@@ -92,12 +97,18 @@ export default function PeopleRoles() {
       <section>
         <div className="spread" style={{ marginBottom: 12 }}>
           <div>
-            <strong style={{ fontSize: 15 }}>Roles & permissions</strong>
-            <div className="faint" style={{ fontSize: 12 }}>Define what each role can do. Owner always has full access.</div>
+            <h2 style={SECTION_TITLE}>Roles &amp; permissions</h2>
+            <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>Define what each role can do. Owner always has full access.</div>
           </div>
           <button className="btn sm" onClick={() => setEditing('new')}>+ New role</button>
         </div>
 
+        {roles.length === 0 ? (
+          <div className="card" style={{ textAlign: 'center', padding: '28px 16px' }}>
+            <div className="muted" style={{ fontSize: 13, marginBottom: 12 }}>No roles yet — create one to control what teammates can do.</div>
+            <button className="btn sm" onClick={() => setEditing('new')}>+ New role</button>
+          </div>
+        ) : (
         <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: 12 }}>
           {roles.map((r) => (
             <div key={r.id} className="card" style={{ padding: 16 }}>
@@ -124,19 +135,21 @@ export default function PeopleRoles() {
             </div>
           ))}
         </div>
+        )}
       </section>
 
       {/* ---- People ---- */}
       <section>
         <div className="spread" style={{ marginBottom: 12 }}>
           <div>
-            <strong style={{ fontSize: 15 }}>People</strong>
-            <div className="faint" style={{ fontSize: 12 }}>Assign a role to each teammate. Owner is managed separately.</div>
+            <h2 style={SECTION_TITLE}>People</h2>
+            <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>Assign a role to each teammate. Owner is managed separately.</div>
           </div>
           <span className="faint" style={{ fontSize: 12 }}>{people.length} total</span>
         </div>
 
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="card" style={{ padding: 0, borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+          <div style={{ overflowX: 'auto' }}>
           <table>
             <thead>
               <tr>
@@ -144,6 +157,9 @@ export default function PeopleRoles() {
               </tr>
             </thead>
             <tbody>
+              {people.length === 0 && (
+                <tr><td colSpan={5} className="muted" style={{ textAlign: 'center', padding: '24px 0', fontSize: 13 }}>No people yet — invited teammates appear here once they join.</td></tr>
+              )}
               {people.map((p) => {
                 const isOwner = p.tier === 'tenant_owner';
                 const isMember = p.tier === 'member';
@@ -204,6 +220,7 @@ export default function PeopleRoles() {
               })}
             </tbody>
           </table>
+          </div>
         </div>
       </section>
 
@@ -346,7 +363,7 @@ function RoleEditor({ groups, role, onClose, onSaved }: {
                         style={{
                           display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 9,
                           cursor: locked ? 'default' : 'pointer', fontSize: 12.5,
-                          background: checked ? 'var(--gold-soft, rgba(212,175,55,.1))' : 'var(--panel-2)',
+                          background: checked ? 'var(--gold-soft, color-mix(in srgb, var(--gold-500) 10%, transparent))' : 'var(--panel-2)',
                           border: `1px solid ${checked ? 'var(--gold-500)' : 'hsl(var(--border))'}`,
                         }}>
                         <span style={{

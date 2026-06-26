@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Bars, CountUp, Loading, MoneyCounter, StatCard, useToast } from '@/components/ui';
 import { RadialNetwork } from '@/components/RadialNetwork';
@@ -52,13 +52,28 @@ export default function TeamPage() {
     }
   }
 
-  useEffect(() => {
+  const loadTeam = useCallback(() => {
+    setError('');
     api.get<Team>('/app/team').then(setTeam).catch((e) => setError(String((e as ApiError).message)));
-    api.get<EarnSummary>('/app/dashboard').then(setEarn).catch(() => { /* optional */ });
-    api.get<RecruitsResponse>('/app/team/recruits').then(setRecruits).catch(() => { /* optional */ });
   }, []);
 
-  if (error) return <div className="error">{error}</div>;
+  useEffect(() => {
+    loadTeam();
+    api.get<EarnSummary>('/app/dashboard').then(setEarn).catch(() => { /* optional */ });
+    api.get<RecruitsResponse>('/app/team/recruits').then(setRecruits).catch(() => { /* optional */ });
+  }, [loadTeam]);
+
+  if (error) return (
+    <div>
+      <div className="eyebrow fade-in">{t('anav.team')}</div>
+      <h1 className="h1 fade-in">My Network</h1>
+      <p className="sub fade-in">Your downline at a glance — sized by level, shaded by activity.</p>
+      <div className="card fade-in" style={{ textAlign: 'center', padding: '32px 18px' }}>
+        <div className="error" style={{ margin: '0 0 14px' }}>{error}</div>
+        <button className="btn ghost sm" onClick={loadTeam} style={{ margin: '0 auto' }}>Try again</button>
+      </div>
+    </div>
+  );
   if (!team) return <Loading />;
 
   const inactive = team.totalMembers - team.totalActive;
@@ -76,7 +91,7 @@ export default function TeamPage() {
         <StatCard label={t('me.activeMembers')} value={<CountUp value={team.totalActive} />} icon="✓" grad="var(--grad-emerald)" />
       </div>
 
-      <div className="grid fade-in delay-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,300px)', gap: 16, alignItems: 'stretch' }}>
+      <div className="grid fade-in delay-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 16, alignItems: 'stretch' }}>
         <div className="card" style={{ display: 'grid', placeItems: 'center', padding: 18 }}>
           <RadialNetwork levels={team.levels} totalMembers={team.totalMembers} />
         </div>
@@ -90,7 +105,7 @@ export default function TeamPage() {
           ) : (
             <div className="muted" style={{ textAlign: 'center', padding: '18px 0' }}>
               Your team is empty.<br />
-              <span className="faint" style={{ fontSize: 12.5 }}>Invite people and you&apos;ll earn a share of their sales, too.</span>
+              <span className="faint" style={{ fontSize: 12 }}>Invite people and you&apos;ll earn a share of their sales, too.</span>
             </div>
           )}
           <div className="row" style={{ gap: 16, marginTop: 'auto', paddingTop: 16, fontSize: 12 }}>
@@ -111,13 +126,13 @@ export default function TeamPage() {
                 {recruits.summary.joinedThisMonth > 0 && <span style={{ color: 'var(--emerald)', fontWeight: 600 }}> · +{recruits.summary.joinedThisMonth} this month</span>}
               </div>
             </div>
-            <Link href="/app/invite" className="btn sm">✦ Invite</Link>
+            <Link href="/app/invite" className="btn sm"><span aria-hidden="true">✦ </span>Invite</Link>
           </div>
 
           {recruits.summary.needsNudgeCount > 0 && (
             <div className="row" style={{ gap: 8, padding: '8px 12px', borderRadius: 10, margin: '8px 0 12px', fontSize: 13,
               background: 'color-mix(in srgb, var(--amber) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--amber) 32%, transparent)' }}>
-              <span aria-hidden>👋</span>
+              <span aria-hidden="true">👋</span>
               <span><strong>{recruits.summary.needsNudgeCount}</strong> active teammate{recruits.summary.needsNudgeCount > 1 ? 's' : ''} haven&apos;t sold this month — a quick nudge can help them get started.</span>
             </div>
           )}
@@ -135,28 +150,30 @@ export default function TeamPage() {
               <Link href="/app/invite" className="btn sm" style={{ marginTop: 12, display: 'inline-block' }}>Send your first invite →</Link>
             </div>
           ) : (
-            <table>
-              <thead><tr><th>Member</th><th>Status</th><th>Joined</th><th style={{ textAlign: 'right' }}>Sales (mo)</th><th style={{ textAlign: 'right' }}>Sold (mo)</th><th></th></tr></thead>
-              <tbody>
-                {recruits.recruits.map((r) => (
-                  <tr key={r.id} style={r.needsNudge ? { background: 'color-mix(in srgb, var(--amber) 6%, transparent)' } : undefined}>
-                    <td>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{r.fullName}</div>
-                      <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{r.referralCode}</div>
-                    </td>
-                    <td><span className={`badge ${r.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>{r.status}</span></td>
-                    <td className="faint" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{dateShort(r.joinedAt)}</td>
-                    <td className="tnum" style={{ textAlign: 'right' }}>{r.salesThisMonth || '—'}</td>
-                    <td className="tnum" style={{ textAlign: 'right', fontWeight: 600, color: Number(r.soldThisMonthCents) > 0 ? 'var(--gold-500)' : 'var(--faint)' }}>
-                      {Number(r.soldThisMonthCents) > 0 ? money(r.soldThisMonthCents, recruits.currency) : '—'}
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      {r.needsNudge && <button className="btn ghost sm" onClick={() => nudge(r)} title={`Copy ${r.fullName}'s email`}>👋 Nudge</button>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div style={{ overflowX: 'auto' }}>
+              <table>
+                <thead><tr><th>Member</th><th>Status</th><th>Joined</th><th style={{ textAlign: 'right' }}>Sales (mo)</th><th style={{ textAlign: 'right' }}>Sold (mo)</th><th></th></tr></thead>
+                <tbody>
+                  {recruits.recruits.map((r) => (
+                    <tr key={r.id} style={r.needsNudge ? { background: 'color-mix(in srgb, var(--amber) 6%, transparent)' } : undefined}>
+                      <td>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{r.fullName}</div>
+                        <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{r.referralCode}</div>
+                      </td>
+                      <td><span className={`badge ${r.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>{r.status}</span></td>
+                      <td className="faint" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{dateShort(r.joinedAt)}</td>
+                      <td className="tnum" style={{ textAlign: 'right' }}>{r.salesThisMonth || '—'}</td>
+                      <td className="tnum" style={{ textAlign: 'right', fontWeight: 600, color: Number(r.soldThisMonthCents) > 0 ? 'var(--gold-500)' : 'var(--faint)' }}>
+                        {Number(r.soldThisMonthCents) > 0 ? money(r.soldThisMonthCents, recruits.currency) : '—'}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        {r.needsNudge && <button className="btn ghost sm" onClick={() => nudge(r)} title={`Copy ${r.fullName}'s email`}><span aria-hidden="true">👋 </span>Nudge</button>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}

@@ -37,17 +37,17 @@ export default function Data() {
 function Panel({ title, items }: { title: string; items: Item[] }) {
   return (
     <section>
-      <strong style={{ fontSize: 15 }}>{title}</strong>
+      <strong style={{ fontFamily: 'var(--font-display)', fontSize: 15 }}>{title}</strong>
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 12, marginTop: 12 }}>
         {items.map((it) => (
-          <div key={it.title} className="card" style={{ padding: 15 }}>
+          <div key={it.title} className="card" style={{ padding: 16 }}>
             <div className="spread">
-              <strong style={{ fontSize: 13.5 }}>{it.title}</strong>
-              <span className={`badge ${it.state === 'on' ? 'active' : 'pending'}`} style={{ fontSize: 9 }}>
+              <strong style={{ fontSize: 14 }}>{it.title}</strong>
+              <span className={`badge ${it.state === 'on' ? 'active' : 'pending'}`} style={{ fontSize: 10 }}>
                 {it.state === 'on' ? 'active' : 'coming'}
               </span>
             </div>
-            <div className="faint" style={{ fontSize: 12, marginTop: 7, lineHeight: 1.5 }}>{it.desc}</div>
+            <div className="faint" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>{it.desc}</div>
           </div>
         ))}
       </div>

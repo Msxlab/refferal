@@ -106,7 +106,17 @@ export default function WalletPage() {
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
   }
 
-  if (error && !wallet) return <div className="error">{error}</div>;
+  if (error && !wallet) return (
+    <div>
+      <div className="eyebrow fade-in">{t('anav.wallet')}</div>
+      <h1 className="h1 fade-in">Your Wallet</h1>
+      <p className="sub fade-in">Track your payable balance and request a payout.</p>
+      <div className="card fade-in" style={{ textAlign: 'center', padding: '32px 18px' }}>
+        <div className="error" style={{ margin: '0 0 14px' }}>{error}</div>
+        <button className="btn ghost sm" onClick={() => { setError(''); void load(); }} style={{ margin: '0 auto' }}>Try again</button>
+      </div>
+    </div>
+  );
   if (!wallet) return <Loading />;
   const b = wallet.balance;
   const c = wallet.currency;
@@ -163,7 +173,7 @@ export default function WalletPage() {
 
         {/* dogrusal money-loading bar */}
         <div style={{ marginTop: 18 }}>
-          <div style={{ position: 'relative', height: 14, borderRadius: 8, background: 'rgba(128,128,128,.12)', overflow: 'hidden', boxShadow: 'inset 0 1px 2px rgba(0,0,0,.18)' }}>
+          <div style={{ position: 'relative', height: 14, borderRadius: 8, background: 'color-mix(in srgb, hsl(var(--muted-foreground)) 12%, transparent)', overflow: 'hidden', boxShadow: 'inset 0 1px 2px color-mix(in srgb, hsl(var(--foreground)) 18%, transparent)' }}>
             <div
               style={{
                 height: '100%',
@@ -184,7 +194,7 @@ export default function WalletPage() {
             </span>
           </div>
           {!reached && vesting.perDay > 0 && (
-            <div className="faint" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.5 }}>
+            <div className="faint" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>
               At your current pace, roughly <b className="tnum" style={{ color: 'var(--text)' }}>{money(Math.round(vesting.perDay), c)}/day</b> is maturing — an estimate that updates as your sales are approved.
             </div>
           )}
@@ -208,7 +218,7 @@ export default function WalletPage() {
 
         {/* esik ilerleme cubugu */}
         <div style={{ marginTop: 18 }}>
-          <div style={{ height: 9, borderRadius: 6, background: 'rgba(255,255,255,.06)', overflow: 'hidden' }}>
+          <div style={{ height: 9, borderRadius: 6, background: 'var(--panel-2)', overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${pct}%`, borderRadius: 6, background: reached ? 'var(--grad-emerald, var(--emerald))' : 'var(--grad-primary)', transition: 'width .7s cubic-bezier(.2,.9,.3,1)' }} />
           </div>
           <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
@@ -236,14 +246,14 @@ export default function WalletPage() {
                 {i < arr.length - 1 && <span style={{ width: 2, flex: 1, background: 'hsl(var(--border))', marginTop: 4 }} />}
               </div>
               <div style={{ paddingBottom: i < arr.length - 1 ? 4 : 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 13.5 }}>{s.t}</div>
-                <div className="faint" style={{ fontSize: 12.5, marginTop: 2, lineHeight: 1.5 }}>{s.d}</div>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{s.t}</div>
+                <div className="faint" style={{ fontSize: 12, marginTop: 2, lineHeight: 1.5 }}>{s.d}</div>
               </div>
             </div>
           ))}
         </div>
-        <div className="faint" style={{ fontSize: 11.5, marginTop: 14, paddingTop: 12, borderTop: '1px solid hsl(var(--border))', lineHeight: 1.5 }}>
-          🔒 Commissions come from real, approved product sales only. Your company&apos;s books are checked for balance every day.
+        <div className="faint" style={{ fontSize: 12, marginTop: 14, paddingTop: 12, borderTop: '1px solid hsl(var(--border))', lineHeight: 1.5 }}>
+          <span aria-hidden="true">🔒 </span>Commissions come from real, approved product sales only. Your company&apos;s books are checked for balance every day.
         </div>
       </div>
 
@@ -261,21 +271,23 @@ export default function WalletPage() {
             </select>
           </div>
         </div>
-        <table>
-          <thead><tr><th>Date</th><th>Level</th><th>Type</th><th>Status</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
-          <tbody>
-            {wallet.ledger.items.map((e) => (
-              <tr key={e.id}>
-                <td className="muted">{dateShort(e.createdAt)}</td>
-                <td>{levelLabel(e.level, true)}</td>
-                <td className="faint">{ledgerTypeLabel(e.type)}</td>
-                <td><span className={`badge ${e.status}`}>{e.status}</span></td>
-                <td className="tnum" style={{ textAlign: 'right', fontWeight: 650, color: Number(e.amountCents) < 0 ? 'var(--rose)' : undefined }}>{money(e.amountCents, c)}</td>
-              </tr>
-            ))}
-            {wallet.ledger.items.length === 0 && <tr><td colSpan={5} className="muted">{t('me.noData')}</td></tr>}
-          </tbody>
-        </table>
+        <div style={{ overflowX: 'auto' }}>
+          <table>
+            <thead><tr><th>Date</th><th>Level</th><th>Type</th><th>Status</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
+            <tbody>
+              {wallet.ledger.items.map((e) => (
+                <tr key={e.id}>
+                  <td className="muted">{dateShort(e.createdAt)}</td>
+                  <td>{levelLabel(e.level, true)}</td>
+                  <td className="faint">{ledgerTypeLabel(e.type)}</td>
+                  <td><span className={`badge ${e.status}`}>{e.status}</span></td>
+                  <td className="tnum" style={{ textAlign: 'right', fontWeight: 650, color: Number(e.amountCents) < 0 ? 'var(--rose)' : undefined }}>{money(e.amountCents, c)}</td>
+                </tr>
+              ))}
+              {wallet.ledger.items.length === 0 && <tr><td colSpan={5} className="muted">{t('me.noData')}</td></tr>}
+            </tbody>
+          </table>
+        </div>
         <Pagination page={wallet.ledger.page} pageSize={wallet.ledger.pageSize} total={wallet.ledger.total} onPage={setPage} />
       </div>
 
@@ -291,7 +303,7 @@ export default function WalletPage() {
           )}
         </div>
         <p className="faint" style={{ fontSize: 12, marginTop: -4, marginBottom: 12 }}>
-          Checks are mailed to your account address once approved. Keep your <a href="/account" style={{ color: 'var(--accent)' }}>mailing address</a> up to date.
+          Checks are mailed to your account address once approved. Keep your <a href="/account" style={{ color: 'var(--sky)' }}>mailing address</a> up to date.
         </p>
         <div className="card" style={{ background: 'var(--panel-2)', padding: 0, overflowX: 'auto' }}>
           <table>
@@ -431,7 +443,7 @@ function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <div className="faint" style={{ fontSize: 11 }}>{label}</div>
-      <div style={{ fontSize: 13.5, marginTop: 2 }}>{value}</div>
+      <div style={{ fontSize: 13, marginTop: 2 }}>{value}</div>
     </div>
   );
 }

@@ -48,7 +48,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
         <nav>
           {NAV.map((n) => (
             <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''} onClick={() => setNavOpen(false)}>
-              <span className="ic">{n.ic}</span>{n.label}
+              <span className="ic" aria-hidden="true">{n.ic}</span>{n.label}
             </Link>
           ))}
         </nav>

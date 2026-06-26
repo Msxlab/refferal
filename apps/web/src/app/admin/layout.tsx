@@ -111,8 +111,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (!session) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
-        {t('common.loading')}
+      <div className="flex min-h-screen items-center justify-center bg-background" role="status" aria-live="polite">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <span
+            className="h-4 w-4 animate-spin rounded-full border-2 border-border border-t-primary"
+            aria-hidden="true"
+          />
+          {t('common.loading')}
+        </div>
       </div>
     );
   }
@@ -142,23 +148,25 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <Link
         href={n.href}
         onClick={() => setNavOpen(false)}
+        aria-current={isActive ? 'page' : undefined}
         className={[
-          'group flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors',
+          'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           isActive
             ? 'bg-primary/15 text-primary'
             : 'text-muted-foreground hover:bg-muted hover:text-foreground',
         ].join(' ')}
       >
-        <span className={isActive ? 'text-primary' : 'text-muted-foreground/80 group-hover:text-foreground'}>
+        <span className={isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'} aria-hidden="true">
           <NavIcon name={n.ic} />
         </span>
         <span className="flex-1 truncate">{t(n.key)}</span>
         {n.badge && (
           <span
             className={[
-              'ml-auto rounded-full px-[7px] py-px text-[10px] font-bold tabular-nums',
+              'ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums',
               n.badge.tone === 'pending'
-                ? 'bg-amber-400/15 text-amber-400'
+                ? 'bg-[color-mix(in_srgb,var(--amber)_14%,transparent)] text-[var(--amber)]'
                 : 'bg-primary/15 text-primary',
             ].join(' ')}
           >
@@ -178,12 +186,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           aria-label={t('nav.menu')}
           aria-expanded={navOpen}
           onClick={() => setNavOpen((v) => !v)}
-          className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-muted text-muted-foreground"
+          className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-muted text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
         </button>
         <div className="flex items-center gap-2">
-          <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary font-display text-sm font-extrabold text-primary-foreground">{APP_MONOGRAM}</span>
+          <span aria-hidden="true" className="grid h-7 w-7 place-items-center rounded-lg bg-primary font-display text-sm font-extrabold text-primary-foreground">{APP_MONOGRAM}</span>
           <span className="font-display text-[15px] font-extrabold tracking-tight">{APP_NAME}</span>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
@@ -195,7 +203,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       {/* ===== Mobile backdrop ===== */}
       {navOpen && (
         <div
-          className="no-print fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
+          className="no-print fixed inset-0 z-40 bg-foreground/60 backdrop-blur-sm md:hidden"
           onClick={() => setNavOpen(false)}
           aria-hidden="true"
         />
@@ -210,45 +218,48 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         ].join(' ')}
       >
         {/* Brand */}
-        <div className="flex items-center gap-3 px-[18px] pb-3.5 pt-5">
-          <span className="grid h-[38px] w-[38px] place-items-center rounded-xl bg-primary font-display text-[18px] font-extrabold text-primary-foreground shadow-lg shadow-primary/30">
+        <div className="flex items-center gap-3 px-4 pb-4 pt-5">
+          <span aria-hidden="true" className="grid h-[38px] w-[38px] place-items-center rounded-xl bg-primary font-display text-lg font-extrabold text-primary-foreground shadow-lg shadow-primary/30">
             {APP_MONOGRAM}
           </span>
           <div className="min-w-0">
             <div className="font-display text-[17px] font-extrabold tracking-tight text-foreground">{APP_NAME}</div>
-            <div className="-mt-px truncate text-[10.5px] text-muted-foreground/70">Referral commission OS</div>
+            <div className="-mt-px truncate text-xs text-muted-foreground">Referral commission OS</div>
           </div>
         </div>
 
         {/* Company switcher pill */}
         <Link
           href="/account"
-          className="mx-2 mb-2.5 mt-0.5 flex items-center gap-2 rounded-lg border border-border bg-muted px-3 py-1.5 transition-colors hover:border-input"
+          aria-label="Switch workspace"
+          className="mx-2 mb-2.5 mt-0.5 flex items-center gap-2 rounded-lg border border-border bg-muted px-3 py-1.5 transition-colors hover:border-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span className="grid h-[22px] w-[22px] place-items-center rounded-md bg-primary/15 font-display text-[11px] font-extrabold text-primary">
+          <span aria-hidden="true" className="grid h-[22px] w-[22px] place-items-center rounded-md bg-primary/15 font-display text-xs font-extrabold text-primary">
             {initial}
           </span>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[12.5px] font-semibold text-foreground">{active?.tenantName ?? APP_NAME}</div>
-            <div className="text-[10px] text-muted-foreground/70">{active?.role ?? 'Workspace'}</div>
+            <div className="truncate text-sm font-semibold text-foreground">{active?.tenantName ?? APP_NAME}</div>
+            <div className="text-xs text-muted-foreground">{active?.role ?? 'Workspace'}</div>
           </div>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground/70"><path d="M8 9l4-4 4 4M8 15l4 4 4-4" /></svg>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground" aria-hidden="true"><path d="M8 9l4-4 4 4M8 15l4 4 4-4" /></svg>
         </Link>
 
         {/* Nav */}
-        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-1">
+        <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-1">
           {isPlatform && (
             <Link
               href="/platform"
               onClick={() => setNavOpen(false)}
+              aria-current={pathname.startsWith('/platform') ? 'page' : undefined}
               className={[
-                'group flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors',
+                'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 pathname.startsWith('/platform')
                   ? 'bg-primary/15 text-primary'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground',
               ].join(' ')}
             >
-              <span className={pathname.startsWith('/platform') ? 'text-primary' : 'text-muted-foreground/80 group-hover:text-foreground'}>
+              <span aria-hidden="true" className={pathname.startsWith('/platform') ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'}>
                 <NavIcon name="platform" />
               </span>
               <span className="flex-1 truncate">Platform</span>
@@ -259,8 +270,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
           {opsNav.length > 0 && (
             <>
-              <div className="mx-2.5 my-2 h-px bg-border" />
-              <div className="px-3 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.13em] text-muted-foreground/70">
+              <div className="mx-2 my-2 h-px bg-border" />
+              <div className="px-3 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.13em] text-muted-foreground">
                 Operations
               </div>
               {opsNav.map((n) => <NavLink key={n.href} n={n} />)}
@@ -269,16 +280,20 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </nav>
 
         {/* User footer card */}
-        <div className="mt-auto border-t border-border px-3.5 py-3">
+        <div className="mt-auto border-t border-border px-4 py-3">
           <div className="flex items-center gap-2.5">
-            <span className="grid h-8 w-8 place-items-center rounded-lg border border-input bg-muted text-[13px] font-bold text-foreground">
+            <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-lg border border-input bg-muted text-sm font-bold text-foreground">
               {userInitial}
             </span>
-            <Link href="/account" title="Account settings" className="min-w-0 flex-1">
-              <div className="truncate text-[12.5px] font-semibold text-foreground">{session.user.fullName}</div>
-              <div className="truncate text-[10.5px] text-muted-foreground/70">{session.user.email}</div>
+            <Link
+              href="/account"
+              title="Account settings"
+              className="min-w-0 flex-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <div className="truncate text-sm font-semibold text-foreground">{session.user.fullName}</div>
+              <div className="truncate text-xs text-muted-foreground">{session.user.email}</div>
             </Link>
-            <span className="rounded-md bg-primary/15 px-1.5 py-1 text-[9px] font-bold uppercase tracking-wide text-primary">
+            <span className="rounded-md bg-primary/15 px-1.5 py-1 text-[10px] font-bold uppercase tracking-wide text-primary">
               {active?.role?.replace('tenant_', '') ?? 'staff'}
             </span>
           </div>
@@ -290,7 +305,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <button
                 type="button"
                 onClick={logout}
-                className="rounded-lg px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
               >
                 {t('nav.logout')}
               </button>
@@ -302,13 +317,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       {/* ===== Main column ===== */}
       <main className="flex min-h-screen min-w-0 flex-1 flex-col pt-14 md:pt-0">
         {/* Topbar */}
-        <header className="no-print sticky top-0 z-30 hidden h-[60px] flex-shrink-0 items-center gap-3.5 border-b border-border bg-card/95 px-[22px] backdrop-blur md:flex">
+        <header className="no-print sticky top-0 z-30 hidden h-[60px] flex-shrink-0 items-center gap-3.5 border-b border-border bg-card/95 px-6 backdrop-blur md:flex">
           {/* Breadcrumb */}
-          <div className="flex items-center gap-2 text-[13px] text-muted-foreground/70">
+          <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm text-muted-foreground">
             <span>{APP_NAME}</span>
-            <span className="opacity-50">/</span>
+            <span aria-hidden="true" className="text-muted-foreground">/</span>
             <span className="font-semibold text-foreground">{screenTitle}</span>
-          </div>
+          </nav>
 
           <div className="flex-1" />
 
@@ -316,11 +331,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <button
             type="button"
             onClick={openCommandPalette}
-            className="flex h-[34px] items-center gap-2.5 rounded-lg border border-border bg-muted pl-3 pr-2.5 text-[12.5px] text-muted-foreground/70 transition-colors hover:border-input hover:text-foreground"
+            aria-label="Search"
+            className="flex h-[34px] items-center gap-2.5 rounded-lg border border-border bg-muted pl-3 pr-2.5 text-sm text-muted-foreground transition-colors hover:border-input hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3-3" /></svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3-3" /></svg>
             <span className="text-muted-foreground">Search…</span>
-            <span className="ml-1.5 rounded-md border border-input px-1.5 py-px text-[10.5px] font-semibold text-muted-foreground/70">⌘K</span>
+            <span aria-hidden="true" className="ml-1.5 rounded-md border border-input px-1.5 py-px text-xs font-semibold text-muted-foreground">⌘K</span>
           </button>
 
           {/* Notifications */}

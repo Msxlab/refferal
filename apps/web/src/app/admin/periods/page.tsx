@@ -78,10 +78,10 @@ export default function PeriodsPage() {
           <h1 className="h1 fade-in">Period close</h1>
           <p className="sub fade-in">Locking a month closes the books — no new commission, reversals or payouts can touch that period. Unlocking is recorded in the audit log.</p>
         </div>
-        <button className="btn ghost no-print" onClick={() => window.print()}>🖶 Print</button>
+        <button className="btn ghost no-print" onClick={() => window.print()} aria-label="Print page"><span aria-hidden>🖶</span> Print</button>
       </div>
 
-      {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
+      {error && <div className="error" style={{ marginTop: 16 }}>{error}</div>}
 
       <div className="stat-grid" style={{ marginTop: 16 }}>
         <StatCard label="Locked periods" value={String(stats.lockedCount)} icon="▥" />
@@ -108,14 +108,14 @@ export default function PeriodsPage() {
             <tbody>
               {rows.map((r) => (
                 <tr key={r.period}>
-                  <td><strong>{r.period}</strong>{r.note ? <div className="faint" style={{ fontSize: 11 }}>{r.note}</div> : null}</td>
+                  <td><strong>{r.period}</strong>{r.note ? <div className="faint" style={{ fontSize: '0.75rem', marginTop: 2 }}>{r.note}</div> : null}</td>
                   <td style={{ textAlign: 'right' }}>{money(r.revenueCents)}</td>
                   <td style={{ textAlign: 'right' }}>{money(r.pendingCents)}</td>
                   <td style={{ textAlign: 'right' }}>{money(r.payableCents)}</td>
                   <td style={{ textAlign: 'right' }}>{money(r.paidCents)}</td>
                   <td>
                     {r.locked
-                      ? <span className="badge paid" title={r.lockedBy ? `Locked by: ${r.lockedBy}` : undefined}>🔒 Locked</span>
+                      ? <span className="badge paid" title={r.lockedBy ? `Locked by: ${r.lockedBy}` : undefined}><span aria-hidden>🔒</span> Locked</span>
                       : <span className="badge draft">Open</span>}
                   </td>
                   <td className="no-print">
@@ -139,7 +139,7 @@ export default function PeriodsPage() {
           </label>
           <div className="row spread" style={{ marginTop: 12 }}>
             <button className="btn ghost" onClick={() => setLockTarget(null)} disabled={busy}>Cancel</button>
-            <button className="btn" onClick={doLock} disabled={busy}>{busy ? 'Locking…' : '🔒 Lock'}</button>
+            <button className="btn" onClick={doLock} disabled={busy}>{busy ? 'Locking…' : <><span aria-hidden>🔒</span> Lock</>}</button>
           </div>
         </Modal>
       )}

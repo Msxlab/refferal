@@ -95,19 +95,23 @@ export function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone:
               <span className="badge active">{preview.okCount} ready</span>
               {preview.errorCount > 0 && <span className="badge failed">{preview.errorCount} errors</span>}
             </div>
-            <div style={{ maxHeight: '40vh', overflow: 'auto', borderRadius: 10, border: '1px solid hsl(var(--border))' }}>
-              <table>
+            <div style={{ maxHeight: '40vh', overflowY: 'auto', overflowX: 'auto', borderRadius: 10, border: '1px solid hsl(var(--border))' }}>
+              <table style={{ minWidth: 460 }}>
                 <thead><tr><th>#</th><th>Code</th><th>Amount</th><th>Seller / error</th></tr></thead>
                 <tbody>
-                  {preview.rows.map((r) => (
+                  {preview.rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="faint" style={{ textAlign: 'center', padding: 20, fontSize: 'var(--text-sm)' }}>No rows parsed.</td>
+                    </tr>
+                  ) : preview.rows.map((r) => (
                     <tr key={r.line}>
                       <td className="faint">{r.line}</td>
-                      <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>{r.code || '—'}</td>
+                      <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 'var(--text-sm)' }}>{r.code || '—'}</td>
                       <td className="tnum">{r.ok && r.amountCents ? `$${(Number(r.amountCents) / 100).toLocaleString('en-US')}` : '—'}</td>
                       <td>
                         {r.ok
                           ? <span style={{ color: 'var(--emerald)' }}>{r.sellerName}</span>
-                          : <span style={{ color: 'var(--rose)', fontSize: 12 }}>{r.reason}</span>}
+                          : <span style={{ color: 'var(--rose)', fontSize: 'var(--text-sm)' }}>{r.reason}</span>}
                       </td>
                     </tr>
                   ))}
@@ -147,9 +151,9 @@ function Steps({ step }: { step: 'data' | 'map' | 'preview' }) {
     <div className="row" style={{ gap: 8, marginBottom: 16 }}>
       {items.map((it, i) => (
         <div key={it.k} className="row" style={{ gap: 8, flex: 1 }}>
-          <span style={{ width: 22, height: 22, borderRadius: 999, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800,
+          <span style={{ width: 22, height: 22, borderRadius: 999, display: 'grid', placeItems: 'center', fontSize: 'var(--text-xs)', fontWeight: 800,
             background: i <= idx ? 'var(--foil)' : 'var(--panel-2)', color: i <= idx ? 'var(--on-gold)' : 'hsl(var(--muted-foreground))' }}>{i + 1}</span>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: i === idx ? 'var(--text)' : 'hsl(var(--muted-foreground))' }}>{it.l}</span>
+          <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: i === idx ? 'var(--text)' : 'hsl(var(--muted-foreground))' }}>{it.l}</span>
           {i < items.length - 1 && <span style={{ flex: 1, height: 1, background: 'hsl(var(--border))' }} />}
         </div>
       ))}

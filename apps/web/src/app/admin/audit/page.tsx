@@ -85,6 +85,9 @@ export default function AuditPage() {
 
   useEffect(() => { const id = setTimeout(() => void load(), 250); return () => clearTimeout(id); }, [load]);
 
+  const hasFilters = Boolean(q.trim() || entity || from || to);
+  function clearFilters() { setQ(''); setEntity(''); setFrom(''); setTo(''); setPage(1); }
+
   async function exportCsv() {
     try { await downloadCsv(`/admin/audit/export.csv${filterQuery ? `?${filterQuery}` : ''}`, 'audit.csv'); }
     catch (e) { setError(String((e as ApiError).message)); }
@@ -113,37 +116,44 @@ export default function AuditPage() {
         </div>
       </div>
 
-      {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
+      {error && <div className="error" style={{ marginTop: 16 }}>{error}</div>}
 
-      <div className="row fade-in delay-1 no-print" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '14px 0' }}>
+      <div className="row fade-in delay-1 no-print" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '16px 0' }}>
         <input aria-label="Search audit log by action or entity" placeholder="🔍  Search action or entity…" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} style={{ flex: 1, minWidth: 180, maxWidth: 280 }} />
         <select value={entity} onChange={(e) => { setEntity(e.target.value); setPage(1); }} style={{ width: 'auto' }} aria-label="Entity">
           <option value="">All entities</option>
           {ENTITIES.map((e) => <option key={e} value={e}>{ICON[e] ?? '•'} {e}</option>)}
         </select>
-        <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1); }} aria-label="From" style={{ width: 'auto' }} />
-        <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPage(1); }} aria-label="To" style={{ width: 'auto' }} />
-        <span style={{ flex: 1 }} />
-        <span className="faint" style={{ fontSize: 12 }}>{list ? `${list.total} events` : ''}</span>
+        <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1); }} aria-label="From" style={{ width: 'auto', minWidth: 130 }} />
+        <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPage(1); }} aria-label="To" style={{ width: 'auto', minWidth: 130 }} />
+        <span style={{ flex: 1, minWidth: 12 }} />
+        <span className="faint" style={{ fontSize: '0.75rem', marginLeft: 'auto', whiteSpace: 'nowrap' }}>{list ? `${list.total} events` : ''}</span>
       </div>
 
       <div className="card fade-in delay-2" style={{ padding: 0, overflow: 'hidden' }}>
         {!list ? <div style={{ padding: 16 }}><Loading rows={6} /></div> : items.length === 0 ? (
-          <div className="muted" style={{ padding: 18 }}>No matching events.</div>
+          <div style={{ padding: 18 }}>
+            <div className="muted">
+              {hasFilters ? 'No events match these filters — try widening the date range or clearing the search.' : 'No audit events yet — actions affecting money, roles, and plans will appear here as they happen.'}
+            </div>
+            {hasFilters && (
+              <button className="btn ghost sm" onClick={clearFilters} style={{ marginTop: 12 }}>Clear filters</button>
+            )}
+          </div>
         ) : (
           <div>
             {items.map((a) => (
               <button key={a.id} onClick={() => setDetail(a)} className="row inbox-row" style={{ alignItems: 'flex-start' }}>
-                <span style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', background: a.entity === 'security' ? 'color-mix(in srgb, var(--rose) 16%, transparent)' : 'rgba(255,255,255,.05)', fontSize: 15, flexShrink: 0 }}>
+                <span aria-hidden style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', background: a.entity === 'security' ? 'color-mix(in srgb, var(--rose) 16%, transparent)' : 'var(--panel-2)', fontSize: '0.9375rem', flexShrink: 0 }}>
                   {ICON[a.entity] ?? '•'}
                 </span>
                 <span style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
-                  <span style={{ fontWeight: 600, fontSize: 13 }} title={a.action}>{humanizeAction(a.action)}</span>
-                  <span className="faint" style={{ fontSize: 11.5, display: 'block', marginTop: 2 }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.8125rem' }} title={a.action}>{humanizeAction(a.action)}</span>
+                  <span className="faint" style={{ fontSize: '0.75rem', display: 'block', marginTop: 2 }}>
                     {a.actorUserId ? a.actorName : '⚙ system'}{a.actorEmail ? ` · ${a.actorEmail}` : ''}
                   </span>
                 </span>
-                <span className="faint" style={{ fontSize: 11.5, whiteSpace: 'nowrap', flexShrink: 0 }}>{when(a.createdAt)}</span>
+                <span className="faint" style={{ fontSize: '0.75rem', whiteSpace: 'nowrap', flexShrink: 0 }}>{when(a.createdAt)}</span>
               </button>
             ))}
           </div>
@@ -165,7 +175,7 @@ export default function AuditPage() {
             </div>
             <FieldDiff before={detail.before} after={detail.after} />
             <details>
-              <summary className="faint" style={{ fontSize: 12, cursor: 'pointer' }}>Raw JSON</summary>
+              <summary className="faint" style={{ fontSize: '0.75rem', cursor: 'pointer' }}>Raw JSON</summary>
               <div style={{ marginTop: 8 }}>
                 <Diff label="Before" data={detail.before} />
                 <Diff label="After" data={detail.after} />
@@ -181,8 +191,8 @@ export default function AuditPage() {
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="faint" style={{ fontSize: 11 }}>{label}</div>
-      <div style={{ fontSize: 13.5, marginTop: 2, fontFamily: 'ui-monospace, monospace', wordBreak: 'break-all' }}>{value}</div>
+      <div className="faint" style={{ fontSize: '0.75rem' }}>{label}</div>
+      <div style={{ fontSize: '0.8125rem', marginTop: 2, fontFamily: 'ui-monospace, monospace', wordBreak: 'break-all' }}>{value}</div>
     </div>
   );
 }
@@ -193,7 +203,7 @@ function FieldDiff({ before, after }: { before: unknown; after: unknown }) {
   const a = (after && typeof after === 'object' ? after : {}) as Record<string, unknown>;
   const keys = [...new Set([...Object.keys(b), ...Object.keys(a)])].sort();
   const fmt = (v: unknown) => v === undefined ? '—' : v === null ? 'null' : typeof v === 'object' ? JSON.stringify(v) : String(v);
-  if (keys.length === 0) return <div className="muted" style={{ fontSize: 13 }}>No field-level detail.</div>;
+  if (keys.length === 0) return <div className="muted" style={{ fontSize: '0.8125rem' }}>No field-level detail.</div>;
   return (
     <table>
       <thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead>
@@ -202,9 +212,9 @@ function FieldDiff({ before, after }: { before: unknown; after: unknown }) {
           const changed = JSON.stringify(b[k]) !== JSON.stringify(a[k]);
           return (
             <tr key={k} style={{ background: changed ? 'color-mix(in srgb, var(--amber) 9%, transparent)' : undefined }}>
-              <td className="faint" style={{ fontSize: 12 }}>{k}</td>
-              <td className="tnum" style={{ fontSize: 12, color: changed ? 'var(--rose)' : 'hsl(var(--muted-foreground))' }}>{fmt(b[k])}</td>
-              <td className="tnum" style={{ fontSize: 12, color: changed ? 'var(--emerald)' : 'hsl(var(--muted-foreground))' }}>{fmt(a[k])}</td>
+              <td className="faint" style={{ fontSize: '0.75rem' }}>{k}</td>
+              <td className="tnum" style={{ fontSize: '0.75rem', color: changed ? 'var(--rose)' : 'hsl(var(--muted-foreground))' }}>{fmt(b[k])}</td>
+              <td className="tnum" style={{ fontSize: '0.75rem', color: changed ? 'var(--emerald)' : 'hsl(var(--muted-foreground))' }}>{fmt(a[k])}</td>
             </tr>
           );
         })}
@@ -217,11 +227,11 @@ function Diff({ label, data }: { label: string; data: unknown }) {
   const empty = data === null || data === undefined || (typeof data === 'object' && Object.keys(data as object).length === 0);
   return (
     <div>
-      <div className="faint" style={{ fontSize: 11, marginBottom: 6 }}>{label}</div>
+      <div className="faint" style={{ fontSize: '0.75rem', marginBottom: 6 }}>{label}</div>
       {empty ? (
-        <div className="muted" style={{ fontSize: 12 }}>—</div>
+        <div className="muted" style={{ fontSize: '0.75rem' }}>—</div>
       ) : (
-        <pre style={{ margin: 0, padding: 12, borderRadius: 10, background: 'var(--panel-2)', border: '1px solid hsl(var(--border))', fontSize: 12, fontFamily: 'ui-monospace, monospace', overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+        <pre style={{ margin: 0, padding: 12, borderRadius: 10, background: 'var(--panel-2)', border: '1px solid hsl(var(--border))', fontSize: '0.75rem', fontFamily: 'ui-monospace, monospace', overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
           {JSON.stringify(data, null, 2)}
         </pre>
       )}

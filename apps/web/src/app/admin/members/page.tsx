@@ -253,7 +253,7 @@ export default function MembersPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-primary">{t('nav.members')}</div>
-          <h1 className="mt-1 font-display text-[27px] font-extrabold tracking-tight">Member Management</h1>
+          <h1 className="mt-1 font-display text-[27px] font-extrabold tracking-tight text-foreground">Member Management</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Invite members, assign roles, deactivate. Placement is permanent.
             {nps && nps.total > 0 && nps.nps != null && (
@@ -366,7 +366,8 @@ export default function MembersPage() {
                           {m.referralCode}
                           <button
                             title="Copy code"
-                            className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
+                            aria-label={`Copy ${m.referralCode}`}
+                            className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             onClick={() => { navigator.clipboard.writeText(m.referralCode).then(() => showToast('Copied ✓')).catch(() => {}); }}
                           >⧉</button>
                         </span>
@@ -403,12 +404,13 @@ export default function MembersPage() {
                       <div className="flex justify-end gap-1.5">
                         <button
                           title="Edit profile"
-                          className="rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+                          aria-label={`Edit ${m.fullName}`}
+                          className="rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           onClick={() => { setError(''); setEditM(m); setEditName(m.fullName); setEditEmail(m.email); }}
                         >✎</button>
                         {m.role !== 'tenant_owner' && (
                           <button
-                            className="rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+                            className="rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             onClick={() => setConfirmM(m)}
                           >
                             {m.status === 'active' ? t('members.deactivate') : t('members.activate')}
@@ -451,9 +453,9 @@ export default function MembersPage() {
 
       {/* sticky bulk-action bar */}
       {selected.size > 0 && (
-        <div className="no-print sticky bottom-[18px] z-30 mx-auto mt-4 flex max-w-[680px] items-center gap-3 rounded-xl border border-input bg-popover px-3.5 py-2.5 shadow-[0_18px_50px_-22px_rgba(0,0,0,.7)]">
+        <div className="no-print sticky bottom-[18px] z-30 mx-auto mt-4 flex max-w-[680px] flex-wrap items-center gap-2.5 rounded-xl border border-input bg-popover px-3.5 py-2.5 shadow-lg">
           <strong className="text-[13px]">{selected.size} selected</strong>
-          <div className="flex-1" />
+          <div className="hidden flex-1 sm:block" />
           <Button size="sm" disabled={selActivatable === 0} onClick={() => openBulk('activate')}>Activate {selActivatable || ''}</Button>
           <Button size="sm" variant="destructive" disabled={selDeactivatable === 0} onClick={() => openBulk('deactivate')}>Deactivate {selDeactivatable || ''}</Button>
           <span className="flex items-center gap-1.5">
@@ -486,7 +488,7 @@ export default function MembersPage() {
             </div>
             {error && <div className="mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
             {latest ? (
-              <div className="mt-1 rounded-xl border border-primary/20 bg-primary/[0.08] p-3">
+              <div className="mt-1 rounded-xl border border-primary/20 bg-primary/10 p-3">
                 <div className="mb-1.5 text-[11px] text-muted-foreground/70">Invite link — share it:</div>
                 <div className="flex items-center justify-between gap-2">
                   <span className="break-all text-[12.5px] text-primary">{inviteUrl}</span>
@@ -736,7 +738,7 @@ function MemberDrawer({ id, onClose, onNavigate, onChanged, onToast }: {
               onChange={(e) => changeRole(e.target.value)}
               className="h-8 w-[140px] rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:border-primary disabled:opacity-50"
             >
-              {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+              {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
             </select>
           )}
           {p.role !== 'tenant_owner' && (
@@ -753,7 +755,14 @@ function MemberDrawer({ id, onClose, onNavigate, onChanged, onToast }: {
       )}
     >
       {err && <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</div>}
-      {!d || !p ? <Loading rows={4} /> : (
+      {!d || !p ? (
+        err ? (
+          <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
+            <div className="text-sm text-muted-foreground">Couldn’t load this member.</div>
+            <Button variant="outline" size="sm" onClick={() => { setErr(''); load(); }}>Try again</Button>
+          </div>
+        ) : <Loading rows={4} />
+      ) : (
         <div className="flex flex-col gap-[18px]">
           {/* status / role chips */}
           <div className="flex flex-wrap items-center gap-1.5">

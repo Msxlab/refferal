@@ -89,17 +89,17 @@ export default function CompaniesPage() {
           </div>
           <div>
             <div className="faint" style={{ fontSize: 11 }}>Overdue</div>
-            <div className="tnum" style={{ fontSize: 18, fontWeight: 700, color: Number(ar.totals.overdueCents) > 0 ? 'var(--rose, #e11d48)' : 'var(--text)' }}>{money(ar.totals.overdueCents, 'USD')}</div>
+            <div className="tnum" style={{ fontSize: 18, fontWeight: 700, color: Number(ar.totals.overdueCents) > 0 ? 'var(--rose)' : 'var(--text)' }}>{money(ar.totals.overdueCents, 'USD')}</div>
           </div>
           <div>
             <div className="faint" style={{ fontSize: 11 }}>Collected</div>
             <div className="tnum" style={{ fontSize: 18, fontWeight: 700, color: 'var(--emerald)' }}>{money(ar.totals.paidCents, 'USD')}</div>
           </div>
-          <span style={{ flex: 1 }} />
-          <div className="field" style={{ margin: 0 }}>
-            <label>Bill all active companies</label>
+          <span style={{ flex: 1, minWidth: 12 }} />
+          <div className="field" style={{ margin: 0, minWidth: 220 }}>
+            <label htmlFor="bill-all-period">Bill all active companies</label>
             <div className="row" style={{ gap: 8 }}>
-              <input value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="2026-06" style={{ maxWidth: 110 }} />
+              <input id="bill-all-period" value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="2026-06" style={{ maxWidth: 110 }} />
               <button className="btn sm" onClick={runInvoices} disabled={busy}>Run invoices</button>
             </div>
           </div>
@@ -116,8 +116,8 @@ export default function CompaniesPage() {
           <button key={c.id} className="card hover" aria-label={`Open ${c.name} company details`} onClick={() => router.push(`/platform/companies/${c.id}`)}
             style={{ textAlign: 'left', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="spread">
-              <div className="row" style={{ gap: 11 }}>
-                <span style={{ width: 40, height: 40, borderRadius: 11, display: 'grid', placeItems: 'center', background: 'var(--foil)', color: 'var(--on-gold)', fontWeight: 800, fontSize: 17, fontFamily: 'var(--font-display)' }}>
+              <div className="row" style={{ gap: 12 }}>
+                <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: 11, display: 'grid', placeItems: 'center', background: 'var(--foil)', color: 'var(--on-gold)', fontWeight: 800, fontSize: 16, fontFamily: 'var(--font-display)' }}>
                   {c.name.charAt(0).toUpperCase()}
                 </span>
                 <div>
@@ -125,9 +125,9 @@ export default function CompaniesPage() {
                   <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{c.slug}</div>
                 </div>
               </div>
-              <span className={`badge ${c.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>{c.status}</span>
+              <span className={`badge ${c.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 10 }}>{c.status}</span>
             </div>
-            <div className="row" style={{ gap: 18 }}>
+            <div className="row" style={{ gap: 16, flexWrap: 'wrap' }}>
               <Mini label="Members" value={`${c.activeMembers}/${c.members}`} />
               <Mini label="Revenue (mo)" value={money(c.revenueThisMonthCents, c.currency)} />
               <Mini label="Sales (mo)" value={String(c.salesThisMonth)} />
@@ -152,7 +152,7 @@ export default function CompaniesPage() {
 function Kpi({ label, value, icon }: { label: string; value: string; icon: string }) {
   return (
     <div className="card stat">
-      <div className="spread"><span className="k">{label}</span><span className="icon">{icon}</span></div>
+      <div className="spread"><span className="k">{label}</span><span className="icon" aria-hidden="true">{icon}</span></div>
       <div className="v">{value}</div>
     </div>
   );
@@ -160,8 +160,8 @@ function Kpi({ label, value, icon }: { label: string; value: string; icon: strin
 function Mini({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="faint" style={{ fontSize: 10.5 }}>{label}</div>
-      <div className="tnum" style={{ fontWeight: 700, fontSize: 13.5, marginTop: 1 }}>{value}</div>
+      <div className="faint" style={{ fontSize: 11 }}>{label}</div>
+      <div className="tnum" style={{ fontWeight: 700, fontSize: 13, marginTop: 2 }}>{value}</div>
     </div>
   );
 }

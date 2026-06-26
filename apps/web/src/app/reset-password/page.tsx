@@ -53,7 +53,7 @@ function ResetPasswordInner() {
             </>
           ) : (
             <>
-              {!token && <div className="error">Password reset token is missing.</div>}
+              {!token && <div className="error" role="alert">Password reset token is missing.</div>}
               <div className="field">
                 <label>New password</label>
                 <input
@@ -77,12 +77,12 @@ function ResetPasswordInner() {
                   placeholder="Repeat your new password"
                 />
               </div>
-              {error && <div className="error">{error}</div>}
+              {error && <div className="error" role="alert">{error}</div>}
               <button className="btn block" style={{ marginTop: 6 }} disabled={busy || !token}>
                 {busy ? 'Updating...' : 'Update password'}
               </button>
               <div style={{ textAlign: 'center', marginTop: 14 }}>
-                <Link href="/login" className="faint" style={{ fontSize: 12 }}>Back to login</Link>
+                <Link href="/login" className="faint" style={{ fontSize: 'var(--text-sm)' }}>Back to login</Link>
               </div>
             </>
           )}

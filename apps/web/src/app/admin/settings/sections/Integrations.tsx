@@ -55,14 +55,17 @@ export default function Integrations() {
   async function testHook() { try { const r = await api.post<{ queued: number }>('/admin/webhooks/test'); showToast(`Queued ${r.queued} test event(s)`); await load(); } catch (e) { setError(String((e as ApiError).message)); } }
   async function replay(id: string) { try { await api.post(`/admin/webhooks/deliveries/${id}/replay`); showToast('Re-queued'); await load(); } catch (e) { setError(String((e as ApiError).message)); } }
 
-  if (!keys) return <Loading rows={3} />;
+  if (!keys) {
+    if (error) return <div className="error">{error}</div>;
+    return <Loading rows={3} />;
+  }
 
   return (
-    <div className="grid" style={{ gap: 18, maxWidth: 680 }}>
+    <div className="grid" style={{ gap: 20, maxWidth: 680 }}>
       {error && <div className="error">{error}</div>}
 
       <div className="card">
-        <strong style={{ fontSize: 14 }}>API keys</strong>
+        <strong style={{ fontFamily: 'var(--font-display)', fontSize: 14 }}>API keys</strong>
         <div className="faint" style={{ fontSize: 12, marginBottom: 12 }}>Use <code>X-Api-Key</code> header. A key acts with the creating admin&apos;s role.</div>
         {createdKey && (
           <div className="card" style={{ background: 'color-mix(in srgb, var(--emerald) 10%, transparent)', padding: 12, marginBottom: 12 }}>
@@ -75,24 +78,26 @@ export default function Integrations() {
           <input value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') createKey(); }} placeholder="Key name (e.g. CRM import)" style={{ flex: 1 }} />
           <button className="btn sm" onClick={createKey} disabled={keyBusy}>{keyBusy ? 'Creating…' : 'Create'}</button>
         </div>
-        <table>
-          <thead><tr><th>Name</th><th>Prefix</th><th>Last used</th><th></th></tr></thead>
-          <tbody>
-            {keys.map((k) => (
-              <tr key={k.id}>
-                <td>{k.name}{k.revokedAt && <span className="badge inactive" style={{ marginLeft: 6 }}>revoked</span>}</td>
-                <td className="faint tnum">{k.prefix}…</td>
-                <td className="muted">{k.lastUsedAt ? dateShort(k.lastUsedAt) : '—'}</td>
-                <td style={{ textAlign: 'right' }}>{!k.revokedAt && <button className="btn ghost sm danger" onClick={() => revokeKey(k.id)}>Revoke</button>}</td>
-              </tr>
-            ))}
-            {keys.length === 0 && <tr><td colSpan={4} className="muted">No keys.</td></tr>}
-          </tbody>
-        </table>
+        <div style={{ overflowX: 'auto' }}>
+          <table>
+            <thead><tr><th>Name</th><th>Prefix</th><th>Last used</th><th></th></tr></thead>
+            <tbody>
+              {keys.map((k) => (
+                <tr key={k.id}>
+                  <td>{k.name}{k.revokedAt && <span className="badge inactive" style={{ marginLeft: 6 }}>revoked</span>}</td>
+                  <td className="faint tnum">{k.prefix}…</td>
+                  <td className="muted">{k.lastUsedAt ? dateShort(k.lastUsedAt) : '—'}</td>
+                  <td style={{ textAlign: 'right' }}>{!k.revokedAt && <button className="btn ghost sm danger" onClick={() => revokeKey(k.id)}>Revoke</button>}</td>
+                </tr>
+              ))}
+              {keys.length === 0 && <tr><td colSpan={4} className="muted">No keys.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="card">
-        <div className="spread"><strong style={{ fontSize: 14 }}>Webhooks</strong><button className="btn ghost sm" onClick={testHook}>Send test</button></div>
+        <div className="spread"><strong style={{ fontFamily: 'var(--font-display)', fontSize: 14 }}>Webhooks</strong><button className="btn ghost sm" onClick={testHook}>Send test</button></div>
         <div className="faint" style={{ fontSize: 12, margin: '4px 0 12px' }}>HMAC-SHA256 signed (<code>X-Refearn-Signature</code>). Events: payout.paid, … (empty = all).</div>
         {createdSecret && (
           <div className="card" style={{ background: 'color-mix(in srgb, var(--emerald) 10%, transparent)', padding: 12, marginBottom: 12 }}>
@@ -105,31 +110,35 @@ export default function Integrations() {
           <input value={hookUrl} onChange={(e) => setHookUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') createHook(); }} placeholder="https://your-app.com/webhooks/refearn" style={{ flex: 1 }} />
           <button className="btn sm" onClick={createHook} disabled={hookBusy}>{hookBusy ? 'Adding…' : 'Add'}</button>
         </div>
-        <table>
-          <thead><tr><th>URL</th><th>Status</th><th></th></tr></thead>
-          <tbody>
-            {hooks.map((h) => (
-              <tr key={h.id}><td className="faint" style={{ fontSize: 12, wordBreak: 'break-all' }}>{h.url}</td><td><span className={`badge ${h.active ? 'active' : 'inactive'}`}>{h.active ? 'active' : 'off'}</span></td><td style={{ textAlign: 'right' }}><button className="btn ghost sm danger" onClick={() => delHook(h.id)}>✕</button></td></tr>
-            ))}
-            {hooks.length === 0 && <tr><td colSpan={3} className="muted">No endpoints.</td></tr>}
-          </tbody>
-        </table>
+        <div style={{ overflowX: 'auto' }}>
+          <table>
+            <thead><tr><th>URL</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {hooks.map((h) => (
+                <tr key={h.id}><td className="faint" style={{ fontSize: 12, wordBreak: 'break-all' }}>{h.url}</td><td><span className={`badge ${h.active ? 'active' : 'inactive'}`}>{h.active ? 'active' : 'off'}</span></td><td style={{ textAlign: 'right' }}><button className="btn ghost sm danger" aria-label={`Delete webhook: ${h.url}`} onClick={() => delHook(h.id)}>✕</button></td></tr>
+              ))}
+              {hooks.length === 0 && <tr><td colSpan={3} className="muted">No endpoints.</td></tr>}
+            </tbody>
+          </table>
+        </div>
         {deliveries.length > 0 && (
-          <div style={{ marginTop: 14 }}>
-            <strong style={{ fontSize: 13 }}>Recent deliveries</strong>
-            <table>
-              <thead><tr><th>Event</th><th>Status</th><th>Attempts</th><th></th></tr></thead>
-              <tbody>
-                {deliveries.map((d) => (
-                  <tr key={d.id}>
-                    <td>{d.event}</td>
-                    <td><span className={`badge ${d.status === 'delivered' ? 'paid' : d.status === 'failed' ? 'failed' : 'pending'}`}>{d.status}{d.responseStatus ? ` ${d.responseStatus}` : ''}</span></td>
-                    <td className="tnum">{d.attempts}</td>
-                    <td style={{ textAlign: 'right' }}>{d.status !== 'delivered' && <button className="btn ghost sm" onClick={() => replay(d.id)}>Replay</button>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={{ marginTop: 16 }}>
+            <strong style={{ fontFamily: 'var(--font-display)', fontSize: 13 }}>Recent deliveries</strong>
+            <div style={{ overflowX: 'auto' }}>
+              <table>
+                <thead><tr><th>Event</th><th>Status</th><th style={{ textAlign: 'right' }}>Attempts</th><th></th></tr></thead>
+                <tbody>
+                  {deliveries.map((d) => (
+                    <tr key={d.id}>
+                      <td>{d.event}</td>
+                      <td><span className={`badge ${d.status === 'delivered' ? 'paid' : d.status === 'failed' ? 'failed' : 'pending'}`}>{d.status}{d.responseStatus ? ` ${d.responseStatus}` : ''}</span></td>
+                      <td className="tnum" style={{ textAlign: 'right' }}>{d.attempts}</td>
+                      <td style={{ textAlign: 'right' }}>{d.status !== 'delivered' && <button className="btn ghost sm" onClick={() => replay(d.id)}>Replay</button>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

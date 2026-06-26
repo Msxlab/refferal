@@ -1,8 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { CSSProperties, useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
+
+// Shared section heading: display font, consistent size/weight across settings cards.
+const SECTION_TITLE: CSSProperties = {
+  fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, letterSpacing: '-.01em', margin: 0,
+};
 
 interface Tier { id: string | null; name: string; sortOrder: number; minTeam: number; minEarningsCents: string; overrideBps?: number }
 interface RanksResp { isDefault: boolean; tiers: Tier[] }
@@ -54,33 +59,38 @@ export default function Ranks() {
     <div className="card" style={{ maxWidth: 640 }}>
       <div className="spread" style={{ marginBottom: 12 }}>
         <div>
-          <strong style={{ fontSize: 14 }}>Career ranks</strong>
-          <div className="faint" style={{ fontSize: 12 }}>Tiers by team size + cumulative earnings. Members see their rank and progress. <strong>Override %</strong> = extra bonus the member earns on their own sales at this rank.</div>
+          <h2 style={SECTION_TITLE}>Career ranks</h2>
+          <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>Tiers by team size + cumulative earnings. Members see their rank and progress. <strong>Override %</strong> = extra bonus the member earns on their own sales at this rank.</div>
         </div>
         {data.isDefault ? <button className="btn ghost sm" onClick={customize} disabled={busy}>{busy ? 'Customizing…' : 'Customize tiers'}</button> : <button className="btn ghost sm" onClick={addTier}>＋ Add tier</button>}
       </div>
       {data.isDefault && <div className="faint" style={{ fontSize: 12, marginBottom: 10 }}>Using built-in defaults. Click “Customize tiers” to edit.</div>}
-      <table>
-        <thead><tr><th>Name</th><th>Min team</th><th>Min earnings ($)</th><th>Override %</th><th></th></tr></thead>
-        <tbody>
-          {data.tiers.map((t, i) => (
-            <tr key={t.id ?? i}>
-              <td><input value={t.name} disabled={data.isDefault} onChange={(e) => patch(i, 'name', e.target.value)} style={{ width: 120 }} /></td>
-              <td><input type="number" min={0} value={t.minTeam} disabled={data.isDefault} onChange={(e) => patch(i, 'minTeam', Number(e.target.value))} style={{ width: 90 }} /></td>
-              <td><input type="number" min={0} value={Math.round(Number(t.minEarningsCents) / 100)} disabled={data.isDefault} onChange={(e) => patch(i, 'minEarningsCents', String(Number(e.target.value) * 100))} style={{ width: 110 }} /></td>
-              <td><input type="number" min={0} max={100} step={0.1} value={(t.overrideBps ?? 0) / 100} disabled={data.isDefault} onChange={(e) => patch(i, 'overrideBps', Math.round(Number(e.target.value) * 100))} style={{ width: 80 }} /></td>
-              <td style={{ textAlign: 'right' }}>
-                {!data.isDefault && t.id && (
-                  <div className="row" style={{ justifyContent: 'flex-end' }}>
-                    <button className="btn ghost sm" onClick={() => saveTier(t)}>Save</button>
-                    <button className="btn ghost sm danger" onClick={() => removeTier(t.id!)}>✕</button>
-                  </div>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div style={{ overflowX: 'auto' }}>
+        <table>
+          <thead><tr><th>Name</th><th>Min team</th><th>Min earnings ($)</th><th>Override %</th><th></th></tr></thead>
+          <tbody>
+            {data.tiers.length === 0 && (
+              <tr><td colSpan={5} className="muted" style={{ textAlign: 'center', padding: '20px 0', fontSize: 13 }}>No tiers yet — add a tier so members can climb the ranks.</td></tr>
+            )}
+            {data.tiers.map((t, i) => (
+              <tr key={t.id ?? i}>
+                <td><input value={t.name} disabled={data.isDefault} onChange={(e) => patch(i, 'name', e.target.value)} style={{ width: 120 }} /></td>
+                <td><input type="number" min={0} value={t.minTeam} disabled={data.isDefault} onChange={(e) => patch(i, 'minTeam', Number(e.target.value))} style={{ width: 90 }} /></td>
+                <td><input type="number" min={0} value={Math.round(Number(t.minEarningsCents) / 100)} disabled={data.isDefault} onChange={(e) => patch(i, 'minEarningsCents', String(Number(e.target.value) * 100))} style={{ width: 110 }} /></td>
+                <td><input type="number" min={0} max={100} step={0.1} value={(t.overrideBps ?? 0) / 100} disabled={data.isDefault} onChange={(e) => patch(i, 'overrideBps', Math.round(Number(e.target.value) * 100))} style={{ width: 80 }} /></td>
+                <td style={{ textAlign: 'right' }}>
+                  {!data.isDefault && t.id && (
+                    <div className="row" style={{ justifyContent: 'flex-end' }}>
+                      <button className="btn ghost sm" onClick={() => saveTier(t)}>Save</button>
+                      <button className="btn ghost sm danger" onClick={() => removeTier(t.id!)} title="Remove tier" aria-label={`Remove tier ${t.name}`}>✕</button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );

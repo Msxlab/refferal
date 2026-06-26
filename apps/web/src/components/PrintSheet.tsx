@@ -29,14 +29,14 @@ export function PrintSheet({ children, onDone }: { children: ReactNode; onDone: 
 /** Antetli baslik: marka + belge adi + tarih. Tum makbuz/dekontlarda ortak gorunum. */
 export function PrintHeader({ tenantName, title, subtitle }: { tenantName: string; title: string; subtitle?: string }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid #1a1404', paddingBottom: 12, marginBottom: 18 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid var(--text)', paddingBottom: 12, marginBottom: 18 }}>
       <div>
         <div style={{ fontSize: 20, fontWeight: 800 }}>{tenantName}</div>
-        {subtitle && <div style={{ fontSize: 11, color: '#6b7180', marginTop: 2 }}>{subtitle}</div>}
+        {subtitle && <div style={{ fontSize: 11, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>{subtitle}</div>}
       </div>
       <div style={{ textAlign: 'right' }}>
         <div style={{ fontSize: 14, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em' }}>{title}</div>
-        <div style={{ fontSize: 11, color: '#6b7180', marginTop: 2 }}>{new Date().toLocaleDateString()}</div>
+        <div style={{ fontSize: 11, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>{new Date().toLocaleDateString()}</div>
       </div>
     </div>
   );
@@ -48,7 +48,7 @@ export function PrintSignatures({ left, right }: { left: string; right: string }
     <div style={{ display: 'flex', gap: 40, marginTop: 48 }}>
       {[left, right].map((label) => (
         <div key={label} style={{ flex: 1 }}>
-          <div style={{ borderTop: '1px solid #15171e', paddingTop: 6, fontSize: 11, color: '#6b7180' }}>{label}</div>
+          <div style={{ borderTop: '1px solid hsl(var(--border))', paddingTop: 6, fontSize: 11, color: 'hsl(var(--muted-foreground))' }}>{label}</div>
         </div>
       ))}
     </div>

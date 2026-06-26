@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { CSSProperties, FormEvent, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, Toggle, useToast } from '@/components/ui';
 
@@ -33,6 +33,11 @@ const TIMEZONES = [
   'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
   'America/Phoenix', 'America/Anchorage', 'Pacific/Honolulu',
 ];
+
+// Shared section heading: display font, consistent size/weight across all settings cards.
+const SECTION_TITLE: CSSProperties = {
+  fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, letterSpacing: '-.01em', margin: 0,
+};
 
 export default function General() {
   const [s, setS] = useState<Settings | null>(null);
@@ -73,8 +78,8 @@ export default function General() {
   return (
     <form className="grid" onSubmit={save} style={{ gap: 18, maxWidth: 620 }}>
       <div className="card">
-        <strong style={{ fontSize: 14 }}>Workspace</strong>
-        <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 12 }}>
+        <h2 style={SECTION_TITLE}>Workspace</h2>
+        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 14, marginTop: 12 }}>
           <Read label="Business name" value={s.name} />
           <Read label="Workspace slug" value={s.slug} />
           <Read label="Currency" value={s.currency} />
@@ -90,7 +95,7 @@ export default function General() {
       </div>
 
       <div className="card">
-        <strong style={{ fontSize: 14 }}>Commissions & payouts</strong>
+        <h2 style={SECTION_TITLE}>Commissions &amp; payouts</h2>
         <div className="field" style={{ marginTop: 12 }}>
           <label>Commission maturation rule</label>
           <select value={s.maturationRule} onChange={(e) => setS({ ...s, maturationRule: e.target.value as Settings['maturationRule'] })}>
@@ -104,13 +109,13 @@ export default function General() {
           </div>
         )}
         <div className="field">
-          <label>Payout threshold — currently {money(s.payoutMinCents, s.currency)}</label>
+          <label>Payout threshold — currently <span className="tnum">{money(s.payoutMinCents, s.currency)}</span></label>
           <input type="number" min={0} step="0.01" value={Number(s.payoutMinCents) / 100} onChange={(e) => setS({ ...s, payoutMinCents: String(Math.round(Number(e.target.value) * 100)) })} />
         </div>
       </div>
 
       <div className="card">
-        <strong style={{ fontSize: 14 }}>Policy & privacy</strong>
+        <h2 style={SECTION_TITLE}>Policy &amp; privacy</h2>
         <div style={{ marginTop: 4 }}>
           <Toggle label="Require a verified payout profile (KYC) before paying members" checked={s.requireKycForPayout} onChange={(v) => setS({ ...s, requireKycForPayout: v })} />
           <Toggle label="Maker-checker — a payout run must be approved by a second admin (4-eyes)" checked={s.requirePayoutApproval} onChange={(v) => setS({ ...s, requirePayoutApproval: v })} />

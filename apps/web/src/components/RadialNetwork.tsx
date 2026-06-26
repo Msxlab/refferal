@@ -31,9 +31,10 @@ export function RadialNetwork({ levels, totalMembers }: { levels: Level[]; total
     <svg viewBox={`0 0 ${SIZE} ${SIZE}`} width="100%" style={{ maxWidth: SIZE, display: 'block', margin: '0 auto' }}
       role="img" aria-label={`Network radial: ${totalMembers} members across ${active.length} levels`}>
       <defs>
+        {/* merkez gradyani: --foil rampasini izler (acik->primary), boylece tema-uyumlu */}
         <radialGradient id="rn-core" cx="50%" cy="40%" r="65%">
-          <stop offset="0%" stopColor="#f4d77e" />
-          <stop offset="100%" stopColor="#bd932f" />
+          <stop offset="0%" stopColor="color-mix(in srgb, hsl(var(--primary)) 55%, white)" />
+          <stop offset="100%" stopColor="hsl(var(--primary))" />
         </radialGradient>
         <radialGradient id="rn-glow" cx="50%" cy="50%" r="50%">
           <stop offset="0%" stopColor="var(--gold-500)" stopOpacity="0.18" />
@@ -80,7 +81,7 @@ export function RadialNetwork({ levels, totalMembers }: { levels: Level[]; total
 
       {/* merkez: sen */}
       <circle cx={C} cy={C} r={CENTER_R} fill="url(#rn-core)" />
-      <text x={C} y={C + 4} textAnchor="middle" fontSize={12} fontWeight={800} fill="#1a1404"
+      <text x={C} y={C + 4} textAnchor="middle" fontSize={12} fontWeight={800} fill="var(--on-gold)"
         fontFamily="var(--font-display)">You</text>
     </svg>
   );

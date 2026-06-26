@@ -40,7 +40,7 @@ export default function Reports() {
 
   return (
     <div className="card" style={{ maxWidth: 560 }}>
-      <strong style={{ fontSize: 14 }}>Scheduled email reports</strong>
+      <strong style={{ fontFamily: 'var(--font-display)', fontSize: 14 }}>Scheduled email reports</strong>
       <div className="faint" style={{ fontSize: 12, marginBottom: 14 }}>A period summary (revenue, commission, payouts) is emailed to recipients automatically.</div>
       <div className="field">
         <label>Frequency</label>

@@ -97,7 +97,24 @@ export default function DashboardPage() {
     api.get<Analytics>(`/admin/analytics?months=${months}`).then(setAnalytics).catch(() => {});
   }, [months]);
 
-  if (error) return <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>;
+  if (error)
+    return (
+      <div className="mx-auto max-w-[1160px]">
+        <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-primary">{t('nav.dashboard')}</div>
+        <h1 className="mt-1 font-display text-[27px] font-extrabold tracking-tight text-foreground">{t('dash.title')}</h1>
+        <div className="mt-4 flex flex-col gap-3 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3.5 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between">
+          <span>{error}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="self-start sm:self-auto"
+            onClick={() => { setError(''); loadDashboard(); }}
+          >
+            <span aria-hidden>↻</span> Retry
+          </Button>
+        </div>
+      </div>
+    );
   if (!data) return <Loading />;
 
   const c = data.currency;
@@ -122,12 +139,21 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center gap-2 no-print">
           {fin && (
-            <Badge variant="outline" className={fin.ok ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400' : 'border-destructive/40 bg-destructive/10 text-destructive'}>
-              {fin.ok ? '✓ Books balanced' : `✗ ${fin.payoutMismatches.length + fin.summaryMismatches.length} issue(s)`}
-            </Badge>
+            fin.ok ? (
+              <Badge
+                variant="outline"
+                style={{ borderColor: 'color-mix(in srgb, var(--emerald) 40%, transparent)', backgroundColor: 'color-mix(in srgb, var(--emerald) 10%, transparent)', color: 'var(--emerald)' }}
+              >
+                <span aria-hidden>✓</span> Books balanced
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="border-destructive/40 bg-destructive/10 text-destructive">
+                <span aria-hidden>✗</span> {fin.payoutMismatches.length + fin.summaryMismatches.length} issue(s)
+              </Badge>
+            )
           )}
-          <Button variant="ghost" size="sm" onClick={verifyFinancials} disabled={finBusy}>{finBusy ? 'Checking…' : '⚖ Verify financials'}</Button>
-          <Button variant="ghost" size="sm" onClick={() => window.print()}>🖶 Print report</Button>
+          <Button variant="ghost" size="sm" onClick={verifyFinancials} disabled={finBusy}>{finBusy ? 'Checking…' : <><span aria-hidden>⚖</span> Verify financials</>}</Button>
+          <Button variant="ghost" size="sm" onClick={() => window.print()}><span aria-hidden>🖶</span> Print report</Button>
         </div>
       </div>
 
@@ -136,7 +162,13 @@ export default function DashboardPage() {
         <Card className="mt-5 border-primary/30 bg-card p-4 shadow-lg sm:p-[18px]">
           <div className="mb-3 flex items-center justify-between">
             <strong className="text-sm text-foreground">Needs your attention</strong>
-            <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-400">{todo.total} item{todo.total === 1 ? '' : 's'}</Badge>
+            <Badge
+              variant="outline"
+              className="text-[10px]"
+              style={{ borderColor: 'color-mix(in srgb, var(--amber) 30%, transparent)', backgroundColor: 'color-mix(in srgb, var(--amber) 10%, transparent)', color: 'var(--amber)' }}
+            >
+              {todo.total} item{todo.total === 1 ? '' : 's'}
+            </Badge>
           </div>
           <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
             {todo.items.map((it) => (
@@ -145,12 +177,12 @@ export default function DashboardPage() {
                 href={it.href}
                 className="flex items-center gap-3 rounded-xl border border-border bg-muted/40 p-[13px] transition-colors hover:border-input hover:bg-muted"
               >
-                <span className={`text-lg ${TODO_ICON_COLOR[it.key] ?? 'text-muted-foreground'}`}>{TODO_ICON[it.key] ?? '•'}</span>
+                <span aria-hidden className={`text-lg ${TODO_ICON_COLOR[it.key] ?? 'text-muted-foreground'}`}>{TODO_ICON[it.key] ?? '•'}</span>
                 <div className="min-w-0 flex-1">
                   <div className="font-display text-[19px] font-bold leading-none text-foreground tabular-nums">{it.count}</div>
                   <div className="mt-[3px] text-[11.5px] text-muted-foreground/70">{it.label}</div>
                 </div>
-                <span className="text-muted-foreground/70">→</span>
+                <span aria-hidden className="text-muted-foreground/70">→</span>
               </Link>
             ))}
           </div>
@@ -176,12 +208,12 @@ export default function DashboardPage() {
           <div>
             {onboarding.steps.map((s) => (
               <div key={s.key} className="flex items-center gap-3 border-t border-border py-[9px]">
-                <span className={`w-[18px] text-center text-base ${s.done ? 'text-emerald-400' : 'text-muted-foreground/70'}`}>{s.done ? '✓' : '○'}</span>
+                <span aria-hidden className={`w-[18px] text-center text-base ${s.done ? '' : 'text-muted-foreground/70'}`} style={s.done ? { color: 'var(--emerald)' } : undefined}>{s.done ? '✓' : '○'}</span>
                 <span className={`flex-1 text-sm ${s.done ? 'text-muted-foreground' : 'text-foreground'}`}>{s.label}</span>
                 {s.done
                   ? <span className="text-xs text-muted-foreground/70">Done</span>
                   : s.cta
-                    ? <Button asChild variant="ghost" size="sm"><Link href={s.cta}>{CTA_LABEL[s.key] ?? 'Open'} →</Link></Button>
+                    ? <Button asChild variant="ghost" size="sm"><Link href={s.cta}>{CTA_LABEL[s.key] ?? 'Open'} <span aria-hidden>→</span></Link></Button>
                     : <span className="text-xs text-muted-foreground/70">Pending</span>}
               </div>
             ))}
@@ -198,7 +230,7 @@ export default function DashboardPage() {
           <div className="mt-1.5 font-display text-[46px] font-extrabold leading-[1.04] tracking-tight text-foreground tabular-nums">
             <MoneyCounter cents={revenue} currency={c} />
           </div>
-          <div className="mt-[22px] flex flex-wrap gap-x-8 gap-y-4">
+          <div className="mt-[22px] flex flex-wrap gap-x-6 gap-y-4 sm:gap-x-8">
             <div>
               <div className="text-[11px] text-muted-foreground/70">{t('dash.commission')}</div>
               <div className="mt-[3px] text-[15px] font-bold text-foreground tabular-nums">{money(commission, c)}</div>
@@ -212,8 +244,8 @@ export default function DashboardPage() {
               <div className="mt-[3px] text-[15px] font-bold text-foreground tabular-nums">{data.thisMonth.approvedSalesCount}</div>
             </div>
             <div>
-              <div className="text-[11px] text-emerald-400">Net to company</div>
-              <div className="mt-[3px] text-[15px] font-bold text-emerald-400 tabular-nums">{money(net, c)}</div>
+              <div className="text-[11px]" style={{ color: 'var(--emerald)' }}>Net to company</div>
+              <div className="mt-[3px] text-[15px] font-bold tabular-nums" style={{ color: 'var(--emerald)' }}>{money(net, c)}</div>
             </div>
           </div>
         </Card>
@@ -221,7 +253,7 @@ export default function DashboardPage() {
         <Card className="grid place-items-center bg-card p-[18px] shadow-lg">
           <Donut
             segments={[
-              { label: 'Net', value: net, color: 'var(--emerald, #34d399)' },
+              { label: 'Net', value: net, color: 'var(--emerald)' },
               { label: t('dash.commission'), value: commission, color: 'hsl(var(--primary))' },
             ]}
             center={
@@ -248,24 +280,24 @@ export default function DashboardPage() {
         <Card className="bg-card p-[18px] shadow-lg">
           <strong className="text-[13px] text-foreground">Commission owed (to members)</strong>
           <div className="mb-3.5 mt-[3px] text-[11px] text-muted-foreground/70">What the company owes members — by maturation and payout state.</div>
-          <div className="flex flex-col gap-[11px]">
+          <div className="flex flex-col gap-2.5">
             <div className="flex items-center justify-between text-[13px]">
-              <span className="flex items-center gap-2 text-muted-foreground"><span className="h-2 w-2 rounded-full bg-amber-400" />Pending (not yet matured)</span>
+              <span className="flex items-center gap-2 text-muted-foreground"><span className="h-2 w-2 rounded-full" style={{ background: 'var(--amber)' }} />Pending (not yet matured)</span>
               <strong className="text-foreground tabular-nums">{money(data.liability.pendingCents, c)}</strong>
             </div>
             <div className="flex items-center justify-between text-[13px]">
-              <span className="flex items-center gap-2 text-muted-foreground"><span className="h-2 w-2 rounded-full bg-sky-400" />Payable (ready)</span>
+              <span className="flex items-center gap-2 text-muted-foreground"><span className="h-2 w-2 rounded-full" style={{ background: 'var(--sky)' }} />Payable (ready)</span>
               <strong className="text-foreground tabular-nums">{money(data.liability.payableCents, c)}</strong>
             </div>
             <div className="flex items-center justify-between text-[13px]">
-              <span className="flex items-center gap-2 text-muted-foreground"><span className="h-2 w-2 rounded-full bg-emerald-400" />In payout</span>
+              <span className="flex items-center gap-2 text-muted-foreground"><span className="h-2 w-2 rounded-full" style={{ background: 'var(--emerald)' }} />In payout</span>
               <strong className="text-foreground tabular-nums">{money(data.liability.inPayoutCents, c)}</strong>
             </div>
           </div>
-          <div className="mt-4 flex h-[9px] overflow-hidden rounded-md bg-muted">
-            <div className="bg-amber-400" style={{ width: `${(liaPending / liaTotal) * 100}%` }} />
-            <div className="bg-sky-400" style={{ width: `${(liaPayable / liaTotal) * 100}%` }} />
-            <div className="bg-emerald-400" style={{ width: `${(liaInPayout / liaTotal) * 100}%` }} />
+          <div className="mt-4 flex h-2 overflow-hidden rounded-md bg-muted">
+            <div style={{ background: 'var(--amber)', width: `${(liaPending / liaTotal) * 100}%` }} />
+            <div style={{ background: 'var(--sky)', width: `${(liaPayable / liaTotal) * 100}%` }} />
+            <div style={{ background: 'var(--emerald)', width: `${(liaInPayout / liaTotal) * 100}%` }} />
           </div>
         </Card>
 
@@ -311,7 +343,7 @@ export default function DashboardPage() {
       ) : (
         <>
           <Card className="mb-4 bg-card p-[18px] shadow-lg">
-            <div className="mb-3.5 flex flex-wrap gap-x-8 gap-y-4">
+            <div className="mb-3.5 flex flex-wrap gap-x-6 gap-y-4 sm:gap-x-8">
               <Metric label="Revenue" value={money(analytics.totals.revenueCents, c)} delta={analytics.deltas.revenuePct} />
               <Metric label="Commission" value={money(analytics.totals.commissionCents, c)} delta={analytics.deltas.commissionPct} invertGood />
               <Metric label="Approved sales" value={String(analytics.totals.approvedSales)} delta={analytics.deltas.salesPct} />
@@ -396,12 +428,15 @@ export default function DashboardPage() {
                     <td className="px-3 py-2.5 text-right">
                       <span className="inline-flex items-center justify-end gap-1.5">
                         <span className="inline-block h-1.5 w-11 overflow-hidden rounded bg-muted">
-                          <span className={`block h-full ${co.retentionPct >= 60 ? 'bg-emerald-400' : co.retentionPct >= 30 ? 'bg-amber-400' : 'bg-destructive'}`} style={{ width: `${co.retentionPct}%` }} />
+                          <span
+                            className={`block h-full ${co.retentionPct < 30 ? 'bg-destructive' : ''}`}
+                            style={{ width: `${co.retentionPct}%`, background: co.retentionPct >= 60 ? 'var(--emerald)' : co.retentionPct >= 30 ? 'var(--amber)' : undefined }}
+                          />
                         </span>
                         <span className="min-w-[34px] font-semibold tabular-nums">{co.retentionPct}%</span>
                       </span>
                     </td>
-                    <td className={`px-3 py-2.5 text-right tabular-nums ${co.producing > 0 ? 'text-emerald-400' : 'text-muted-foreground/70'}`}>{co.producing} <span className="text-muted-foreground/70">({co.activationPct}%)</span></td>
+                    <td className={`px-3 py-2.5 text-right tabular-nums ${co.producing > 0 ? '' : 'text-muted-foreground/70'}`} style={co.producing > 0 ? { color: 'var(--emerald)' } : undefined}>{co.producing} <span className="text-muted-foreground/70">({co.activationPct}%)</span></td>
                     <td className={`px-3 py-2.5 text-right tabular-nums ${co.churned > 0 ? 'text-muted-foreground/70' : ''}`}>{co.churned || '—'}</td>
                   </tr>
                 ))}
@@ -439,36 +474,38 @@ function Delta({ pct, invertGood }: { pct: number | null; invertGood?: boolean }
   const up = pct > 0;
   const flat = pct === 0;
   const good = flat ? null : invertGood ? !up : up;
-  const color = good === null ? 'text-muted-foreground' : good ? 'text-emerald-400' : 'text-destructive';
+  const className = good === null ? 'text-muted-foreground' : good ? '' : 'text-destructive';
   return (
-    <span className={`mt-[3px] flex items-center gap-1 text-[11.5px] font-[650] ${color}`}>
-      {flat ? '→' : up ? '▲' : '▼'} {Math.abs(pct)}%
+    <span className={`mt-[3px] flex items-center gap-1 text-[11.5px] font-[650] ${className}`} style={good ? { color: 'var(--emerald)' } : undefined}>
+      <span aria-hidden>{flat ? '→' : up ? '▲' : '▼'}</span> {Math.abs(pct)}%
       <span className="font-normal text-muted-foreground/70">vs prev</span>
     </span>
   );
 }
 
 function Funnel({ funnel, currency }: { funnel: Record<'draft' | 'approved' | 'void', { count: number; amountCents: string }>; currency: string }) {
-  const rows: Array<{ k: 'draft' | 'approved' | 'void'; label: string; color: string }> = [
-    { k: 'draft', label: 'Draft', color: 'bg-muted-foreground' },
-    { k: 'approved', label: 'Approved', color: 'bg-emerald-400' },
-    { k: 'void', label: 'Void', color: 'bg-destructive' },
+  // cls = token utility class; color = CSS-var token (takes precedence via inline style)
+  const rows: Array<{ k: 'draft' | 'approved' | 'void'; label: string; cls?: string; color?: string }> = [
+    { k: 'draft', label: 'Draft', cls: 'bg-muted-foreground' },
+    { k: 'approved', label: 'Approved', color: 'var(--emerald)' },
+    { k: 'void', label: 'Void', cls: 'bg-destructive' },
   ];
   const max = Math.max(1, ...rows.map((r) => funnel[r.k].count));
   return (
     <div className="flex flex-col gap-3.5">
       {rows.map((r) => {
         const f = funnel[r.k];
+        const fill = r.color ? { background: r.color } : undefined;
         return (
           <div key={r.k}>
             <div className="mb-1.5 flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-[12.5px] text-foreground">
-                <span className={`h-[9px] w-[9px] rounded-sm ${r.color}`} /> {r.label}
+                <span className={`h-[9px] w-[9px] rounded-sm ${r.cls ?? ''}`} style={fill} /> {r.label}
               </span>
               <span className="text-[12.5px] text-muted-foreground tabular-nums">{f.count} · {money(f.amountCents, currency)}</span>
             </div>
             <div className="h-[9px] overflow-hidden rounded-md bg-muted">
-              <div className={`h-full rounded-md ${r.color} transition-[width] duration-700`} style={{ width: `${(f.count / max) * 100}%` }} />
+              <div className={`h-full rounded-md transition-[width] duration-700 ${r.cls ?? ''}`} style={{ ...fill, width: `${(f.count / max) * 100}%` }} />
             </div>
           </div>
         );

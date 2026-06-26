@@ -1,10 +1,22 @@
 'use client';
 
+import type { ComponentProps } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { downloadPdf } from '@/lib/download';
 import { money, dateShort } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { Confirm, Loading, useToast } from '@/components/ui';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '@/components/ui/table';
 
 type CheckState = 'needs_address' | 'ready_to_print' | 'printed' | 'mailed';
 
@@ -32,11 +44,13 @@ export default function ChecksPage() {
   const [data, setData] = useState<ChecksResp | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [action, setAction] = useState<'run' | 'pdf' | 'mail' | null>(null);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [confirmMail, setConfirmMail] = useState(false);
   const [toast, showToast] = useToast();
 
   const load = useCallback(() => {
+    setError('');
     api.get<ChecksResp>('/admin/checks')
       .then((d) => { setData(d); setSel(new Set()); })
       .catch((e) => setError(String((e as ApiError).message)));
@@ -63,111 +77,138 @@ export default function ChecksPage() {
   async function generateRun() {
     const payoutIds = idsFor('ready_to_print', ready);
     if (!payoutIds.length) return;
-    setBusy(true);
+    setBusy(true); setAction('run');
     try {
       const r = await api.post<{ assignedCount: number; skipped: { reason: string }[] }>('/admin/checks/run', { payoutIds });
       showToast(`Assigned ${r.assignedCount} check number${r.assignedCount === 1 ? '' : 's'}${r.skipped.length ? ` · ${r.skipped.length} skipped (no address)` : ''}`);
       load();
-    } catch (e) { showToast(String((e as ApiError).message)); } finally { setBusy(false); }
+    } catch (e) { showToast(String((e as ApiError).message)); } finally { setBusy(false); setAction(null); }
   }
 
   async function downloadChecks() {
     const payoutIds = idsFor('printed', printed);
     if (!payoutIds.length) return;
-    setBusy(true);
+    setBusy(true); setAction('pdf');
     try {
       await downloadPdf('/admin/checks/pdf', 'checks.pdf', { payoutIds });
       showToast('Check PDF downloaded');
-    } catch (e) { showToast(String((e as ApiError).message)); } finally { setBusy(false); }
+    } catch (e) { showToast(String((e as ApiError).message)); } finally { setBusy(false); setAction(null); }
   }
 
   async function markMailed() {
     const payoutIds = idsFor('printed', printed);
     if (!payoutIds.length) return;
-    setBusy(true);
+    setBusy(true); setAction('mail');
     try {
       const r = await api.post<{ mailed: number }>('/admin/checks/mark-mailed', { payoutIds });
       showToast(`Marked ${r.mailed} check${r.mailed === 1 ? '' : 's'} as mailed`);
       load();
-    } catch (e) { showToast(String((e as ApiError).message)); } finally { setBusy(false); setConfirmMail(false); }
+    } catch (e) { showToast(String((e as ApiError).message)); } finally { setBusy(false); setAction(null); setConfirmMail(false); }
   }
   const mailTargetCount = idsFor('printed', printed).length;
+  const runCount = idsFor('ready_to_print', ready).length;
 
-  if (error) return <div className="error" style={{ margin: 24 }}>{error}</div>;
-  if (!data) return <div style={{ padding: 24 }}><Loading rows={4} /></div>;
-
-  const c = data.counts;
+  const counts = data?.counts;
 
   return (
-    <div>
-      <div className="eyebrow fade-in">Payouts</div>
-      <h1 className="h1 fade-in">Checks</h1>
-      <p className="sub fade-in">Print and mail commission checks. Money already moved when each payout was approved — this is the physical check run.</p>
+    <div className="mx-auto max-w-[1160px]">
+      <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-primary">Payouts</div>
+      <h1 className="mt-1.5 font-display text-3xl font-extrabold tracking-tight text-foreground">Checks</h1>
+      <p className="mt-1 text-sm text-muted-foreground">Print and mail commission checks. Money already moved when each payout was approved — this is the physical check run.</p>
 
-      {/* durum sayaclari */}
-      <div className="kpi-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
-        {(['needs_address', 'ready_to_print', 'printed', 'mailed'] as CheckState[]).map((st) => (
-          <div key={st} className="card" style={{ padding: 14 }}>
-            <div className="faint" style={{ fontSize: 11 }}>{STATE_META[st].label}</div>
-            <div style={{ fontSize: 24, fontWeight: 700 }}>{c[st]}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* eylem cubugu */}
-      <div className="card" style={{ padding: 12, marginBottom: 14, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span className="faint" style={{ fontSize: 12 }}>
-          {sel.size ? `${sel.size} selected` : 'No selection — actions apply to all eligible'}
-        </span>
-        <span style={{ flex: 1 }} />
-        <button className="btn" onClick={generateRun} disabled={busy || ready.length === 0}>
-          Generate check run{ready.length ? ` (${idsFor('ready_to_print', ready).length})` : ''}
-        </button>
-        <button className="btn ghost" onClick={downloadChecks} disabled={busy || printed.length === 0}>⤓ Download PDF</button>
-        <button className="btn ghost" onClick={() => setConfirmMail(true)} disabled={busy || printed.length === 0}>✓ Mark mailed</button>
-      </div>
-
-      {items.length === 0 ? (
-        <div className="card" style={{ padding: 28, textAlign: 'center' }}>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>No checks yet</div>
-          <p className="faint" style={{ fontSize: 13, marginTop: 6 }}>
-            When a member&apos;s payout is approved, it appears here ready to print.
-          </p>
+      {error && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
+          <span>{error}</span>
+          <Button size="sm" variant="outline" onClick={load}>Retry</Button>
         </div>
+      )}
+
+      {!data ? (
+        <Card className="mt-5 shadow-lg"><CardContent className="p-5"><Loading rows={4} /></CardContent></Card>
       ) : (
-        <div className="card" style={{ overflowX: 'auto' }}>
-          <table>
-            <thead>
-              <tr>
-                <th style={{ width: 32 }}>
-                  <input type="checkbox" checked={sel.size === items.length && items.length > 0} onChange={toggleAll} aria-label="Select all" />
-                </th>
-                <th>Payee</th>
-                <th>Period</th>
-                <th>Check #</th>
-                <th style={{ textAlign: 'right' }}>Amount</th>
-                <th>Status</th>
-                <th>Mailed</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((it) => {
-                const meta = STATE_META[it.state];
-                return (
-                  <tr key={it.payoutId}>
-                    <td><input type="checkbox" checked={sel.has(it.payoutId)} onChange={() => toggle(it.payoutId)} aria-label={`Select ${it.payeeName}`} /></td>
-                    <td style={{ fontWeight: 600 }}>{it.payeeName}</td>
-                    <td className="faint">{it.period}</td>
-                    <td style={{ fontFamily: 'ui-monospace, monospace' }}>{it.checkNumber ?? '—'}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{money(it.totalCents)}</td>
-                    <td><span className={`badge ${meta.cls}`} title={meta.hint} style={{ fontSize: 9 }}>{meta.label}</span></td>
-                    <td className="faint" style={{ fontSize: 12 }}>{it.mailedAt ? dateShort(it.mailedAt) : '—'}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          {/* durum sayaclari */}
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {(['needs_address', 'ready_to_print', 'printed', 'mailed'] as CheckState[]).map((st) => (
+              <Card key={st} className="shadow-sm">
+                <CardContent className="p-3.5">
+                  <div className="text-[11px] text-muted-foreground">{STATE_META[st].label}</div>
+                  <div className="mt-1 font-display text-2xl font-bold tabular-nums text-foreground">{counts?.[st] ?? 0}</div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* eylem cubugu */}
+          <Card className="mt-4 shadow-sm">
+            <CardContent className="flex flex-wrap items-center gap-2.5 p-3">
+              <span className="text-xs text-muted-foreground">
+                {sel.size ? `${sel.size} selected` : 'No selection — actions apply to all eligible'}
+              </span>
+              <span className="flex-1" />
+              <Button size="sm" onClick={generateRun} disabled={busy || ready.length === 0}>
+                {action === 'run' ? 'Assigning…' : `Generate check run${ready.length ? ` (${runCount})` : ''}`}
+              </Button>
+              <Button size="sm" variant="outline" onClick={downloadChecks} disabled={busy || printed.length === 0}>
+                {action === 'pdf' ? 'Preparing…' : <><span aria-hidden>⤓</span> Download PDF</>}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setConfirmMail(true)} disabled={busy || printed.length === 0}>
+                {action === 'mail' ? 'Marking…' : <><span aria-hidden>✓</span> Mark mailed</>}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {items.length === 0 ? (
+            <Card className="mt-4 shadow-lg">
+              <CardContent className="px-6 py-12 text-center">
+                <div className="text-[15px] font-semibold text-foreground">No checks yet</div>
+                <p className="mt-1.5 text-[13px] text-muted-foreground">
+                  When a member&apos;s payout is approved, it appears here ready to print.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="mt-4 shadow-lg">
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <Th className="w-[34px]">
+                        <input type="checkbox" className="accent-primary" checked={sel.size === items.length && items.length > 0} onChange={toggleAll} aria-label="Select all" />
+                      </Th>
+                      <Th>Payee</Th>
+                      <Th className="hidden sm:table-cell">Period</Th>
+                      <Th>Check #</Th>
+                      <Th className="text-right">Amount</Th>
+                      <Th>Status</Th>
+                      <Th className="hidden sm:table-cell">Mailed</Th>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {items.map((it) => {
+                      const meta = STATE_META[it.state];
+                      return (
+                        <TableRow key={it.payoutId} data-state={sel.has(it.payoutId) ? 'selected' : undefined}>
+                          <TableCell>
+                            <input type="checkbox" className="accent-primary" checked={sel.has(it.payoutId)} onChange={() => toggle(it.payoutId)} aria-label={`Select ${it.payeeName}`} />
+                          </TableCell>
+                          <TableCell className="font-medium text-foreground">{it.payeeName}</TableCell>
+                          <TableCell className="hidden text-muted-foreground sm:table-cell">{it.period}</TableCell>
+                          <TableCell className="font-mono tabular-nums text-muted-foreground">{it.checkNumber ?? '—'}</TableCell>
+                          <TableCell className="text-right font-semibold tabular-nums text-foreground">{money(it.totalCents)}</TableCell>
+                          <TableCell>
+                            <span className={cn('badge', meta.cls, 'text-[10px]')} title={meta.hint}>{meta.label}</span>
+                          </TableCell>
+                          <TableCell className="hidden text-[12px] text-muted-foreground/70 sm:table-cell">{it.mailedAt ? dateShort(it.mailedAt) : '—'}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+        </>
       )}
 
       {confirmMail && (
@@ -185,4 +226,9 @@ export default function ChecksPage() {
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
+}
+
+/* tablo basligi — payouts ile ayni: muted, uppercase, tracking-wide, 11px */
+function Th({ className, ...props }: ComponentProps<typeof TableHead>) {
+  return <TableHead className={cn('text-[11px] font-semibold uppercase tracking-wide text-muted-foreground', className)} {...props} />;
 }

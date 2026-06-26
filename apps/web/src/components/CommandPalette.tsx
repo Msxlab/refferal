@@ -65,6 +65,9 @@ export function CommandPalette() {
 
   useEffect(() => { setSel(0); }, [items.length]);
 
+  // uzak arama ucusta mi? (debounce sonrasi sonuc gelene kadar res === null)
+  const searching = q.trim().length >= 2 && res === null;
+
   if (!open) return null;
 
   return (
@@ -76,19 +79,29 @@ export function CommandPalette() {
           if (e.key === 'Enter') { e.preventDefault(); items[sel]?.run(); }
         }}>
         <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search members, sales, or jump to a page…"
-          style={{ border: 'none', borderRadius: 0, borderBottom: '1px solid hsl(var(--border))', padding: '16px 18px', fontSize: 15 }} />
-        <div style={{ maxHeight: '50vh', overflow: 'auto' }}>
+          role="combobox" aria-label="Search members, sales, or pages" aria-expanded aria-controls="cmdk-results"
+          aria-activedescendant={items[sel] ? `cmdk-opt-${items[sel].key}` : undefined}
+          style={{ border: 'none', borderRadius: 0, borderBottom: '1px solid hsl(var(--border))', padding: '16px 18px', fontSize: 'var(--text-lg)' }} />
+        <div id="cmdk-results" role="listbox" aria-label="Results" style={{ maxHeight: '50vh', overflow: 'auto' }}>
           {items.length === 0 ? (
-            <div className="muted" style={{ padding: 18, fontSize: 13 }}>No matches.</div>
-          ) : items.map((it, i) => (
-            <button key={it.key} onMouseEnter={() => setSel(i)} onClick={it.run} className="row"
-              style={{ width: '100%', textAlign: 'left', gap: 10, padding: '11px 18px', border: 'none', borderBottom: '1px solid hsl(var(--border))', cursor: 'pointer', background: i === sel ? 'var(--panel-2)' : 'transparent' }}>
-              <span style={{ flex: 1, fontSize: 13.5 }}>{it.label}</span>
-              {it.hint && <span className="faint" style={{ fontSize: 11 }}>{it.hint}</span>}
-            </button>
-          ))}
+            <div className="muted" style={{ padding: 16, fontSize: 'var(--text-md)' }}>
+              {searching ? 'Searching…' : 'No matches.'}
+            </div>
+          ) : (
+            <>
+              {items.map((it, i) => (
+                <button key={it.key} id={`cmdk-opt-${it.key}`} role="option" aria-selected={i === sel}
+                  onMouseEnter={() => setSel(i)} onClick={it.run} className="row"
+                  style={{ width: '100%', textAlign: 'left', gap: 10, padding: '12px 18px', border: 'none', borderBottom: '1px solid hsl(var(--border))', cursor: 'pointer', background: i === sel ? 'var(--panel-2)' : 'transparent' }}>
+                  <span style={{ flex: 1, fontSize: 'var(--text-md)' }}>{it.label}</span>
+                  {it.hint && <span className="faint" style={{ fontSize: 'var(--text-xs)' }}>{it.hint}</span>}
+                </button>
+              ))}
+              {searching && <div className="muted" style={{ padding: '12px 18px', fontSize: 'var(--text-md)' }}>Searching…</div>}
+            </>
+          )}
         </div>
-        <div className="faint" style={{ padding: '8px 18px', fontSize: 11, display: 'flex', gap: 14 }}>
+        <div className="faint" style={{ padding: '8px 18px', fontSize: 'var(--text-xs)', display: 'flex', gap: 14 }}>
           <span>↑↓ navigate</span><span>⏎ open</span><span>esc close</span>
         </div>
       </div>

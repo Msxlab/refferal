@@ -20,13 +20,14 @@ type TabKey = 'general' | 'brand' | 'plan' | 'people' | 'ranks' | 'security' | '
 type TabGroup = 'Business' | 'System';
 interface Tab { key: TabKey; label: string; icon: string; group: TabGroup; perm?: string; render: () => ReactNode }
 
+// Single, consistent unicode glyph set (no emoji) so icons inherit theme color/weight.
 const TABS: Tab[] = [
   { key: 'general', label: 'General', icon: '⚙', group: 'Business', render: () => <General /> },
   { key: 'plan', label: 'Commission plan', icon: '⚡', group: 'Business', render: () => <Plan /> },
-  { key: 'ranks', label: 'Ranks', icon: '🏅', group: 'Business', render: () => <Ranks /> },
+  { key: 'ranks', label: 'Ranks', icon: '◇', group: 'Business', render: () => <Ranks /> },
   { key: 'people', label: 'People & Roles', icon: '⬡', group: 'Business', perm: 'settings.roles', render: () => <PeopleRoles /> },
   { key: 'brand', label: 'Brand', icon: '◆', group: 'Business', perm: 'settings.branding', render: () => <Brand /> },
-  { key: 'announcements', label: 'Announcements', icon: '📣', group: 'Business', render: () => <Announcements /> },
+  { key: 'announcements', label: 'Announcements', icon: '◈', group: 'Business', render: () => <Announcements /> },
   { key: 'security', label: 'Security', icon: '⛉', group: 'System', render: () => <Security /> },
   { key: 'integrations', label: 'Integrations', icon: '⚯', group: 'System', render: () => <Integrations /> },
   { key: 'notifications', label: 'Notifications', icon: '◔', group: 'System', render: () => <Notifications /> },
@@ -74,7 +75,7 @@ export default function SettingsPage() {
                   className={`seg-tab ${active === tab.key ? 'on' : ''}`}
                   onClick={() => select(tab.key)}
                 >
-                  <span style={{ opacity: 0.8 }}>{tab.icon}</span> {tab.label}
+                  <span aria-hidden className="faint" style={{ fontWeight: 600 }}>{tab.icon}</span> {tab.label}
                 </button>
               ))}
             </div>

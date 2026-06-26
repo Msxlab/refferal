@@ -62,7 +62,7 @@ export default function LoginPage() {
 
   return (
     <div className="center">
-      <div className="fade-in" style={{ width: '100%', maxWidth: 392 }}>
+      <div className="fade-in" style={{ width: '100%', maxWidth: 420 }}>
         <div style={{ textAlign: 'center', marginBottom: 22 }}>
           <Brand size="lg" />
           <div className="muted" style={{ marginTop: 10 }}>{t('login.tagline')}</div>
@@ -80,12 +80,12 @@ export default function LoginPage() {
               <label>{t('login.password')}</label>
               <div style={{ position: 'relative' }}>
                 <input type={showPw ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" style={{ paddingRight: 64 }} />
-                <button type="button" aria-label={showPw ? 'Hide password' : 'Show password'} onClick={() => setShowPw((v) => !v)} className="faint" style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>{showPw ? 'Hide' : 'Show'}</button>
+                <button type="button" aria-label={showPw ? 'Hide password' : 'Show password'} onClick={() => setShowPw((v) => !v)} className="faint" style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)' }}>{showPw ? 'Hide' : 'Show'}</button>
               </div>
             </div>
-            {error && <div className="error">{error}</div>}
+            {error && <div className="error" role="alert">{error}</div>}
             <button className="btn block" style={{ marginTop: 6 }} disabled={busy}>
-              {busy ? t('common.loading') : t('login.submit')} {!busy && <span>→</span>}
+              {busy ? t('common.loading') : t('login.submit')} {!busy && <span aria-hidden="true">→</span>}
             </button>
           </form>
         ) : (
@@ -96,14 +96,14 @@ export default function LoginPage() {
             <div className="field">
               <label>Verification code</label>
               <input value={code} onChange={(e) => setCode(e.target.value)} required autoFocus inputMode="numeric" autoComplete="one-time-code"
-                placeholder="123456" style={{ letterSpacing: '0.25em', fontFamily: 'ui-monospace, monospace', fontSize: 16 }} />
+                placeholder="123456" style={{ letterSpacing: '0.25em', fontFamily: 'ui-monospace, monospace', fontSize: 'var(--text-lg)' }} />
             </div>
-            {error && <div className="error">{error}</div>}
+            {error && <div className="error" role="alert">{error}</div>}
             <button className="btn block" style={{ marginTop: 6 }} disabled={busy || code.trim().length < 6}>
-              {busy ? t('common.loading') : 'Verify'} {!busy && <span>→</span>}
+              {busy ? t('common.loading') : 'Verify'} {!busy && <span aria-hidden="true">→</span>}
             </button>
             <button type="button" className="faint" onClick={() => { setMfaToken(null); setCode(''); setError(''); }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, marginTop: 12, width: '100%' }}>← Back to sign in</button>
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)', marginTop: 12, width: '100%' }}><span aria-hidden="true">←</span> Back to sign in</button>
           </form>
         )}
       </div>
