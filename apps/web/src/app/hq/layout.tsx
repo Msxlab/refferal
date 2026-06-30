@@ -11,8 +11,8 @@ import { HqCompanySwitcher } from '@/components/HqCompanySwitcher';
 import { APP_MONOGRAM, APP_NAME } from '@/lib/brand';
 
 const NAV = [
-  { href: '/hq', label: 'Genel bakış', ic: '◈' },
-  { href: '/hq/companies', label: 'Şirketler', ic: '◳' },
+  { href: '/hq', label: 'Overview', ic: '◈' },
+  { href: '/hq/companies', label: 'Companies', ic: '◳' },
 ];
 
 export default function HqLayout({ children }: { children: React.ReactNode }) {

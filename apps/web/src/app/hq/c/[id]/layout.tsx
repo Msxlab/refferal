@@ -9,9 +9,9 @@ import { HqCompanySwitcher } from '@/components/HqCompanySwitcher';
 import { Loading } from '@/components/ui';
 
 const MODULES = [
-  ['', 'Genel bakış'], ['sales', 'Satışlar'], ['members', 'Üyeler'], ['tree', 'Ağ'],
-  ['campaigns', 'Kampanyalar'], ['payouts', 'Ödemeler'], ['checks', 'Çekler'],
-  ['periods', 'Dönem'], ['audit', 'Denetim'], ['settings', 'Ayarlar'],
+  ['', 'Overview'], ['sales', 'Sales'], ['members', 'Members'], ['tree', 'Network'],
+  ['campaigns', 'Campaigns'], ['payouts', 'Payouts'], ['checks', 'Checks'],
+  ['periods', 'Close'], ['audit', 'Audit'], ['settings', 'Settings'],
 ] as const;
 
 export default function HqCompanyLayout({ children }: { children: React.ReactNode }) {
@@ -45,7 +45,7 @@ export default function HqCompanyLayout({ children }: { children: React.ReactNod
   return (
     <div>
       <div className="spread" style={{ marginBottom: 12 }}>
-        <Link href="/hq" className="faint" style={{ textDecoration: 'none' }}>← Genel bakış</Link>
+        <Link href="/hq" className="faint" style={{ textDecoration: 'none' }}>← Overview</Link>
         <HqCompanySwitcher currentId={id} />
       </div>
       <div className="eyebrow">{name}</div>

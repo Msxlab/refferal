@@ -19,7 +19,7 @@ export function HqCompanySwitcher({ currentId }: { currentId?: string }) {
   };
 
   return (
-    <Popover label={<>{current ? current.name : 'Tüm şirketler'} ▾</>} width={240}>
+    <Popover label={<>{current ? current.name : 'All companies'} ▾</>} width={240}>
       {(close) => (
         <div style={{ minWidth: 220 }}>
           <button
@@ -27,7 +27,7 @@ export function HqCompanySwitcher({ currentId }: { currentId?: string }) {
             style={itemStyle}
             onClick={() => { router.push('/hq'); close(); }}
           >
-            Genel bakış
+            Overview
           </button>
           {companies.map((c) => (
             <button
