@@ -1,5 +1,18 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { MembershipStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
+import {
+  CampaignStatus,
+  FraudStatus,
+  InvoiceStatus,
+  LedgerStatus,
+  LedgerType,
+  MembershipStatus,
+  PayoutBatchStatus,
+  PayoutProfileStatus,
+  Prisma,
+  Role,
+  SaleStatus,
+  TenantStatus,
+} from '@prisma/client';
 import { hash } from '@node-rs/argon2';
 import { DEFAULT_LEVEL_RATES_BPS, DEFAULT_POOL_RATE_BPS } from '@refearn/shared';
 import { ARGON2_OPTS, AuthService } from '../auth/auth.service';
@@ -68,6 +81,53 @@ export class PlatformService {
       salesThisMonth: revMap.get(t.id)?.sales ?? 0,
       createdAt: t.createdAt,
     }));
+  }
+
+  /**
+   * Portfoy ozeti (B3): tum aktif sirketler icin brut/net/odenecek toplamlari, sirket
+   * leaderboard'u (bu-ay ciro azalan) ve "dikkat gerektiren" sayaclar (onay/risk/fatura/kampanya).
+   * Net = brut satis − bu-ay satislara bagli komisyon ledger'i. payable = tum 'payable' ledger.
+   */
+  async overview(): Promise<{
+    totals: { grossRevenueCents: string; netCents: string; payableCents: string; activeMembers: number; companies: number };
+    leaderboard: Array<{ id: string; slug: string; name: string; status: string; currency: string; revenueThisMonthCents: string; members: number; activeMembers: number }>;
+    attention: { payoutApprovals: number; riskReviews: number; overdueInvoices: number; campaignsToFinalize: number };
+  }> {
+    const tenants = await this.prisma.tenant.findMany({ where: { status: TenantStatus.active } });
+    let gross = 0n, commission = 0n, payable = 0n, activeMembersTotal = 0;
+    const leaderboard = [] as Array<{ id: string; slug: string; name: string; status: string; currency: string; revenueThisMonthCents: string; members: number; activeMembers: number }>;
+
+    for (const t of tenants) {
+      const m = monthKey(new Date(), t.timezone);
+      const sales = await this.prisma.sale.findMany({ where: { tenantId: t.id, status: SaleStatus.approved, summaryMonth: m }, select: { id: true, amountCents: true } });
+      const revenue = sales.reduce((a, s) => a + s.amountCents, 0n);
+      const saleIds = sales.map((s) => s.id);
+      const comm = saleIds.length
+        ? (await this.prisma.ledgerEntry.aggregate({ where: { tenantId: t.id, saleId: { in: saleIds }, type: LedgerType.commission }, _sum: { amountCents: true } }))._sum.amountCents ?? 0n
+        : 0n;
+      const pay = (await this.prisma.ledgerEntry.aggregate({ where: { tenantId: t.id, status: LedgerStatus.payable }, _sum: { amountCents: true } }))._sum.amountCents ?? 0n;
+      const members = await this.prisma.membership.count({ where: { tenantId: t.id } });
+      const active = await this.prisma.membership.count({ where: { tenantId: t.id, status: MembershipStatus.active } });
+      gross += revenue; commission += comm; payable += pay; activeMembersTotal += active;
+      leaderboard.push({ id: t.id, slug: t.slug, name: t.name, status: t.status, currency: t.currency, revenueThisMonthCents: revenue.toString(), members, activeMembers: active });
+    }
+    leaderboard.sort((a, b) => Number(BigInt(b.revenueThisMonthCents) - BigInt(a.revenueThisMonthCents)));
+
+    const now = new Date();
+    const attention = {
+      payoutApprovals: await this.prisma.payoutBatch.count({ where: { status: PayoutBatchStatus.proposed } }),
+      riskReviews:
+        (await this.prisma.fraudFlag.count({ where: { status: FraudStatus.open } })) +
+        (await this.prisma.payoutProfile.count({ where: { status: PayoutProfileStatus.pending_review } })),
+      overdueInvoices: await this.prisma.invoice.count({ where: { status: InvoiceStatus.open, dueAt: { lt: now } } }),
+      campaignsToFinalize: await this.prisma.campaign.count({ where: { status: CampaignStatus.active, endsAt: { lt: now } } }),
+    };
+
+    return {
+      totals: { grossRevenueCents: gross.toString(), netCents: (gross - commission).toString(), payableCents: payable.toString(), activeMembers: activeMembersTotal, companies: tenants.length },
+      leaderboard,
+      attention,
+    };
   }
 
   /** Tek sirket ozeti (KPI + aktif plan + ayar ozeti). */

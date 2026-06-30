@@ -36,6 +36,11 @@ export class PlatformController {
     private readonly billing: BillingService,
   ) {}
 
+  @Get('overview')
+  overview() {
+    return this.platform.overview();
+  }
+
   @Get('companies')
   companies() {
     return this.platform.companies();
