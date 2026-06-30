@@ -1,3 +1,6 @@
+// Not: testMatch glob'lari <rootDir> oneki KULLANMAZ. Windows + git worktree yolunda
+// (...\.claude\worktrees\...) mutlak yolun backslash'i micromatch'te escape sayilip
+// testMatch'i 0 eslesmeye dusuruyordu. Relative glob ('**/...') bu sorunu cozer.
 const base = {
   preset: 'ts-jest',
   testEnvironment: 'node',
@@ -14,12 +17,13 @@ module.exports = {
     {
       ...base,
       displayName: 'unit',
-      testMatch: ['<rootDir>/src/**/*.spec.ts'],
+      // <rootDir> oneki yok: backslash'li mutlak yol micromatch'i bozmasin (Windows worktree)
+      testMatch: ['**/src/**/*.spec.ts'],
     },
     {
       ...base,
       displayName: 'integration',
-      testMatch: ['<rootDir>/test/**/*.int-spec.ts'],
+      testMatch: ['**/test/**/*.int-spec.ts'],
       setupFiles: ['<rootDir>/test/setup-env.ts'],
       globalSetup: '<rootDir>/test/global-setup.ts',
     },
