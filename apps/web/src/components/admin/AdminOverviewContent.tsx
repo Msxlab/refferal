@@ -1,0 +1,416 @@
+'use client';
+
+import Link from 'next/link';
+import { useCallback, useEffect, useState } from 'react';
+import { api, ApiError } from '@/lib/api';
+import { Donut, Loading, MoneyCounter, StatCard } from '@/components/ui';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { TrendChart } from '@/components/TrendChart';
+import { useLiveRefresh } from '@/components/LiveIndicator';
+import { bps, money } from '@/lib/format';
+import { t } from '@/lib/i18n';
+
+interface Dashboard {
+  month: string;
+  currency: string;
+  members: { total: number; active: number };
+  thisMonth: { approvedSalesCount: number; revenueCents: string; commissionCents: string; effectiveRateBps: number };
+  outstandingPayableCents: string;
+  liability: { pendingCents: string; payableCents: string; inPayoutCents: string };
+  topEarners: { membershipId: string; fullName: string; referralCode: string; earnedCents: string }[];
+  pendingPayoutRequests: number;
+}
+
+interface Analytics {
+  currency: string;
+  range: { months: number; from: string; to: string };
+  series: Array<{ month: string; revenueCents: string; commissionCents: string; approvedSales: number }>;
+  totals: { revenueCents: string; commissionCents: string; approvedSales: number; effectiveRateBps: number };
+  previous: { revenueCents: string; commissionCents: string; approvedSales: number };
+  deltas: { revenuePct: number | null; commissionPct: number | null; salesPct: number | null };
+  funnel: Record<'draft' | 'approved' | 'void', { count: number; amountCents: string }>;
+  topPerformers: Array<{ membershipId: string; fullName: string; referralCode: string; revenueCents: string; salesCount: number }>;
+}
+
+interface Onboarding {
+  steps: { key: string; label: string; done: boolean; cta: string | null }[];
+  done: number; total: number; percent: number;
+}
+
+interface Todo {
+  items: { key: string; label: string; count: number; href: string }[];
+  total: number;
+}
+const TODO_ICON: Record<string, string> = {
+  sales_approval: '◇', payout_requests: '◆', checks_to_process: '🖶', fraud_review: '⚑',
+};
+
+interface Cohorts {
+  cohorts: { cohort: string; joined: number; active: number; churned: number; producing: number; retentionPct: number; activationPct: number }[];
+  totals: { joined: number; active: number; producing: number; churned: number; retentionPct: number };
+}
+
+const RANGES = [3, 6, 12];
+const CTA_LABEL: Record<string, string> = {
+  invite_team: 'Invite members',
+  first_sale: 'Record a sale',
+  first_payout: 'Go to payouts',
+};
+
+export function AdminOverviewContent({ tenantName }: { tenantName: string }) {
+  void tenantName; // tutarlilik icin tasinir; bu govde sahip-tenant adina ihtiyac duymaz
+  const [data, setData] = useState<Dashboard | null>(null);
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
+  const [todo, setTodo] = useState<Todo | null>(null);
+  const [cohorts, setCohorts] = useState<Cohorts | null>(null);
+  const [months, setMonths] = useState(6);
+  const [error, setError] = useState('');
+  const [fin, setFin] = useState<{ ok: boolean; payoutMismatches: unknown[]; summaryMismatches: unknown[] } | null>(null);
+  const [finBusy, setFinBusy] = useState(false);
+
+  async function verifyFinancials() {
+    setFinBusy(true);
+    try { setFin(await api.get('/admin/financials/verify')); }
+    catch (e) { setError(String((e as ApiError).message)); } finally { setFinBusy(false); }
+  }
+
+  const loadDashboard = useCallback(() => {
+    api.get<Dashboard>('/admin/dashboard').then(setData).catch((e) => setError(String((e as ApiError).message)));
+    api.get<Onboarding>('/admin/onboarding').then(setOnboarding).catch(() => { /* opsiyonel */ });
+    api.get<Todo>('/admin/todo').then(setTodo).catch(() => { /* opsiyonel */ });
+    api.get<Cohorts>('/admin/cohorts').then(setCohorts).catch(() => { /* opsiyonel */ });
+  }, []);
+  useEffect(() => { loadDashboard(); }, [loadDashboard]);
+
+  // canli: satis onayi/odeme oldukca ozet kartlari kendiliginden gunceller
+  useLiveRefresh(loadDashboard);
+
+  useEffect(() => {
+    setAnalytics(null);
+    api.get<Analytics>(`/admin/analytics?months=${months}`).then(setAnalytics).catch(() => {});
+  }, [months]);
+
+  if (error) return <div className="my-2 text-sm text-destructive">{error}</div>;
+  if (!data) return <Loading />;
+
+  const c = data.currency;
+  const revenue = Number(data.thisMonth.revenueCents);
+  const commission = Number(data.thisMonth.commissionCents);
+  const net = Math.max(0, revenue - commission);
+
+  return (
+    <div>
+      <div className="spread">
+        <div>
+          <div className="eyebrow fade-in">{t('nav.dashboard')} · {data.month}</div>
+          <h1 className="h1 fade-in">{t('dash.title')}</h1>
+          <p className="sub fade-in">{t('dash.sub')}</p>
+        </div>
+        <div className="row fade-in no-print" style={{ gap: 8 }}>
+          {fin && <Badge variant={fin.ok ? 'success' : 'destructive'}>{fin.ok ? '✓ Books balanced' : `✗ ${fin.payoutMismatches.length + fin.summaryMismatches.length} issue(s)`}</Badge>}
+          <Button variant="ghost" onClick={verifyFinancials} disabled={finBusy}>{finBusy ? 'Checking…' : '⚖ Verify financials'}</Button>
+          <Button variant="ghost" onClick={() => window.print()}>🖶 Print report</Button>
+        </div>
+      </div>
+
+      {/* ---- Yapilacaklar (C4): bekleyen eylemler ---- */}
+      {todo && todo.total > 0 && (
+        <Card className="fade-in my-4 p-5" style={{ borderColor: 'color-mix(in srgb, var(--gold-500) 30%, transparent)' }}>
+          <div className="spread" style={{ marginBottom: 10 }}>
+            <strong style={{ fontSize: 15 }}>Needs your attention</strong>
+            <Badge>{todo.total} item{todo.total === 1 ? '' : 's'}</Badge>
+          </div>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 10 }}>
+            {todo.items.map((it) => (
+              <Link key={it.key} href={it.href} className="card hover" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', padding: 14 }}>
+                <span style={{ fontSize: 20 }}>{TODO_ICON[it.key] ?? '•'}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 18, lineHeight: 1 }}>{it.count}</div>
+                  <div className="faint" style={{ fontSize: 12, marginTop: 3 }}>{it.label}</div>
+                </div>
+                <span className="faint" style={{ fontSize: 16 }}>→</span>
+              </Link>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* ---- ilk-kurulum rehberi: %100'de gizlenir ---- */}
+      {onboarding && onboarding.percent < 100 && (
+        <Card className="fade-in mb-[18px] p-5" style={{ border: '1px solid var(--gold-500)', boxShadow: 'var(--shadow-glow)' }}>
+          <div className="spread" style={{ alignItems: 'flex-start', marginBottom: 12 }}>
+            <div>
+              <strong style={{ fontSize: 16 }}>Get your referral program running</strong>
+              <div className="faint" style={{ fontSize: 13, marginTop: 2 }}>Finish setup to start tracking referrals and paying commissions.</div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <div style={{ fontWeight: 800, fontSize: 22 }}>{onboarding.percent}%</div>
+              <div className="faint" style={{ fontSize: 12 }}>{onboarding.done} of {onboarding.total}</div>
+            </div>
+          </div>
+          <div className="mb-3.5 h-1.5 overflow-hidden rounded-[3px] bg-[color:var(--panel-3)]">
+            <div style={{ height: '100%', width: `${onboarding.percent}%`, borderRadius: 3, background: 'var(--foil)', transition: 'width .7s' }} />
+          </div>
+          <div>
+            {onboarding.steps.map((s) => (
+              <div key={s.key} className="row" style={{ gap: 12, padding: '9px 0', borderTop: '1px solid var(--border)', alignItems: 'center' }}>
+                <span style={{ fontSize: 16, width: 18, textAlign: 'center', color: s.done ? 'var(--emerald)' : 'var(--faint)' }}>{s.done ? '✓' : '○'}</span>
+                <span style={{ flex: 1, fontSize: 14, color: s.done ? 'var(--muted)' : 'var(--text)' }}>{s.label}</span>
+                {s.done
+                  ? <span className="faint" style={{ fontSize: 12 }}>Done</span>
+                  : s.cta
+                    ? <Button asChild variant="ghost" size="sm"><Link href={s.cta}>{CTA_LABEL[s.key] ?? 'Open'} →</Link></Button>
+                    : <span className="faint" style={{ fontSize: 12 }}>Pending</span>}
+              </div>
+            ))}
+          </div>
+          <div className="faint" style={{ fontSize: 11, marginTop: 10 }}>This guide hides automatically once every step is done.</div>
+        </Card>
+      )}
+
+      <div className="grid stack-sm fade-in delay-1" style={{ gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)' }}>
+        <Card className="hero p-5">
+          <div className="faint" style={{ fontSize: 12 }}>{t('dash.revenue')}</div>
+          <div className="bignum gradient-text" style={{ marginTop: 6 }}><MoneyCounter cents={revenue} currency={c} /></div>
+          <div className="row" style={{ marginTop: 18, gap: 22 }}>
+            <div>
+              <div className="faint" style={{ fontSize: 11 }}>{t('dash.commission')}</div>
+              <div className="tnum" style={{ fontWeight: 700 }}>{money(commission, c)}</div>
+            </div>
+            <div>
+              <div className="faint" style={{ fontSize: 11 }}>{t('dash.effRate')}</div>
+              <div className="tnum" style={{ fontWeight: 700 }}>{bps(data.thisMonth.effectiveRateBps)}</div>
+            </div>
+            <div>
+              <div className="faint" style={{ fontSize: 11 }}>{t('dash.approvedSales')}</div>
+              <div className="tnum" style={{ fontWeight: 700 }}>{data.thisMonth.approvedSalesCount}</div>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="grid place-items-center p-5">
+          <Donut
+            segments={[
+              { label: 'Net', value: net, color: 'var(--emerald)' },
+              { label: t('dash.commission'), value: commission, color: 'var(--primary)' },
+            ]}
+            center={
+              <div>
+                <div className="faint" style={{ fontSize: 11 }}>{t('dash.commissionShare')}</div>
+                <div style={{ fontWeight: 800, fontSize: 18 }}>{bps(data.thisMonth.effectiveRateBps)}</div>
+              </div>
+            }
+          />
+        </Card>
+      </div>
+
+      <div className="stat-grid fade-in delay-2" style={{ marginTop: 16 }}>
+        <StatCard label={t('dash.payable')} value={money(data.outstandingPayableCents, c)} icon="◆" hint={t('dash.payableHint')} />
+        <StatCard label={t('dash.members')} value={`${data.members.active} / ${data.members.total}`} icon="⬡" hint={t('dash.membersHint')} />
+        {data.pendingPayoutRequests > 0
+          ? <a href="/admin/payouts" style={{ textDecoration: 'none' }} title="Go to payouts"><StatCard label={`${t('dash.pendingReq')} →`} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} /></a>
+          : <StatCard label={t('dash.pendingReq')} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} />}
+      </div>
+
+      {/* ---- borc kirilimi + en cok kazananlar ---- */}
+      <div className="grid stack-sm fade-in delay-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.2fr)', gap: 16, marginTop: 16 }}>
+        <Card className="p-5">
+          <strong style={{ fontSize: 13 }}>Commission owed (to members)</strong>
+          <div className="faint" style={{ fontSize: 11, marginBottom: 12 }}>What the company owes members — by maturation and payout state.</div>
+          <div className="grid" style={{ gap: 8 }}>
+            <div className="row spread"><span className="row" style={{ gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--amber)' }} />Pending (not yet matured)</span><strong className="tnum">{money(data.liability.pendingCents, c)}</strong></div>
+            <div className="row spread"><span className="row" style={{ gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--sky)' }} />Payable (ready)</span><strong className="tnum">{money(data.liability.payableCents, c)}</strong></div>
+            <div className="row spread"><span className="row" style={{ gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--emerald)' }} />In payout</span><strong className="tnum">{money(data.liability.inPayoutCents, c)}</strong></div>
+          </div>
+        </Card>
+        <Card className="p-5">
+          <strong style={{ fontSize: 13 }}>Top earners · {data.month}</strong>
+          <div className="faint" style={{ fontSize: 11, marginBottom: 10 }}>Members with the highest commission this month.</div>
+          {data.topEarners.length === 0 ? <span className="muted" style={{ fontSize: 13 }}>No commission yet this month.</span> : (
+            <div className="grid" style={{ gap: 6 }}>
+              {data.topEarners.map((e, i) => (
+                <div key={e.membershipId} className="row spread" style={{ fontSize: 13 }}>
+                  <span className="row" style={{ gap: 8, minWidth: 0 }}><span className="faint tnum" style={{ width: 18 }}>{i + 1}.</span><span style={{ fontWeight: 600 }}>{e.fullName}</span><span className="faint" style={{ fontSize: 11 }}>{e.referralCode}</span></span>
+                  <strong className="tnum" style={{ color: 'var(--gold-500)' }}>{money(e.earnedCents, c)}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* ---- analitik: zaman serisi + karsilastirma + huni + top performers ---- */}
+      <div className="spread fade-in" style={{ marginTop: 28, marginBottom: 14, alignItems: 'flex-end' }}>
+        <div>
+          <h2 style={{ fontSize: 18, fontWeight: 750, margin: 0 }}>Performance</h2>
+          <span className="faint" style={{ fontSize: 12 }}>Trends and comparison vs the previous period.</span>
+        </div>
+        <div className="seg-tabs no-print" role="tablist">
+          {RANGES.map((r) => (
+            <button key={r} className={`seg-tab ${months === r ? 'on' : ''}`} onClick={() => setMonths(r)} role="tab" aria-selected={months === r}>
+              {r}M
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {!analytics ? (
+        <Loading rows={3} />
+      ) : (
+        <>
+          <Card className="fade-in mb-4 p-5">
+            <div className="row" style={{ gap: 22, marginBottom: 14, flexWrap: 'wrap' }}>
+              <Metric label="Revenue" value={money(analytics.totals.revenueCents, c)} delta={analytics.deltas.revenuePct} />
+              <Metric label="Commission" value={money(analytics.totals.commissionCents, c)} delta={analytics.deltas.commissionPct} invertGood />
+              <Metric label="Approved sales" value={String(analytics.totals.approvedSales)} delta={analytics.deltas.salesPct} />
+              <Metric label="Effective rate" value={bps(analytics.totals.effectiveRateBps)} />
+            </div>
+            <TrendChart series={analytics.series} currency={c} />
+          </Card>
+
+          <div className="grid stack-sm fade-in" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.2fr)', gap: 16 }}>
+            <Card className="p-5">
+              <strong style={{ fontSize: 14 }}>Sales funnel</strong>
+              <div className="faint" style={{ fontSize: 12, marginBottom: 14 }}>Status mix over the selected window.</div>
+              <Funnel funnel={analytics.funnel} currency={c} />
+            </Card>
+
+            <Card className="overflow-hidden p-0">
+              <div style={{ padding: '16px 18px 10px' }}>
+                <strong style={{ fontSize: 14 }}>Top performers</strong>
+                <div className="faint" style={{ fontSize: 12 }}>By approved revenue in this window.</div>
+              </div>
+              {analytics.topPerformers.length === 0 ? (
+                <div className="muted" style={{ padding: 18 }}>No approved sales in this window.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table>
+                    <thead><tr><th>Member</th><th className="text-right">Sales</th><th className="text-right">Revenue</th></tr></thead>
+                    <tbody>
+                      {analytics.topPerformers.map((p, i) => (
+                        <tr key={p.membershipId}>
+                          <td>
+                            <div className="row" style={{ gap: 9 }}>
+                              <span style={{ width: 22, height: 22, borderRadius: 6, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, background: i === 0 ? 'var(--foil)' : 'var(--panel-2)', color: i === 0 ? 'var(--on-gold)' : 'var(--muted)' }}>{i + 1}</span>
+                              <div>
+                                <div style={{ fontWeight: 600, fontSize: 13 }}>{p.fullName}</div>
+                                <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{p.referralCode}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="tnum text-right">{p.salesCount}</td>
+                          <td className="tnum text-right" style={{ fontWeight: 700 }}>{money(p.revenueCents, c)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
+          </div>
+        </>
+      )}
+
+      {/* ---- Kohort retention/churn (D3) — yazdirilabilir ---- */}
+      {cohorts && cohorts.cohorts.length > 0 && (
+        <Card className="fade-in mt-4 p-5">
+          <div className="spread" style={{ marginBottom: 4 }}>
+            <strong style={{ fontSize: 15 }}>Member cohorts — retention &amp; churn</strong>
+            <span className="faint" style={{ fontSize: 12 }}>{cohorts.totals.retentionPct}% still active · {cohorts.totals.churned} churned</span>
+          </div>
+          <div className="faint" style={{ fontSize: 12, marginBottom: 12 }}>Members grouped by the month they joined. “Producing” = made an approved sale in the last 30 days.</div>
+          <div className="overflow-x-auto rounded-xl bg-secondary">
+            <table>
+              <thead><tr><th>Joined</th><th className="text-right">Members</th><th className="text-right">Still active</th><th className="text-right">Retention</th><th className="text-right">Producing</th><th className="text-right">Churned</th></tr></thead>
+              <tbody>
+                {cohorts.cohorts.map((co) => (
+                  <tr key={co.cohort}>
+                    <td>{co.cohort}</td>
+                    <td className="tnum text-right">{co.joined}</td>
+                    <td className="tnum text-right">{co.active}</td>
+                    <td className="text-right">
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                        <span style={{ width: 44, height: 6, borderRadius: 4, background: 'var(--panel-3)', overflow: 'hidden', display: 'inline-block' }}>
+                          <span style={{ display: 'block', height: '100%', width: `${co.retentionPct}%`, background: co.retentionPct >= 60 ? 'var(--emerald)' : co.retentionPct >= 30 ? 'var(--gold-500)' : 'var(--rose)' }} />
+                        </span>
+                        <span className="tnum" style={{ fontWeight: 600, minWidth: 34 }}>{co.retentionPct}%</span>
+                      </span>
+                    </td>
+                    <td className="tnum text-right" style={{ color: co.producing > 0 ? 'var(--emerald)' : 'var(--faint)' }}>{co.producing} <span className="faint">({co.activationPct}%)</span></td>
+                    <td className="tnum text-right" style={{ color: co.churned > 0 ? 'var(--faint)' : 'inherit' }}>{co.churned || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700 }}>
+                  <td>All</td>
+                  <td className="tnum text-right">{cohorts.totals.joined}</td>
+                  <td className="tnum text-right">{cohorts.totals.active}</td>
+                  <td className="tnum text-right">{cohorts.totals.retentionPct}%</td>
+                  <td className="tnum text-right">{cohorts.totals.producing}</td>
+                  <td className="tnum text-right">{cohorts.totals.churned}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function Metric({ label, value, delta, invertGood }: { label: string; value: string; delta?: number | null; invertGood?: boolean }) {
+  return (
+    <div>
+      <div className="faint" style={{ fontSize: 11 }}>{label}</div>
+      <div className="tnum" style={{ fontWeight: 750, fontSize: 19, marginTop: 2 }}>{value}</div>
+      {delta !== undefined && <Delta pct={delta} invertGood={invertGood} />}
+    </div>
+  );
+}
+
+function Delta({ pct, invertGood }: { pct: number | null; invertGood?: boolean }) {
+  if (pct === null) return <span className="faint" style={{ fontSize: 11 }}>— new</span>;
+  const up = pct > 0;
+  const flat = pct === 0;
+  const good = flat ? null : invertGood ? !up : up;
+  const color = good === null ? 'var(--muted)' : good ? 'var(--emerald)' : 'var(--rose)';
+  return (
+    <span className="row" style={{ gap: 4, fontSize: 11.5, color, marginTop: 3, fontWeight: 650 }}>
+      {flat ? '→' : up ? '▲' : '▼'} {Math.abs(pct)}%
+      <span className="faint" style={{ fontWeight: 400 }}>vs prev</span>
+    </span>
+  );
+}
+
+function Funnel({ funnel, currency }: { funnel: Record<'draft' | 'approved' | 'void', { count: number; amountCents: string }>; currency: string }) {
+  const rows: Array<{ k: 'draft' | 'approved' | 'void'; label: string; color: string }> = [
+    { k: 'draft', label: 'Draft', color: 'var(--muted)' },
+    { k: 'approved', label: 'Approved', color: 'var(--emerald)' },
+    { k: 'void', label: 'Void', color: 'var(--rose)' },
+  ];
+  const max = Math.max(1, ...rows.map((r) => funnel[r.k].count));
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      {rows.map((r) => {
+        const f = funnel[r.k];
+        return (
+          <div key={r.k}>
+            <div className="spread" style={{ marginBottom: 5 }}>
+              <span className="row" style={{ gap: 7, fontSize: 12.5 }}>
+                <span style={{ width: 9, height: 9, borderRadius: 3, background: r.color }} /> {r.label}
+              </span>
+              <span className="tnum" style={{ fontSize: 12.5 }}>{f.count} · {money(f.amountCents, currency)}</span>
+            </div>
+            <div style={{ height: 9, borderRadius: 6, background: 'var(--panel-2)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${(f.count / max) * 100}%`, borderRadius: 6, background: r.color, transition: 'width .7s cubic-bezier(.2,.9,.3,1)' }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
