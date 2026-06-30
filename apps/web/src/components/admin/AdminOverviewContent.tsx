@@ -59,8 +59,11 @@ const CTA_LABEL: Record<string, string> = {
   first_payout: 'Go to payouts',
 };
 
-export function AdminOverviewContent({ tenantName }: { tenantName: string }) {
+export function AdminOverviewContent({ tenantName, basePath = '/admin' }: { tenantName: string; basePath?: string }) {
   void tenantName; // tutarlilik icin tasinir; bu govde sahip-tenant adina ihtiyac duymaz
+  // Sunucudan gelen sayfa-ici navigasyon hedefleri '/admin/...' ile gelir; HQ drill-in'de
+  // (basePath = '/hq/c/<id>') onek degistirilir. API cagri yollari DEGISMEZ — bu yalniz <Link> hedefi.
+  const nav = (href: string): string => (href.startsWith('/admin') ? `${basePath}${href.slice('/admin'.length)}` : href);
   const [data, setData] = useState<Dashboard | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
@@ -125,7 +128,7 @@ export function AdminOverviewContent({ tenantName }: { tenantName: string }) {
           </div>
           <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 10 }}>
             {todo.items.map((it) => (
-              <Link key={it.key} href={it.href} className="card hover" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', padding: 14 }}>
+              <Link key={it.key} href={nav(it.href)} className="card hover" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', padding: 14 }}>
                 <span style={{ fontSize: 20 }}>{TODO_ICON[it.key] ?? '•'}</span>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 18, lineHeight: 1 }}>{it.count}</div>
@@ -162,7 +165,7 @@ export function AdminOverviewContent({ tenantName }: { tenantName: string }) {
                 {s.done
                   ? <span className="faint" style={{ fontSize: 12 }}>Done</span>
                   : s.cta
-                    ? <Button asChild variant="ghost" size="sm"><Link href={s.cta}>{CTA_LABEL[s.key] ?? 'Open'} →</Link></Button>
+                    ? <Button asChild variant="ghost" size="sm"><Link href={nav(s.cta)}>{CTA_LABEL[s.key] ?? 'Open'} →</Link></Button>
                     : <span className="faint" style={{ fontSize: 12 }}>Pending</span>}
               </div>
             ))}
@@ -211,7 +214,7 @@ export function AdminOverviewContent({ tenantName }: { tenantName: string }) {
         <StatCard label={t('dash.payable')} value={money(data.outstandingPayableCents, c)} icon="◆" hint={t('dash.payableHint')} />
         <StatCard label={t('dash.members')} value={`${data.members.active} / ${data.members.total}`} icon="⬡" hint={t('dash.membersHint')} />
         {data.pendingPayoutRequests > 0
-          ? <a href="/admin/payouts" style={{ textDecoration: 'none' }} title="Go to payouts"><StatCard label={`${t('dash.pendingReq')} →`} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} /></a>
+          ? <a href={`${basePath}/payouts`} style={{ textDecoration: 'none' }} title="Go to payouts"><StatCard label={`${t('dash.pendingReq')} →`} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} /></a>
           : <StatCard label={t('dash.pendingReq')} value={String(data.pendingPayoutRequests)} icon="◷" hint={t('dash.requestsHint')} />}
       </div>
 

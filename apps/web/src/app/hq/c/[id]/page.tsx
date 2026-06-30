@@ -8,5 +8,5 @@ export default function HqCompanyOverviewPage() {
   const { id } = useParams<{ id: string }>();
   const [name, setName] = useState('Refearn');
   useEffect(() => { api.get<{ name: string }>(`/platform/companies/${id}`).then((c) => setName(c.name)).catch(() => {}); }, [id]);
-  return <AdminOverviewContent tenantName={name} />;
+  return <AdminOverviewContent tenantName={name} basePath={`/hq/c/${id}`} />;
 }
