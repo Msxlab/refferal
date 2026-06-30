@@ -61,6 +61,12 @@ export class PlatformController {
     return this.platform.network(id);
   }
 
+  // ---- Act-as: sirket icin tenant-scoped owner token (platform admin) ----
+  @Post('companies/:id/act-as')
+  actAs(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.platform.actAs(user.sub, id);
+  }
+
   // ---- C1: sirket durumu (askiya al / aktive et) ----
   @Patch('companies/:id/status')
   setStatus(

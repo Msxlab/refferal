@@ -7,10 +7,23 @@ import {
   SaleStatus,
   Tenant,
 } from '@prisma/client';
+import { hash } from '@node-rs/argon2';
 import { DEFAULT_LEVEL_RATES_BPS, DEFAULT_POOL_RATE_BPS } from '@refearn/shared';
 
 let seq = 0;
 const next = () => ++seq;
+
+const ARGON2 = { memoryCost: 19_456, timeCost: 2, parallelism: 1 };
+/** Dogrulanmis bir platform_admin kullanicisi olusturur (login icin gercek sifre hash'i). */
+export async function createPlatformAdmin(
+  prisma: PrismaClient, password: string, email = `platform-${next()}@test.refearn.local`,
+): Promise<{ id: string; email: string }> {
+  const user = await prisma.user.create({
+    data: { email, passwordHash: await hash(password, ARGON2), fullName: 'Test Platform', isPlatformAdmin: true, emailVerifiedAt: new Date() },
+    select: { id: true, email: true },
+  });
+  return user;
+}
 
 export async function truncateAll(prisma: PrismaClient): Promise<void> {
   await prisma.$executeRawUnsafe(`

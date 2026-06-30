@@ -2,7 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { MembershipStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
 import { hash } from '@node-rs/argon2';
 import { DEFAULT_LEVEL_RATES_BPS, DEFAULT_POOL_RATE_BPS } from '@refearn/shared';
-import { ARGON2_OPTS } from '../auth/auth.service';
+import { ARGON2_OPTS, AuthService } from '../auth/auth.service';
 import { ltreeLabel, newUuid, randomCode } from '../common/crypto';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
@@ -10,7 +10,20 @@ import { PrismaService } from '../prisma/prisma.service';
 /** Kiracci-ustu platform yuzeyi (Axtra): sirketleri (tenant) yonet, agina drill-in. */
 @Injectable()
 export class PlatformService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auth: AuthService,
+  ) {}
+
+  /** Act-as: platform admin bir sirket icin tenant-scoped owner token alir (audit'li). */
+  async actAs(actorUserId: string, tenantId: string): Promise<{ accessToken: string }> {
+    const res = await this.auth.actAsTenant(actorUserId, tenantId);
+    await this.prisma.auditLog.create({ data: {
+      tenantId, actorUserId, action: 'platform.act_as', entity: 'tenant', entityId: tenantId,
+      after: { tenantId, role: 'tenant_owner', platformAdmin: true } as Prisma.InputJsonValue,
+    } });
+    return res;
+  }
 
   /** Sirketler dizini + her sirket icin KPI (uye, aktif, bu-ay ciro, durum). */
   async companies() {

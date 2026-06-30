@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -368,6 +369,17 @@ export class AuthService {
     });
     const accessToken = await this.signAccess(user, membership, sid);
     return { accessToken, activeMembershipId: membership.id };
+  }
+
+  /** Platform admin "act-as": bir sirket icin tenant-scoped owner token uretir (plat:true korunur). */
+  async actAsTenant(userId: string, tenantId: string): Promise<{ accessToken: string }> {
+    const user = await this.prisma.user.findFirst({ where: { id: userId, isPlatformAdmin: true }, select: { id: true, isPlatformAdmin: true } });
+    if (!user) throw new ForbiddenException('platform yetkisi gerekli');
+    const tenant = await this.prisma.tenant.findFirst({ where: { id: tenantId, status: TenantStatus.active }, select: { id: true } });
+    if (!tenant) throw new NotFoundException('sirket bulunamadi veya aktif degil');
+    const payload: AccessTokenPayload = { sub: user.id, mid: null, tid: tenant.id, role: Role.tenant_owner, plat: true };
+    const accessToken = await this.jwt.signAsync(payload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
+    return { accessToken };
   }
 
   async verifyEmail(tokenRaw: string): Promise<{ ok: true }> {
