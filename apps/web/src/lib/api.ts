@@ -5,6 +5,12 @@ const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1';
 /** SSE/EventSource gibi fetch disi tuketiciler icin API kok adresi. */
 export const API_BASE = BASE;
 
+// HQ drill-in: sahip bir sirkete indiginde /admin/* cagrilari bu token'i kullanir.
+// Bellek-ici (localStorage degil) — sayfa yenilemede temizlenir, drill-in layout tekrar set eder.
+let activeCompanyToken: string | null = null;
+export function setActiveCompanyToken(token: string | null): void { activeCompanyToken = token; }
+export function getActiveCompanyToken(): string | null { return activeCompanyToken; }
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -50,9 +56,13 @@ function refresh(session: Session): Promise<Session | null> {
 
 async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
   const session = getSession();
-  const res = await rawFetch(path, init, session?.accessToken);
+  const overrideForAdmin = activeCompanyToken && path.startsWith('/admin') ? activeCompanyToken : null;
+  const token = overrideForAdmin ?? session?.accessToken;
+  const res = await rawFetch(path, init, token);
 
-  if (res.status === 401 && session && retry) {
+  // Drill-in override token kisa omurlu ve refresh edilemez (yeniden act-as ile basilir);
+  // bu yuzden 401-refresh yolu yalnizca normal oturum token'i kullanildiginda calisir.
+  if (res.status === 401 && !overrideForAdmin && session && retry) {
     const refreshed = await refresh(session);
     if (refreshed) return request<T>(path, init, false);
     // refresh basarisiz -> oturum temizlendi; bayat ekranda kalmak yerine login'e dondur
