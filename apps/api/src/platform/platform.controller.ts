@@ -68,7 +68,7 @@ export class PlatformController {
 
   // ---- Act-as: sirket icin tenant-scoped owner token (platform admin) ----
   @Post('companies/:id/act-as')
-  actAs(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+  actAs(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.platform.actAs(user.sub, id);
   }
 

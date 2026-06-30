@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { Role } from '@prisma/client';
+import { Role, TenantStatus } from '@prisma/client';
 import { Request } from 'express';
 import { sha256 } from '../common/crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -126,6 +126,21 @@ export class AccessTokenGuard implements CanActivate {
       // NOT: ince izinler (perms) burada CANLI tazelenMEZ — bilincli (access-TTL tradeoff). Tazeleme,
       // servis assertGrantable tavanini aktorun perms'inden hesapladigi icin RBAC davranisini degistirir
       // (audit-remediation regresyonu). Coarse rol-downgrade + money-move re-gating B2 cekirdegini karsilar.
+    }
+
+    // Act-as (platform admin, uyelik yok): mid-bazli staleness kontrolu calismaz (mid=null).
+    // Yuksek yetkili token oldugu icin write'larda CANLI dogrula: tenant hala aktif + kullanici
+    // hala platform admin. Mint sonrasi askiya alinan tenant veya geri alinan platform-yetkisi
+    // token TTL'i boyunca yazma yapamaz.
+    if (!fromApiKey && req.method !== 'GET' && !payload.mid && payload.plat === true && payload.tid) {
+      const [tenant, user] = await Promise.all([
+        this.prisma.tenant.findUnique({ where: { id: payload.tid }, select: { status: true } }),
+        this.prisma.user.findUnique({ where: { id: payload.sub }, select: { isPlatformAdmin: true } }),
+      ]);
+      if (!tenant || tenant.status !== TenantStatus.active || !user?.isPlatformAdmin) {
+        this.logger.warn(`[security] act_as_inactive_principal user=${payload.sub} tid=${payload.tid} ${req.method} ${req.url}`);
+        throw new ForbiddenException('act-as: tenant askida veya platform yetkisi yok');
+      }
     }
 
     // Act-as istisna: platform admin bir sirket adina davranirken (plat && tid) uyeligi (mid) yoktur.
