@@ -1,4 +1,5 @@
 import { clearSession, getSession, setSession, type Session } from './auth';
+import { getActiveCompanyToken } from './active-company';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1';
 
@@ -6,10 +7,9 @@ const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1';
 export const API_BASE = BASE;
 
 // HQ drill-in: sahip bir sirkete indiginde /admin/* cagrilari bu token'i kullanir.
-// Bellek-ici (localStorage degil) — sayfa yenilemede temizlenir, drill-in layout tekrar set eder.
-let activeCompanyToken: string | null = null;
-export function setActiveCompanyToken(token: string | null): void { activeCompanyToken = token; }
-export function getActiveCompanyToken(): string | null { return activeCompanyToken; }
+// Token bagimsiz './active-company' modulunde tutulur (api.ts <-> auth.ts dairesel
+// bagimliligini kirar); mevcut import'lar bozulmasin diye buradan re-export edilir.
+export { setActiveCompanyToken, getActiveCompanyToken } from './active-company';
 
 export class ApiError extends Error {
   constructor(
@@ -56,6 +56,7 @@ function refresh(session: Session): Promise<Session | null> {
 
 async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
   const session = getSession();
+  const activeCompanyToken = getActiveCompanyToken();
   const overrideForAdmin = activeCompanyToken && path.startsWith('/admin') ? activeCompanyToken : null;
   const token = overrideForAdmin ?? session?.accessToken;
   const res = await rawFetch(path, init, token);
