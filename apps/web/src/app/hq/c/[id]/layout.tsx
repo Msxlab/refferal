@@ -18,7 +18,7 @@ export default function HqCompanyLayout({ children }: { children: React.ReactNod
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const pathname = usePathname();
-  const [ready, setReady] = useState(false);
+  const [readyId, setReadyId] = useState<string | null>(null);
   const [name, setName] = useState('');
 
   useEffect(() => {
@@ -34,16 +34,17 @@ export default function HqCompanyLayout({ children }: { children: React.ReactNod
         if (!alive) return;
         setName(company.name);
         setActiveCompanyToken(tok.accessToken);
-        setReady(true);
+        setReadyId(id);            // mark THIS id ready (not a bare boolean)
       } catch { if (alive) router.replace('/hq'); }
     })();
     return () => { alive = false; setActiveCompanyToken(null); };
   }, [id, router]);
 
+  const ready = readyId === id;    // derived: immediately false when id changes
   if (!ready) return <div className="center"><Loading rows={3} /></div>;
 
   return (
-    <div>
+    <div key={id}>
       <div className="spread" style={{ marginBottom: 12 }}>
         <Link href="/hq" className="faint" style={{ textDecoration: 'none' }}>← Overview</Link>
         <HqCompanySwitcher currentId={id} />
