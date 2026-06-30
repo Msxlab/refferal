@@ -128,7 +128,15 @@ export class AccessTokenGuard implements CanActivate {
       // (audit-remediation regresyonu). Coarse rol-downgrade + money-move re-gating B2 cekirdegini karsilar.
     }
 
-    if (this.reflector.getAllAndOverride<boolean>(REQUIRE_MEMBERSHIP_KEY, targets) && !payload.mid) {
+    // Act-as istisna: platform admin bir sirket adina davranirken (plat && tid) uyeligi (mid) yoktur.
+    // Boyle bir token YALNIZCA @PlatformAdmin()-korumali act-as endpoint'i mintleyebilir; siradan
+    // platform tokenlerinin tid'i null'dir, bu yuzden /admin gecisini elde edemez.
+    const actingAsTenant = payload.plat === true && !!payload.tid;
+    if (
+      this.reflector.getAllAndOverride<boolean>(REQUIRE_MEMBERSHIP_KEY, targets) &&
+      !payload.mid &&
+      !actingAsTenant
+    ) {
       throw new ForbiddenException('aktif uyelik secimi gerekli (switch-tenant)');
     }
 

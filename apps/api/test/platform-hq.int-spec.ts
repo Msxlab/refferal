@@ -47,4 +47,27 @@ describe('platform HQ (entegrasyon)', () => {
     const tenant = await createTenant(prisma);
     await request(app.getHttpServer()).post(`/v1/platform/companies/${tenant.id}/act-as`).expect(401);
   });
+
+  it('act-as token /admin rotalarini gecer; duz platform token gecemez', async () => {
+    const tenant = await createTenant(prisma);
+    await createPlan(prisma, tenant.id);
+    const platToken = await loginPlatform();
+
+    // duz platform token (tid yok) → /admin reddedilir (uyelik gerekli)
+    await request(app.getHttpServer())
+      .get('/v1/admin/payouts/payable')
+      .set('Authorization', `Bearer ${platToken}`)
+      .expect(403);
+
+    // act-as token (tid var) → /admin gecer
+    const actAs = await request(app.getHttpServer())
+      .post(`/v1/platform/companies/${tenant.id}/act-as`)
+      .set('Authorization', `Bearer ${platToken}`)
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .get('/v1/admin/payouts/payable')
+      .set('Authorization', `Bearer ${actAs.body.accessToken}`)
+      .expect(200);
+  });
 });
