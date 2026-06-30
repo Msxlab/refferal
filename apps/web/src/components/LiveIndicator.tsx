@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { API_BASE } from '@/lib/api';
 import { getSession } from '@/lib/auth';
+import { getActiveCompanyToken } from '@/lib/active-company';
 
 /** Backend EventsService ile ayni olay adlari (SSE 'event:' alani). */
 const EVENT_TYPES = ['sale.created', 'sale.approved', 'payout.paid'] as const;
@@ -25,7 +26,8 @@ export function LiveIndicator() {
   const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const token = getSession()?.accessToken;
+    // HQ drill-in icinde aktif sirket (act-as) token'i kullan; aksi halde normal oturum.
+    const token = getActiveCompanyToken() ?? getSession()?.accessToken;
     if (!token || typeof window === 'undefined') return;
 
     const es = new EventSource(`${API_BASE}/events/stream?token=${encodeURIComponent(token)}`);

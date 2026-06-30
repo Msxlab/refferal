@@ -1,7 +1,7 @@
 // Admin SPA oturumu: token'lar localStorage'da (MVP tercihi — bkz. DECISIONS).
 // Uretimde httpOnly cookie'ye gecilebilir.
 
-import { getActiveCompanyToken } from './active-company';
+import { getActiveCompanyToken, setActiveCompanyToken } from './active-company';
 
 export interface MembershipSummary {
   id: string;
@@ -35,6 +35,9 @@ export function setSession(s: Session): void {
 
 export function clearSession(): void {
   window.localStorage.removeItem(KEY);
+  // HQ drill-in act-as god token bellekte tutulur; oturum bitince onu da temizle
+  // ki request() artik /admin/* cagrilarina bayat token eklemesin.
+  setActiveCompanyToken(null);
 }
 
 export function activeMembership(s: Session): MembershipSummary | null {
