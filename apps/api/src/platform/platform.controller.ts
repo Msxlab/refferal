@@ -13,14 +13,22 @@ import {
   setStatusSchema, SetStatusInput,
 } from './platform.types';
 
+// Subdomain yonlendirmesinde ozel anlami olan etiketler — bir tenant slug'i bunlarla
+// CAKISAMAZ (ornegin slug='hq' olsa hq.{ROOT_DOMAIN} sahip kapisiyla karisir).
+const RESERVED_SLUGS = new Set([
+  'hq', 'www', 'api', 'admin', 'app', 'login', 'platform', 'auth',
+  'assets', 'static', 'cdn', 'mail', 'ns1', 'ns2',
+]);
+
 const createCompanySchema = z.object({
   name: z.string().trim().min(2).max(80),
-  // subdomain-guvenli slug (ileride sirket-basi subdomain icin de uygun)
+  // subdomain-guvenli slug (sirket-basi markali subdomain icin kullanilir — bkz. Alt-proje B)
   slug: z
     .string()
     .trim()
     .toLowerCase()
-    .regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/, 'gecersiz slug (a-z, 0-9, tire)'),
+    .regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/, 'gecersiz slug (a-z, 0-9, tire)')
+    .refine((s) => !RESERVED_SLUGS.has(s), { message: 'bu slug rezerve edilmis' }),
   currency: z.string().trim().toUpperCase().length(3).default('USD'),
   timezone: z.string().trim().min(1).max(64).default('America/New_York'),
   ownerEmail: z.string().trim().email(),

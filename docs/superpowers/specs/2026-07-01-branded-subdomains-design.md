@@ -41,10 +41,15 @@ olduğu gibi çalışır. Bu, canlı para sistemindeki en riskli değişikliği 
 ### `apps/web/src/middleware.ts` (yeni)
 
 - `ROOT_DOMAIN` boşsa: no-op (`NextResponse.next()`).
-- `hq.{ROOT}` üzerinde `/admin*` veya `/app*` istenirse → `/hq`'ya redirect (yanlış modül sızması
-  engellenir).
 - `{slug}.{ROOT}` üzerinde `/hq*` istenirse → `/login`'e redirect (sahip kapısı tenant
-  subdomain'inden sızmaz).
+  subdomain'inden sızmaz — bu yönün legit bir istisnası yok).
+- `hq.{ROOT}` üzerinde `/admin*`/`/app*` **BİLEREK engellenmiyor** (revize, 2026-07-01 audit):
+  HQ drill-in'in önceden var olan "View as member" akışı (`MembersPageContent.viewAsMember` →
+  `/app`) ve impersonation çıkışı (`app/layout.tsx exitImpersonation` → `/admin`) tam bu
+  host'tan bu path'lere geçiş yapıyor; ilk taslakta bu path'leri `hq.{ROOT}`'ta engelleyen bir
+  kural vardı ve bu akışı dead-end'e sokuyordu (audit bulgusu, HIGH, doğrulandı, düzeltildi).
+  `/app` ve `/admin` zaten kendi client-side + API-seviyeli yetki kontrollerini host'tan
+  bağımsız yapıyor — ekstra bir host bazlı sınıra ihtiyaç yok.
 - Aksi halde (apex/`www`/eşleşmeyen host — ör. bugünkü `earn.oppeinnj.com` `ROOT_DOMAIN` set
   edilmeden önce) dokunmadan geçirir — **geriye dönük tam uyumluluk**.
 - DB/API çağrısı YOK (edge-safe, hızlı, bağımsız çalışır çalışmaz).

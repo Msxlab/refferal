@@ -135,6 +135,15 @@ export async function loginTwoFactor(mfaToken: string, code: string): Promise<Se
   return (await readOrThrow(res)) as Session;
 }
 
+/** Markali subdomain girisi (Alt-proje B): giristen ONCE kimliksiz marka bilgisi. */
+export interface TenantBrand {
+  name: string;
+  branding: { logoText?: string; tagline?: string; primaryColor?: string; accentColor?: string };
+}
+export function getTenantBrand(slug: string): Promise<TenantBrand> {
+  return api.get<TenantBrand>(`/auth/tenant-brand/${encodeURIComponent(slug)}`);
+}
+
 /** Binary (PDF) indirme: POST + Bearer -> Blob. 401'de bir kez refresh dener. */
 export async function postBlob(path: string, body?: unknown): Promise<Blob> {
   const session = getSession();

@@ -51,6 +51,14 @@ export interface MfaChallenge {
   mfaToken: string;
 }
 
+/** tenantBrand() icin allowlist edilmis alanlar (bkz. Tenant.branding, Brand.tsx ayarlari). */
+export interface PublicTenantBranding {
+  logoText?: string;
+  tagline?: string;
+  primaryColor?: string;
+  accentColor?: string;
+}
+
 // Kullanici yokken de sifre dogrulamasi kosulur (timing esitligi icin)
 let dummyHashPromise: Promise<string> | null = null;
 function dummyHash(): Promise<string> {
@@ -94,6 +102,29 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly memberships: MembershipsService,
   ) {}
+
+  /** Markali subdomain girisinden ONCE (kimliksiz) marka bilgisi (Alt-proje B).
+   *  Askiya alinmis/bilinmeyen slug ayrimi yapilmadan 404 doner (durum sizdirilmaz).
+   *  `branding` JSON'undan yalniz bilinen 4 alan secilir — kolon gelecekte baska (belki hassas)
+   *  bir anahtar tasirsa bu kimliksiz uc nokta onu asla yansitmaz (allowlist, denylist degil). */
+  async tenantBrand(slug: string): Promise<{ name: string; branding: PublicTenantBranding }> {
+    const tenant = await this.prisma.tenant.findFirst({
+      where: { slug, status: TenantStatus.active },
+      select: { name: true, branding: true },
+    });
+    if (!tenant) throw new NotFoundException('sirket bulunamadi');
+    const b = (tenant.branding && typeof tenant.branding === 'object' ? tenant.branding : {}) as Record<string, unknown>;
+    const pick = (key: string): string | undefined => (typeof b[key] === 'string' ? (b[key] as string) : undefined);
+    return {
+      name: tenant.name,
+      branding: {
+        logoText: pick('logoText'),
+        tagline: pick('tagline'),
+        primaryColor: pick('primaryColor'),
+        accentColor: pick('accentColor'),
+      },
+    };
+  }
 
   /** Uye kaydi YALNIZCA davetle (SPEC 4.3). Tenant+sponsor davet kodundan cozulur. */
   async registerByInvite(input: RegisterByInviteInput, meta: RequestMeta = {}): Promise<AuthSession> {
