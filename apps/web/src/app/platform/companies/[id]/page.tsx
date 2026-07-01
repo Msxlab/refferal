@@ -6,6 +6,11 @@ import Link from 'next/link';
 import { api, ApiError, switchTenant } from '@/lib/api';
 import { applyTenantSwitch, getSession, membershipForTenant } from '@/lib/auth';
 import { Confirm, Loading, Modal, useToast } from '@/components/ui';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { NetworkExplorer, type ApiNode } from '@/components/NetworkExplorer';
 import { bps, money, dateShort } from '@/lib/format';
 
@@ -19,7 +24,8 @@ interface Company {
 interface Invoice { id: string; period: string; amountCents: string; currency: string; status: 'open' | 'paid' | 'void'; issuedAt: string; dueAt: string | null; paidAt: string | null; paidNote: string | null }
 interface Billing { tenant: { id: string; name: string; currency: string }; config: { monthlyFeeCents: string; currency: string; active: boolean; notes: string | null } | null; outstandingCents: string; invoices: Invoice[] }
 
-const INV_BADGE: Record<string, string> = { open: 'pending', paid: 'active', void: 'inactive' };
+type BadgeVariant = 'default' | 'secondary' | 'success' | 'destructive' | 'pending' | 'payable';
+const INV_VARIANT: Record<string, BadgeVariant> = { open: 'pending', paid: 'success', void: 'secondary' };
 
 export default function CompanyPage() {
   const { id } = useParams<{ id: string }>();
@@ -136,13 +142,13 @@ export default function CompanyPage() {
           </div>
         </div>
         <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-          <span className={`badge ${company.status === 'active' ? 'active' : 'inactive'}`}>{company.status}</span>
-          <button className="btn sm" onClick={enterWorkspace} disabled={entering}>
+          <Badge variant={company.status === 'active' ? 'success' : 'secondary'}>{company.status}</Badge>
+          <Button size="sm" onClick={enterWorkspace} disabled={entering}>
             {entering ? 'Opening…' : 'Enter workspace →'}
-          </button>
-          <button className={`btn ${company.status === 'active' ? 'ghost danger' : 'ghost'} sm`} onClick={() => setConfirmStatus(true)} disabled={busy}>
+          </Button>
+          <Button variant="ghost" size="sm" className={company.status === 'active' ? 'text-destructive hover:text-destructive' : ''} onClick={() => setConfirmStatus(true)} disabled={busy}>
             {company.status === 'active' ? 'Suspend' : 'Reactivate'}
-          </button>
+          </Button>
         </div>
       </div>
       {enterMsg && <div className="error" style={{ marginTop: 10 }}>{enterMsg}</div>}
@@ -155,7 +161,7 @@ export default function CompanyPage() {
       </div>
 
       {/* ---- Billing (C2 — manuel, Stripe yok) ---- */}
-      <div className="card fade-in delay-2" style={{ marginBottom: 20 }}>
+      <Card className="fade-in delay-2" style={{ marginBottom: 20 }}>
         <div className="spread" style={{ alignItems: 'flex-start', marginBottom: 14 }}>
           <div>
             <strong style={{ fontSize: 15 }}>Billing</strong>
@@ -166,22 +172,22 @@ export default function CompanyPage() {
 
         <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
           <div className="field" style={{ margin: 0 }}>
-            <label>Monthly fee ({c})</label>
-            <input value={feeInput} onChange={(e) => setFeeInput(e.target.value)} inputMode="decimal" placeholder="99.00" style={{ maxWidth: 130 }} />
+            <Label htmlFor="billing-fee" className="mb-1.5 block">Monthly fee ({c})</Label>
+            <Input id="billing-fee" className="h-9" value={feeInput} onChange={(e) => setFeeInput(e.target.value)} inputMode="decimal" placeholder="99.00" style={{ maxWidth: 130 }} />
           </div>
           <label className="row" style={{ gap: 6, fontSize: 13, alignItems: 'center', paddingBottom: 8 }}>
             <input type="checkbox" checked={activeInput} onChange={(e) => setActiveInput(e.target.checked)} /> Active
           </label>
-          <button className="btn sm" onClick={saveBilling} disabled={busy}>Save</button>
+          <Button size="sm" onClick={saveBilling} disabled={busy}>Save</Button>
           <span style={{ flex: 1 }} />
           <div className="field" style={{ margin: 0 }}>
-            <label>Issue invoice</label>
-            <input value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="2026-06" style={{ maxWidth: 110 }} />
+            <Label htmlFor="billing-period" className="mb-1.5 block">Issue invoice</Label>
+            <Input id="billing-period" className="h-9" value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="2026-06" style={{ maxWidth: 110 }} />
           </div>
-          <button className="btn ghost sm" onClick={issueInvoice} disabled={busy || !billing?.config?.active}>+ Issue</button>
+          <Button variant="ghost" size="sm" onClick={issueInvoice} disabled={busy || !billing?.config?.active}>+ Issue</Button>
         </div>
 
-        <div className="card" style={{ background: 'var(--panel-2)', padding: 0, overflowX: 'auto' }}>
+        <Card style={{ background: 'var(--panel-2)', padding: 0, overflowX: 'auto' }}>
           <table aria-label="Invoice history">
             <thead><tr><th>Period</th><th>Amount</th><th>Status</th><th>Due</th><th>Paid</th><th></th></tr></thead>
             <tbody>
@@ -189,13 +195,13 @@ export default function CompanyPage() {
                 <tr key={inv.id}>
                   <td>{inv.period}</td>
                   <td className="tnum">{money(inv.amountCents, inv.currency)}</td>
-                  <td><span className={`badge ${INV_BADGE[inv.status]}`}>{inv.status}</span>{inv.paidNote && <span className="faint" style={{ fontSize: 11, marginLeft: 6 }}>{inv.paidNote}</span>}</td>
+                  <td><Badge variant={INV_VARIANT[inv.status]}>{inv.status}</Badge>{inv.paidNote && <span className="faint" style={{ fontSize: 11, marginLeft: 6 }}>{inv.paidNote}</span>}</td>
                   <td className="muted">{inv.dueAt ? dateShort(inv.dueAt) : '—'}</td>
                   <td className="muted">{inv.paidAt ? dateShort(inv.paidAt) : '—'}</td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {inv.status === 'open' && <>
-                      <button className="btn success sm" onClick={() => openMarkPaid(inv)} disabled={busy}>Mark paid</button>{' '}
-                      <button className="btn ghost sm" onClick={() => voidInvoice(inv)} disabled={busy}>Void</button>
+                      <Button variant="success" size="sm" onClick={() => openMarkPaid(inv)} disabled={busy}>Mark paid</Button>{' '}
+                      <Button variant="ghost" size="sm" onClick={() => voidInvoice(inv)} disabled={busy}>Void</Button>
                     </>}
                   </td>
                 </tr>
@@ -204,16 +210,16 @@ export default function CompanyPage() {
               {billing && billing.invoices.length === 0 && <tr><td colSpan={6} className="muted">No invoices yet.</td></tr>}
             </tbody>
           </table>
-        </div>
-      </div>
+        </Card>
+      </Card>
 
-      <div className="card fade-in delay-2" style={{ marginBottom: 20 }}>
+      <Card className="fade-in delay-2" style={{ marginBottom: 20 }}>
         <div className="spread" style={{ marginBottom: 14 }}>
           <strong style={{ fontSize: 15 }}>Referral network</strong>
           <span className="faint" style={{ fontSize: 12 }}>Tree / list · drill into anyone</span>
         </div>
         {!nodes ? <Loading rows={4} /> : <NetworkExplorer nodes={nodes} title={company.name} />}
-      </div>
+      </Card>
 
       {confirmStatus && (
         <Confirm
@@ -233,12 +239,12 @@ export default function CompanyPage() {
           <div style={{ width: 'min(420px, 100%)' }}>
             <p className="muted" style={{ marginTop: 0 }}>{money(payInvoice.amountCents, payInvoice.currency)} — record how it was paid (optional).</p>
             <div className="field">
-              <label htmlFor="pay-note">Payment reference</label>
-              <input id="pay-note" value={payNote} onChange={(e) => setPayNote(e.target.value)} placeholder="check #1234 / wire ref" autoFocus />
+              <Label htmlFor="pay-note" className="mb-1.5 block">Payment reference</Label>
+              <Input id="pay-note" value={payNote} onChange={(e) => setPayNote(e.target.value)} placeholder="check #1234 / wire ref" autoFocus />
             </div>
             <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
-              <button className="btn ghost" onClick={() => setPayInvoice(null)} disabled={busy}>Cancel</button>
-              <button className="btn success" onClick={doMarkPaid} disabled={busy}>{busy ? '…' : 'Mark paid'}</button>
+              <Button variant="ghost" onClick={() => setPayInvoice(null)} disabled={busy}>Cancel</Button>
+              <Button variant="success" onClick={doMarkPaid} disabled={busy}>{busy ? '…' : 'Mark paid'}</Button>
             </div>
           </div>
         </Modal>

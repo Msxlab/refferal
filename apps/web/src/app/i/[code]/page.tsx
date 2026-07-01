@@ -5,6 +5,11 @@ import { useRouter } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
 import { landingPath, setSession, activeMembership, type Session } from '@/lib/auth';
 import { Brand, Loading } from '@/components/ui';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { t } from '@/lib/i18n';
 
 interface InviteResolve {
@@ -79,41 +84,41 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
                 <span className="gradient-text">{invite.inviterName}</span> invited you
               </h1>
               {invite.inviterMessage && (
-                <div className="card" style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 14, fontStyle: 'italic', fontSize: 13.5 }}>
+                <Card style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 14, fontStyle: 'italic', fontSize: 13.5 }}>
                   “{invite.inviterMessage}”
                   <div className="faint" style={{ fontStyle: 'normal', fontSize: 11, marginTop: 6 }}>— {invite.inviterName}</div>
-                </div>
+                </Card>
               )}
-              <div className="card" style={{ background: 'rgba(124,139,255,.08)', padding: 14, marginBottom: 14 }}>
+              <Card style={{ background: 'rgba(124,139,255,.08)', padding: 14, marginBottom: 14 }}>
                 <div className="spread">
                   <div>
                     <div className="faint" style={{ fontSize: 11 }}>{t('reg.tenant')}</div>
                     <div style={{ fontWeight: 700 }}>{invite.tenantName}</div>
                   </div>
-                  <span className="badge active">Active invitation</span>
+                  <Badge variant="success">Active invitation</Badge>
                 </div>
-              </div>
+              </Card>
 
               {/* show the opportunity before the form — people join for a reward, not an account */}
-              <div className="card" style={{ background: 'color-mix(in srgb, var(--gold-500) 8%, transparent)', borderColor: 'color-mix(in srgb, var(--gold-500) 28%, transparent)', padding: 14, marginBottom: 18 }}>
+              <Card style={{ background: 'color-mix(in srgb, var(--gold-500) 8%, transparent)', borderColor: 'color-mix(in srgb, var(--gold-500) 28%, transparent)', padding: 14, marginBottom: 18 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>💸 What you’ll earn</div>
                 <div className="faint" style={{ fontSize: 12.5, lineHeight: 1.55 }}>
                   Earn a commission on every sale you make — and a share of the sales made by the people you bring in. Record a sale, your company verifies it, and your commission is tracked and paid out automatically.
                 </div>
-              </div>
+              </Card>
 
               <form onSubmit={onSubmit}>
                 <div className="field">
-                  <label>{t('reg.fullName')}</label>
-                  <input value={fullName} onChange={(e) => setFullName(e.target.value)} required minLength={2} autoFocus placeholder="Full name" />
+                  <Label htmlFor="reg-name" className="mb-1.5 block">{t('reg.fullName')}</Label>
+                  <Input id="reg-name" value={fullName} onChange={(e) => setFullName(e.target.value)} required minLength={2} autoFocus placeholder="Full name" />
                 </div>
                 <div className="field">
-                  <label>{t('login.email')}</label>
-                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@company.com" />
+                  <Label htmlFor="reg-email" className="mb-1.5 block">{t('login.email')}</Label>
+                  <Input id="reg-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@company.com" />
                 </div>
                 <div className="field">
-                  <label>{t('login.password')} <span className="faint">(min 10)</span></label>
-                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={10} placeholder="••••••••••" />
+                  <Label htmlFor="reg-pw" className="mb-1.5 block">{t('login.password')} <span className="faint">(min 10)</span></Label>
+                  <Input id="reg-pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={10} placeholder="••••••••••" />
                 </div>
                 {/* Faz A1: self-attestation + sorumluluk metni. Onay ZORUNLU; tarih+IP backend'de saklanir. */}
                 <label
@@ -136,9 +141,9 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
                   </span>
                 </label>
                 {error && <div className="error">{error}</div>}
-                <button type="submit" className="btn block" style={{ marginTop: 6 }} disabled={busy || !accept}>
+                <Button type="submit" className="mt-1.5 w-full" disabled={busy || !accept}>
                   {busy ? t('common.loading') : t('reg.submit')} {!busy && <span>→</span>}
-                </button>
+                </Button>
               </form>
             </>
           )}

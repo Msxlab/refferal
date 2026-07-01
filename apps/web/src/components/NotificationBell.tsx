@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { Popover as PopoverRoot, PopoverTrigger, PopoverContent } from './ui/popover';
 
 interface Item {
   id: string;
@@ -38,7 +39,6 @@ export function NotificationBell({ placement = 'down' }: { placement?: 'down' | 
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
 
   const refreshCount = useCallback(async () => {
     try {
@@ -54,18 +54,8 @@ export function NotificationBell({ placement = 'down' }: { placement?: 'down' | 
     return () => clearInterval(id);
   }, [refreshCount]);
 
-  // disari tiklayinca kapat
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', onDoc);
-    document.addEventListener('keydown', onEsc);
-    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onEsc); };
-  }, [open]);
-
-  async function toggle() {
-    const next = !open;
+  // Radix Popover ac/kapa: acilista kutuyu cek (dis-tiklama/ESC/konumlandirma dahili)
+  async function onOpenChange(next: boolean) {
     setOpen(next);
     if (next) {
       setLoading(true);
@@ -94,68 +84,65 @@ export function NotificationBell({ placement = 'down' }: { placement?: 'down' | 
   }
 
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button
-        className="theme-toggle"
-        onClick={toggle}
-        aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`}
-        aria-expanded={open}
-        style={{ position: 'relative' }}
-      >
-        <span aria-hidden style={{ fontSize: 15 }}>◔</span>
-        {unread > 0 && (
-          <span aria-hidden style={{
-            position: 'absolute', top: -3, right: -3, minWidth: 16, height: 16, padding: '0 4px',
-            borderRadius: 999, background: 'var(--rose)', color: '#fff', fontSize: 10, fontWeight: 800,
-            display: 'grid', placeItems: 'center', lineHeight: 1, boxShadow: '0 0 0 2px var(--panel)',
-          }}>{unread > 9 ? '9+' : unread}</span>
-        )}
-      </button>
-
-      {open && (
-        <div
-          className="inbox-pop"
-          role="dialog"
-          aria-label="Notifications"
-          style={placement === 'up' ? { bottom: 'calc(100% + 10px)', left: 0 } : { top: 'calc(100% + 10px)', right: 0 }}
+    <PopoverRoot open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        <button
+          className="theme-toggle"
+          aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`}
+          style={{ position: 'relative' }}
         >
-          <div className="spread" style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
-            <strong style={{ fontSize: 13 }}>Notifications</strong>
-            <button className="link-btn" onClick={markAll}
-              style={{ fontSize: 11, color: 'var(--gold-500)', background: 'none', border: 'none', cursor: 'pointer' }}>
-              Mark all read
-            </button>
-          </div>
-          <div style={{ maxHeight: 380, overflow: 'auto' }}>
-            {loading && <div className="faint" style={{ padding: 18, fontSize: 12 }}>Loading…</div>}
-            {!loading && inbox && inbox.items.length === 0 && (
-              <div className="faint" style={{ padding: 24, textAlign: 'center', fontSize: 12.5 }}>
-                You&apos;re all caught up.
-              </div>
-            )}
-            {!loading && inbox?.items.map((it) => {
-              const k = KIND_ICON[it.kind];
-              return (
-                <button key={it.id} onClick={() => openItem(it)} className="inbox-row"
-                  style={{ background: it.read ? 'transparent' : 'var(--panel-2)' }}>
-                  <span style={{
-                    width: 28, height: 28, borderRadius: 8, flexShrink: 0, display: 'grid', placeItems: 'center',
-                    background: `color-mix(in srgb, ${k.color} 16%, transparent)`, color: k.color, fontWeight: 800, fontSize: 13,
-                  }}>{k.ic}</span>
-                  <span style={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
-                    <span className="spread" style={{ gap: 8 }}>
-                      <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--text)' }}>{it.title}</span>
-                      <span className="faint" style={{ fontSize: 10.5, flexShrink: 0 }}>{ago(it.createdAt)}</span>
-                    </span>
-                    <span className="faint" style={{ fontSize: 11.5, lineHeight: 1.45, display: 'block', marginTop: 2 }}>{it.body}</span>
-                  </span>
-                  {!it.read && <span style={{ width: 7, height: 7, borderRadius: 999, background: 'var(--gold-500)', flexShrink: 0, alignSelf: 'center' }} />}
-                </button>
-              );
-            })}
-          </div>
+          <span aria-hidden style={{ fontSize: 15 }}>◔</span>
+          {unread > 0 && (
+            <span aria-hidden style={{
+              position: 'absolute', top: -3, right: -3, minWidth: 16, height: 16, padding: '0 4px',
+              borderRadius: 999, background: 'var(--rose)', color: '#fff', fontSize: 10, fontWeight: 800,
+              display: 'grid', placeItems: 'center', lineHeight: 1, boxShadow: '0 0 0 2px var(--panel)',
+            }}>{unread > 9 ? '9+' : unread}</span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side={placement === 'up' ? 'top' : 'bottom'}
+        align="end"
+        className="w-[360px] max-w-[92vw] p-0"
+        aria-label="Notifications"
+      >
+        <div className="spread" style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
+          <strong style={{ fontSize: 13 }}>Notifications</strong>
+          <button onClick={markAll}
+            style={{ fontSize: 11, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer' }}>
+            Mark all read
+          </button>
         </div>
-      )}
-    </div>
+        <div style={{ maxHeight: 380, overflow: 'auto' }}>
+          {loading && <div className="faint" style={{ padding: 18, fontSize: 12 }}>Loading…</div>}
+          {!loading && inbox && inbox.items.length === 0 && (
+            <div className="faint" style={{ padding: 24, textAlign: 'center', fontSize: 12.5 }}>
+              You&apos;re all caught up.
+            </div>
+          )}
+          {!loading && inbox?.items.map((it) => {
+            const k = KIND_ICON[it.kind];
+            return (
+              <button key={it.id} onClick={() => openItem(it)} className="inbox-row"
+                style={{ background: it.read ? 'transparent' : 'var(--panel-2)' }}>
+                <span style={{
+                  width: 28, height: 28, borderRadius: 8, flexShrink: 0, display: 'grid', placeItems: 'center',
+                  background: `color-mix(in srgb, ${k.color} 16%, transparent)`, color: k.color, fontWeight: 800, fontSize: 13,
+                }}>{k.ic}</span>
+                <span style={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
+                  <span className="spread" style={{ gap: 8 }}>
+                    <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--text)' }}>{it.title}</span>
+                    <span className="faint" style={{ fontSize: 10.5, flexShrink: 0 }}>{ago(it.createdAt)}</span>
+                  </span>
+                  <span className="faint" style={{ fontSize: 11.5, lineHeight: 1.45, display: 'block', marginTop: 2 }}>{it.body}</span>
+                </span>
+                {!it.read && <span style={{ width: 7, height: 7, borderRadius: 999, background: 'var(--brand)', flexShrink: 0, alignSelf: 'center' }} />}
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </PopoverRoot>
   );
 }

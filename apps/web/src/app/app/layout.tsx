@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { activeMembership, clearSession, getSession, isImpersonating, setSession, stopImpersonation, type Session } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { Brand, ThemeToggle } from '@/components/ui';
+import { Button } from '@/components/ui/button';
 import { NotificationBell } from '@/components/NotificationBell';
 import { t } from '@/lib/i18n';
 
@@ -64,7 +65,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {imp && (
         <div className="no-print" style={{ background: 'var(--amber)', color: '#1a1404', padding: '8px 18px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, fontSize: 13, fontWeight: 600 }}>
           <span>👁 Viewing as <b>{session.user.fullName}</b> — read only</span>
-          <button className="btn sm" style={{ background: '#1a1404', color: 'var(--amber)' }} onClick={exitImpersonation}>Exit impersonation</button>
+          <Button size="sm" style={{ background: '#1a1404', color: 'var(--amber)' }} onClick={exitImpersonation}>Exit impersonation</Button>
         </div>
       )}
       <header className="topbar">
@@ -80,8 +81,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <span className="faint" style={{ fontSize: 12 }}>{active?.tenantName}</span>
           <NotificationBell />
           <ThemeToggle />
-          <Link href="/account" className="btn ghost sm" title="Account settings">Account</Link>
-          <button className="btn ghost sm" onClick={logout}>{t('nav.logout')}</button>
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/account" title="Account settings">Account</Link>
+          </Button>
+          <Button variant="ghost" size="sm" onClick={logout}>{t('nav.logout')}</Button>
         </div>
       </header>
       <main className="appmain">{children}</main>

@@ -5,6 +5,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { activeMembership, clearSession, getSession, isAdminRole, type Session } from '@/lib/auth';
 import { ThemeToggle } from '@/components/ui';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { NotificationBell } from '@/components/NotificationBell';
 import { CommandPalette } from '@/components/CommandPalette';
 import { LiveIndicator } from '@/components/LiveIndicator';
@@ -91,12 +93,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <div className="faint" style={{ fontSize: 11 }}>{active?.tenantName}</div>
           <Link href="/account" title="Account settings" style={{ fontSize: 13, fontWeight: 600, margin: '2px 0 4px', display: 'inline-block', color: 'var(--text)' }}>{session.user.fullName} <span className="faint" style={{ fontWeight: 400 }}>⚙</span></Link>
           <div className="row spread">
-            <span className="badge active" style={{ fontSize: 10 }}>{active?.role}</span>
+            <Badge variant="success">{active?.role}</Badge>
             <div className="row" style={{ gap: 6 }}>
               <LiveIndicator />
               <NotificationBell placement="up" />
               <ThemeToggle />
-              <button className="btn ghost sm" onClick={logout}>{t('nav.logout')}</button>
+              <Button variant="ghost" size="sm" onClick={logout}>{t('nav.logout')}</Button>
             </div>
           </div>
         </div>

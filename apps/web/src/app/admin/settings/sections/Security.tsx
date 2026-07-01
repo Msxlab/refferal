@@ -1,5 +1,8 @@
 'use client';
 
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+
 interface Item { title: string; desc: string; state: 'on' | 'soon' }
 
 const ACCESS: Item[] = [
@@ -7,8 +10,8 @@ const ACCESS: Item[] = [
   { title: 'Rotating refresh tokens', desc: 'One-time refresh tokens with reuse detection — a replayed token revokes the whole session family.', state: 'on' },
   { title: 'Login throttling', desc: 'Per-IP rate limiting on auth endpoints to slow credential stuffing.', state: 'on' },
   { title: 'Email verification gate', desc: 'New accounts must verify their email before sensitive actions.', state: 'on' },
-  { title: 'Two-factor authentication', desc: 'TOTP authenticator app with email OTP fallback and recovery codes.', state: 'soon' },
-  { title: 'Active session management', desc: 'Review and revoke individual devices/sessions.', state: 'soon' },
+  { title: 'Two-factor authentication', desc: 'TOTP authenticator app with recovery codes — members enable it from their account page.', state: 'on' },
+  { title: 'Active session management', desc: 'Review and revoke individual devices/sessions from the account page.', state: 'on' },
 ];
 
 const GOVERNANCE: Item[] = [
@@ -23,13 +26,6 @@ export default function Security() {
     <div className="grid" style={{ gap: 20 }}>
       <Panel title="Account access" subtitle="How identities are protected." items={ACCESS} />
       <Panel title="Governance & detection" subtitle="Controls that keep the workspace honest." items={GOVERNANCE} />
-      <div className="card" style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 220 }}>
-          <strong style={{ fontSize: 14 }}>Your account security</strong>
-          <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>Two-factor setup and active-session management arrive in the next update.</div>
-        </div>
-        <span className="badge pending" style={{ fontSize: 10 }}>coming soon</span>
-      </div>
     </div>
   );
 }
@@ -43,15 +39,15 @@ function Panel({ title, subtitle, items }: { title: string; subtitle: string; it
       </div>
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 12 }}>
         {items.map((it) => (
-          <div key={it.title} className="card" style={{ padding: 15 }}>
+          <Card key={it.title} style={{ padding: 15 }}>
             <div className="spread">
               <strong style={{ fontSize: 13.5 }}>{it.title}</strong>
-              <span className={`badge ${it.state === 'on' ? 'active' : 'pending'}`} style={{ fontSize: 9 }}>
+              <Badge variant={it.state === 'on' ? 'success' : 'pending'} className="text-[9px]">
                 {it.state === 'on' ? 'active' : 'coming'}
-              </span>
+              </Badge>
             </div>
             <div className="faint" style={{ fontSize: 12, marginTop: 7, lineHeight: 1.5 }}>{it.desc}</div>
-          </div>
+          </Card>
         ))}
       </div>
     </section>

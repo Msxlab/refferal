@@ -1,8 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Confirm, Loading, Modal, useToast } from '@/components/ui';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 
 interface PermDef { key: string; label: string }
 interface PermGroup { key: string; label: string; permissions: PermDef[] }
@@ -95,33 +100,33 @@ export default function PeopleRoles() {
             <strong style={{ fontSize: 15 }}>Roles & permissions</strong>
             <div className="faint" style={{ fontSize: 12 }}>Define what each role can do. Owner always has full access.</div>
           </div>
-          <button className="btn sm" onClick={() => setEditing('new')}>+ New role</button>
+          <Button size="sm" onClick={() => setEditing('new')}>+ New role</Button>
         </div>
 
         <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: 12 }}>
           {roles.map((r) => (
-            <div key={r.id} className="card" style={{ padding: 16 }}>
+            <Card key={r.id} style={{ padding: 16 }}>
               <div className="spread">
                 <div className="row" style={{ gap: 9 }}>
                   <span style={{ width: 11, height: 11, borderRadius: 4, background: r.color ?? 'var(--muted)' }} />
                   <strong style={{ fontSize: 14 }}>{r.name}</strong>
-                  {r.isSystem && <span className="badge" style={{ fontSize: 9 }}>system</span>}
+                  {r.isSystem && <Badge className="text-[9px]">system</Badge>}
                 </div>
                 <span className="faint" style={{ fontSize: 11 }}>{r.memberCount} {r.memberCount === 1 ? 'person' : 'people'}</span>
               </div>
               {r.description && <div className="faint" style={{ fontSize: 12, marginTop: 7, lineHeight: 1.5 }}>{r.description}</div>}
               <div className="row" style={{ gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-                <span className="badge active" style={{ fontSize: 10 }}>{r.permissions.length} permissions</span>
+                <Badge variant="success" className="text-[10px]">{r.permissions.length} permissions</Badge>
               </div>
               <div className="row" style={{ gap: 8, marginTop: 12 }}>
-                <button className="btn ghost sm" onClick={() => setEditing(r)}>
+                <Button variant="ghost" size="sm" onClick={() => setEditing(r)}>
                   {r.isSystem && r.key === 'owner' ? 'View' : 'Edit'}
-                </button>
+                </Button>
                 {!r.isSystem && (
-                  <button className="btn ghost sm" onClick={() => setDeleting(r)}>Delete</button>
+                  <Button variant="ghost" size="sm" onClick={() => setDeleting(r)}>Delete</Button>
                 )}
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       </section>
@@ -136,7 +141,7 @@ export default function PeopleRoles() {
           <span className="faint" style={{ fontSize: 12 }}>{people.length} total</span>
         </div>
 
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <Card style={{ padding: 0, overflow: 'hidden' }}>
           <table>
             <thead>
               <tr>
@@ -155,10 +160,11 @@ export default function PeopleRoles() {
                     </td>
                     <td>
                       {isOwner ? (
-                        <span className="badge active" style={{ fontSize: 10 }}>Owner</span>
+                        <Badge variant="success" className="text-[10px]">Owner</Badge>
                       ) : (
                         <select
                           aria-label="Member tier"
+                          name={`tier-${p.membershipId}`}
                           value={p.tier}
                           onChange={(e) => assign(p.membershipId, { tier: e.target.value })}
                           style={{ padding: '5px 8px', fontSize: 12 }}
@@ -175,6 +181,7 @@ export default function PeopleRoles() {
                       ) : (
                         <select
                           aria-label="Member custom role"
+                          name={`role-${p.membershipId}`}
                           value={p.role?.id ?? ''}
                           onChange={(e) => assign(p.membershipId, { roleId: e.target.value || null })}
                           style={{ padding: '5px 8px', fontSize: 12 }}
@@ -188,23 +195,23 @@ export default function PeopleRoles() {
                     </td>
                     <td>
                       <div className="row" style={{ gap: 5 }}>
-                        <span className="badge" style={{ fontSize: 9 }} title="Email verification">
+                        <Badge variant={p.emailVerified ? 'default' : 'secondary'} className="text-[9px]" title="Email verification">
                           {p.emailVerified ? '✓ email' : 'unverified'}
-                        </span>
-                        {p.twoFactor && <span className="badge active" style={{ fontSize: 9 }} title="Two-factor enabled">2FA</span>}
+                        </Badge>
+                        {p.twoFactor && <Badge variant="success" className="text-[9px]" title="Two-factor enabled">2FA</Badge>}
                       </div>
                     </td>
                     <td>
-                      <span className={`badge ${p.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 10 }}>
+                      <Badge variant={p.status === 'active' ? 'success' : 'secondary'} className="text-[10px]">
                         {p.status}
-                      </span>
+                      </Badge>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-        </div>
+        </Card>
       </section>
 
       {editing && (
@@ -240,6 +247,7 @@ function RoleEditor({ groups, role, onClose, onSaved }: {
   onClose: () => void;
   onSaved: (roles: RoleRow[]) => void;
 }) {
+  const uid = useId();
   const locked = role?.isSystem && role.key === 'owner';
   const nameLocked = role?.isSystem ?? false;
   const [name, setName] = useState(role?.name ?? '');
@@ -285,8 +293,8 @@ function RoleEditor({ groups, role, onClose, onSaved }: {
   }
 
   return (
-    <Modal title={role ? (locked ? 'Owner role' : `Edit ${role.name}`) : 'New role'} onClose={onClose}>
-      <div style={{ width: 'min(620px, 86vw)' }}>
+    <Modal title={role ? (locked ? 'Owner role' : `Edit ${role.name}`) : 'New role'} onClose={onClose} className="max-w-[680px]">
+      <div style={{ width: '100%' }}>
         {locked && (
           <div className="muted" style={{ fontSize: 12, marginBottom: 12, padding: 10, borderRadius: 10, background: 'var(--panel-2)' }}>
             The Owner role always holds every permission and can't be edited.
@@ -294,11 +302,11 @@ function RoleEditor({ groups, role, onClose, onSaved }: {
         )}
         <div className="row" style={{ gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div className="field" style={{ flex: 1, minWidth: 200, margin: 0 }}>
-            <label>Role name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} disabled={nameLocked || locked} placeholder="e.g. Regional manager" />
+            <Label htmlFor={`${uid}-rolename`} className="mb-1.5 block">Role name</Label>
+            <Input id={`${uid}-rolename`} value={name} onChange={(e) => setName(e.target.value)} disabled={nameLocked || locked} placeholder="e.g. Regional manager" />
           </div>
           <div className="field" style={{ margin: 0 }}>
-            <label>Color</label>
+            <Label className="mb-1.5 block">Color</Label>
             <div className="row" style={{ gap: 6 }}>
               {SWATCHES.map((s) => (
                 <button key={s} type="button" onClick={() => !locked && setColor(s)} aria-label={`color ${s}`}
@@ -309,16 +317,16 @@ function RoleEditor({ groups, role, onClose, onSaved }: {
           </div>
         </div>
         <div className="field">
-          <label>Description</label>
-          <input value={description} onChange={(e) => setDescription(e.target.value)} disabled={locked} placeholder="What is this role for?" />
+          <Label htmlFor={`${uid}-roledesc`} className="mb-1.5 block">Description</Label>
+          <Input id={`${uid}-roledesc`} value={description} onChange={(e) => setDescription(e.target.value)} disabled={locked} placeholder="What is this role for?" />
         </div>
 
         <div className="spread" style={{ margin: '6px 0 8px' }}>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>PERMISSIONS · {perms.size}/{allKeys.length}</label>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>PERMISSIONS · {perms.size}/{allKeys.length}</span>
           {!locked && (
             <div className="row" style={{ gap: 8 }}>
-              <button type="button" className="btn ghost sm" onClick={() => setAll(true)}>All</button>
-              <button type="button" className="btn ghost sm" onClick={() => setAll(false)}>None</button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setAll(true)}>All</Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setAll(false)}>None</Button>
             </div>
           )}
         </div>
@@ -366,8 +374,8 @@ function RoleEditor({ groups, role, onClose, onSaved }: {
 
         {err && <div className="error" style={{ marginTop: 12 }}>{err}</div>}
         <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
-          <button className="btn ghost" onClick={onClose}>{locked ? 'Close' : 'Cancel'}</button>
-          {!locked && <button className="btn" onClick={save} disabled={busy || !name.trim()}>{busy ? 'Saving…' : 'Save role'}</button>}
+          <Button variant="ghost" onClick={onClose}>{locked ? 'Close' : 'Cancel'}</Button>
+          {!locked && <Button onClick={save} disabled={busy || !name.trim()}>{busy ? 'Saving…' : 'Save role'}</Button>}
         </div>
       </div>
     </Modal>

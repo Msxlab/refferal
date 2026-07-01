@@ -1,8 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { money, levelLabel } from '@/lib/format';
 
 interface PlanBonus { planName: string | null; fastStartBps: number; fastStartDays: number; matchingBps: number }
@@ -13,6 +18,7 @@ interface PlanList { activeId: string | null; plans: PlanVersion[] }
 const PREVIEW_CENTS = 100_000; // $1,000 ornek satis
 
 export default function Plan() {
+  const uid = useId();
   const [p, setP] = useState<PlanBonus | null>(null);
   const [list, setList] = useState<PlanList | null>(null);
   // duzenlenebilir cekirdek plan
@@ -76,18 +82,18 @@ export default function Plan() {
   return (
     <div className="grid" style={{ gap: 16, maxWidth: 620 }}>
       {/* ---- cekirdek komisyon plani (yuzdeler) ---- */}
-      <div className="card">
+      <Card>
         <div className="spread" style={{ marginBottom: 10 }}>
           <div>
             <strong style={{ fontSize: 14 }}>Commission plan (percentages)</strong>
             <div className="faint" style={{ fontSize: 12 }}>Pool rate + each level (tier) %. Saving creates a new <em>version</em>; past sales keep the plan that was effective on their date.</div>
           </div>
-          <span className="badge active" style={{ fontSize: 10 }}>{list.plans.length} versions</span>
+          <Badge variant="success" className="text-[10px]">{list.plans.length} versions</Badge>
         </div>
 
         <div className="row" style={{ gap: 12, alignItems: 'flex-end', marginBottom: 12 }}>
-          <div className="field" style={{ flex: 2, margin: 0 }}><label>Version name</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. 2026 plan" /></div>
-          <div className="field" style={{ flex: 1, margin: 0 }}><label>Pool rate (%)</label><input type="number" step="0.01" min={0} max={100} value={poolPct} onChange={(e) => setPoolPct(Number(e.target.value))} /></div>
+          <div className="field" style={{ flex: 2, margin: 0 }}><Label htmlFor={`${uid}-name`} className="mb-1.5 block">Version name</Label><Input id={`${uid}-name`} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. 2026 plan" /></div>
+          <div className="field" style={{ flex: 1, margin: 0 }}><Label htmlFor={`${uid}-pool`} className="mb-1.5 block">Pool rate (%)</Label><Input id={`${uid}-pool`} type="number" step="0.01" min={0} max={100} value={poolPct} onChange={(e) => setPoolPct(Number(e.target.value))} /></div>
         </div>
 
         <table>
@@ -96,51 +102,51 @@ export default function Plan() {
             {levels.map((l, i) => (
               <tr key={i}>
                 <td>{levelLabel(i)}{i === 0 && <span className="faint" style={{ fontSize: 11 }}> (seller)</span>}</td>
-                <td style={{ textAlign: 'right' }}><input type="number" step="0.01" min={0} max={100} value={l.ratePct} onChange={(e) => setLevels(levels.map((x, j) => j === i ? { ratePct: Number(e.target.value) } : x))} style={{ width: 90, textAlign: 'right' }} /></td>
+                <td style={{ textAlign: 'right' }}><Input type="number" step="0.01" min={0} max={100} name={`level-${i}-rate`} value={l.ratePct} onChange={(e) => setLevels(levels.map((x, j) => j === i ? { ratePct: Number(e.target.value) } : x))} aria-label={`${levelLabel(i)} rate percent`} className="h-9 ml-auto text-right" style={{ width: 90 }} /></td>
                 <td className="tnum" style={{ textAlign: 'right' }}>{money(preview[i]?.amountCents ?? 0)}</td>
-                <td style={{ textAlign: 'right' }}>{i === levels.length - 1 && levels.length > 1 && <button className="btn ghost sm" onClick={() => setLevels(levels.slice(0, -1))} title="Remove last tier">✕</button>}</td>
+                <td style={{ textAlign: 'right' }}>{i === levels.length - 1 && levels.length > 1 && <Button variant="ghost" size="sm" onClick={() => setLevels(levels.slice(0, -1))} title="Remove last tier">✕</Button>}</td>
               </tr>
             ))}
           </tbody>
         </table>
         <div className="row spread" style={{ marginTop: 8 }}>
-          <button className="btn ghost sm" onClick={() => setLevels([...levels, { ratePct: 0 }])} disabled={levels.length >= 20}>＋ Add tier</button>
-          <span className={overPool ? 'badge failed' : 'faint'} style={{ fontSize: 12 }}>
-            Levels total {levelSumPct.toFixed(2)}% / pool {poolPct.toFixed(2)}% {overPool ? '— exceeds the pool!' : ''}
-          </span>
+          <Button variant="ghost" size="sm" onClick={() => setLevels([...levels, { ratePct: 0 }])} disabled={levels.length >= 20}>＋ Add tier</Button>
+          {overPool
+            ? <Badge variant="destructive" className="text-xs">Levels total {levelSumPct.toFixed(2)}% / pool {poolPct.toFixed(2)}% — exceeds the pool!</Badge>
+            : <span className="faint" style={{ fontSize: 12 }}>Levels total {levelSumPct.toFixed(2)}% / pool {poolPct.toFixed(2)}% </span>}
         </div>
 
-        <div className="card" style={{ background: 'var(--panel-2)', marginTop: 12, padding: 12 }}>
+        <Card style={{ background: 'var(--panel-2)', marginTop: 12, padding: 12 }}>
           <div className="row spread"><span className="faint" style={{ fontSize: 12 }}>Preview: total commission distributed on a $1,000 sale</span><strong className="tnum" style={{ color: 'var(--gold-500)' }}>{money(previewTotal)}</strong></div>
           <div className="faint" style={{ fontSize: 11, marginTop: 4 }}>The remaining {money(PREVIEW_CENTS - previewTotal)} stays with the company (a missing upline level also stays with the company).</div>
-        </div>
+        </Card>
 
         {error && <div className="error" style={{ marginTop: 10 }}>{error}</div>}
-        <div className="row" style={{ marginTop: 12 }}><button className="btn" onClick={savePlan} disabled={savingPlan || overPool}>{savingPlan ? 'Saving…' : 'Save new version'}</button></div>
-      </div>
+        <div className="row" style={{ marginTop: 12 }}><Button onClick={savePlan} disabled={savingPlan || overPool}>{savingPlan ? 'Saving…' : 'Save new version'}</Button></div>
+      </Card>
 
       {/* ---- bonus katmanlari (mevcut) ---- */}
-      <div className="card">
+      <Card>
         <strong style={{ fontSize: 14 }}>Plan bonus layers (MLM)</strong>
         <div className="faint" style={{ fontSize: 12, marginBottom: 14 }}>Extra payouts to the direct sponsor, on top of the base unilevel plan{p.planName ? ` — “${p.planName}”` : ''}. Set 0 to disable.</div>
 
-        <div className="card" style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 12 }}>
+        <Card style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 12 }}>
           <strong style={{ fontSize: 13 }}>⚡ Fast-start bonus</strong>
           <div className="faint" style={{ fontSize: 11, marginBottom: 8 }}>Direct sponsor earns this % of a new member&apos;s sale, if the sale is within the window after they joined.</div>
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div className="field" style={{ margin: 0 }}><label>Rate (%)</label><input type="number" step="0.01" min={0} value={p.fastStartBps / 100} onChange={(e) => setP({ ...p, fastStartBps: Math.round(Number(e.target.value) * 100) })} /></div>
-            <div className="field" style={{ margin: 0 }}><label>Window (days)</label><input type="number" min={0} max={365} value={p.fastStartDays} onChange={(e) => setP({ ...p, fastStartDays: Number(e.target.value) })} /></div>
+            <div className="field" style={{ margin: 0 }}><Label htmlFor={`${uid}-fsr`} className="mb-1.5 block">Rate (%)</Label><Input id={`${uid}-fsr`} type="number" step="0.01" min={0} value={p.fastStartBps / 100} onChange={(e) => setP({ ...p, fastStartBps: Math.round(Number(e.target.value) * 100) })} /></div>
+            <div className="field" style={{ margin: 0 }}><Label htmlFor={`${uid}-fsd`} className="mb-1.5 block">Window (days)</Label><Input id={`${uid}-fsd`} type="number" min={0} max={365} value={p.fastStartDays} onChange={(e) => setP({ ...p, fastStartDays: Number(e.target.value) })} /></div>
           </div>
-        </div>
+        </Card>
 
-        <div className="card" style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 12 }}>
+        <Card style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 12 }}>
           <strong style={{ fontSize: 13 }}>🤝 Sponsor matching bonus</strong>
           <div className="faint" style={{ fontSize: 11, marginBottom: 8 }}>Direct sponsor earns this % of the seller&apos;s own (level-0) commission on every sale.</div>
-          <div className="field" style={{ margin: 0, maxWidth: 200 }}><label>Match rate (%)</label><input type="number" step="0.01" min={0} value={p.matchingBps / 100} onChange={(e) => setP({ ...p, matchingBps: Math.round(Number(e.target.value) * 100) })} /></div>
-        </div>
+          <div className="field" style={{ margin: 0, maxWidth: 200 }}><Label htmlFor={`${uid}-match`} className="mb-1.5 block">Match rate (%)</Label><Input id={`${uid}-match`} type="number" step="0.01" min={0} value={p.matchingBps / 100} onChange={(e) => setP({ ...p, matchingBps: Math.round(Number(e.target.value) * 100) })} /></div>
+        </Card>
 
-        <div className="row"><button className="btn ghost" onClick={saveBonus} disabled={busy}>{busy ? 'Saving…' : 'Save plan bonuses'}</button></div>
-      </div>
+        <div className="row"><Button variant="ghost" onClick={saveBonus} disabled={busy}>{busy ? 'Saving…' : 'Save plan bonuses'}</Button></div>
+      </Card>
 
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
