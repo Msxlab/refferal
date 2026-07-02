@@ -4,6 +4,9 @@
  * Veri & yedekleme politikasi paneli — uygulanan yedek/saklama akisini yuzeye cikarir
  * (sifreli Google Drive offsite, audit saklama cron'u task #7 ile baglanacak).
  */
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+
 interface Item { title: string; desc: string; state: 'on' | 'soon' }
 
 const BACKUP: Item[] = [
@@ -23,11 +26,11 @@ const RETENTION: Item[] = [
 export default function Data() {
   return (
     <div className="grid" style={{ gap: 20 }}>
-      <div className="card" style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+      <Card style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
         <Stat label="Backup cadence" value="Nightly" hint="pg_dump + age encryption" />
         <Stat label="Offsite target" value="Google Drive" hint="rclone, encrypted" />
         <Stat label="Money integrity" value="Integer cents" hint="No floats, ever" />
-      </div>
+      </Card>
       <Panel title="Backup & disaster recovery" items={BACKUP} />
       <Panel title="Retention & data lifecycle" items={RETENTION} />
     </div>
@@ -40,15 +43,15 @@ function Panel({ title, items }: { title: string; items: Item[] }) {
       <strong style={{ fontSize: 15 }}>{title}</strong>
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 12, marginTop: 12 }}>
         {items.map((it) => (
-          <div key={it.title} className="card" style={{ padding: 15 }}>
+          <Card key={it.title} style={{ padding: 15 }}>
             <div className="spread">
               <strong style={{ fontSize: 13.5 }}>{it.title}</strong>
-              <span className={`badge ${it.state === 'on' ? 'active' : 'pending'}`} style={{ fontSize: 9 }}>
+              <Badge variant={it.state === 'on' ? 'success' : 'pending'} className="text-[9px]">
                 {it.state === 'on' ? 'active' : 'coming'}
-              </span>
+              </Badge>
             </div>
             <div className="faint" style={{ fontSize: 12, marginTop: 7, lineHeight: 1.5 }}>{it.desc}</div>
-          </div>
+          </Card>
         ))}
       </div>
     </section>

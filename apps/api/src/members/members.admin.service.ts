@@ -287,9 +287,23 @@ export class MembersAdminService {
     };
   }
 
+  /**
+   * Act-as (platform admin) aktorunun uyeligi yoktur (mid=null). Bu durumda inviter/sponsor
+   * varsayilanini tenant owner uyeligine cek; yoksa Prisma'nin null-FK 500'u yerine net 400 ver.
+   */
+  private async resolveActorSponsor(tenantId: string, actorMembershipId: string | null | undefined): Promise<string> {
+    if (actorMembershipId) return actorMembershipId;
+    const owner = await this.prisma.membership.findFirst({
+      where: { tenantId, role: Role.tenant_owner },
+      select: { id: true },
+    });
+    if (!owner) throw new BadRequestException('uye davet icin sponsor gerekli');
+    return owner.id;
+  }
+
   /** Admin davet olusturur: sponsor (kod veya id) tenant icinde olmali; varsayilan = admin kendisi. */
-  async invite(actor: ActorContext, actorMembershipId: string, input: { sponsorReferralCode?: string; sponsorMembershipId?: string; email?: string }) {
-    let sponsorId = actorMembershipId;
+  async invite(actor: ActorContext, actorMembershipId: string | null, input: { sponsorReferralCode?: string; sponsorMembershipId?: string; email?: string }) {
+    let sponsorId = await this.resolveActorSponsor(actor.tenantId, actorMembershipId);
     if (input.sponsorMembershipId || input.sponsorReferralCode) {
       const sponsor = await this.prisma.membership.findFirst({
         where: {
@@ -336,7 +350,7 @@ export class MembersAdminService {
    */
   async createManual(
     actor: ActorContext,
-    actorMembershipId: string,
+    actorMembershipId: string | null,
     input: { fullName: string; email: string; sponsorReferralCode?: string; sponsorMembershipId?: string; role?: Role; tempPassword?: string; asLeader?: boolean },
   ) {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: actor.tenantId } });
@@ -348,7 +362,7 @@ export class MembersAdminService {
     // sponsor: belirtilmezse actor (owner) altina yerlesir (kok lider degilse)
     let sponsor: { id: string; path: string; depth: number; tenantId: string } | null = null;
     if (!asRoot) {
-      let sponsorId = actorMembershipId;
+      let sponsorId = await this.resolveActorSponsor(actor.tenantId, actorMembershipId);
       if (input.sponsorMembershipId || input.sponsorReferralCode) {
         const s = await this.prisma.membership.findFirst({
           where: { tenantId: actor.tenantId, ...(input.sponsorMembershipId ? { id: input.sponsorMembershipId } : { referralCode: input.sponsorReferralCode }) },

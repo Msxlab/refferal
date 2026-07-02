@@ -1,8 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { APP_NAME } from '@/lib/brand';
 
 interface Branding {
@@ -21,6 +25,7 @@ const DEFAULTS: Required<Branding> = {
 };
 
 export default function Brand() {
+  const uid = useId();
   const [name, setName] = useState('');
   const [b, setB] = useState<Required<Branding> | null>(null);
   const [error, setError] = useState('');
@@ -48,17 +53,17 @@ export default function Brand() {
 
   return (
     <div className="grid stack-sm" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,360px)', gap: 20, alignItems: 'start' }}>
-      <div className="card">
+      <Card>
         <strong style={{ fontSize: 14 }}>Brand identity</strong>
         <div className="faint" style={{ fontSize: 12, marginBottom: 12 }}>Shown on the member portal, emails and invitations.</div>
 
         <div className="field">
-          <label>Monogram letter</label>
-          <input maxLength={2} value={b.logoText} onChange={(e) => setB({ ...b, logoText: e.target.value })} />
+          <Label htmlFor={`${uid}-mono`} className="mb-1.5 block">Monogram letter</Label>
+          <Input id={`${uid}-mono`} maxLength={2} value={b.logoText} onChange={(e) => setB({ ...b, logoText: e.target.value })} />
         </div>
         <div className="field">
-          <label>Tagline</label>
-          <input maxLength={120} value={b.tagline} onChange={(e) => setB({ ...b, tagline: e.target.value })} />
+          <Label htmlFor={`${uid}-tag`} className="mb-1.5 block">Tagline</Label>
+          <Input id={`${uid}-tag`} maxLength={120} value={b.tagline} onChange={(e) => setB({ ...b, tagline: e.target.value })} />
         </div>
         <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <ColorField label="Primary (gold)" value={b.primaryColor} onChange={(v) => setB({ ...b, primaryColor: v })} />
@@ -67,12 +72,12 @@ export default function Brand() {
 
         {error && <div className="error">{error}</div>}
         <div className="row" style={{ marginTop: 14 }}>
-          <button className="btn" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save branding'}</button>
+          <Button onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save branding'}</Button>
         </div>
-      </div>
+      </Card>
 
       {/* canli onizleme */}
-      <div className="card" style={{ position: 'sticky', top: 16 }}>
+      <Card style={{ position: 'sticky', top: 16 }}>
         <div className="faint" style={{ fontSize: 11, marginBottom: 10 }}>PREVIEW</div>
         <div style={{ borderRadius: 14, overflow: 'hidden', border: '1px solid var(--border)' }}>
           <div style={{ background: '#0f1115', padding: '18px 18px 22px' }}>
@@ -94,18 +99,19 @@ export default function Brand() {
         <div className="faint" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.5 }}>
           Colors apply to member-facing surfaces. The admin theme stays Obsidian & Champagne.
         </div>
-      </div>
+      </Card>
     </div>
   );
 }
 
 function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  const id = useId();
   return (
     <div className="field" style={{ margin: 0 }}>
-      <label>{label}</label>
+      <Label htmlFor={id} className="mb-1.5 block">{label}</Label>
       <div className="row" style={{ gap: 8 }}>
-        <input type="color" value={value} onChange={(e) => onChange(e.target.value)} style={{ width: 42, height: 38, padding: 2, cursor: 'pointer' }} />
-        <input value={value} onChange={(e) => onChange(e.target.value)} style={{ flex: 1, fontFamily: 'ui-monospace, monospace' }} />
+        <input id={id} type="color" value={value} onChange={(e) => onChange(e.target.value)} style={{ width: 42, height: 38, padding: 2, cursor: 'pointer' }} aria-label={`${label} color picker`} />
+        <Input value={value} onChange={(e) => onChange(e.target.value)} aria-label={`${label} hex value`} name={`${id}-hex`} style={{ flex: 1, fontFamily: 'ui-monospace, monospace' }} />
       </div>
     </div>
   );

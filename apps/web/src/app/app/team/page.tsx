@@ -4,6 +4,9 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Bars, CountUp, Loading, MoneyCounter, StatCard, useToast } from '@/components/ui';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { RadialNetwork } from '@/components/RadialNetwork';
 import { EarningsSimulator } from '@/components/EarningsSimulator';
 import { money, dateShort } from '@/lib/format';
@@ -58,7 +61,7 @@ export default function TeamPage() {
     api.get<RecruitsResponse>('/app/team/recruits').then(setRecruits).catch(() => { /* optional */ });
   }, []);
 
-  if (error) return <div className="error">{error}</div>;
+  if (error) return <div className="my-2 text-sm text-destructive">{error}</div>;
   if (!team) return <Loading />;
 
   const inactive = team.totalMembers - team.totalActive;
@@ -76,12 +79,12 @@ export default function TeamPage() {
         <StatCard label={t('me.activeMembers')} value={<CountUp value={team.totalActive} />} icon="✓" grad="var(--grad-emerald)" />
       </div>
 
-      <div className="grid fade-in delay-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,300px)', gap: 16, alignItems: 'stretch' }}>
-        <div className="card" style={{ display: 'grid', placeItems: 'center', padding: 18 }}>
+      <div className="grid fade-in delay-2 stack-sm" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,300px)', gap: 16, alignItems: 'stretch' }}>
+        <Card className="grid place-items-center p-[18px]">
           <RadialNetwork levels={team.levels} totalMembers={team.totalMembers} />
-        </div>
+        </Card>
 
-        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+        <Card className="flex flex-col p-5">
           <div className="spread" style={{ marginBottom: 14 }}>
             <strong>Level distribution</strong>
           </div>
@@ -97,12 +100,12 @@ export default function TeamPage() {
             <span className="row" style={{ gap: 6 }}><i style={{ width: 10, height: 10, borderRadius: 999, background: 'var(--emerald)' }} /> Active {team.totalActive}</span>
             <span className="row" style={{ gap: 6 }}><i style={{ width: 10, height: 10, borderRadius: 999, background: 'var(--muted)' }} /> Inactive {inactive}</span>
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* ---- Direkt recruit'ler: uyenin kendi davet ettikleri (isimli) ---- */}
       {recruits && (
-        <div className="card fade-in delay-3" style={{ marginTop: 16 }}>
+        <Card className="fade-in delay-3 mt-4 p-5">
           <div className="spread" style={{ alignItems: 'flex-start', marginBottom: 4 }}>
             <div>
               <strong style={{ fontSize: 15 }}>Your direct recruits</strong>
@@ -111,7 +114,9 @@ export default function TeamPage() {
                 {recruits.summary.joinedThisMonth > 0 && <span style={{ color: 'var(--emerald)', fontWeight: 600 }}> · +{recruits.summary.joinedThisMonth} this month</span>}
               </div>
             </div>
-            <Link href="/app/invite" className="btn sm">✦ Invite</Link>
+            <Button asChild size="sm">
+              <Link href="/app/invite">✦ Invite</Link>
+            </Button>
           </div>
 
           {recruits.summary.needsNudgeCount > 0 && (
@@ -132,33 +137,37 @@ export default function TeamPage() {
           {recruits.recruits.length === 0 ? (
             <div className="muted" style={{ textAlign: 'center', padding: '22px 0' }}>
               You haven&apos;t invited anyone yet.<br />
-              <Link href="/app/invite" className="btn sm" style={{ marginTop: 12, display: 'inline-block' }}>Send your first invite →</Link>
+              <Button asChild size="sm" className="mt-3 inline-flex">
+                <Link href="/app/invite">Send your first invite →</Link>
+              </Button>
             </div>
           ) : (
-            <table>
-              <thead><tr><th>Member</th><th>Status</th><th>Joined</th><th style={{ textAlign: 'right' }}>Sales (mo)</th><th style={{ textAlign: 'right' }}>Sold (mo)</th><th></th></tr></thead>
-              <tbody>
-                {recruits.recruits.map((r) => (
-                  <tr key={r.id} style={r.needsNudge ? { background: 'color-mix(in srgb, var(--amber) 6%, transparent)' } : undefined}>
-                    <td>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{r.fullName}</div>
-                      <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{r.referralCode}</div>
-                    </td>
-                    <td><span className={`badge ${r.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>{r.status}</span></td>
-                    <td className="faint" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{dateShort(r.joinedAt)}</td>
-                    <td className="tnum" style={{ textAlign: 'right' }}>{r.salesThisMonth || '—'}</td>
-                    <td className="tnum" style={{ textAlign: 'right', fontWeight: 600, color: Number(r.soldThisMonthCents) > 0 ? 'var(--gold-500)' : 'var(--faint)' }}>
-                      {Number(r.soldThisMonthCents) > 0 ? money(r.soldThisMonthCents, recruits.currency) : '—'}
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      {r.needsNudge && <button className="btn ghost sm" onClick={() => nudge(r)} title={`Copy ${r.fullName}'s email`}>👋 Nudge</button>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table>
+                <thead><tr><th>Member</th><th>Status</th><th>Joined</th><th className="text-right">Sales (mo)</th><th className="text-right">Sold (mo)</th><th></th></tr></thead>
+                <tbody>
+                  {recruits.recruits.map((r) => (
+                    <tr key={r.id} style={r.needsNudge ? { background: 'color-mix(in srgb, var(--amber) 6%, transparent)' } : undefined}>
+                      <td>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{r.fullName}</div>
+                        <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{r.referralCode}</div>
+                      </td>
+                      <td><Badge variant={r.status === 'active' ? 'success' : 'secondary'}>{r.status}</Badge></td>
+                      <td className="faint" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{dateShort(r.joinedAt)}</td>
+                      <td className="tnum text-right">{r.salesThisMonth || '—'}</td>
+                      <td className="tnum text-right" style={{ fontWeight: 600, color: Number(r.soldThisMonthCents) > 0 ? 'var(--gold-500)' : 'var(--faint)' }}>
+                        {Number(r.soldThisMonthCents) > 0 ? money(r.soldThisMonthCents, recruits.currency) : '—'}
+                      </td>
+                      <td className="text-right">
+                        {r.needsNudge && <Button variant="ghost" size="sm" onClick={() => nudge(r)} title={`Copy ${r.fullName}'s email`}>👋 Nudge</Button>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
-        </div>
+        </Card>
       )}
 
       <EarningsSimulator />

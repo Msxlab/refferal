@@ -5,6 +5,9 @@ import { FormEvent, Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
 import { Brand } from '@/components/ui';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 function ResetPasswordInner() {
   const params = useSearchParams();
@@ -55,8 +58,9 @@ function ResetPasswordInner() {
             <>
               {!token && <div className="error">Password reset token is missing.</div>}
               <div className="field">
-                <label>New password</label>
-                <input
+                <Label htmlFor="reset-new" className="mb-1.5 block">New password</Label>
+                <Input
+                  id="reset-new"
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -67,8 +71,9 @@ function ResetPasswordInner() {
                 />
               </div>
               <div className="field">
-                <label>Confirm new password</label>
-                <input
+                <Label htmlFor="reset-confirm" className="mb-1.5 block">Confirm new password</Label>
+                <Input
+                  id="reset-confirm"
                   type="password"
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
@@ -78,9 +83,9 @@ function ResetPasswordInner() {
                 />
               </div>
               {error && <div className="error">{error}</div>}
-              <button className="btn block" style={{ marginTop: 6 }} disabled={busy || !token}>
+              <Button type="submit" className="mt-1.5 w-full" disabled={busy || !token}>
                 {busy ? 'Updating...' : 'Update password'}
-              </button>
+              </Button>
               <div style={{ textAlign: 'center', marginTop: 14 }}>
                 <Link href="/login" className="faint" style={{ fontSize: 12 }}>Back to login</Link>
               </div>

@@ -5,6 +5,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { clearSession, getSession, type Session } from '@/lib/auth';
 import { ThemeToggle } from '@/components/ui';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { APP_MONOGRAM, APP_NAME } from '@/lib/brand';
 
 const NAV = [{ href: '/platform', label: 'Companies', ic: '◳' }];
@@ -56,10 +58,10 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
           <div className="faint" style={{ fontSize: 11 }}>Platform owner</div>
           <div style={{ fontSize: 13, fontWeight: 600, margin: '2px 0 4px' }}>{session.user.fullName}</div>
           <div className="row spread">
-            <span className="badge active" style={{ fontSize: 10 }}>platform</span>
+            <Badge variant="success" className="text-[10px]">platform</Badge>
             <div className="row" style={{ gap: 6 }}>
               <ThemeToggle />
-              <button className="btn ghost sm" onClick={logout}>Log out</button>
+              <Button variant="ghost" size="sm" onClick={logout}>Log out</Button>
             </div>
           </div>
         </div>

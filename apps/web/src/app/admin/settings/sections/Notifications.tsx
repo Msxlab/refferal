@@ -4,6 +4,9 @@
  * Bildirim olay × kanal matrisi (varsayilanlar, salt-okunur onizleme).
  * Tam duzenlenebilir tercih matrisi (task #7) gelen-kutusu ile birlikte baglanacak.
  */
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+
 const CHANNELS = ['In-app', 'Email', 'Push'] as const;
 
 interface EventRow { event: string; who: string; def: [boolean, boolean, boolean] }
@@ -22,18 +25,18 @@ const EVENTS: EventRow[] = [
 export default function Notifications() {
   return (
     <div className="grid" style={{ gap: 18 }}>
-      <div className="card" style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+      <Card style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
         <Stat label="Delivery" value="Transactional outbox" hint="At-least-once with retry & backoff" />
         <Stat label="Email transport" value="SMTP / provider" hint="Pluggable adapter (env-selected)" />
         <Stat label="Mobile push" value="Expo" hint="Per-device tokens" />
-      </div>
+      </Card>
 
       <section>
         <div style={{ marginBottom: 10 }}>
-          <strong style={{ fontSize: 15 }}>Event routing <span className="badge draft" style={{ fontSize: 10, marginLeft: 6, verticalAlign: 'middle' }}>Read-only defaults</span></strong>
+          <strong style={{ fontSize: 15 }}>Event routing <Badge variant="secondary" className="ml-1.5 align-middle text-[10px]">Read-only defaults</Badge></strong>
           <div className="faint" style={{ fontSize: 12 }}>Default channels per event (not editable yet). Per-member overrides arrive with the in-app inbox.</div>
         </div>
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <Card style={{ padding: 0, overflow: 'hidden' }}>
           <table>
             <thead>
               <tr>
@@ -60,7 +63,7 @@ export default function Notifications() {
               ))}
             </tbody>
           </table>
-        </div>
+        </Card>
       </section>
     </div>
   );

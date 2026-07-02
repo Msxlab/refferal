@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -50,6 +51,14 @@ export interface MfaChallenge {
   mfaToken: string;
 }
 
+/** tenantBrand() icin allowlist edilmis alanlar (bkz. Tenant.branding, Brand.tsx ayarlari). */
+export interface PublicTenantBranding {
+  logoText?: string;
+  tagline?: string;
+  primaryColor?: string;
+  accentColor?: string;
+}
+
 // Kullanici yokken de sifre dogrulamasi kosulur (timing esitligi icin)
 let dummyHashPromise: Promise<string> | null = null;
 function dummyHash(): Promise<string> {
@@ -93,6 +102,29 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly memberships: MembershipsService,
   ) {}
+
+  /** Markali subdomain girisinden ONCE (kimliksiz) marka bilgisi (Alt-proje B).
+   *  Askiya alinmis/bilinmeyen slug ayrimi yapilmadan 404 doner (durum sizdirilmaz).
+   *  `branding` JSON'undan yalniz bilinen 4 alan secilir — kolon gelecekte baska (belki hassas)
+   *  bir anahtar tasirsa bu kimliksiz uc nokta onu asla yansitmaz (allowlist, denylist degil). */
+  async tenantBrand(slug: string): Promise<{ name: string; branding: PublicTenantBranding }> {
+    const tenant = await this.prisma.tenant.findFirst({
+      where: { slug, status: TenantStatus.active },
+      select: { name: true, branding: true },
+    });
+    if (!tenant) throw new NotFoundException('sirket bulunamadi');
+    const b = (tenant.branding && typeof tenant.branding === 'object' ? tenant.branding : {}) as Record<string, unknown>;
+    const pick = (key: string): string | undefined => (typeof b[key] === 'string' ? (b[key] as string) : undefined);
+    return {
+      name: tenant.name,
+      branding: {
+        logoText: pick('logoText'),
+        tagline: pick('tagline'),
+        primaryColor: pick('primaryColor'),
+        accentColor: pick('accentColor'),
+      },
+    };
+  }
 
   /** Uye kaydi YALNIZCA davetle (SPEC 4.3). Tenant+sponsor davet kodundan cozulur. */
   async registerByInvite(input: RegisterByInviteInput, meta: RequestMeta = {}): Promise<AuthSession> {
@@ -368,6 +400,17 @@ export class AuthService {
     });
     const accessToken = await this.signAccess(user, membership, sid);
     return { accessToken, activeMembershipId: membership.id };
+  }
+
+  /** Platform admin "act-as": bir sirket icin tenant-scoped owner token uretir (plat:true korunur). */
+  async actAsTenant(userId: string, tenantId: string): Promise<{ accessToken: string }> {
+    const user = await this.prisma.user.findFirst({ where: { id: userId, isPlatformAdmin: true }, select: { id: true, isPlatformAdmin: true } });
+    if (!user) throw new ForbiddenException('platform yetkisi gerekli');
+    const tenant = await this.prisma.tenant.findFirst({ where: { id: tenantId, status: TenantStatus.active }, select: { id: true } });
+    if (!tenant) throw new NotFoundException('sirket bulunamadi veya aktif degil');
+    const payload: AccessTokenPayload = { sub: user.id, mid: null, tid: tenant.id, role: Role.tenant_owner, plat: true };
+    const accessToken = await this.jwt.signAsync(payload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
+    return { accessToken };
   }
 
   async verifyEmail(tokenRaw: string): Promise<{ ok: true }> {

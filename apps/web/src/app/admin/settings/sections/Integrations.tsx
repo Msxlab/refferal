@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import { dateShort } from '@/lib/format';
 
 interface ApiKey { id: string; name: string; prefix: string; role: string; lastUsedAt: string | null; revokedAt: string | null }
@@ -61,55 +65,55 @@ export default function Integrations() {
     <div className="grid" style={{ gap: 18, maxWidth: 680 }}>
       {error && <div className="error">{error}</div>}
 
-      <div className="card">
+      <Card>
         <strong style={{ fontSize: 14 }}>API keys</strong>
         <div className="faint" style={{ fontSize: 12, marginBottom: 12 }}>Use <code>X-Api-Key</code> header. A key acts with the creating admin&apos;s role.</div>
         {createdKey && (
-          <div className="card" style={{ background: 'color-mix(in srgb, var(--emerald) 10%, transparent)', padding: 12, marginBottom: 12 }}>
+          <Card style={{ background: 'color-mix(in srgb, var(--emerald) 10%, transparent)', padding: 12, marginBottom: 12 }}>
             <div className="faint" style={{ fontSize: 11 }}>Copy now — shown once:</div>
             <code style={{ wordBreak: 'break-all', fontSize: 12 }}>{createdKey}</code>
-            <div><button className="btn ghost sm" style={{ marginTop: 6 }} onClick={() => { navigator.clipboard.writeText(createdKey); showToast('Copied'); }}>Copy</button></div>
-          </div>
+            <div><Button variant="ghost" size="sm" className="mt-1.5" onClick={() => { navigator.clipboard.writeText(createdKey); showToast('Copied'); }}>Copy</Button></div>
+          </Card>
         )}
         <div className="row" style={{ gap: 8, marginBottom: 10 }}>
-          <input value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') createKey(); }} placeholder="Key name (e.g. CRM import)" style={{ flex: 1 }} />
-          <button className="btn sm" onClick={createKey} disabled={keyBusy}>{keyBusy ? 'Creating…' : 'Create'}</button>
+          <Input value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') createKey(); }} placeholder="Key name (e.g. CRM import)" aria-label="API key name" name="new-api-key-name" style={{ flex: 1 }} />
+          <Button size="sm" onClick={createKey} disabled={keyBusy}>{keyBusy ? 'Creating…' : 'Create'}</Button>
         </div>
         <table>
           <thead><tr><th>Name</th><th>Prefix</th><th>Last used</th><th></th></tr></thead>
           <tbody>
             {keys.map((k) => (
               <tr key={k.id}>
-                <td>{k.name}{k.revokedAt && <span className="badge inactive" style={{ marginLeft: 6 }}>revoked</span>}</td>
+                <td>{k.name}{k.revokedAt && <Badge variant="secondary" className="ml-1.5">revoked</Badge>}</td>
                 <td className="faint tnum">{k.prefix}…</td>
                 <td className="muted">{k.lastUsedAt ? dateShort(k.lastUsedAt) : '—'}</td>
-                <td style={{ textAlign: 'right' }}>{!k.revokedAt && <button className="btn ghost sm danger" onClick={() => revokeKey(k.id)}>Revoke</button>}</td>
+                <td style={{ textAlign: 'right' }}>{!k.revokedAt && <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => revokeKey(k.id)}>Revoke</Button>}</td>
               </tr>
             ))}
             {keys.length === 0 && <tr><td colSpan={4} className="muted">No keys.</td></tr>}
           </tbody>
         </table>
-      </div>
+      </Card>
 
-      <div className="card">
-        <div className="spread"><strong style={{ fontSize: 14 }}>Webhooks</strong><button className="btn ghost sm" onClick={testHook}>Send test</button></div>
+      <Card>
+        <div className="spread"><strong style={{ fontSize: 14 }}>Webhooks</strong><Button variant="ghost" size="sm" onClick={testHook}>Send test</Button></div>
         <div className="faint" style={{ fontSize: 12, margin: '4px 0 12px' }}>HMAC-SHA256 signed (<code>X-Refearn-Signature</code>). Events: payout.paid, … (empty = all).</div>
         {createdSecret && (
-          <div className="card" style={{ background: 'color-mix(in srgb, var(--emerald) 10%, transparent)', padding: 12, marginBottom: 12 }}>
+          <Card style={{ background: 'color-mix(in srgb, var(--emerald) 10%, transparent)', padding: 12, marginBottom: 12 }}>
             <div className="faint" style={{ fontSize: 11 }}>Signing secret — shown once:</div>
             <code style={{ wordBreak: 'break-all', fontSize: 12 }}>{createdSecret}</code>
-            <div><button className="btn ghost sm" style={{ marginTop: 6 }} onClick={() => { navigator.clipboard.writeText(createdSecret); showToast('Copied'); }}>Copy</button></div>
-          </div>
+            <div><Button variant="ghost" size="sm" className="mt-1.5" onClick={() => { navigator.clipboard.writeText(createdSecret); showToast('Copied'); }}>Copy</Button></div>
+          </Card>
         )}
         <div className="row" style={{ gap: 8, marginBottom: 10 }}>
-          <input value={hookUrl} onChange={(e) => setHookUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') createHook(); }} placeholder="https://your-app.com/webhooks/refearn" style={{ flex: 1 }} />
-          <button className="btn sm" onClick={createHook} disabled={hookBusy}>{hookBusy ? 'Adding…' : 'Add'}</button>
+          <Input value={hookUrl} onChange={(e) => setHookUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') createHook(); }} placeholder="https://your-app.com/webhooks/refearn" aria-label="Webhook URL" name="new-webhook-url" style={{ flex: 1 }} />
+          <Button size="sm" onClick={createHook} disabled={hookBusy}>{hookBusy ? 'Adding…' : 'Add'}</Button>
         </div>
         <table>
           <thead><tr><th>URL</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {hooks.map((h) => (
-              <tr key={h.id}><td className="faint" style={{ fontSize: 12, wordBreak: 'break-all' }}>{h.url}</td><td><span className={`badge ${h.active ? 'active' : 'inactive'}`}>{h.active ? 'active' : 'off'}</span></td><td style={{ textAlign: 'right' }}><button className="btn ghost sm danger" onClick={() => delHook(h.id)}>✕</button></td></tr>
+              <tr key={h.id}><td className="faint" style={{ fontSize: 12, wordBreak: 'break-all' }}>{h.url}</td><td><Badge variant={h.active ? 'success' : 'secondary'}>{h.active ? 'active' : 'off'}</Badge></td><td style={{ textAlign: 'right' }}><Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => delHook(h.id)}>✕</Button></td></tr>
             ))}
             {hooks.length === 0 && <tr><td colSpan={3} className="muted">No endpoints.</td></tr>}
           </tbody>
@@ -123,16 +127,16 @@ export default function Integrations() {
                 {deliveries.map((d) => (
                   <tr key={d.id}>
                     <td>{d.event}</td>
-                    <td><span className={`badge ${d.status === 'delivered' ? 'paid' : d.status === 'failed' ? 'failed' : 'pending'}`}>{d.status}{d.responseStatus ? ` ${d.responseStatus}` : ''}</span></td>
+                    <td><Badge variant={d.status === 'delivered' ? 'success' : d.status === 'failed' ? 'destructive' : 'pending'}>{d.status}{d.responseStatus ? ` ${d.responseStatus}` : ''}</Badge></td>
                     <td className="tnum">{d.attempts}</td>
-                    <td style={{ textAlign: 'right' }}>{d.status !== 'delivered' && <button className="btn ghost sm" onClick={() => replay(d.id)}>Replay</button>}</td>
+                    <td style={{ textAlign: 'right' }}>{d.status !== 'delivered' && <Button variant="ghost" size="sm" onClick={() => replay(d.id)}>Replay</Button>}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-      </div>
+      </Card>
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );

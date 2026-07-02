@@ -1,12 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { QRCodeSVG } from 'qrcode.react';
 import { api, ApiError } from '@/lib/api';
 import { activeMembership, getSession, isAdminRole, setSession } from '@/lib/auth';
 import { Brand, Loading, ThemeToggle, useToast } from '@/components/ui';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { dateShort } from '@/lib/format';
 
 interface Account {
@@ -25,6 +30,7 @@ interface MailingAddress {
 interface MailingResp { hasMembership: boolean; complete: boolean; address: MailingAddress | null; }
 
 export default function AccountPage() {
+  const uid = useId();
   const router = useRouter();
   const [acc, setAcc] = useState<Account | null>(null);
   const [error, setError] = useState('');
@@ -189,11 +195,12 @@ export default function AccountPage() {
     }
   }
 
-  if (error) return <div className="center error">{error}</div>;
+  if (error) return <div className="center text-sm text-destructive">{error}</div>;
   if (!acc) return <div className="center"><Loading /></div>;
 
   const dirty = fullName.trim() !== acc.fullName;
   const joined = new Date(acc.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  const cardCls = 'rounded-2xl border border-border bg-card p-5 shadow-sm';
 
   return (
     <div style={{ minHeight: '100vh' }}>
@@ -202,7 +209,9 @@ export default function AccountPage() {
           <Brand />
           <span style={{ flex: 1 }} />
           <ThemeToggle />
-          <Link href={backHref} className="btn ghost sm">← Back</Link>
+          <Button asChild variant="ghost" size="sm">
+            <Link href={backHref}>← Back</Link>
+          </Button>
         </div>
       </header>
 
@@ -212,168 +221,164 @@ export default function AccountPage() {
         <p className="sub fade-in" style={{ marginBottom: 22 }}>{acc.email} · joined {joined}</p>
 
         {/* ---- Profil ---- */}
-        <form onSubmit={saveProfile} className="card fade-in delay-1" style={{ marginBottom: 16 }}>
+        <form onSubmit={saveProfile} className={`${cardCls} fade-in delay-1 mb-4`}>
           <strong style={{ fontSize: 15 }}>Profile</strong>
-          <div className="field" style={{ marginTop: 12 }}>
-            <label>Full name</label>
-            <input value={fullName} onChange={(e) => setFullName(e.target.value)} minLength={2} maxLength={120} required />
+          <div className="mt-3">
+            <Label htmlFor={`${uid}-name`} className="mb-1.5 block">Full name</Label>
+            <Input id={`${uid}-name`} value={fullName} onChange={(e) => setFullName(e.target.value)} minLength={2} maxLength={120} required />
           </div>
-          <div className="field">
-            <label>Email</label>
-            <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-              <input value={acc.email} disabled style={{ flex: 1 }} />
-              <span className={`badge ${acc.emailVerified ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>
-                {acc.emailVerified ? '✓ verified' : 'unverified'}
-              </span>
+          <div className="mt-3.5">
+            <Label htmlFor={`${uid}-email`} className="mb-1.5 block">Email</Label>
+            <div className="flex items-center gap-2">
+              <Input id={`${uid}-email`} value={acc.email} disabled className="flex-1" />
+              <Badge variant={acc.emailVerified ? 'success' : 'secondary'}>{acc.emailVerified ? '✓ verified' : 'unverified'}</Badge>
             </div>
-            <div className="faint" style={{ fontSize: 11, marginTop: 4 }}>Email change with re-verification is coming soon.</div>
+            <div className="mt-1 text-[11px] text-muted-foreground">Email change with re-verification is coming soon.</div>
           </div>
-          <div className="row" style={{ justifyContent: 'flex-end' }}>
-            <button className="btn" type="submit" disabled={!dirty || savingProfile}>{savingProfile ? 'Saving…' : 'Save changes'}</button>
+          <div className="mt-3.5 flex justify-end">
+            <Button type="submit" disabled={!dirty || savingProfile}>{savingProfile ? 'Saving…' : 'Save changes'}</Button>
           </div>
         </form>
 
         {/* ---- Cek posta adresi (Faz A2) ---- */}
         {mailing?.hasMembership && (
-          <form onSubmit={saveMailing} className="card fade-in delay-1" style={{ marginBottom: 16 }}>
-            <div className="spread" style={{ alignItems: 'flex-start' }}>
+          <form onSubmit={saveMailing} className={`${cardCls} fade-in delay-1 mb-4`}>
+            <div className="flex items-start justify-between gap-3">
               <div>
                 <strong style={{ fontSize: 15 }}>Mailing address</strong>
-                <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
+                <div className="mt-0.5 text-xs text-muted-foreground">
                   Commission checks are mailed here. Keep it current — you can&apos;t request a payout without a complete address.
                 </div>
               </div>
-              <span className={`badge ${mailing.complete ? 'active' : 'inactive'}`} style={{ fontSize: 9, flexShrink: 0 }}>
-                {mailing.complete ? '✓ complete' : 'incomplete'}
-              </span>
+              <Badge variant={mailing.complete ? 'success' : 'secondary'} className="flex-shrink-0">{mailing.complete ? '✓ complete' : 'incomplete'}</Badge>
             </div>
-            <div className="field" style={{ marginTop: 12 }}>
-              <label>Payable to (name on check)</label>
-              <input value={maName} onChange={(e) => setMaName(e.target.value)} minLength={2} maxLength={120} placeholder="Full legal name" required />
+            <div className="mt-3">
+              <Label htmlFor={`${uid}-maname`} className="mb-1.5 block">Payable to (name on check)</Label>
+              <Input id={`${uid}-maname`} value={maName} onChange={(e) => setMaName(e.target.value)} minLength={2} maxLength={120} placeholder="Full legal name" required />
             </div>
-            <div className="field">
-              <label>Street address</label>
-              <input value={maLine1} onChange={(e) => setMaLine1(e.target.value)} minLength={3} maxLength={120} placeholder="123 Main St" required />
+            <div className="mt-3.5">
+              <Label htmlFor={`${uid}-maline1`} className="mb-1.5 block">Street address</Label>
+              <Input id={`${uid}-maline1`} value={maLine1} onChange={(e) => setMaLine1(e.target.value)} minLength={3} maxLength={120} placeholder="123 Main St" required />
             </div>
-            <div className="field">
-              <label>Apt / Suite <span className="faint">(optional)</span></label>
-              <input value={maLine2} onChange={(e) => setMaLine2(e.target.value)} maxLength={120} placeholder="Apt 4B" />
+            <div className="mt-3.5">
+              <Label htmlFor={`${uid}-maline2`} className="mb-1.5 block">Apt / Suite <span className="text-muted-foreground">(optional)</span></Label>
+              <Input id={`${uid}-maline2`} value={maLine2} onChange={(e) => setMaLine2(e.target.value)} maxLength={120} placeholder="Apt 4B" />
             </div>
-            <div className="row" style={{ gap: 10 }}>
-              <div className="field" style={{ flex: 2 }}>
-                <label>City</label>
-                <input value={maCity} onChange={(e) => setMaCity(e.target.value)} minLength={2} maxLength={80} placeholder="Los Angeles" required />
+            <div className="mt-3.5 flex gap-2.5">
+              <div className="flex-[2]">
+                <Label htmlFor={`${uid}-macity`} className="mb-1.5 block">City</Label>
+                <Input id={`${uid}-macity`} value={maCity} onChange={(e) => setMaCity(e.target.value)} minLength={2} maxLength={80} placeholder="Los Angeles" required />
               </div>
-              <div className="field" style={{ flex: 1 }}>
-                <label>State</label>
-                <input value={maState} onChange={(e) => setMaState(e.target.value.toUpperCase())} maxLength={2} placeholder="CA" style={{ textTransform: 'uppercase' }} required />
+              <div className="flex-1">
+                <Label htmlFor={`${uid}-mastate`} className="mb-1.5 block">State</Label>
+                <Input id={`${uid}-mastate`} value={maState} onChange={(e) => setMaState(e.target.value.toUpperCase())} maxLength={2} placeholder="CA" className="uppercase" required />
               </div>
-              <div className="field" style={{ flex: 1 }}>
-                <label>ZIP</label>
-                <input value={maPostal} onChange={(e) => setMaPostal(e.target.value)} inputMode="numeric" placeholder="90001" required />
+              <div className="flex-1">
+                <Label htmlFor={`${uid}-mazip`} className="mb-1.5 block">ZIP</Label>
+                <Input id={`${uid}-mazip`} value={maPostal} onChange={(e) => setMaPostal(e.target.value)} inputMode="numeric" placeholder="90001" required />
               </div>
             </div>
-            {maError && <div className="error" style={{ marginBottom: 10 }}>{maError}</div>}
-            <div className="spread" style={{ alignItems: 'center' }}>
-              <span className="faint" style={{ fontSize: 11 }}>United States only.</span>
-              <button className="btn" type="submit" disabled={savingMa}>{savingMa ? 'Saving…' : 'Save address'}</button>
+            {maError && <div className="mb-2.5 mt-2 text-sm text-destructive">{maError}</div>}
+            <div className="mt-3.5 flex items-center justify-between">
+              <span className="text-[11px] text-muted-foreground">United States only.</span>
+              <Button type="submit" disabled={savingMa}>{savingMa ? 'Saving…' : 'Save address'}</Button>
             </div>
           </form>
         )}
         {mailing && !mailing.hasMembership && (
-          <div className="card faint fade-in delay-1" style={{ marginBottom: 16, fontSize: 13 }}>
+          <div className={`${cardCls} fade-in delay-1 mb-4 text-sm text-muted-foreground`}>
             A mailing address (for commission checks) becomes available once you have an active membership in a company.
           </div>
         )}
 
         {/* ---- Sifre ---- */}
-        <form onSubmit={changePassword} className="card fade-in delay-2" style={{ marginBottom: 16 }}>
+        <form onSubmit={changePassword} className={`${cardCls} fade-in delay-2 mb-4`}>
           <strong style={{ fontSize: 15 }}>Change password</strong>
-          <div className="field" style={{ marginTop: 12 }}>
-            <label>Current password</label>
-            <input type="password" value={curPw} onChange={(e) => setCurPw(e.target.value)} autoComplete="current-password" required />
+          <div className="mt-3">
+            <Label htmlFor={`${uid}-curpw`} className="mb-1.5 block">Current password</Label>
+            <Input id={`${uid}-curpw`} type="password" value={curPw} onChange={(e) => setCurPw(e.target.value)} autoComplete="current-password" required />
           </div>
-          <div className="field">
-            <label>New password</label>
-            <input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} autoComplete="new-password" minLength={10} required />
+          <div className="mt-3.5">
+            <Label htmlFor={`${uid}-newpw`} className="mb-1.5 block">New password</Label>
+            <Input id={`${uid}-newpw`} type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} autoComplete="new-password" minLength={10} required />
           </div>
-          <div className="field">
-            <label>Confirm new password</label>
-            <input type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} autoComplete="new-password" minLength={10} required />
+          <div className="mt-3.5">
+            <Label htmlFor={`${uid}-confpw`} className="mb-1.5 block">Confirm new password</Label>
+            <Input id={`${uid}-confpw`} type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} autoComplete="new-password" minLength={10} required />
           </div>
-          {pwError && <div className="error" style={{ marginBottom: 10 }}>{pwError}</div>}
-          <div className="spread" style={{ alignItems: 'center' }}>
-            <span className="faint" style={{ fontSize: 11 }}>Changing your password signs out your other devices.</span>
-            <button className="btn" type="submit" disabled={savingPw || !curPw || !newPw || !confirmPw}>{savingPw ? 'Saving…' : 'Change password'}</button>
+          {pwError && <div className="mb-2.5 mt-2 text-sm text-destructive">{pwError}</div>}
+          <div className="mt-3.5 flex items-center justify-between">
+            <span className="text-[11px] text-muted-foreground">Changing your password signs out your other devices.</span>
+            <Button type="submit" disabled={savingPw || !curPw || !newPw || !confirmPw}>{savingPw ? 'Saving…' : 'Change password'}</Button>
           </div>
         </form>
 
         {/* ---- 2FA (TOTP) ---- */}
-        <div className="card fade-in delay-3" style={{ marginBottom: 16 }}>
-          <div className="spread" style={{ alignItems: 'flex-start' }}>
+        <div className={`${cardCls} fade-in delay-3 mb-4`}>
+          <div className="flex items-start justify-between gap-3">
             <div>
               <strong style={{ fontSize: 15 }}>Two-factor authentication</strong>
-              <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
+              <div className="mt-0.5 text-xs text-muted-foreground">
                 {acc.twoFactorEnabled
                   ? 'Enabled — sign-in requires a code from your authenticator app.'
                   : 'Add an authenticator app (Google Authenticator, 1Password, Authy…) for an extra layer of security. Optional.'}
               </div>
             </div>
-            <span className="row" style={{ gap: 8, flexShrink: 0 }}>
-              <span className={`badge ${acc.twoFactorEnabled ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>{acc.twoFactorEnabled ? 'on' : 'off'}</span>
-              {twoFaStep === 'idle' && !acc.twoFactorEnabled && <button className="btn ghost sm" onClick={startSetup} disabled={twoFaBusy}>{twoFaBusy ? '…' : 'Set up'}</button>}
-              {twoFaStep === 'idle' && acc.twoFactorEnabled && <button className="btn ghost sm" onClick={() => { setTwoFaError(''); setTwoFaStep('disable'); }}>Disable</button>}
-              {twoFaStep !== 'idle' && twoFaStep !== 'recovery' && <button className="btn ghost sm" onClick={resetTwoFa}>Cancel</button>}
+            <span className="flex flex-shrink-0 items-center gap-2">
+              <Badge variant={acc.twoFactorEnabled ? 'success' : 'secondary'}>{acc.twoFactorEnabled ? 'on' : 'off'}</Badge>
+              {twoFaStep === 'idle' && !acc.twoFactorEnabled && <Button variant="ghost" size="sm" onClick={startSetup} disabled={twoFaBusy}>{twoFaBusy ? '…' : 'Set up'}</Button>}
+              {twoFaStep === 'idle' && acc.twoFactorEnabled && <Button variant="ghost" size="sm" onClick={() => { setTwoFaError(''); setTwoFaStep('disable'); }}>Disable</Button>}
+              {twoFaStep !== 'idle' && twoFaStep !== 'recovery' && <Button variant="ghost" size="sm" onClick={resetTwoFa}>Cancel</Button>}
             </span>
           </div>
 
-          {twoFaError && <div className="error" style={{ marginTop: 12 }}>{twoFaError}</div>}
+          {twoFaError && <div className="mt-3 text-sm text-destructive">{twoFaError}</div>}
 
           {twoFaStep === 'setup' && setupData && (
-            <form onSubmit={enableTwoFa} style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-              <div style={{ fontSize: 13, marginBottom: 10 }}>1. Scan this QR code with your authenticator app:</div>
-              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
-                <div className="qr"><QRCodeSVG value={setupData.otpauthUrl} size={144} /></div>
-                <div style={{ minWidth: 170, flex: 1 }}>
-                  <div className="faint" style={{ fontSize: 11, marginBottom: 4 }}>Or enter this key manually:</div>
-                  <code style={{ fontSize: 12, wordBreak: 'break-all', fontFamily: 'ui-monospace, monospace' }}>{setupData.secret}</code>
+            <form onSubmit={enableTwoFa} className="mt-3.5 border-t border-border pt-3.5">
+              <div className="mb-2.5 text-[13px]">1. Scan this QR code with your authenticator app:</div>
+              <div className="mb-3 flex flex-wrap items-center gap-[18px]">
+                <div className="inline-block rounded-2xl bg-white p-3.5 shadow-lg"><QRCodeSVG value={setupData.otpauthUrl} size={144} /></div>
+                <div className="min-w-[170px] flex-1">
+                  <div className="mb-1 text-[11px] text-muted-foreground">Or enter this key manually:</div>
+                  <code className="break-all font-mono text-xs">{setupData.secret}</code>
                 </div>
               </div>
-              <div className="field">
-                <label>2. Enter the 6-digit code to confirm</label>
-                <input value={twoFaCode} onChange={(e) => setTwoFaCode(e.target.value)} inputMode="numeric" placeholder="123456" autoFocus
-                  style={{ maxWidth: 180, letterSpacing: '0.2em', fontFamily: 'ui-monospace, monospace', fontSize: 16 }} />
+              <div className="mt-2">
+                <Label htmlFor={`${uid}-2facode`} className="mb-1.5 block">2. Enter the 6-digit code to confirm</Label>
+                <Input id={`${uid}-2facode`} value={twoFaCode} onChange={(e) => setTwoFaCode(e.target.value)} inputMode="numeric" placeholder="123456" autoFocus
+                  className="max-w-[180px] font-mono text-base tracking-[0.2em]" />
               </div>
-              <div className="row" style={{ justifyContent: 'flex-end' }}>
-                <button className="btn" type="submit" disabled={twoFaBusy || twoFaCode.trim().length < 6}>{twoFaBusy ? 'Verifying…' : 'Enable 2FA'}</button>
+              <div className="mt-3.5 flex justify-end">
+                <Button type="submit" disabled={twoFaBusy || twoFaCode.trim().length < 6}>{twoFaBusy ? 'Verifying…' : 'Enable 2FA'}</Button>
               </div>
             </form>
           )}
 
           {twoFaStep === 'recovery' && (
-            <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-              <strong style={{ fontSize: 13, color: 'var(--emerald)' }}>✓ Two-factor authentication enabled</strong>
-              <p className="faint" style={{ fontSize: 12, margin: '6px 0 10px' }}>
+            <div className="mt-3.5 border-t border-border pt-3.5">
+              <strong className="text-[13px] text-[color:var(--emerald)]">✓ Two-factor authentication enabled</strong>
+              <p className="my-1.5 mb-2.5 text-xs text-muted-foreground">
                 Save these recovery codes somewhere safe. Each works once if you lose your authenticator — they won&apos;t be shown again.
               </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 6, fontFamily: 'ui-monospace, monospace', fontSize: 13, background: 'var(--panel-2)', padding: 12, borderRadius: 10 }}>
-                {recoveryCodes.map((c) => <span key={c}>{c}</span>)}
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-1.5 rounded-[10px] bg-secondary p-3 font-mono text-[13px]">
+                {recoveryCodes.map((cd) => <span key={cd}>{cd}</span>)}
               </div>
-              <div className="row" style={{ justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-                <button className="btn ghost sm" onClick={copyRecovery}>⧉ Copy</button>
-                <button className="btn" onClick={resetTwoFa}>Done</button>
+              <div className="mt-3 flex justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={copyRecovery}>⧉ Copy</Button>
+                <Button onClick={resetTwoFa}>Done</Button>
               </div>
             </div>
           )}
 
           {twoFaStep === 'disable' && (
-            <form onSubmit={disableTwoFa} style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-              <div className="field">
-                <label>Enter your password to disable 2FA</label>
-                <input type="password" value={disablePw} onChange={(e) => setDisablePw(e.target.value)} autoComplete="current-password" autoFocus style={{ maxWidth: 260 }} />
+            <form onSubmit={disableTwoFa} className="mt-3.5 border-t border-border pt-3.5">
+              <div>
+                <Label htmlFor={`${uid}-disablepw`} className="mb-1.5 block">Enter your password to disable 2FA</Label>
+                <Input id={`${uid}-disablepw`} type="password" value={disablePw} onChange={(e) => setDisablePw(e.target.value)} autoComplete="current-password" autoFocus className="max-w-[260px]" />
               </div>
-              <div className="row" style={{ justifyContent: 'flex-end' }}>
-                <button className="btn danger" type="submit" disabled={twoFaBusy || !disablePw}>{twoFaBusy ? 'Disabling…' : 'Disable 2FA'}</button>
+              <div className="mt-3.5 flex justify-end">
+                <Button variant="destructive" type="submit" disabled={twoFaBusy || !disablePw}>{twoFaBusy ? 'Disabling…' : 'Disable 2FA'}</Button>
               </div>
             </form>
           )}
@@ -381,27 +386,27 @@ export default function AccountPage() {
 
         {/* ---- Aktif oturumlar ---- */}
         {sessions && (
-          <div className="card fade-in" style={{ marginBottom: 16 }}>
-            <div className="spread" style={{ alignItems: 'flex-start', marginBottom: sessions.length ? 10 : 0 }}>
+          <div className={`${cardCls} fade-in mb-4`}>
+            <div className="flex items-start justify-between gap-3" style={{ marginBottom: sessions.length ? 10 : 0 }}>
               <div>
                 <strong style={{ fontSize: 15 }}>Active sessions</strong>
-                <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>Devices currently signed in to your account.</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">Devices currently signed in to your account.</div>
               </div>
-              {sessions.filter((s) => !s.current).length > 0 && <button className="btn ghost sm" onClick={revokeOtherSessions}>Sign out others</button>}
+              {sessions.filter((s) => !s.current).length > 0 && <Button variant="ghost" size="sm" onClick={revokeOtherSessions}>Sign out others</Button>}
             </div>
             <table>
               <tbody>
                 {sessions.map((s) => (
                   <tr key={s.id}>
                     <td>
-                      <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div className="flex items-center gap-2 text-[13px] font-semibold">
                         {s.device}
-                        {s.current && <span className="badge active" style={{ fontSize: 9 }}>this device</span>}
+                        {s.current && <Badge variant="success">this device</Badge>}
                       </div>
-                      <div className="faint" style={{ fontSize: 11 }}>{s.ip ?? 'unknown IP'} · active {dateShort(s.lastActive)}</div>
+                      <div className="text-[11px] text-muted-foreground">{s.ip ?? 'unknown IP'} · active {dateShort(s.lastActive)}</div>
                     </td>
-                    <td style={{ textAlign: 'right' }}>
-                      {!s.current && <button className="btn ghost sm" onClick={() => revokeSession(s.id)}>Sign out</button>}
+                    <td className="text-right">
+                      {!s.current && <Button variant="ghost" size="sm" onClick={() => revokeSession(s.id)}>Sign out</Button>}
                     </td>
                   </tr>
                 ))}

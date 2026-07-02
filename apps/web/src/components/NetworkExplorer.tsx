@@ -50,7 +50,7 @@ const ROLE_BG: Record<string, string> = {
   tenant_owner: 'var(--foil)',
   tenant_admin: 'var(--foil)',
   tenant_staff: 'rgba(91,124,250,.9)',
-  member: 'rgba(255,255,255,.1)',
+  member: 'var(--panel-3)',
 };
 
 /* ---- ozel agac dugumu ---- */
@@ -75,7 +75,7 @@ function MemberNode({ data }: NodeProps<Node<NodeData>>) {
       <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 13,
-          color: owner ? 'var(--on-gold)' : 'var(--text)', background: ROLE_BG[n.role] ?? 'rgba(255,255,255,.1)', flexShrink: 0, fontFamily: 'var(--font-display)' }}>
+          color: owner ? 'var(--on-gold)' : 'var(--text)', background: ROLE_BG[n.role] ?? 'var(--panel-3)', flexShrink: 0, fontFamily: 'var(--font-display)' }}>
           {n.fullName.charAt(0).toUpperCase()}
         </span>
         <div style={{ minWidth: 0, flex: 1 }}>

@@ -120,7 +120,8 @@ export class MembersAdminController {
   @HttpCode(200)
   @Post('invite')
   invite(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(inviteSchema)) body: z.infer<typeof inviteSchema>) {
-    return this.members.invite(this.actor(user), user.mid as string, body);
+    // act-as (platform admin) tokeninde mid=null; servis tenant owner'a fallback yapar
+    return this.members.invite(this.actor(user), user.mid ?? null, body);
   }
 
   // manuel uye olustur (davet beklemeden) → admin+ (audit'li). Statik POST, ':id'den ONCE.
@@ -128,7 +129,8 @@ export class MembersAdminController {
   @HttpCode(200)
   @Post()
   createManual(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(createManualSchema)) body: z.infer<typeof createManualSchema>) {
-    return this.members.createManual(this.actor(user), user.mid as string, { ...body, role: body.role as Role | undefined });
+    // act-as (platform admin) tokeninde mid=null; servis tenant owner'a fallback yapar
+    return this.members.createManual(this.actor(user), user.mid ?? null, { ...body, role: body.role as Role | undefined });
   }
 
   // 360 derece uye detayi (STAFF) — statik GET'lerden SONRA tanimli

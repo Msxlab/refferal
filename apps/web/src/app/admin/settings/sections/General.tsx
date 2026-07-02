@@ -1,8 +1,12 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useId, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, Toggle, useToast } from '@/components/ui';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 interface Settings {
   name: string;
@@ -35,6 +39,7 @@ const TIMEZONES = [
 ];
 
 export default function General() {
+  const uid = useId();
   const [s, setS] = useState<Settings | null>(null);
   const [error, setError] = useState('');
   const [toast, showToast] = useToast();
@@ -72,44 +77,44 @@ export default function General() {
 
   return (
     <form className="grid" onSubmit={save} style={{ gap: 18, maxWidth: 620 }}>
-      <div className="card">
+      <Card>
         <strong style={{ fontSize: 14 }}>Workspace</strong>
         <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 12 }}>
-          <Read label="Business name" value={s.name} />
-          <Read label="Workspace slug" value={s.slug} />
-          <Read label="Currency" value={s.currency} />
+          <ReadField label="Business name" value={s.name} />
+          <ReadField label="Workspace slug" value={s.slug} />
+          <ReadField label="Currency" value={s.currency} />
           <div className="field" style={{ margin: 0 }}>
-            <label>Time zone</label>
-            <select value={s.timezone} onChange={(e) => setS({ ...s, timezone: e.target.value })}>
+            <Label htmlFor={`${uid}-tz`} className="mb-1.5 block">Time zone</Label>
+            <select id={`${uid}-tz`} value={s.timezone} onChange={(e) => setS({ ...s, timezone: e.target.value })}>
               {(TIMEZONES.includes(s.timezone) ? TIMEZONES : [s.timezone, ...TIMEZONES]).map((tz) => (
                 <option key={tz} value={tz}>{tz}</option>
               ))}
             </select>
           </div>
         </div>
-      </div>
+      </Card>
 
-      <div className="card">
+      <Card>
         <strong style={{ fontSize: 14 }}>Commissions & payouts</strong>
         <div className="field" style={{ marginTop: 12 }}>
-          <label>Commission maturation rule</label>
-          <select value={s.maturationRule} onChange={(e) => setS({ ...s, maturationRule: e.target.value as Settings['maturationRule'] })}>
+          <Label htmlFor={`${uid}-mat`} className="mb-1.5 block">Commission maturation rule</Label>
+          <select id={`${uid}-mat`} value={s.maturationRule} onChange={(e) => setS({ ...s, maturationRule: e.target.value as Settings['maturationRule'] })}>
             {MATURATION.map((m) => <option key={m.v} value={m.v}>{m.l}</option>)}
           </select>
         </div>
         {USES_DAYS(s.maturationRule) && (
           <div className="field">
-            <label>Days (N){s.maturationRule === 'days_after_delivery' ? ' — return window' : ''}</label>
-            <input type="number" min={0} max={365} value={s.maturationDays ?? 0} onChange={(e) => setS({ ...s, maturationDays: Number(e.target.value) })} />
+            <Label htmlFor={`${uid}-days`} className="mb-1.5 block">Days (N){s.maturationRule === 'days_after_delivery' ? ' — return window' : ''}</Label>
+            <Input id={`${uid}-days`} type="number" min={0} max={365} value={s.maturationDays ?? 0} onChange={(e) => setS({ ...s, maturationDays: Number(e.target.value) })} />
           </div>
         )}
         <div className="field">
-          <label>Payout threshold — currently {money(s.payoutMinCents, s.currency)}</label>
-          <input type="number" min={0} step="0.01" value={Number(s.payoutMinCents) / 100} onChange={(e) => setS({ ...s, payoutMinCents: String(Math.round(Number(e.target.value) * 100)) })} />
+          <Label htmlFor={`${uid}-min`} className="mb-1.5 block">Payout threshold — currently {money(s.payoutMinCents, s.currency)}</Label>
+          <Input id={`${uid}-min`} type="number" min={0} step="0.01" value={Number(s.payoutMinCents) / 100} onChange={(e) => setS({ ...s, payoutMinCents: String(Math.round(Number(e.target.value) * 100)) })} />
         </div>
-      </div>
+      </Card>
 
-      <div className="card">
+      <Card>
         <strong style={{ fontSize: 14 }}>Policy & privacy</strong>
         <div style={{ marginTop: 4 }}>
           <Toggle label="Require a verified payout profile (KYC) before paying members" checked={s.requireKycForPayout} onChange={(v) => setS({ ...s, requireKycForPayout: v })} />
@@ -120,20 +125,21 @@ export default function General() {
           <Toggle label="Inactive members keep earning commissions" checked={s.inactiveMembersEarn} onChange={(v) => setS({ ...s, inactiveMembersEarn: v })} />
           <Toggle label="Compression — skip inactive uplines (advanced)" checked={s.compressionEnabled} onChange={(v) => setS({ ...s, compressionEnabled: v })} />
         </div>
-      </div>
+      </Card>
 
       {error && <div className="error">{error}</div>}
-      <div className="row"><button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button></div>
+      <div className="row"><Button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</Button></div>
       {toast && <div className="toast" role="status">{toast}</div>}
     </form>
   );
 }
 
-function Read({ label, value }: { label: string; value: string }) {
+function ReadField({ label, value }: { label: string; value: string }) {
+  const id = useId();
   return (
     <div className="field" style={{ margin: 0 }}>
-      <label>{label}</label>
-      <input value={value} disabled />
+      <Label htmlFor={id} className="mb-1.5 block">{label}</Label>
+      <Input id={id} value={value} disabled />
     </div>
   );
 }

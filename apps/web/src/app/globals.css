@@ -1,3 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+   shadcn/ui kopru: Tailwind renkleri mevcut "Obsidian & Champagne" token'larina
+   (tailwind.config.ts) DOGRUDAN eslenir — ayri HSL token YOK. Boylece eski
+   --border/--muted/--primary ile isim cakismasi olmaz, light/dark zaten
+   [data-theme] token'larindan gelir.
+   ============================================================================ */
+@layer base {
+  /* preflight kapali; shadcn `border` utility'si icin varsayilan kenar rengi */
+  *, ::before, ::after { border-color: var(--border); }
+  /* preflight kapali oldugundan UA varsayilan buton arka plani sizmasin
+     (aksi halde arka-plansiz/ghost shadcn butonlar koyu temada BEYAZ cikar).
+     Dusuk ozgulluk: .btn (orijinal) ve Tailwind bg-* utility'leri bunu ezer. */
+  button { background-color: transparent; background-image: none; }
+}
+
 /* ============================================================================
    Refearn — "Obsidian & Champagne" tasarim sistemi (docs/DESIGN-VISION.md)
    Iki tam tema: [data-theme="dark"] (varsayilan) + [data-theme="light"].
@@ -13,6 +32,8 @@
   --gold-600: #b8922e;
   --gold-800: #6b5414;
   --foil: linear-gradient(135deg, #f0dca8 0%, #d4af37 45%, #b8922e 100%);
+  /* yesil para gradyani — eskiden tanimsizdi (Toggle/StatCard ikonlari bos cikiyordu) */
+  --grad-emerald: linear-gradient(135deg, #2ed3a3 0%, #23a981 100%);
 
   /* semantik para (her iki tema) */
   --emerald: #23a981; /* money-positive: payable->paid, kazanc */

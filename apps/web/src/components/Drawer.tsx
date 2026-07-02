@@ -1,8 +1,11 @@
 'use client';
 
-import { ReactNode, useEffect, useRef } from 'react';
+import { ReactNode, useState } from 'react';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from './ui/sheet';
 
-/** Sagdan acilan slide-over panel (detay/CRM cekmecesi). ESC + dis-tiklama ile kapanir. */
+/** Sagdan acilan slide-over panel (detay/CRM cekmecesi).
+ *  shadcn/Radix Sheet ile: focus-trap + ESC + dis-tiklama + arka plan scroll-lock + portal.
+ *  Govde KENDI icinde kayar (flex-1 overflow-y-auto); baslik/altlik sabit kalir. */
 export function Drawer({ title, subtitle, onClose, children, footer, width = 460 }: {
   title: string;
   subtitle?: string;
@@ -11,41 +14,28 @@ export function Drawer({ title, subtitle, onClose, children, footer, width = 460
   footer?: ReactNode;
   width?: number;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    ref.current?.focus();
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden'; // arka plan scroll'unu kilitle
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [onClose]);
-
+  const [open, setOpen] = useState(true);
+  const handle = (o: boolean) => {
+    if (!o) { setOpen(false); onClose(); }
+  };
   return (
-    <div className="drawer-backdrop" onClick={onClose}>
-      <div
-        ref={ref}
-        className="drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        tabIndex={-1}
-        style={{ width: `min(${width}px, 94vw)` }}
-        onClick={(e) => e.stopPropagation()}
+    <Sheet open={open} onOpenChange={handle}>
+      <SheetContent
+        side="right"
+        className="w-full p-0"
+        style={{ width: `min(${width}px, 94vw)`, maxWidth: '94vw' }}
       >
-        <div className="drawer-head">
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 750, fontSize: 17, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
-            {subtitle && <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>{subtitle}</div>}
+        <SheetHeader className="flex flex-row items-center justify-between gap-3 border-b border-border px-5 py-4">
+          <div className="min-w-0">
+            <SheetTitle className="truncate text-[17px] font-bold">{title}</SheetTitle>
+            {subtitle && <SheetDescription className="mt-0.5 text-xs">{subtitle}</SheetDescription>}
           </div>
-          <button className="theme-toggle" aria-label="Close" onClick={onClose}>✕</button>
-        </div>
-        <div className="drawer-body">{children}</div>
-        {footer && <div className="drawer-foot">{footer}</div>}
-      </div>
-    </div>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">{children}</div>
+        {footer && (
+          <SheetFooter className="flex flex-wrap justify-end gap-2.5 border-t border-border px-5 py-3.5">{footer}</SheetFooter>
+        )}
+      </SheetContent>
+    </Sheet>
   );
 }

@@ -1,6 +1,8 @@
 // Admin SPA oturumu: token'lar localStorage'da (MVP tercihi — bkz. DECISIONS).
 // Uretimde httpOnly cookie'ye gecilebilir.
 
+import { getActiveCompanyToken, setActiveCompanyToken } from './active-company';
+
 export interface MembershipSummary {
   id: string;
   tenantId: string;
@@ -33,6 +35,9 @@ export function setSession(s: Session): void {
 
 export function clearSession(): void {
   window.localStorage.removeItem(KEY);
+  // HQ drill-in act-as god token bellekte tutulur; oturum bitince onu da temizle
+  // ki request() artik /admin/* cagrilarina bayat token eklemesin.
+  setActiveCompanyToken(null);
 }
 
 export function activeMembership(s: Session): MembershipSummary | null {
@@ -89,11 +94,11 @@ export function stopImpersonation(): Session | null {
   return raw ? (JSON.parse(raw) as Session) : null;
 }
 
-/** Access JWT govdesini cozer (imza dogrulamasi sunucuda; burada yalniz UI gosterimi icin). */
-export function accessClaims(s: Session | null): AccessClaims {
-  if (!s?.accessToken) return {};
+/** Ham bir access JWT govdesini cozer (imza dogrulamasi sunucuda; burada yalniz UI icin). */
+function decodeClaims(token: string | undefined): AccessClaims {
+  if (!token) return {};
   try {
-    const part = s.accessToken.split('.')[1];
+    const part = token.split('.')[1];
     const json = atob(part.replace(/-/g, '+').replace(/_/g, '/'));
     return JSON.parse(json) as AccessClaims;
   } catch {
@@ -101,9 +106,16 @@ export function accessClaims(s: Session | null): AccessClaims {
   }
 }
 
-/** Ince yetki kontrolu (UI). owner/platform her zaman gecer; backend ayrica zorlar. */
+/** Access JWT govdesini cozer (imza dogrulamasi sunucuda; burada yalniz UI gosterimi icin). */
+export function accessClaims(s: Session | null): AccessClaims {
+  return decodeClaims(s?.accessToken);
+}
+
+/** Ince yetki kontrolu (UI). owner/platform her zaman gecer; backend ayrica zorlar.
+ *  HQ drill-in'de aktif sirket (act-as) token'i varsa onun haklari degerlendirilir. */
 export function can(s: Session | null, permission: string): boolean {
-  const c = accessClaims(s);
+  const tok = getActiveCompanyToken();
+  const c = tok ? decodeClaims(tok) : accessClaims(s);
   if (c.role && GOD_TIERS.has(c.role)) return true;
   return c.perms?.includes(permission) ?? false;
 }
@@ -113,11 +125,9 @@ export function landingPath(role: string | undefined): string {
   return isAdminRole(role) ? '/admin' : '/app';
 }
 
-/** Oturum bazli inis: platform admin'in bir isyeri (uyelik) varsa dogrudan /admin,
- *  yoksa /platform (sirket listesi). Diger roller role gore (admin → /admin, uye → /app). */
+/** Oturum bazli inis: platform admin HQ'ya iner.
+ *  Diger roller role gore (admin → /admin, uye → /app). */
 export function landingForSession(s: Session): string {
-  if (s.user.isPlatformAdmin) {
-    return activeMembership(s) ? '/admin' : '/platform';
-  }
+  if (s.user.isPlatformAdmin) return '/hq';
   return landingPath(activeMembership(s)?.role);
 }

@@ -2,6 +2,10 @@
 
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import { Popover } from './Popover';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Switch } from './ui/switch';
+import { Button } from './ui/button';
+import { cn } from '@/lib/utils';
 import { APP_MONOGRAM, APP_NAME } from '@/lib/brand';
 
 /* ----------------------------------------------------- animasyonlu sayac */
@@ -60,7 +64,7 @@ export function Donut({ segments, size = 168, thickness = 20, center }: { segmen
   return (
     <div role="img" aria-label={ariaLabel} style={{ position: 'relative', width: '100%', maxWidth: size, aspectRatio: '1 / 1', margin: '0 auto' }}>
       <svg viewBox={`0 0 ${size} ${size}`} width="100%" height="100%" aria-hidden="true" style={{ transform: 'rotate(-90deg)', display: 'block' }}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,.06)" strokeWidth={thickness} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--panel-2)" strokeWidth={thickness} />
         {total > 0 &&
           segments.map((s, i) => {
             const frac = Math.max(0, s.value) / total;
@@ -102,7 +106,7 @@ export function Bars({ data, max, format }: { data: Array<{ label: string; value
             <span className="muted" style={{ fontSize: 12 }}>{d.label}</span>
             <span className="tnum" style={{ fontSize: 13, fontWeight: 650 }}>{format ? format(d.value) : d.value}</span>
           </div>
-          <div style={{ height: 9, borderRadius: 6, background: 'rgba(255,255,255,.05)', overflow: 'hidden' }}>
+          <div style={{ height: 9, borderRadius: 6, background: 'var(--panel-2)', overflow: 'hidden' }}>
             <div
               style={{
                 height: '100%',
@@ -134,39 +138,19 @@ export function StatCard({ label, value, icon, grad, hint, delay }: { label: str
 }
 
 /* ----------------------------------------------------- modal / onay */
-export function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  // a11y: acilista odagi modala tasi; ESC ile kapat; arka plan scroll'unu kilitle
-  useEffect(() => {
-    ref.current?.focus();
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [onClose]);
-
+export function Modal({ title, children, onClose, className }: { title: string; children: ReactNode; onClose: () => void; className?: string }) {
+  // Radix Dialog (shadcn): focus-trap + ESC + arka plan scroll-lock + portal + dis-tiklama.
+  // Icerik uzunsa modal KENDI ICINDE kayar (DialogContent max-h + overflow-y-auto) — yukari/asagi sorunu cozulur.
+  // className ile genis modallar (orn. izin matrisi) max-w'yi gecersiz kilabilir.
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        ref={ref}
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        tabIndex={-1}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ fontWeight: 720, fontSize: 'var(--text-lg)', marginBottom: 'var(--space-3)' }}>{title}</div>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className={cn('max-w-[440px]', className)}>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
         {children}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -183,8 +167,8 @@ export function Confirm({ title, message, confirmLabel, danger, onConfirm, onClo
     <Modal title={title} onClose={onClose}>
       <p className="muted" style={{ marginTop: 0 }}>{message}</p>
       <div className="row" style={{ justifyContent: 'flex-end', marginTop: 18 }}>
-        <button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
-        <button className={`btn ${danger ? 'danger' : ''}`} onClick={onConfirm} disabled={busy}>{confirmLabel}</button>
+        <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button variant={danger ? 'destructive' : 'default'} onClick={onConfirm} disabled={busy}>{confirmLabel}</Button>
       </div>
     </Modal>
   );
@@ -238,42 +222,11 @@ export function ThemeToggle() {
 
 /* ----------------------------------------------------- toggle (switch) */
 export function Toggle({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  // shadcn/Radix Switch: acik durumda bg-success (eski tanimsiz --grad-emerald bug'i giderildi), a11y dahili.
   return (
     <div className="spread" style={{ padding: 'var(--space-3) 0', borderTop: '1px solid var(--border)' }}>
       <span style={{ fontSize: 'var(--text-md)' }}>{label}</span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        disabled={disabled}
-        onClick={() => onChange(!checked)}
-        style={{
-          width: 46,
-          height: 26,
-          borderRadius: 999,
-          border: 'none',
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          position: 'relative',
-          background: checked ? 'var(--grad-emerald)' : 'rgba(255,255,255,.12)',
-          transition: 'background var(--dur-fast) ease',
-          opacity: disabled ? 0.5 : 1,
-        }}
-      >
-        <span
-          aria-hidden="true"
-          style={{
-            position: 'absolute',
-            top: 3,
-            left: checked ? 23 : 3,
-            width: 20,
-            height: 20,
-            borderRadius: '50%',
-            background: '#fff',
-            transition: 'left var(--dur-fast) ease',
-          }}
-        />
-      </button>
+      <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} aria-label={label} />
     </div>
   );
 }
@@ -292,9 +245,13 @@ export function Loading({ rows = 3 }: { rows?: number }) {
 /* ----------------------------------------------------- basit toast hook */
 export function useToast(): [string | null, (msg: string) => void] {
   const [msg, setMsg] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // unmount'ta zamanlayiciyi temizle (bayat setState / erken kapanma onlenir)
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   const show = (m: string) => {
     setMsg(m);
-    setTimeout(() => setMsg(null), 2800);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setMsg(null), 2800);
   };
   return [msg, show];
 }
@@ -308,9 +265,9 @@ export function Pagination({ page, pageSize, total, onPage }: { page: number; pa
   return (
     <div className="row no-print" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
       <span className="faint tnum" style={{ fontSize: 12 }}>{first}–{last} / {total}</span>
-      <button className="btn ghost sm" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page">‹</button>
+      <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page">‹</Button>
       <span className="tnum" style={{ fontSize: 12 }}>{page} / {pages}</span>
-      <button className="btn ghost sm" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page">›</button>
+      <Button variant="ghost" size="sm" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page">›</Button>
     </div>
   );
 }
@@ -382,7 +339,7 @@ export function ColumnsMenu({ prefs }: { prefs: TablePrefs }) {
             <button className={`seg-tab ${prefs.density === 'comfortable' ? 'on' : ''}`} style={{ padding: '5px 9px', fontSize: 12 }} onClick={() => prefs.setDensity('comfortable')}>Comfortable</button>
             <button className={`seg-tab ${prefs.density === 'compact' ? 'on' : ''}`} style={{ padding: '5px 9px', fontSize: 12 }} onClick={() => prefs.setDensity('compact')}>Compact</button>
           </div>
-          <button className="btn ghost sm" onClick={prefs.reset}>Reset</button>
+          <Button variant="ghost" size="sm" onClick={prefs.reset}>Reset</Button>
         </div>
       </div>
     </Popover>

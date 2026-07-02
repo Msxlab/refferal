@@ -4,6 +4,10 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
 import { Bars, Donut, Loading, MoneyCounter } from '@/components/ui';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { dateShort, money, levelLabel } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -72,7 +76,7 @@ export default function MemberDashboard() {
     catch { /* sessiz */ }
   }
 
-  if (error) return <div className="error">{error}</div>;
+  if (error) return <div className="my-2 text-sm text-destructive">{error}</div>;
   if (!data) return <Loading />;
 
   const c = data.currency;
@@ -102,24 +106,24 @@ export default function MemberDashboard() {
       {announcements.filter((a) => !a.read).length > 0 && (
         <div className="grid fade-in" style={{ gap: 10, marginBottom: 16 }}>
           {announcements.filter((a) => !a.read).map((a) => (
-            <div key={a.id} className="card" style={{ borderColor: 'color-mix(in srgb, var(--gold-500) 35%, transparent)' }}>
+            <Card key={a.id} className="p-5" style={{ borderColor: 'color-mix(in srgb, var(--gold-500) 35%, transparent)' }}>
               <div className="spread" style={{ marginBottom: 4 }}>
                 <strong style={{ fontSize: 14 }}>📣 {a.title}</strong>
-                <button className="faint" onClick={() => dismissAnnouncement(a.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>Mark read ✕</button>
+                <button className="text-xs text-muted-foreground hover:text-foreground" onClick={() => dismissAnnouncement(a.id)}>Mark read ✕</button>
               </div>
               <div className="muted" style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{a.body}</div>
-            </div>
+            </Card>
           ))}
         </div>
       )}
 
       {onboarding && onboarding.percent < 100 && (
-        <div className="card fade-in" style={{ marginBottom: 16 }}>
+        <Card className="fade-in p-5" style={{ marginBottom: 16 }}>
           <div className="spread" style={{ marginBottom: 10 }}>
             <strong style={{ fontSize: 14 }}>Get started</strong>
             <span className="faint" style={{ fontSize: 12 }}>{onboarding.percent}% complete</span>
           </div>
-          <div style={{ height: 8, borderRadius: 6, background: 'rgba(255,255,255,.06)', overflow: 'hidden', marginBottom: 12 }}>
+          <div className="mb-3 h-2 overflow-hidden rounded-md bg-muted">
             <div style={{ height: '100%', width: `${onboarding.percent}%`, borderRadius: 6, background: 'var(--grad-primary)', transition: 'width .7s' }} />
           </div>
           <div className="grid" style={{ gap: 6 }}>
@@ -130,50 +134,50 @@ export default function MemberDashboard() {
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
       {npsPrompt && !npsDone && (
-        <div className="card fade-in" style={{ marginBottom: 16, borderColor: 'color-mix(in srgb, var(--sky) 30%, transparent)' }}>
+        <Card className="fade-in p-5" style={{ marginBottom: 16, borderColor: 'color-mix(in srgb, var(--sky) 30%, transparent)' }}>
           <div className="spread" style={{ marginBottom: 10 }}>
             <strong style={{ fontSize: 14 }}>How likely are you to recommend us? (0–10)</strong>
-            <button className="faint" onClick={() => setNpsPrompt(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13 }}>✕</button>
+            <button className="text-sm text-muted-foreground hover:text-foreground" onClick={() => setNpsPrompt(false)}>✕</button>
           </div>
           <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
             {Array.from({ length: 11 }).map((_, n) => (
-              <button key={n} onClick={() => setNpsScore(n)} className={`btn sm ${npsScore === n ? '' : 'ghost'}`} style={{ minWidth: 34, padding: '6px 0' }}>{n}</button>
+              <Button key={n} size="sm" variant={npsScore === n ? 'default' : 'ghost'} onClick={() => setNpsScore(n)} className="min-w-[34px] px-0">{n}</Button>
             ))}
           </div>
-          <input value={npsComment} onChange={(e) => setNpsComment(e.target.value)} placeholder="Any feedback? (optional)" style={{ marginTop: 10 }} />
+          <Input value={npsComment} onChange={(e) => setNpsComment(e.target.value)} placeholder="Any feedback? (optional)" className="mt-2.5" />
           <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
-            <button className="btn" disabled={npsScore == null} onClick={submitNps}>Submit</button>
+            <Button disabled={npsScore == null} onClick={submitNps}>Submit</Button>
           </div>
-        </div>
+        </Card>
       )}
-      {npsDone && <div className="card fade-in" style={{ marginBottom: 16 }}><span className="muted">Thanks for your feedback! 🙏</span></div>}
+      {npsDone && <Card className="fade-in p-5" style={{ marginBottom: 16 }}><span className="muted">Thanks for your feedback! 🙏</span></Card>}
 
       {/* sold vs earned (this month) — the product's core promise */}
       <div className="stat-grid fade-in delay-1" style={{ marginBottom: 16 }}>
-        <div className="card stat">
+        <Card className="stat p-5">
           <div className="spread"><span className="k">You sold (this month)</span><span className="icon">◇</span></div>
           <div className="v"><MoneyCounter cents={Number(data.soldThisMonthCents)} currency={c} /></div>
           <div className="hint">{data.salesThisMonth} sales · {money(data.soldLifetimeCents, c)} lifetime</div>
-        </div>
-        <div className="card stat">
+        </Card>
+        <Card className="stat p-5">
           <div className="spread"><span className="k">You earned (this month)</span><span className="icon" style={{ background: 'var(--foil)' }}>◆</span></div>
           <div className="v" style={{ color: 'var(--gold-500)' }}><MoneyCounter cents={Number(data.earnedThisMonthCents)} currency={c} /></div>
           <div className="hint">commission (pending + payable + paid)</div>
-        </div>
-        <div className="card stat">
+        </Card>
+        <Card className="stat p-5">
           <div className="spread"><span className="k">Effective rate</span><span className="icon">%</span></div>
           <div className="v">{data.effectiveRateBps > 0 ? `${(data.effectiveRateBps / 100).toFixed(1)}%` : '—'}</div>
           <div className="hint">earned / sold</div>
-        </div>
+        </Card>
       </div>
 
       {/* hero + donut */}
-      <div className="grid fade-in delay-1" style={{ gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', alignItems: 'stretch' }}>
-        <div className="card hero">
+      <div className="grid fade-in delay-1 stack-sm" style={{ gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', alignItems: 'stretch' }}>
+        <Card className="hero p-5">
           <div className="faint" style={{ fontSize: 12 }}>{t('me.monthTotal')}</div>
           <div className="bignum gradient-text" style={{ marginTop: 6 }}>
             <MoneyCounter cents={total} currency={c} />
@@ -184,7 +188,11 @@ export default function MemberDashboard() {
               <Chip color="var(--sky)" label={t('me.payable')} value={money(payable, c)} />
               <Chip color="var(--emerald)" label={t('me.paid')} value={money(paid, c)} />
             </div>
-            {payable > 0 && <Link className="btn success sm" href="/app/wallet">{t('me.requestPayout')} →</Link>}
+            {payable > 0 && (
+              <Button asChild variant="success" size="sm">
+                <Link href="/app/wallet">{t('me.requestPayout')} →</Link>
+              </Button>
+            )}
           </div>
           {rankInfo?.rank && (
             <div className="row" style={{ marginTop: 14, gap: 8 }}>
@@ -192,9 +200,9 @@ export default function MemberDashboard() {
               {rankInfo.topPercent != null && <span className="faint" style={{ fontSize: 11 }}>top {rankInfo.topPercent}% this month</span>}
             </div>
           )}
-        </div>
+        </Card>
 
-        <div className="card" style={{ display: 'grid', placeItems: 'center' }}>
+        <Card className="grid place-items-center p-5">
           <Donut
             segments={segs}
             center={
@@ -205,27 +213,27 @@ export default function MemberDashboard() {
               </div>
             }
           />
-        </div>
+        </Card>
       </div>
 
-      {/* kariyer rutbesi + rozetler (#20) */}
+      {/* kariyer rutbesi + rozetler */}
       {rank && (rank.current || rank.badges.some((b) => b.earned)) && (
-        <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
+        <Card className="fade-in delay-2 p-5" style={{ marginTop: 16 }}>
           <div className="spread" style={{ marginBottom: 10 }}>
             <strong style={{ fontSize: 14 }}>🏅 {rank.current ?? 'Unranked'}{rank.next && <span className="faint" style={{ fontWeight: 400 }}> → {rank.next}</span>}{rank.overrideBps ? <span className="badge active" style={{ fontSize: 10, marginLeft: 8 }}>+{(rank.overrideBps / 100).toFixed(rank.overrideBps % 100 ? 1 : 0)}% on your sales</span> : null}</strong>
             {rank.next && <span className="faint" style={{ fontSize: 12 }}>{rank.overallPct}% to {rank.next}</span>}
           </div>
           {rank.next && (
-            <div style={{ height: 8, borderRadius: 6, background: 'rgba(255,255,255,.06)', overflow: 'hidden', marginBottom: 12 }}>
+            <div className="mb-3 h-2 overflow-hidden rounded-md bg-muted">
               <div style={{ height: '100%', width: `${rank.overallPct}%`, borderRadius: 6, background: 'var(--foil)', transition: 'width .7s' }} />
             </div>
           )}
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
             {rank.badges.map((b) => (
-              <span key={b.key} className={`badge ${b.earned ? 'active' : 'draft'}`} style={{ fontSize: 11, opacity: b.earned ? 1 : 0.5 }}>{b.earned ? '✓ ' : ''}{b.label}</span>
+              <Badge key={b.key} variant={b.earned ? 'success' : 'secondary'} style={{ opacity: b.earned ? 1 : 0.5 }}>{b.earned ? '✓ ' : ''}{b.label}</Badge>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
       {/* aktif kampanyalar — kendi siram */}
@@ -234,7 +242,7 @@ export default function MemberDashboard() {
           {campaigns.map((cp) => {
             const topPrize = cp.prizes.reduce((a, p) => Math.max(a, p.bonusCents), 0);
             return (
-              <div key={cp.id} className="card" style={{ borderColor: 'color-mix(in srgb, var(--gold-500) 35%, transparent)' }}>
+              <Card key={cp.id} className="p-5" style={{ borderColor: 'color-mix(in srgb, var(--gold-500) 35%, transparent)' }}>
                 <div className="spread">
                   <strong style={{ fontSize: 14 }}>⚑ {cp.name}</strong>
                   <span className="faint" style={{ fontSize: 11 }}>ends {dateShort(cp.endsAt)}</span>
@@ -266,7 +274,7 @@ export default function MemberDashboard() {
                     ))}
                   </div>
                 )}
-              </div>
+              </Card>
             );
           })}
         </div>
@@ -274,7 +282,7 @@ export default function MemberDashboard() {
 
       {/* son 6 ay kazanc trendi */}
       {earnings && earnings.series.some((p) => Number(p.totalCents) > 0) && (
-        <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
+        <Card className="fade-in delay-2 p-5" style={{ marginTop: 16 }}>
           <div className="spread" style={{ marginBottom: 14 }}>
             <strong>Last 6 months</strong>
             <span className="faint" style={{ fontSize: 12 }}>Your total commission per month</span>
@@ -283,11 +291,11 @@ export default function MemberDashboard() {
             data={earnings.series.map((p) => ({ label: monthLabel(p.month), value: Number(p.totalCents), color: 'var(--grad-primary)' }))}
             format={(v) => money(v, c)}
           />
-        </div>
+        </Card>
       )}
 
       {/* seviye dokumu */}
-      <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
+      <Card className="fade-in delay-2 p-5" style={{ marginTop: 16 }}>
         <div className="spread" style={{ marginBottom: 14 }}>
           <strong>{t('me.levelBreakdown')}</strong>
           <span className="faint" style={{ fontSize: 12 }}>{t('me.levelHint')}</span>
@@ -300,7 +308,7 @@ export default function MemberDashboard() {
             <span className="faint" style={{ fontSize: 12.5 }}>Record a sale or invite your team — your earnings by level will show up here.</span>
           </div>
         )}
-      </div>
+      </Card>
 
       <div className="faint fade-in" style={{ fontSize: 11, marginTop: 16, lineHeight: 1.5 }}>{t('me.incomeNote')}</div>
     </div>

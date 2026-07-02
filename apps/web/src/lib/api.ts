@@ -1,9 +1,15 @@
 import { clearSession, getSession, setSession, type Session } from './auth';
+import { getActiveCompanyToken } from './active-company';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1';
 
 /** SSE/EventSource gibi fetch disi tuketiciler icin API kok adresi. */
 export const API_BASE = BASE;
+
+// HQ drill-in: sahip bir sirkete indiginde /admin/* cagrilari bu token'i kullanir.
+// Token bagimsiz './active-company' modulunde tutulur (api.ts <-> auth.ts dairesel
+// bagimliligini kirar); mevcut import'lar bozulmasin diye buradan re-export edilir.
+export { setActiveCompanyToken, getActiveCompanyToken } from './active-company';
 
 export class ApiError extends Error {
   constructor(
@@ -50,9 +56,14 @@ function refresh(session: Session): Promise<Session | null> {
 
 async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
   const session = getSession();
-  const res = await rawFetch(path, init, session?.accessToken);
+  const activeCompanyToken = getActiveCompanyToken();
+  const overrideForAdmin = activeCompanyToken && path.startsWith('/admin') ? activeCompanyToken : null;
+  const token = overrideForAdmin ?? session?.accessToken;
+  const res = await rawFetch(path, init, token);
 
-  if (res.status === 401 && session && retry) {
+  // Drill-in override token kisa omurlu ve refresh edilemez (yeniden act-as ile basilir);
+  // bu yuzden 401-refresh yolu yalnizca normal oturum token'i kullanildiginda calisir.
+  if (res.status === 401 && !overrideForAdmin && session && retry) {
     const refreshed = await refresh(session);
     if (refreshed) return request<T>(path, init, false);
     // refresh basarisiz -> oturum temizlendi; bayat ekranda kalmak yerine login'e dondur
@@ -122,6 +133,15 @@ export async function login(email: string, password: string): Promise<Session | 
 export async function loginTwoFactor(mfaToken: string, code: string): Promise<Session> {
   const res = await rawFetch('/auth/login/2fa', { method: 'POST', body: JSON.stringify({ mfaToken, code }) });
   return (await readOrThrow(res)) as Session;
+}
+
+/** Markali subdomain girisi (Alt-proje B): giristen ONCE kimliksiz marka bilgisi. */
+export interface TenantBrand {
+  name: string;
+  branding: { logoText?: string; tagline?: string; primaryColor?: string; accentColor?: string };
+}
+export function getTenantBrand(slug: string): Promise<TenantBrand> {
+  return api.get<TenantBrand>(`/auth/tenant-brand/${encodeURIComponent(slug)}`);
 }
 
 /** Binary (PDF) indirme: POST + Bearer -> Blob. 401'de bir kez refresh dener. */

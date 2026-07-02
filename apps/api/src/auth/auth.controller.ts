@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { ZodValidationPipe } from '../common/zod.pipe';
@@ -45,6 +45,12 @@ export class AuthController {
   @Post('login')
   login(@Body(new ZodValidationPipe(loginSchema)) body: LoginInput, @Req() req: Request) {
     return this.auth.login(body, meta(req));
+  }
+
+  // Markali subdomain girisinden ONCE (kimliksiz) marka bilgisi — Alt-proje B.
+  @Get('tenant-brand/:slug')
+  tenantBrand(@Param('slug') slug: string) {
+    return this.auth.tenantBrand(slug.toLowerCase());
   }
 
   // Login 2. adim (2FA etkinse): challenge token + TOTP/kurtarma kodu -> tam oturum.
