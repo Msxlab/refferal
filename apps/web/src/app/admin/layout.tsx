@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { activeMembership, clearSession, getSession, isAdminRole, type Session } from '@/lib/auth';
+import { activeMembership, clearSession, getSession, isAdminRole, isImpersonating, setSession, stopImpersonation, type Session } from '@/lib/auth';
+import { api } from '@/lib/api';
 import { ThemeToggle } from '@/components/ui';
 import { NotificationBell } from '@/components/NotificationBell';
 import { CommandPalette } from '@/components/CommandPalette';
@@ -29,9 +30,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname();
   const [session, setSessionState] = useState<Session | null>(null);
   const [navOpen, setNavOpen] = useState(false);
+  const [viewingTenant, setViewingTenant] = useState<string | null>(null);
 
   // route degisince mobil drawer'i kapat
   useEffect(() => { setNavOpen(false); }, [pathname]);
+
+  // impersonation band: sayfa yenilense de sessionStorage'dan okunur (item 4)
+  useEffect(() => {
+    if (isImpersonating()) setViewingTenant(window.sessionStorage.getItem('refearn.platform.viewingTenant'));
+  }, []);
 
   useEffect(() => {
     const s = getSession();
@@ -60,6 +67,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   function logout() {
     clearSession();
     router.replace('/login');
+  }
+
+  /** Item 4: impersonation'dan cik — end'i best-effort bildir, platform oturumunu geri yukle, sirket sayfasina don. */
+  async function exitImpersonation() {
+    const returnPath = window.sessionStorage.getItem('refearn.platform.returnPath');
+    const tenantId = returnPath?.split('/').pop();
+    try {
+      if (tenantId) await api.post(`/platform/companies/${tenantId}/impersonate/end`);
+    } catch {
+      // best-effort: audit kaydi basarisiz olsa da cikisi engelleme
+    }
+    const restored = stopImpersonation();
+    if (restored) setSession(restored);
+    window.sessionStorage.removeItem('refearn.platform.viewingTenant');
+    window.sessionStorage.removeItem('refearn.platform.returnPath');
+    router.push(returnPath ?? '/platform');
   }
 
   return (
@@ -101,7 +124,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         </div>
       </aside>
-      <main className="main">{children}</main>
+      <main className="main">
+        {viewingTenant && (
+          <div className="card" role="alert" style={{ display: 'flex', alignItems: 'center', gap: 12, borderColor: 'var(--gold-500)' }}>
+            <span>Viewing as <strong>{viewingTenant}</strong> — read-only</span>
+            <span style={{ flex: 1 }} />
+            <button className="btn ghost sm" onClick={exitImpersonation}>Exit</button>
+          </div>
+        )}
+        {children}
+      </main>
       <CommandPalette />
     </div>
   );

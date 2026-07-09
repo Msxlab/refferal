@@ -3,8 +3,8 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { api, ApiError, switchTenant } from '@/lib/api';
-import { applyTenantSwitch, getSession, membershipForTenant } from '@/lib/auth';
+import { api, ApiError } from '@/lib/api';
+import { getSession, startImpersonation } from '@/lib/auth';
 import { Confirm, Loading, Modal, Pagination, SortableTh, useToast, type SortDir } from '@/components/ui';
 import { NetworkExplorer, type ApiNode } from '@/components/NetworkExplorer';
 import { StatusBadge } from '@/components/platform/statusBadge';
@@ -34,6 +34,8 @@ interface AuditItem {
   before: unknown; after: unknown; createdAt: string;
 }
 interface AuditList { total: number; page: number; pageSize: number; items: AuditItem[] }
+
+interface ImpersonateResponse { accessToken: string; membershipId: string }
 
 interface HealthJob { name: string; status: string; [k: string]: unknown }
 interface Health { db: boolean; jobs: HealthJob[]; backups: { lastBackupAt: string | null } }
@@ -109,20 +111,19 @@ function CompanyPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  /** Platform -> bu sirketin yonetim isyerine gir: uyeligi aktif yap (token'i tenant'a scope et) ve /admin'e gec. */
+  /** Platform -> bu sirketin isyerine salt-okunur gir (impersonation, item 4): owner uyeligine scoped, imp claim'li token. */
   async function openCompanyAdmin() {
     if (!company) return;
-    const session = getSession();
-    if (!session) { router.replace('/login'); return; }
-    const membership = membershipForTenant(session, company.id);
-    if (!membership) {
-      setEnterMsg('You have no membership in this company yet, so its workspace can’t be opened.');
-      return;
-    }
     setEntering(true); setEnterMsg('');
     try {
-      const res = await switchTenant(membership.id);
-      applyTenantSwitch(res.accessToken, res.activeMembershipId);
+      const res = await api.post<ImpersonateResponse>(`/platform/companies/${company.id}/impersonate`);
+      const session = getSession();
+      if (!session) { router.replace('/login'); return; }
+      // build an impersonation session: platform session backed up, token scoped read-only to owner
+      const impSession = { ...session, accessToken: res.accessToken, activeMembershipId: res.membershipId };
+      startImpersonation(impSession);
+      window.sessionStorage.setItem('refearn.platform.returnPath', `/platform/companies/${company.id}`);
+      window.sessionStorage.setItem('refearn.platform.viewingTenant', company.name);
       router.push('/admin');
     } catch (e) {
       setEntering(false);
