@@ -644,6 +644,9 @@ export class PlatformService {
     return this.prisma.$transaction(async (tx) => {
       const target = await tx.user.findUnique({ where: { id: targetUserId }, select: { id: true, isPlatformAdmin: true, email: true } });
       if (!target || !target.isPlatformAdmin) throw new NotFoundException('platform admin bulunamadi');
+      // Son-admin race: platform-admin satirlarini FOR UPDATE ile kilitle (checks.service.ts idiomu) →
+      // eszamanli iki FARKLI revoke seri hale gelir; ikincisi count=1 gorup 400'ler (sifir-admin lockout onlenir).
+      await tx.$queryRaw`SELECT id FROM users WHERE is_platform_admin = true FOR UPDATE`;
       const count = await tx.user.count({ where: { isPlatformAdmin: true } });
       if (count <= 1) throw new BadRequestException('son platform admin alinamaz');
       await tx.user.update({ where: { id: targetUserId }, data: { isPlatformAdmin: false } });
@@ -651,6 +654,8 @@ export class PlatformService {
         data: { tenantId: null, actorUserId, action: 'platform.admin_revoked', entity: 'user', entityId: targetUserId, after: { email: target.email } },
       });
       return { id: targetUserId, isPlatformAdmin: false };
-    });
+    // maxWait: eszamanli revoke FOR UPDATE'te bloke olan kaybeden, kilit acilana kadar beklesin
+    // (varsayilan 2sn maxWait bloke islemi P2028'le dusuruyordu; kazanan ms'de biter, 10sn timeout bol).
+    }, { maxWait: 5000, timeout: 10000 });
   }
 }

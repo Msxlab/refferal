@@ -494,4 +494,27 @@ describe('platform companies (entegrasyon)', () => {
     // second tries to revoke itself as last admin → self-guard 403
     await request(srv).delete(`/v1/platform/admins/${second.id}`).set('Authorization', `Bearer ${secondTok}`).expect(403);
   });
+
+  it('item 9: concurrent revoke of two different admins cannot zero-out platform admins (FOR UPDATE guard)', async () => {
+    // Exactly 2 platform admins. a1 revokes a2 AND a2 revokes a1 concurrently (each a non-self revoke).
+    // Without the FOR UPDATE lock both read count=2, pass the <=1 check, and revoke → 0 admins (lockout).
+    // With the lock the two revokes serialize: one wins (2→1), the other blocks then sees count=1 → 400.
+    const a1 = await prisma.user.create({ data: { email: 'race-a1@test.refearn.local', passwordHash: 'x', fullName: 'A1', isPlatformAdmin: true } });
+    const a2 = await prisma.user.create({ data: { email: 'race-a2@test.refearn.local', passwordHash: 'x', fullName: 'A2', isPlatformAdmin: true } });
+    const t1 = token({ sub: a1.id, plat: true });
+    const t2 = token({ sub: a2.id, plat: true });
+    const srv = app.getHttpServer();
+
+    const results = await Promise.allSettled([
+      request(srv).delete(`/v1/platform/admins/${a2.id}`).set('Authorization', `Bearer ${t1}`), // a1 revokes a2
+      request(srv).delete(`/v1/platform/admins/${a1.id}`).set('Authorization', `Bearer ${t2}`), // a2 revokes a1
+    ]);
+    const statuses = results.map((r) => (r.status === 'fulfilled' ? r.value.status : 0));
+
+    // invariant: at least one platform admin still exists (both revokes did NOT succeed)
+    expect(await prisma.user.count({ where: { isPlatformAdmin: true } })).toBeGreaterThanOrEqual(1);
+    // exactly one 200 and one 400 (the loser sees count=1 after the winner commits)
+    expect(statuses.filter((s) => s === 200).length).toBe(1);
+    expect(statuses.filter((s) => s === 400).length).toBe(1);
+  });
 });
