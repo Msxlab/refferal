@@ -166,7 +166,7 @@ export class ReportsService {
       { key: 'sales_approval', label: 'Sales awaiting approval', count: salesDraft, href: '/admin/sales' },
       { key: 'payout_requests', label: 'Payout requests to review', count: payoutsRequested, href: '/admin/payouts' },
       { key: 'checks_to_process', label: 'Checks to print & mail', count: checksToMail, href: '/admin/checks' },
-      { key: 'fraud_review', label: 'Members flagged for review', count: fraudOpen, href: '/admin/members' },
+      { key: 'fraud_review', label: 'Members flagged for review', count: fraudOpen, href: '/admin/fraud' },
     ];
     return { items: items.filter((i) => i.count > 0), total: items.reduce((a, i) => a + i.count, 0) };
   }
