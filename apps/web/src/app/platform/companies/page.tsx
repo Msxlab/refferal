@@ -1,11 +1,12 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
-import { Loading, Modal, Pagination, useToast } from '@/components/ui';
+import { Loading, Pagination, useToast } from '@/components/ui';
 import { money } from '@/lib/format';
 import { StatusBadge } from '@/components/platform/statusBadge';
+import { OnboardingWizard } from '@/components/platform/OnboardingWizard';
 import { APP_NAME } from '@/lib/brand';
 
 interface Company {
@@ -104,7 +105,7 @@ export default function CompaniesPage() {
       <Pagination page={data.page} pageSize={data.pageSize} total={data.total} onPage={setPage} />
 
       {showNew && (
-        <NewCompanyModal
+        <OnboardingWizard
           onClose={() => setShowNew(false)}
           onCreated={() => { load(); showToast('Company created ✓'); }}
         />
@@ -120,110 +121,5 @@ function Mini({ label, value }: { label: string; value: string }) {
       <div className="faint" style={{ fontSize: 10.5 }}>{label}</div>
       <div className="tnum" style={{ fontWeight: 700, fontSize: 13.5, marginTop: 1 }}>{value}</div>
     </div>
-  );
-}
-
-function slugify(s: string): string {
-  return s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
-}
-
-interface CreatedCompany {
-  id: string; slug: string; name: string; ownerEmail: string; ownerExisting: boolean; tempPassword: string | null;
-}
-
-/**
- * Yeni sirket kurma sihirbazi: tenant + varsayilan plan + owner. Owner yeniyse gecici sifre YERINE
- * e-posta davet gonderilir (tempPassword hep null doner — platform.service.ts item 8).
- * NOT: Task 14'te <OnboardingWizard> ile degistirilecek; su an icin mevcut modal tasindi.
- */
-function NewCompanyModal({ onClose, onCreated }: { onClose: () => void; onCreated: (c: CreatedCompany) => void }) {
-  const [name, setName] = useState('');
-  const [slug, setSlug] = useState('');
-  const [slugTouched, setSlugTouched] = useState(false);
-  const [currency, setCurrency] = useState('USD');
-  const [timezone, setTimezone] = useState('America/New_York');
-  const [ownerEmail, setOwnerEmail] = useState('');
-  const [ownerName, setOwnerName] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [done, setDone] = useState<CreatedCompany | null>(null);
-
-  const effSlug = slugTouched ? slug : slugify(name);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true); setErr('');
-    try {
-      const res = await api.post<CreatedCompany>('/platform/companies', {
-        name: name.trim(), slug: effSlug, currency, timezone, ownerEmail: ownerEmail.trim(), ownerName: ownerName.trim(),
-      });
-      setDone(res);
-      onCreated(res);
-    } catch (e) {
-      setErr(String((e as ApiError).message));
-      setBusy(false);
-    }
-  }
-
-  if (done) {
-    return (
-      <Modal title="Company created ✓" onClose={onClose}>
-        <p className="muted" style={{ marginTop: 0 }}>
-          <strong>{done.name}</strong> (<span style={{ fontFamily: 'ui-monospace, monospace' }}>{done.slug}</span>) is ready. Open it from the list and use “Enter workspace”.
-        </p>
-        {done.tempPassword ? (
-          <div className="card" style={{ marginTop: 4 }}>
-            <div className="faint" style={{ fontSize: 11, marginBottom: 6 }}>Owner sign-in — share securely, shown once</div>
-            <div style={{ fontSize: 13 }}>Email: <strong>{done.ownerEmail}</strong></div>
-            <div style={{ fontSize: 13 }}>Temporary password: <strong style={{ fontFamily: 'ui-monospace, monospace' }}>{done.tempPassword}</strong></div>
-            <button type="button" className="btn ghost sm" style={{ marginTop: 8 }}
-              onClick={() => navigator.clipboard.writeText(`${done.ownerEmail} / ${done.tempPassword}`)}>Copy</button>
-          </div>
-        ) : (
-          <div className="muted" style={{ fontSize: 13 }}>Owner <strong>{done.ownerEmail}</strong> already had an account — they sign in with their existing password.</div>
-        )}
-        <div className="row" style={{ justifyContent: 'flex-end', marginTop: 18 }}>
-          <button className="btn" onClick={onClose}>Done</button>
-        </div>
-      </Modal>
-    );
-  }
-
-  return (
-    <Modal title="New company" onClose={onClose}>
-      <form onSubmit={submit}>
-        <div className="field">
-          <label>Company name</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder="Acme Rewards" />
-        </div>
-        <div className="field">
-          <label>Slug (URL id)</label>
-          <input value={effSlug} onChange={(e) => { setSlugTouched(true); setSlug(e.target.value); }} required placeholder="acme-rewards" />
-        </div>
-        <div className="row" style={{ gap: 10 }}>
-          <div className="field" style={{ flex: 1 }}>
-            <label>Currency</label>
-            <input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} maxLength={3} />
-          </div>
-          <div className="field" style={{ flex: 2 }}>
-            <label>Timezone</label>
-            <input value={timezone} onChange={(e) => setTimezone(e.target.value)} />
-          </div>
-        </div>
-        <div className="field">
-          <label>Owner full name</label>
-          <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} required placeholder="Jane Doe" />
-        </div>
-        <div className="field">
-          <label>Owner email</label>
-          <input type="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} required placeholder="owner@acme.com" />
-        </div>
-        {err && <div className="error">{err}</div>}
-        <div className="row" style={{ justifyContent: 'flex-end', marginTop: 16, gap: 8 }}>
-          <button type="button" className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="btn" disabled={busy}>{busy ? 'Creating…' : 'Create company'}</button>
-        </div>
-      </form>
-    </Modal>
   );
 }
