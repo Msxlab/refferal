@@ -17,6 +17,8 @@ import {
   ListPayoutsInput,
   runPayoutSchema,
   RunPayoutInput,
+  rejectBatchSchema,
+  RejectBatchInput,
 } from './payouts.types';
 
 const ADMIN = [Role.tenant_owner, Role.tenant_admin];
@@ -103,8 +105,12 @@ export class AdminPayoutsController {
 
   @HttpCode(200)
   @Post('batches/:id/reject')
-  rejectBatch(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.payouts.rejectBatch(this.actor(user), id);
+  rejectBatch(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(rejectBatchSchema)) body: RejectBatchInput,
+  ) {
+    return this.payouts.rejectBatch(this.actor(user), id, body.reason);
   }
 
   // DIKKAT: ':id' GET'i statik GET'lerden (payable, export.csv, batches) SONRA tanimli.

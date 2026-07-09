@@ -225,12 +225,28 @@ export class PayoutsService {
     return { ...result, batchId: batch.id, estimateCents: batch.estimateCents.toString(), actualPaidCents: actualPaidCents.toString() };
   }
 
-  async rejectBatch(actor: ActorContext, batchId: string) {
+  async rejectBatch(actor: ActorContext, batchId: string, reason: string) {
     const batch = await this.prisma.payoutBatch.findFirst({ where: { id: batchId, tenantId: actor.tenantId } });
     if (!batch) throw new NotFoundException('payout onerisi bulunamadi');
     if (batch.status !== 'proposed') throw new ConflictException('yalnizca bekleyen oneri reddedilebilir');
-    await this.prisma.payoutBatch.update({ where: { id: batch.id }, data: { status: 'rejected', approvedByUserId: actor.userId } });
-    await this.audit2(actor, 'payout.batch_reject', batch.id, {});
+    await this.prisma.$transaction(async (tx) => {
+      await tx.payoutBatch.update({ where: { id: batch.id }, data: { status: 'rejected', approvedByUserId: actor.userId } });
+      // uye basina in-app bildirim (per-request reject yolunu yansitir)
+      if (batch.membershipIds.length) {
+        await tx.notification.createMany({
+          data: batch.membershipIds.map((membershipId) => ({
+            tenantId: actor.tenantId,
+            recipientMembershipId: membershipId,
+            channel: NotificationChannel.in_app,
+            template: 'payout_rejected',
+            payload: { batchId: batch.id, period: batch.period, reason } as Prisma.InputJsonValue,
+          })),
+        });
+      }
+      await tx.auditLog.create({
+        data: { tenantId: actor.tenantId, actorUserId: actor.userId, action: 'payout.batch_reject', entity: 'payout', entityId: batch.id, after: { reason, count: batch.membershipIds.length } as Prisma.InputJsonValue },
+      });
+    });
     return { rejected: true };
   }
 
