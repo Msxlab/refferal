@@ -506,6 +506,9 @@ model Sale {
   approvedBy         String?    @map("approved_by") @db.Uuid
   approvedAt         DateTime?  @map("approved_at")
   deliveredAt        DateTime?  @map("delivered_at")
+  // Kismi unique: bir tenant'ta bir dolu external_ref bir kez (CRM/order idempotency).
+  // Prisma kismi (WHERE) unique'i ifade edemez → ham SQL migration
+  // 20260619183000_sales_external_ref_unique: sales_tenant_external_ref_uidx.
   externalRef        String?    @map("external_ref")
   createdAt          DateTime   @default(now()) @map("created_at")
   updatedAt          DateTime   @updatedAt @map("updated_at")
