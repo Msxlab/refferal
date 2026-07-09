@@ -69,3 +69,7 @@ export const brandingSchema = z.object({
   accentHex: z.string().trim().regex(HEX, 'gecersiz hex').optional().nullable(),
 });
 export type BrandingInput = z.infer<typeof brandingSchema>;
+
+/** Item 5: capraz-kiraci arama (min 2 char). */
+export const searchQuerySchema = z.object({ q: z.string().trim().max(80).default('') });
+export type SearchQuery = z.infer<typeof searchQuerySchema>;

@@ -371,4 +371,35 @@ describe('platform companies (entegrasyon)', () => {
     const ownerTok = token({ sub: owner.id, mid: m.id, tid: tB.id, role: 'tenant_owner' });
     await request(srv).get('/v1/platform/audit').set('Authorization', `Bearer ${ownerTok}`).expect(403);
   });
+
+  it('item 5: cross-tenant search finds users by email + members by referral code; q<2 empty; tenant_admin 403', async () => {
+    const platformUser = await prisma.user.create({
+      data: { email: 'plat-se@test.refearn.local', passwordHash: 'x', fullName: 'P', isPlatformAdmin: true },
+    });
+    const platTok = token({ sub: platformUser.id, plat: true });
+    const srv = app.getHttpServer();
+
+    const tA = await createTenant(prisma);
+    const target = await prisma.user.create({ data: { email: 'findme@acme.co', passwordHash: 'x', fullName: 'Find Me' } });
+    const mem = await prisma.membership.create({ data: { tenantId: tA.id, userId: target.id, role: 'member', referralCode: 'GOLD99', path: 'x', depth: 0 } });
+
+    const byEmail = (await request(srv).get('/v1/platform/search?q=findme').set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    expect(byEmail.users.some((u: { email: string }) => u.email === 'findme@acme.co')).toBe(true);
+
+    // referral code case-insensitive
+    const byCode = (await request(srv).get('/v1/platform/search?q=gold99').set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    expect(byCode.members.some((m: { referralCode: string; tenantId: string }) => m.referralCode === 'GOLD99' && m.tenantId === tA.id)).toBe(true);
+
+    // q < 2 → all empty
+    const short = (await request(srv).get('/v1/platform/search?q=a').set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    expect(short.users).toHaveLength(0);
+    expect(short.members).toHaveLength(0);
+
+    // tenant_admin 403
+    const admin = await prisma.user.create({ data: { email: 'ad5@test.refearn.local', passwordHash: 'x', fullName: 'A' } });
+    const am = await prisma.membership.create({ data: { tenantId: tA.id, userId: admin.id, role: 'tenant_admin', referralCode: 'AD5', path: 'y', depth: 0 } });
+    const adminTok = token({ sub: admin.id, mid: am.id, tid: tA.id, role: 'tenant_admin' });
+    await request(srv).get('/v1/platform/search?q=findme').set('Authorization', `Bearer ${adminTok}`).expect(403);
+    void mem;
+  });
 });

@@ -514,4 +514,57 @@ export class PlatformService {
       before: a.before, after: a.after, createdAt: a.createdAt,
     };
   }
+
+  /**
+   * Item 5: yaptirimli capraz-kiraci arama. q<2 → bos. Her kategori 10 satirla sinirli.
+   * PII (e-posta) doner — yalniz @PlatformAdmin(); global throttler ile korunur.
+   */
+  async search(q: string) {
+    const term = q.trim();
+    const empty = { users: [], members: [], sales: [], payouts: [] };
+    if (term.length < 2) return empty;
+    const codeNeedle = term.toUpperCase();
+
+    const [users, members, sales, payouts] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { OR: [{ email: { contains: term, mode: 'insensitive' } }, { fullName: { contains: term, mode: 'insensitive' } }] },
+        take: 10,
+        select: { id: true, email: true, fullName: true, memberships: { select: { tenantId: true, tenant: { select: { name: true } } } } },
+      }),
+      this.prisma.membership.findMany({
+        where: { referralCode: { contains: codeNeedle } },
+        include: { user: { select: { fullName: true, email: true } }, tenant: { select: { name: true } } },
+        take: 10,
+      }),
+      this.prisma.sale.findMany({
+        where: { OR: [{ externalRef: { contains: term } }, { customerRef: { contains: term, mode: 'insensitive' } }] },
+        include: { tenant: { select: { name: true } } },
+        take: 10,
+      }),
+      this.prisma.payout.findMany({
+        where: { OR: [{ ref: { contains: term } }, ...(/^\d+$/.test(term) ? [{ checkNumber: Number(term) }] : [])] },
+        include: { tenant: { select: { name: true } } },
+        take: 10,
+      }),
+    ]);
+
+    return {
+      users: users.map((u) => ({
+        userId: u.id, email: u.email, fullName: u.fullName,
+        tenants: u.memberships.map((m) => ({ tenantId: m.tenantId, tenantName: m.tenant.name })),
+      })),
+      members: members.map((m) => ({
+        membershipId: m.id, referralCode: m.referralCode, fullName: m.user.fullName, email: m.user.email,
+        tenantId: m.tenantId, tenantName: m.tenant.name, ctaHref: `/platform/companies/${m.tenantId}?tab=users`,
+      })),
+      sales: sales.map((s) => ({
+        saleId: s.id, amountCents: s.amountCents.toString(), externalRef: s.externalRef, status: s.status,
+        tenantId: s.tenantId, tenantName: s.tenant.name, ctaHref: `/platform/companies/${s.tenantId}?tab=overview`,
+      })),
+      payouts: payouts.map((p) => ({
+        payoutId: p.id, totalCents: p.totalCents.toString(), ref: p.ref, checkNumber: p.checkNumber, status: p.status,
+        tenantId: p.tenantId, tenantName: p.tenant.name, ctaHref: `/platform/companies/${p.tenantId}?tab=payouts`,
+      })),
+    };
+  }
 }

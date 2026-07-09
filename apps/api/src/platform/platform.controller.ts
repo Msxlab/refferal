@@ -13,6 +13,7 @@ import {
   issuePeriodSchema, IssuePeriodInput,
   markPaidSchema, MarkPaidInput,
   pageQuerySchema, PageQuery,
+  searchQuerySchema, SearchQuery,
   setBillingSchema, SetBillingInput,
   setStatusSchema, SetStatusInput,
 } from './platform.types';
@@ -48,6 +49,12 @@ export class PlatformController {
   @Get('companies')
   companies(@Query(new ZodValidationPipe(companiesQuerySchema)) q: CompaniesQuery) {
     return this.platform.companies(q);
+  }
+
+  // ---- Item 5: yaptirimli capraz-kiraci arama (kullanici/uye/satis/odeme) ----
+  @Get('search')
+  search(@Query(new ZodValidationPipe(searchQuerySchema)) q: SearchQuery) {
+    return this.platform.search(q.q);
   }
 
   // ---- Company onboarding: yeni sirket (tenant + plan + owner) ----
