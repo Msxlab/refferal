@@ -15,10 +15,19 @@ front-end/UX + platform + hardening effort on top of the existing engine — **n
 
 | # | Track | Spec | Status | Core of it |
 |---|-------|------|--------|------------|
-| 1 | **Feature-gap sprint** | [feature-gap-sprint](2026-07-09-feature-gap-sprint-design.md) | Spec ✅ · plan ⏳ | 7 items: duplicate detection, mandatory reject reason, unsaved-changes guard, plan-simulator wiring, share presets, fraud triage screen, activity feed (hybrid). |
-| 2 | **Design-system & primitives** | [design-system-primitives](2026-07-09-design-system-primitives-design.md) | Spec ✅ · plan ⏳ | Highest-ROI perceived-quality. Systematize the hand-rolled tokens into a typed primitives kit; kill 1,428 inline styles; `statusBadge`; vertical-slice rollout. |
-| 3 | **Platform Command Center** | [platform-command-center](2026-07-09-platform-command-center-design.md) | Spec ✅ · plan ⏳ | The one genuinely-empty surface. Overview + needs-attention queue, onboarding wizard + `setup_needed`, company tabs, safe impersonation, global search, audit/health, tenant-owner invite, plan/package matrix + MRR. |
-| 4 | **Tenant-isolation & security hardening** | [tenant-isolation-hardening](2026-07-09-tenant-isolation-hardening-design.md) | Spec ✅ · plan ⏳ | Top structural risk. Structural tenant-isolation backstop + `@CurrentActor`, httpOnly cookies, first Playwright smoke tests, throttler→Redis, BigInt/JSON discipline. |
+| 1 | **Feature-gap sprint** | [feature-gap-sprint](2026-07-09-feature-gap-sprint-design.md) | Spec ✅ · plan ✅ | 7 items: duplicate detection, mandatory reject reason, unsaved-changes guard, plan-simulator wiring, share presets, fraud triage screen, activity feed (hybrid). |
+| 2 | **Design-system & primitives** | [design-system-primitives](2026-07-09-design-system-primitives-design.md) | Spec ✅ · plan ✅ | Highest-ROI perceived-quality. Systematize the hand-rolled tokens into a typed primitives kit; kill 1,428 inline styles; `statusBadge`; vertical-slice rollout. |
+| 3 | **Platform Command Center** | [platform-command-center](2026-07-09-platform-command-center-design.md) | Spec ✅ · plan ✅ | The one genuinely-empty surface. Overview + needs-attention queue, onboarding wizard + `setup_needed`, company tabs, safe impersonation, global search, audit/health, tenant-owner invite, plan/package matrix + MRR. |
+| 4 | **Tenant-isolation & security hardening** | [tenant-isolation-hardening](2026-07-09-tenant-isolation-hardening-design.md) | Spec ✅ · plan ✅ | Top structural risk. Structural tenant-isolation backstop + `@CurrentActor`, httpOnly cookies, first Playwright smoke tests, throttler→Redis, BigInt/JSON discipline. |
+
+## Implementation plans
+
+Execute-ready, task-by-task (writing-plans format) in [`../plans/`](../plans/):
+
+- [feature-gap-sprint](../plans/2026-07-09-feature-gap-sprint.md) — ~21 TDD tasks (note: the `externalRef` unique index already shipped in migration `20260619183000`)
+- [design-system-primitives](../plans/2026-07-09-design-system-primitives.md) — ~14 tasks, Payouts vertical slice first
+- [platform-command-center](../plans/2026-07-09-platform-command-center.md) — 18 tasks, MVP-first, backend-then-UI
+- [tenant-isolation-hardening](../plans/2026-07-09-tenant-isolation-hardening.md) — ~11 tasks, isolation backstop + first Playwright harness
 
 ## ⚠️ Two decisions to confirm before/at build time
 

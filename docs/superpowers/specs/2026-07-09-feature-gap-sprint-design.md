@@ -61,6 +61,9 @@ transaction.
 the import preview. Rows without an `externalRef` are unaffected (no false positives).
 
 **Changes.**
+
+> **Update (verified 2026-07-09):** the partial unique index **already exists** — migration `20260619183000_sales_external_ref_unique` created `sales_tenant_external_ref_uidx ON sales(tenant_id, external_ref) WHERE external_ref IS NOT NULL`. So this item adds **no new migration**; it only wires the create-path 409 + import dedup the index enables. The collision report below stays as a one-time operational sanity check.
+
 - **Migration (safe rollout):**
   - First ship a read-only report query that finds existing collisions:
     `SELECT tenant_id, external_ref, count(*) FROM "Sale" WHERE external_ref IS NOT NULL GROUP BY 1,2 HAVING count(*) > 1`.
