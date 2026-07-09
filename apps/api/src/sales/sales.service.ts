@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { MembershipStatus, Prisma, SaleStatus } from '@prisma/client';
 import { ActorContext } from '../common/actor';
 import { EngineService } from '../engine/engine.service';
@@ -48,18 +48,26 @@ export class SalesService {
     if (seller.status !== MembershipStatus.active) {
       throw new BadRequestException('pasif uye adina satis girilemez');
     }
-    const sale = await this.prisma.sale.create({
-      data: {
-        tenantId: actor.tenantId,
-        sellerMembershipId: seller.id,
-        amountCents: BigInt(input.amountCents),
-        saleDate: input.saleDate ?? new Date(),
-        customerRef: input.customerRef,
-        externalRef: input.externalRef,
-        createdBy: actor.userId, // gorevler ayrimi: onaylayan bu kisi olamaz
-        status: SaleStatus.draft,
-      },
-    });
+    let sale;
+    try {
+      sale = await this.prisma.sale.create({
+        data: {
+          tenantId: actor.tenantId,
+          sellerMembershipId: seller.id,
+          amountCents: BigInt(input.amountCents),
+          saleDate: input.saleDate ?? new Date(),
+          customerRef: input.customerRef,
+          externalRef: input.externalRef,
+          createdBy: actor.userId, // gorevler ayrimi: onaylayan bu kisi olamaz
+          status: SaleStatus.draft,
+        },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException(`A sale with external reference "${input.externalRef}" already exists`);
+      }
+      throw e;
+    }
     await this.audit(actor, 'sale.create', sale.id, { amountCents: sale.amountCents.toString() });
     return this.serialize(sale);
   }
@@ -360,10 +368,23 @@ export class SalesService {
       throw new BadRequestException('Esleme gecersiz: referral_code ve amount_cents kolonlari bulunamadi');
     }
 
+    // Dedup: bu tenant'ta zaten var olan external_ref'ler (DB) + dosya icinde tekrar edenler (RAM).
+    // NULL/bos ref asla catismaz. Eslesme birebir (case-sensitive), types trim'i sema uygular.
+    const existingRefs = new Set(
+      (
+        await this.prisma.sale.findMany({
+          where: { tenantId: actor.tenantId, externalRef: { not: null } },
+          select: { externalRef: true },
+        })
+      ).map((s) => s.externalRef as string),
+    );
+    const seenInFile = new Set<string>();
+
     const created: string[] = [];
     const errors: Array<{ line: number; reason: string }> = [];
+    let duplicates = 0;
     const previewRows: Array<{
-      line: number; ok: boolean; code: string; amountCents?: string; saleDate?: string;
+      line: number; status: 'ok' | 'error' | 'duplicate'; code: string; amountCents?: string; saleDate?: string;
       customerRef?: string; sellerName?: string; reason?: string;
     }> = [];
 
@@ -372,6 +393,7 @@ export class SalesService {
       if (cells.length === 1 && !cells[0]?.trim()) continue; // bos satir
       const code = cells[idx.code]?.trim() ?? '';
       const amountRaw = cells[idx.amount]?.trim();
+      const externalRef = idx.external >= 0 ? cells[idx.external]?.trim() || undefined : undefined;
       try {
         if (!code) throw new Error('referral_code bos');
         const amount = Number(amountRaw);
@@ -387,11 +409,25 @@ export class SalesService {
         const saleDate = idx.date >= 0 && cells[idx.date]?.trim() ? new Date(cells[idx.date].trim()) : new Date();
         if (Number.isNaN(saleDate.getTime())) throw new Error('gecersiz sale_date');
         const customerRef = idx.customer >= 0 ? cells[idx.customer]?.trim() || undefined : undefined;
-        const externalRef = idx.external >= 0 ? cells[idx.external]?.trim() || undefined : undefined;
+
+        // duplicate: DB'de var VEYA bu dosyada daha once gecti (yalniz dolu ref'ler)
+        const isDuplicate = !!externalRef && (existingRefs.has(externalRef) || seenInFile.has(externalRef));
+        if (externalRef) seenInFile.add(externalRef);
+        if (isDuplicate) {
+          duplicates++;
+          if (preview) {
+            previewRows.push({
+              line: r + 1, status: 'duplicate', code, amountCents: String(amount),
+              saleDate: saleDate.toISOString(), customerRef, sellerName: sellerInfo?.user.fullName,
+              reason: `duplicate external_ref "${externalRef}"`,
+            });
+          }
+          continue; // commit'te de olusturulmaz
+        }
 
         if (preview) {
           previewRows.push({
-            line: r + 1, ok: true, code, amountCents: String(amount),
+            line: r + 1, status: 'ok', code, amountCents: String(amount),
             saleDate: saleDate.toISOString(), customerRef, sellerName: sellerInfo?.user.fullName,
           });
           continue;
@@ -413,21 +449,22 @@ export class SalesService {
       } catch (e) {
         const reason = e instanceof Error ? e.message : 'bilinmeyen hata';
         errors.push({ line: r + 1, reason });
-        if (preview) previewRows.push({ line: r + 1, ok: false, code, reason });
+        if (preview) previewRows.push({ line: r + 1, status: 'error', code, reason });
       }
     }
 
     if (preview) {
       return {
         preview: true as const,
-        okCount: previewRows.filter((p) => p.ok).length,
-        errorCount: previewRows.filter((p) => !p.ok).length,
+        okCount: previewRows.filter((p) => p.status === 'ok').length,
+        duplicateCount: previewRows.filter((p) => p.status === 'duplicate').length,
+        errorCount: previewRows.filter((p) => p.status === 'error').length,
         rows: previewRows,
       };
     }
 
-    await this.audit(actor, 'sale.import', undefined, { created: created.length, errors: errors.length });
-    return { created: created.length, errors };
+    await this.audit(actor, 'sale.import', undefined, { created: created.length, errors: errors.length, duplicates });
+    return { created: created.length, duplicates, errors };
   }
 
   // ------------------------------------------------------------- uye self-servis (app/sales)
