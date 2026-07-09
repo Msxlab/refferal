@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
 import { Bars, Donut, Loading, MoneyCounter } from '@/components/ui';
+import { ActivityFeed } from '@/components/ActivityFeed';
 import { dateShort, money, levelLabel } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -301,6 +302,8 @@ export default function MemberDashboard() {
           </div>
         )}
       </div>
+
+      <ActivityFeed />
 
       <div className="faint fade-in" style={{ fontSize: 11, marginTop: 16, lineHeight: 1.5 }}>{t('me.incomeNote')}</div>
     </div>
