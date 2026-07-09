@@ -261,4 +261,37 @@ describe('platform companies (entegrasyon)', () => {
     expect(payouts.total).toBe(1);
     expect(payouts.rows[0].totalCents).toBe('1000');
   });
+
+  it('item 1: overview surfaces each needs-attention kind exactly once; suspended excluded from no-member/no-plan', async () => {
+    const platformUser = await prisma.user.create({
+      data: { email: 'plat-ov@test.refearn.local', passwordHash: 'x', fullName: 'P', isPlatformAdmin: true },
+    });
+    const platTok = token({ sub: platformUser.id, plat: true });
+    const srv = app.getHttpServer();
+
+    // no members (active, no memberships, no plan) — surfaces no-members AND no-plan
+    const noMembers = await createTenant(prisma);
+    // no plan but has members
+    const noPlan = await createTenant(prisma);
+    await createChain(prisma, noPlan.id, 1);
+    // stuck payout (4 days old, requested)
+    const stuck = await createTenant(prisma);
+    const sc = await createChain(prisma, stuck.id, 1);
+    await createPlan(prisma, stuck.id);
+    const oldPayout = await prisma.payout.create({ data: { tenantId: stuck.id, membershipId: sc[0].id, totalCents: 1n, period: '2026-07', status: 'requested' } });
+    await prisma.payout.update({ where: { id: oldPayout.id }, data: { createdAt: new Date(Date.now() - 4 * 86_400_000) } });
+    // suspended → must NOT appear for no-member/no-plan
+    const suspended = await createTenant(prisma);
+    await prisma.tenant.update({ where: { id: suspended.id }, data: { status: 'suspended' } });
+
+    const ov = (await request(srv).get('/v1/platform/overview').set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+
+    expect(ov.kpis.companies).toBeGreaterThanOrEqual(4);
+    const kinds = (id: string) => ov.needsAttention.filter((r: { tenantId: string }) => r.tenantId === id).map((r: { kind: string }) => r.kind).sort();
+    expect(kinds(noMembers.id)).toEqual(['no_members', 'no_plan']);
+    expect(kinds(stuck.id)).toContain('stuck_payout');
+    expect(ov.needsAttention.find((r: { kind: string; severity: string }) => r.kind === 'stuck_payout').severity).toBe('high');
+    expect(kinds(suspended.id)).not.toContain('no_members');
+    expect(kinds(suspended.id)).not.toContain('no_plan');
+  });
 });

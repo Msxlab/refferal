@@ -39,6 +39,11 @@ export class PlatformController {
     private readonly billing: BillingService,
   ) {}
 
+  @Get('overview')
+  overview() {
+    return this.platform.overview();
+  }
+
   @Get('companies')
   companies(@Query(new ZodValidationPipe(companiesQuerySchema)) q: CompaniesQuery) {
     return this.platform.companies(q);

@@ -1,16 +1,20 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { MembershipStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
+import { MembershipStatus, PayoutStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
 import { hash } from '@node-rs/argon2';
 import { DEFAULT_LEVEL_RATES_BPS, DEFAULT_POOL_RATE_BPS } from '@refearn/shared';
 import { ARGON2_OPTS } from '../auth/auth.service';
 import { ltreeLabel, newUuid, randomCode } from '../common/crypto';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
+import { BillingService } from './billing.service';
 
 /** Kiracci-ustu platform yuzeyi (Axtra): sirketleri (tenant) yonet, agina drill-in. */
 @Injectable()
 export class PlatformService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly billing: BillingService,
+  ) {}
 
   /** Sirketler dizini: sayfali + durum/arama filtreli + TEK grouped ciro sorgusu (N+1 yok). */
   async companies(query: { page: number; pageSize: number; status?: TenantStatus; q?: string }) {
@@ -353,6 +357,74 @@ export class PlatformService {
         totalCents: p.totalCents.toString(), method: p.method, status: p.status, period: p.period,
         createdAt: p.createdAt, paidAt: p.paidAt,
       })),
+    };
+  }
+
+  /**
+   * Item 1: komuta-merkezi ozeti — KPI'lar + "ilgi bekleyenler" kuyrugu (her satir ucuz set sorgusu).
+   * Askidaki tenant'lar no-member/no-plan gurultusune girmez (bilincli kapali).
+   */
+  async overview() {
+    const now = new Date();
+    const notSuspended = { status: { not: TenantStatus.suspended } as const };
+
+    const [companies, active, suspended, memberCount, revRows, ar, tenants, membershipGroups, planGroups, stuckGroups, setupTenants] =
+      await Promise.all([
+        this.prisma.tenant.count(),
+        this.prisma.tenant.count({ where: { status: TenantStatus.active } }),
+        this.prisma.tenant.count({ where: { status: TenantStatus.suspended } }),
+        this.prisma.membership.count(),
+        this.prisma.sale.groupBy({ by: ['tenantId', 'summaryMonth'], where: { status: SaleStatus.approved }, _sum: { amountCents: true } }),
+        this.billing.overview(),
+        this.prisma.tenant.findMany({ where: notSuspended, select: { id: true, name: true, timezone: true } }),
+        this.prisma.membership.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+        this.prisma.commissionPlan.findMany({ where: { effectiveFrom: { lte: now } }, distinct: ['tenantId'], select: { tenantId: true } }),
+        this.prisma.payout.groupBy({
+          by: ['tenantId'],
+          where: { status: { in: [PayoutStatus.requested, PayoutStatus.processing] }, createdAt: { lt: new Date(now.getTime() - 72 * 3_600_000) } },
+          _count: { _all: true },
+        }),
+        this.prisma.tenant.findMany({ where: { status: TenantStatus.setup_needed }, select: { id: true, name: true } }),
+      ]);
+
+    // platform revenue this month = sum of each tenant's own-tz current month
+    let platformRevenue = 0n;
+    for (const t of tenants) {
+      const month = monthKey(now, t.timezone);
+      const row = revRows.find((r) => r.tenantId === t.id && r.summaryMonth === month);
+      platformRevenue += row?._sum.amountCents ?? 0n;
+    }
+
+    const nameOf = new Map(tenants.map((t) => [t.id, t.name]));
+    const withMembers = new Set(membershipGroups.filter((g) => g._count._all > 0).map((g) => g.tenantId));
+    const withPlan = new Set(planGroups.map((g) => g.tenantId));
+    const stuck = new Set(stuckGroups.map((g) => g.tenantId));
+
+    type Row = { tenantId: string; tenantName: string; kind: string; severity: 'high' | 'warn'; detail: string; ctaHref: string };
+    const rows: Row[] = [];
+    const push = (id: string, kind: string, severity: 'high' | 'warn', detail: string, tab: string) =>
+      rows.push({ tenantId: id, tenantName: nameOf.get(id) ?? id, kind, severity, detail, ctaHref: `/platform/companies/${id}?tab=${tab}` });
+
+    for (const t of tenants) {
+      if (!withMembers.has(t.id)) push(t.id, 'no_members', 'warn', 'No members yet', 'users');
+      if (!withPlan.has(t.id)) push(t.id, 'no_plan', 'warn', 'No active plan', 'plans');
+      if (stuck.has(t.id)) push(t.id, 'stuck_payout', 'high', 'Payout stuck > 72h', 'payouts');
+    }
+    for (const s of setupTenants) push(s.id, 'setup_incomplete', 'warn', 'Setup incomplete', 'overview');
+    for (const inv of ar.invoices as Array<{ tenantId: string; overdue: boolean }>) {
+      if (inv.overdue) push(inv.tenantId, 'overdue_billing', 'high', 'Overdue invoice', 'settings');
+    }
+    // dedupe by (tenantId, kind)
+    const seen = new Set<string>();
+    const needsAttention = rows.filter((r) => { const k = `${r.tenantId}:${r.kind}`; if (seen.has(k)) return false; seen.add(k); return true; });
+
+    return {
+      kpis: {
+        companies, active, suspended, members: memberCount,
+        platformRevenueThisMonthCents: platformRevenue.toString(),
+        ar: ar.totals,
+      },
+      needsAttention,
     };
   }
 }
