@@ -125,4 +125,23 @@ describe('platform companies (entegrasyon)', () => {
     const audit = await prisma.auditLog.count({ where: { tenantId: tenant.id, action: { startsWith: 'platform.tenant_' } } });
     expect(audit).toBe(2);
   });
+
+  it('item 2: setup_needed enum round-trips and status schema accepts it', async () => {
+    const platformUser = await prisma.user.create({
+      data: { email: 'plat-sn@test.refearn.local', passwordHash: 'x', fullName: 'P', isPlatformAdmin: true },
+    });
+    const platTok = token({ sub: platformUser.id, plat: true });
+    const tenant = await prisma.tenant.create({
+      data: { slug: 'setup-co', name: 'Setup Co', status: 'setup_needed' },
+    });
+    expect((await prisma.tenant.findUniqueOrThrow({ where: { id: tenant.id } })).status).toBe('setup_needed');
+
+    // PATCH status accepts setup_needed → active
+    await request(app.getHttpServer())
+      .patch(`/v1/platform/companies/${tenant.id}/status`)
+      .set('Authorization', `Bearer ${platTok}`)
+      .send({ status: 'active' })
+      .expect(200);
+    expect((await prisma.tenant.findUniqueOrThrow({ where: { id: tenant.id } })).status).toBe('active');
+  });
 });

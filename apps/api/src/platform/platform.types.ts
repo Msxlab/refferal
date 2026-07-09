@@ -4,7 +4,7 @@ const PERIOD = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'gecersiz donem (YYYY
 
 /** C1: sirket askiya al / aktive et. */
 export const setStatusSchema = z.object({
-  status: z.enum(['active', 'suspended']),
+  status: z.enum(['active', 'suspended', 'setup_needed']),
 });
 export type SetStatusInput = z.infer<typeof setStatusSchema>;
 

@@ -28,6 +28,7 @@ enum Role {
 enum TenantStatus {
   active
   suspended
+  setup_needed
 }
 
 // Faz C2: platform → tenant-sirket faturasi. Odeme PLATFORM DISI (cek/havale; Stripe yok) —
