@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { clearSession, getSession, type Session } from '@/lib/auth';
 import { ThemeToggle } from '@/components/ui';
+import { GlobalSearch } from '@/components/platform/GlobalSearch';
 import { APP_MONOGRAM, APP_NAME } from '@/lib/brand';
 
 const NAV = [
@@ -52,6 +53,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
       <aside className="side">
         <div className="brand"><span className="dot">{APP_MONOGRAM}</span> {APP_NAME}</div>
         <div className="faint" style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', margin: '0 0 10px 4px' }}>Platform</div>
+        <div className="no-print" style={{ margin: '0 0 14px' }}><GlobalSearch /></div>
         <nav>
           {NAV.map((n) => (
             <Link key={n.href} href={n.href} className={pathname === n.href || (n.href !== '/platform' && pathname.startsWith(n.href)) ? 'active' : ''} onClick={() => setNavOpen(false)}>
