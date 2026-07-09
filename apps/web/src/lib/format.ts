@@ -41,3 +41,18 @@ export function dateShort(value: string | Date | null): string {
     : value;
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
+
+/**
+ * Domain status → guvenli `.badge` modifier sinifi. Bilinmeyen statu (or. 'suspended')
+ * icin renksiz pill yerine 'draft' fallback'i verir. (Tam rollout ayri design-system
+ * track'inde; burada yalniz dokundugumuz rozetleri gecireriz.)
+ */
+export function statusBadge(status: string): string {
+  const known = new Set([
+    'draft', 'approved', 'void', 'active', 'inactive', 'pending', 'payable', 'paid',
+    'requested', 'processing', 'failed', 'rejected', 'cleared', 'confirmed', 'open', 'used', 'expired',
+    'duplicate', 'error', 'ok',
+  ]);
+  const s = (status ?? '').toLowerCase();
+  return `badge ${known.has(s) ? s : 'draft'}`;
+}

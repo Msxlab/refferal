@@ -3,10 +3,11 @@
 import { useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Modal } from '@/components/ui';
+import { statusBadge } from '@/lib/format';
 
 interface Mapping { code: string; amount: string; date: string; customer: string; external: string }
-interface PreviewRow { line: number; ok: boolean; code: string; amountCents?: string; saleDate?: string; sellerName?: string; reason?: string }
-interface PreviewResp { preview: true; okCount: number; errorCount: number; rows: PreviewRow[] }
+interface PreviewRow { line: number; status: 'ok' | 'duplicate' | 'error'; code: string; amountCents?: string; saleDate?: string; sellerName?: string; reason?: string }
+interface PreviewResp { preview: true; okCount: number; duplicateCount: number; errorCount: number; rows: PreviewRow[] }
 
 const SAMPLE = 'referral_code,amount_cents,sale_date,customer_ref\nALICE1,10000000,2026-06-01,Acme Corp\nBOB1,5000000,2026-06-02,Beta LLC';
 
@@ -92,8 +93,9 @@ export function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone:
         {step === 'preview' && preview && (
           <div>
             <div className="row" style={{ gap: 16, marginBottom: 12 }}>
-              <span className="badge active">{preview.okCount} ready</span>
-              {preview.errorCount > 0 && <span className="badge failed">{preview.errorCount} errors</span>}
+              <span className={statusBadge('active')}>{preview.okCount} ready</span>
+              {preview.duplicateCount > 0 && <span className={statusBadge('pending')}>{preview.duplicateCount} duplicates skipped</span>}
+              {preview.errorCount > 0 && <span className={statusBadge('failed')}>{preview.errorCount} errors</span>}
             </div>
             <div style={{ maxHeight: '40vh', overflow: 'auto', borderRadius: 10, border: '1px solid var(--border)' }}>
               <table>
@@ -103,11 +105,11 @@ export function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone:
                     <tr key={r.line}>
                       <td className="faint">{r.line}</td>
                       <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>{r.code || '—'}</td>
-                      <td className="tnum">{r.ok && r.amountCents ? `$${(Number(r.amountCents) / 100).toLocaleString('en-US')}` : '—'}</td>
+                      <td className="tnum">{r.status !== 'error' && r.amountCents ? `$${(Number(r.amountCents) / 100).toLocaleString('en-US')}` : '—'}</td>
                       <td>
-                        {r.ok
-                          ? <span style={{ color: 'var(--emerald)' }}>{r.sellerName}</span>
-                          : <span style={{ color: 'var(--rose)', fontSize: 12 }}>{r.reason}</span>}
+                        {r.status === 'ok' && <span style={{ color: 'var(--emerald)' }}>{r.sellerName}</span>}
+                        {r.status === 'duplicate' && <span style={{ color: 'var(--amber)', fontSize: 12 }}>{r.reason ?? 'duplicate — skipped'}</span>}
+                        {r.status === 'error' && <span style={{ color: 'var(--rose)', fontSize: 12 }}>{r.reason}</span>}
                       </td>
                     </tr>
                   ))}
