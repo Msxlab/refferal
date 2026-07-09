@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { MembershipStatus, PayoutStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
 import { hash } from '@node-rs/argon2';
@@ -9,6 +9,7 @@ import { AccessTokenPayload } from '../auth/auth.types';
 import { ltreeLabel, newUuid, randomCode } from '../common/crypto';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
+import { SchedulerService } from '../scheduler/scheduler.service';
 import { BillingService } from './billing.service';
 
 /** Kiracci-ustu platform yuzeyi (Axtra): sirketleri (tenant) yonet, agina drill-in. */
@@ -18,6 +19,9 @@ export class PlatformService {
     private readonly prisma: PrismaService,
     private readonly billing: BillingService,
     private readonly jwt: JwtService,
+    // Item 7: testte SchedulerModule hic import edilmiyor (app.module.ts:55) → burada Optional,
+    // health() scheduler yoksa jobs: [] doner (process-local, restart'ta sifirlanir).
+    @Optional() private readonly scheduler?: SchedulerService,
   ) {}
 
   /** Sirketler dizini: sayfali + durum/arama filtreli + TEK grouped ciro sorgusu (N+1 yok). */
@@ -566,5 +570,14 @@ export class PlatformService {
         tenantId: p.tenantId, tenantName: p.tenant.name, ctaHref: `/platform/companies/${p.tenantId}?tab=payouts`,
       })),
     };
+  }
+
+  /** Item 7: sistem paneli — DB ping + scheduler is sagligi + backup tazeligi. Sir/patika sizdirmaz. */
+  async health() {
+    let db = false;
+    try { await this.prisma.$queryRaw`SELECT 1`; db = true; } catch { db = false; }
+    const jobs = this.scheduler?.jobHealthWithStaleness() ?? [];
+    const status = await this.prisma.systemStatus.findUnique({ where: { id: 'singleton' } }).catch(() => null);
+    return { db, jobs, backups: { lastBackupAt: status?.lastBackupAt ?? null } };
   }
 }

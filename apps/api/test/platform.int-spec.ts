@@ -402,4 +402,23 @@ describe('platform companies (entegrasyon)', () => {
     await request(srv).get('/v1/platform/search?q=findme').set('Authorization', `Bearer ${adminTok}`).expect(403);
     void mem;
   });
+
+  it('item 7: /platform/health returns db:true + jobs array + backups; tenant token 403', async () => {
+    const platformUser = await prisma.user.create({
+      data: { email: 'plat-hl@test.refearn.local', passwordHash: 'x', fullName: 'P', isPlatformAdmin: true },
+    });
+    const platTok = token({ sub: platformUser.id, plat: true });
+    const srv = app.getHttpServer();
+
+    const h = (await request(srv).get('/v1/platform/health').set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    expect(h.db).toBe(true);
+    expect(Array.isArray(h.jobs)).toBe(true);
+    expect(h).toHaveProperty('backups');
+
+    const owner = await prisma.user.create({ data: { email: 'ow7@test.refearn.local', passwordHash: 'x', fullName: 'O' } });
+    const tenant = await createTenant(prisma);
+    const m = await prisma.membership.create({ data: { tenantId: tenant.id, userId: owner.id, role: 'tenant_owner', referralCode: 'OW7', path: 'x', depth: 0 } });
+    const ownerTok = token({ sub: owner.id, mid: m.id, tid: tenant.id, role: 'tenant_owner' });
+    await request(srv).get('/v1/platform/health').set('Authorization', `Bearer ${ownerTok}`).expect(403);
+  });
 });

@@ -989,3 +989,12 @@ model ReportSubscription {
 
   @@map("report_subscriptions")
 }
+
+// Item 7: platform sistem durumu (tek satir). Backup script'i post-hook'ta lastBackupAt yazar.
+model SystemStatus {
+  id           String    @id @default("singleton")
+  lastBackupAt DateTime? @map("last_backup_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@map("system_status")
+}

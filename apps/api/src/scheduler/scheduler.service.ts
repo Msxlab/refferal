@@ -97,6 +97,15 @@ export class SchedulerService {
     return [...this.lastRun.entries()].map(([name, r]) => ({ name, ...r }));
   }
 
+  /** Item 7: son-kosum sagligi + FRESHNESS_MS'e gore stale bayragi (health panel icin). */
+  jobHealthWithStaleness(): Array<{ name: string; at: Date; ok: boolean; detail?: string; stale: boolean }> {
+    const now = Date.now();
+    return [...this.lastRun.entries()].map(([name, r]) => {
+      const maxAge = SchedulerService.FRESHNESS_MS[name];
+      return { name, at: r.at, ok: r.ok, detail: r.detail, stale: !!maxAge && now - r.at.getTime() > maxAge };
+    });
+  }
+
   /**
    * Gece (06:00): esigi gecen uyelere OTOMATIK 'requested' cek talebi ac + uyeye bildir (Faz A3).
    * PARA CIKMAZ — admin onayi (decide) hala sart. Tenant.autoRequestPayouts kapaliysa atlanir.

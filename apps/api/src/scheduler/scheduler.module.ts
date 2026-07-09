@@ -11,5 +11,6 @@ import { SchedulerService } from './scheduler.service';
 @Module({
   imports: [EngineModule, ReportsModule, FraudModule, WebhooksModule, CampaignsModule, PayoutsModule, RanksModule],
   providers: [SchedulerService],
+  exports: [SchedulerService],
 })
 export class SchedulerModule {}

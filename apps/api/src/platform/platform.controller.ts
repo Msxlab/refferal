@@ -46,6 +46,12 @@ export class PlatformController {
     return this.platform.overview();
   }
 
+  // ---- Item 7: sistem sagligi paneli (DB + scheduler job'lari + backup tazeligi) ----
+  @Get('health')
+  health() {
+    return this.platform.health();
+  }
+
   @Get('companies')
   companies(@Query(new ZodValidationPipe(companiesQuerySchema)) q: CompaniesQuery) {
     return this.platform.companies(q);
