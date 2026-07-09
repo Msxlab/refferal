@@ -37,7 +37,7 @@ interface AuditList { total: number; page: number; pageSize: number; items: Audi
 
 interface ImpersonateResponse { accessToken: string; membershipId: string }
 
-interface HealthJob { name: string; status: string; [k: string]: unknown }
+interface HealthJob { name: string; at: string; ok: boolean; detail?: string; stale: boolean }
 interface Health { db: boolean; jobs: HealthJob[]; backups: { lastBackupAt: string | null } }
 
 interface BillingPackage { id: string; key: string; name: string; monthlyFeeCents: string; features: unknown; limits: unknown; active: boolean }
@@ -559,15 +559,22 @@ function HealthTab() {
           </div>
           <div className="card" style={{ background: 'var(--panel-2)', padding: 0, overflowX: 'auto' }}>
             <table aria-label="Jobs">
-              <thead><tr><th>Job</th><th>Status</th></tr></thead>
+              <thead><tr><th>Job</th><th>Last run</th><th>Status</th></tr></thead>
               <tbody>
-                {health.jobs.map((j, i) => (
-                  <tr key={i}>
+                {health.jobs.map((j) => (
+                  <tr key={j.name} style={j.stale ? { background: 'color-mix(in srgb, var(--rose) 10%, transparent)' } : undefined}>
                     <td>{j.name}</td>
-                    <td><span className={`badge ${j.status === 'ok' ? 'active' : 'pending'}`}>{j.status}</span></td>
+                    <td className="muted">{dateShort(j.at)}</td>
+                    <td>
+                      {j.stale ? (
+                        <span className="badge failed">Stale</span>
+                      ) : (
+                        <span className={`badge ${j.ok ? 'active' : 'failed'}`}>{j.ok ? 'OK' : 'Failed'}</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
-                {health.jobs.length === 0 && <tr><td colSpan={2} className="muted">No scheduled jobs reporting.</td></tr>}
+                {health.jobs.length === 0 && <tr><td colSpan={3} className="muted">No scheduled jobs reporting.</td></tr>}
               </tbody>
             </table>
           </div>
