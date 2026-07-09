@@ -459,6 +459,8 @@ export class PlatformService {
 
   /** Item 4: impersonation bitti — platform admin'in normal tokeniyle, yalniz audit. */
   async impersonateEnd(platformAdminUserId: string, id: string) {
+    const t = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true } });
+    if (!t) throw new NotFoundException('sirket bulunamadi');
     await this.prisma.auditLog.create({
       data: { tenantId: id, actorUserId: platformAdminUserId, action: 'security.platform_impersonate_end', entity: 'security', entityId: id, after: {} },
     });

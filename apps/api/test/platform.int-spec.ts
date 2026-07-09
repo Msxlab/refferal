@@ -329,5 +329,9 @@ describe('platform companies (entegrasyon)', () => {
     await prisma.membership.update({ where: { id: so.id }, data: { role: 'tenant_owner' } });
     await prisma.tenant.update({ where: { id: susp.id }, data: { status: 'suspended' } });
     await request(srv).post(`/v1/platform/companies/${susp.id}/impersonate`).set('Authorization', `Bearer ${platTok}`).expect(400);
+
+    // impersonate/end for a non-existent tenant → 404 (no orphan audit row)
+    await request(srv).post('/v1/platform/companies/00000000-0000-0000-0000-000000000000/impersonate/end')
+      .set('Authorization', `Bearer ${platTok}`).expect(404);
   });
 });
