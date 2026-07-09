@@ -73,3 +73,7 @@ export type BrandingInput = z.infer<typeof brandingSchema>;
 /** Item 5: capraz-kiraci arama (min 2 char). */
 export const searchQuerySchema = z.object({ q: z.string().trim().max(80).default('') });
 export type SearchQuery = z.infer<typeof searchQuerySchema>;
+
+/** Item 9: platform admin ver (e-posta ile). */
+export const grantAdminSchema = z.object({ email: z.string().trim().toLowerCase().email().max(254) });
+export type GrantAdminInput = z.infer<typeof grantAdminSchema>;

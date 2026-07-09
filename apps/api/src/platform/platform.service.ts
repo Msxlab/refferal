@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import {
   MembershipStatus,
@@ -613,5 +613,44 @@ export class PlatformService {
     const jobs = this.scheduler?.jobHealthWithStaleness() ?? [];
     const status = await this.prisma.systemStatus.findUnique({ where: { id: 'singleton' } }).catch(() => null);
     return { db, jobs, backups: { lastBackupAt: status?.lastBackupAt ?? null } };
+  }
+
+  /** Item 9: platform adminleri (isPlatformAdmin=true). */
+  async admins() {
+    const users = await this.prisma.user.findMany({
+      where: { isPlatformAdmin: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, email: true, fullName: true, createdAt: true },
+    });
+    return users;
+  }
+
+  /** Item 9: e-posta ile platform admin ver (kabuk kullanici olusturmaz). Audit tenantId:null. */
+  async grantAdmin(actorUserId: string, email: string) {
+    const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true, isPlatformAdmin: true } });
+    if (!user) throw new NotFoundException('bu e-postali kullanici yok');
+    if (!user.isPlatformAdmin) {
+      await this.prisma.user.update({ where: { id: user.id }, data: { isPlatformAdmin: true } });
+      await this.prisma.auditLog.create({
+        data: { tenantId: null, actorUserId, action: 'platform.admin_granted', entity: 'user', entityId: user.id, after: { email } },
+      });
+    }
+    return { id: user.id, email, isPlatformAdmin: true };
+  }
+
+  /** Item 9: platform admin al — self-revoke ve son-admin transactional guard'li. Audit tenantId:null. */
+  async revokeAdmin(actorUserId: string, targetUserId: string) {
+    if (actorUserId === targetUserId) throw new ForbiddenException('kendi platform yetkinizi alamazsiniz');
+    return this.prisma.$transaction(async (tx) => {
+      const target = await tx.user.findUnique({ where: { id: targetUserId }, select: { id: true, isPlatformAdmin: true, email: true } });
+      if (!target || !target.isPlatformAdmin) throw new NotFoundException('platform admin bulunamadi');
+      const count = await tx.user.count({ where: { isPlatformAdmin: true } });
+      if (count <= 1) throw new BadRequestException('son platform admin alinamaz');
+      await tx.user.update({ where: { id: targetUserId }, data: { isPlatformAdmin: false } });
+      await tx.auditLog.create({
+        data: { tenantId: null, actorUserId, action: 'platform.admin_revoked', entity: 'user', entityId: targetUserId, after: { email: target.email } },
+      });
+      return { id: targetUserId, isPlatformAdmin: false };
+    });
   }
 }

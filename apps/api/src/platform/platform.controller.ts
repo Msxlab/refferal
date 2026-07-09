@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentUser, PlatformAdmin } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
@@ -9,6 +9,7 @@ import {
   auditQuerySchema, AuditQuery,
   brandingSchema, BrandingInput,
   companiesQuerySchema, CompaniesQuery,
+  grantAdminSchema, GrantAdminInput,
   issueInvoiceSchema, IssueInvoiceInput,
   issuePeriodSchema, IssuePeriodInput,
   markPaidSchema, MarkPaidInput,
@@ -187,5 +188,23 @@ export class PlatformController {
   @Post('companies/:id/impersonate/end')
   impersonateEnd(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.platform.impersonateEnd(user.sub, id);
+  }
+
+  // ---- Item 9: platform-admin yonetimi (listele / ver / al) ----
+  @Get('admins')
+  admins() {
+    return this.platform.admins();
+  }
+
+  @HttpCode(200)
+  @Post('admins')
+  grantAdmin(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(grantAdminSchema)) body: GrantAdminInput) {
+    return this.platform.grantAdmin(user.sub, body.email);
+  }
+
+  @HttpCode(200)
+  @Delete('admins/:userId')
+  revokeAdmin(@CurrentUser() user: RequestUser, @Param('userId', ParseUUIDPipe) userId: string) {
+    return this.platform.revokeAdmin(user.sub, userId);
   }
 }

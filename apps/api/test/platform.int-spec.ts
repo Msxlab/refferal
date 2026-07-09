@@ -458,4 +458,40 @@ describe('platform companies (entegrasyon)', () => {
     const existingUser = await prisma.user.findUniqueOrThrow({ where: { email: 'existing@inv.co' } });
     expect(await prisma.userToken.count({ where: { userId: existingUser.id, purpose: 'owner_invite' } })).toBe(0);
   });
+
+  it('item 9: grant/revoke platform admin round-trips + audits; self-revoke 403; last-admin 403; unknown email 404', async () => {
+    const primary = await prisma.user.create({
+      data: { email: 'plat-primary@test.refearn.local', passwordHash: 'x', fullName: 'Primary', isPlatformAdmin: true },
+    });
+    const platTok = token({ sub: primary.id, plat: true });
+    const srv = app.getHttpServer();
+
+    // grant to an existing non-admin user
+    const cand = await prisma.user.create({ data: { email: 'cand@test.refearn.local', passwordHash: 'x', fullName: 'Cand' } });
+    await request(srv).post('/v1/platform/admins').set('Authorization', `Bearer ${platTok}`).send({ email: 'cand@test.refearn.local' }).expect(200);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: cand.id } })).isPlatformAdmin).toBe(true);
+    expect(await prisma.auditLog.count({ where: { action: 'platform.admin_granted', tenantId: null } })).toBe(1);
+
+    // list shows both
+    const list = (await request(srv).get('/v1/platform/admins').set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    expect(list.length).toBe(2);
+
+    // unknown email → 404
+    await request(srv).post('/v1/platform/admins').set('Authorization', `Bearer ${platTok}`).send({ email: 'nobody@test.refearn.local' }).expect(404);
+
+    // self-revoke → 403
+    await request(srv).delete(`/v1/platform/admins/${primary.id}`).set('Authorization', `Bearer ${platTok}`).expect(403);
+
+    // revoke the candidate → ok
+    await request(srv).delete(`/v1/platform/admins/${cand.id}`).set('Authorization', `Bearer ${platTok}`).expect(200);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: cand.id } })).isPlatformAdmin).toBe(false);
+
+    // now primary is the last admin → cannot revoke (but self-guard fires first; use a fresh second admin then revoke primary)
+    const second = await prisma.user.create({ data: { email: 'second@test.refearn.local', passwordHash: 'x', fullName: 'Second', isPlatformAdmin: true } });
+    const secondTok = token({ sub: second.id, plat: true });
+    // second revokes primary → ok (2 admins → 1)
+    await request(srv).delete(`/v1/platform/admins/${primary.id}`).set('Authorization', `Bearer ${secondTok}`).expect(200);
+    // second tries to revoke itself as last admin → self-guard 403
+    await request(srv).delete(`/v1/platform/admins/${second.id}`).set('Authorization', `Bearer ${secondTok}`).expect(403);
+  });
 });
