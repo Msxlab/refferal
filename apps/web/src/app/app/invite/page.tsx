@@ -100,6 +100,7 @@ export default function InvitePage() {
               <button className="btn sm" onClick={() => copy(latest)}>{t('me.copy')}</button>
             </div>
             <button className="btn ghost sm" onClick={create} disabled={busy} style={{ margin: '14px auto 0' }}>New invite</button>
+            <ShareButtons url={linkFor(latest)} message={message} />
           </>
         )}
         {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
@@ -131,6 +132,28 @@ export default function InvitePage() {
       </div>
 
       {toast && <div className="toast" role="status">{toast}</div>}
+    </div>
+  );
+}
+
+function ShareButtons({ url, message }: { url: string; message: string }) {
+  const text = (message.trim() || 'Join my team and start earning together.') + ' ' + url;
+  const enc = encodeURIComponent;
+  const canWebShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+  // sms: yalniz dokunmatik/mobil ortamda anlamli — kaba tespit (desktop'ta gizle)
+  const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  async function webShare() {
+    try { await navigator.share({ text: message.trim() || undefined, url }); } catch { /* kullanici iptal etti */ }
+  }
+
+  return (
+    <div className="row" style={{ gap: 8, flexWrap: 'wrap', justifyContent: 'center', marginTop: 14 }}>
+      {canWebShare && <button className="btn sm" onClick={webShare}>Share…</button>}
+      {isMobile && <a className="btn ghost sm" href={`sms:?&body=${enc(text)}`}>SMS</a>}
+      <a className="btn ghost sm" href={`mailto:?subject=${enc('Join my team')}&body=${enc(text)}`}>Email</a>
+      <a className="btn ghost sm" href={`https://wa.me/?text=${enc(text)}`} target="_blank" rel="noopener noreferrer">WhatsApp</a>
+      <a className="btn ghost sm" href={`https://x.com/intent/tweet?text=${enc(text)}`} target="_blank" rel="noopener noreferrer">X</a>
     </div>
   );
 }
