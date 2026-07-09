@@ -7,7 +7,14 @@ import { clearSession, getSession, type Session } from '@/lib/auth';
 import { ThemeToggle } from '@/components/ui';
 import { APP_MONOGRAM, APP_NAME } from '@/lib/brand';
 
-const NAV = [{ href: '/platform', label: 'Companies', ic: '◳' }];
+const NAV = [
+  { href: '/platform', label: 'Overview', ic: '◈' },
+  { href: '/platform/companies', label: 'Companies', ic: '◳' },
+  { href: '/platform/audit', label: 'Audit', ic: '☰' },
+  { href: '/platform/system', label: 'System', ic: '♥' },
+  { href: '/platform/admins', label: 'Admins', ic: '⬡' },
+  { href: '/platform/packages', label: 'Packages', ic: '◆' },
+];
 
 export default function PlatformLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -47,7 +54,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
         <div className="faint" style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', margin: '0 0 10px 4px' }}>Platform</div>
         <nav>
           {NAV.map((n) => (
-            <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''} onClick={() => setNavOpen(false)}>
+            <Link key={n.href} href={n.href} className={pathname === n.href || (n.href !== '/platform' && pathname.startsWith(n.href)) ? 'active' : ''} onClick={() => setNavOpen(false)}>
               <span className="ic">{n.ic}</span>{n.label}
             </Link>
           ))}
