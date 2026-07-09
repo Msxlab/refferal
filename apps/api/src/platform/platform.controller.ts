@@ -4,11 +4,13 @@ import { CurrentUser, PlatformAdmin } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { BillingService } from './billing.service';
+import { PackagesService } from './packages.service';
 import { PlatformService } from './platform.service';
 import {
   auditQuerySchema, AuditQuery,
   brandingSchema, BrandingInput,
   companiesQuerySchema, CompaniesQuery,
+  createPackageSchema, CreatePackageInput,
   grantAdminSchema, GrantAdminInput,
   issueInvoiceSchema, IssueInvoiceInput,
   issuePeriodSchema, IssuePeriodInput,
@@ -17,6 +19,7 @@ import {
   searchQuerySchema, SearchQuery,
   setBillingSchema, SetBillingInput,
   setStatusSchema, SetStatusInput,
+  updatePackageSchema, UpdatePackageInput,
 } from './platform.types';
 
 const createCompanySchema = z.object({
@@ -40,6 +43,7 @@ export class PlatformController {
   constructor(
     private readonly platform: PlatformService,
     private readonly billing: BillingService,
+    private readonly packages: PackagesService,
   ) {}
 
   @Get('overview')
@@ -142,7 +146,12 @@ export class PlatformController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(setBillingSchema)) body: SetBillingInput,
   ) {
-    return this.billing.setConfig(id, { monthlyFeeCents: BigInt(body.monthlyFeeCents), active: body.active, notes: body.notes });
+    return this.billing.setConfig(id, {
+      packageId: body.packageId,
+      monthlyFeeCents: body.monthlyFeeCents !== undefined ? BigInt(body.monthlyFeeCents) : undefined,
+      active: body.active,
+      notes: body.notes,
+    });
   }
 
   @HttpCode(200)
@@ -175,6 +184,34 @@ export class PlatformController {
   @Post('invoices/:id/void')
   voidInvoice(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.billing.voidInvoice(user.sub, id);
+  }
+
+  // ---- Item 10: billing paket katalogu (Starter/Growth/Enterprise) + MRR ----
+  @Get('packages')
+  listPackages() {
+    return this.packages.list();
+  }
+
+  @HttpCode(200)
+  @Post('packages')
+  createPackage(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(createPackageSchema)) body: CreatePackageInput) {
+    return this.packages.create(user.sub, body);
+  }
+
+  @Put('packages/:id')
+  updatePackage(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodValidationPipe(updatePackageSchema)) body: UpdatePackageInput) {
+    return this.packages.update(user.sub, id, body);
+  }
+
+  @HttpCode(200)
+  @Delete('packages/:id')
+  deletePackage(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.packages.softDelete(user.sub, id);
+  }
+
+  @Get('mrr')
+  mrr() {
+    return this.packages.mrr();
   }
 
   // ---- Item 4: guvenli platform impersonation (salt-okunur owner-view) ----

@@ -218,12 +218,32 @@ model TenantBilling {
   currency        String   @default("USD")
   active          Boolean  @default(true)
   notes           String?
+  packageId       String?  @map("package_id") @db.Uuid
+  overrides       Json     @default("{}")
+  package         BillingPackage? @relation(fields: [packageId], references: [id])
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("tenant_billing")
+}
+
+// Item 10: platform billing paketi katalogu (Starter/Growth/Enterprise). Fee + flag/limit JSON.
+model BillingPackage {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key             String   @unique
+  name            String
+  monthlyFeeCents BigInt   @map("monthly_fee_cents")
+  features        Json     @default("{}")
+  limits          Json     @default("{}")
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenantBillings  TenantBilling[]
+
+  @@map("billing_packages")
 }
 
 // Faz C2: tek fatura. Odeme platform disi → status open→paid (elle isaretleme, cek/havale referansiyla).

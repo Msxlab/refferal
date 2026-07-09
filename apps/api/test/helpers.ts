@@ -17,7 +17,7 @@ export async function truncateAll(prisma: PrismaClient): Promise<void> {
     TRUNCATE TABLE
       audit_logs, notifications, devices, refresh_tokens, user_tokens, payouts,
       monthly_summaries, team_stats, ledger_entries, sales, commission_plan_levels,
-      commission_plans, invites, memberships, users, tenants
+      commission_plans, invites, memberships, users, tenants, billing_packages
     CASCADE`);
 }
 

@@ -517,4 +517,41 @@ describe('platform companies (entegrasyon)', () => {
     expect(statuses.filter((s) => s === 200).length).toBe(1);
     expect(statuses.filter((s) => s === 400).length).toBe(1);
   });
+
+  it('item 10: package CRUD + audit; assigning sets default fee; MRR sums active; soft-delete blocks hard-delete', async () => {
+    const platformUser = await prisma.user.create({
+      data: { email: 'plat-pk@test.refearn.local', passwordHash: 'x', fullName: 'P', isPlatformAdmin: true },
+    });
+    const platTok = token({ sub: platformUser.id, plat: true });
+    const srv = app.getHttpServer();
+
+    // create package
+    const pkg = (await request(srv).post('/v1/platform/packages').set('Authorization', `Bearer ${platTok}`)
+      .send({ key: 'growth', name: 'Growth', monthlyFeeCents: 19900, features: { seats: true }, limits: { members: 5000 } }).expect(200)).body;
+    expect(pkg.monthlyFeeCents).toBe('19900');
+    expect(await prisma.auditLog.count({ where: { action: 'platform.package_created', tenantId: null } })).toBe(1);
+
+    // list
+    const list = (await request(srv).get('/v1/platform/packages').set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    expect(list.some((p: { key: string }) => p.key === 'growth')).toBe(true);
+
+    // assign to a tenant → default fee from package
+    const tenant = await createTenant(prisma);
+    await request(srv).put(`/v1/platform/companies/${tenant.id}/billing`).set('Authorization', `Bearer ${platTok}`)
+      .send({ packageId: pkg.id, active: true }).expect(200);
+    const cfg = await prisma.tenantBilling.findUniqueOrThrow({ where: { tenantId: tenant.id } });
+    expect(cfg.monthlyFeeCents).toBe(19900n);
+    expect(cfg.packageId).toBe(pkg.id);
+
+    // MRR sums only active billing
+    const t2 = await createTenant(prisma);
+    await request(srv).put(`/v1/platform/companies/${t2.id}/billing`).set('Authorization', `Bearer ${platTok}`)
+      .send({ monthlyFeeCents: 5000, active: false }).expect(200);
+    const mrr = (await request(srv).get('/v1/platform/mrr').set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    expect(mrr.mrrCents).toBe('19900');
+
+    // soft-delete (deactivate) while referenced → active=false, not hard-deleted
+    await request(srv).delete(`/v1/platform/packages/${pkg.id}`).set('Authorization', `Bearer ${platTok}`).expect(200);
+    expect((await prisma.billingPackage.findUniqueOrThrow({ where: { id: pkg.id } })).active).toBe(false);
+  });
 });

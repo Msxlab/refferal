@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { SchedulerModule } from '../scheduler/scheduler.module';
 import { BillingService } from './billing.service';
+import { PackagesService } from './packages.service';
 import { PlatformController } from './platform.controller';
 import { PlatformService } from './platform.service';
 
@@ -13,6 +14,6 @@ const isTest = process.env.NODE_ENV === 'test';
 @Module({
   imports: [JwtModule.register({}), ...(isTest ? [] : [SchedulerModule])],
   controllers: [PlatformController],
-  providers: [PlatformService, BillingService],
+  providers: [PlatformService, BillingService, PackagesService],
 })
 export class PlatformModule {}

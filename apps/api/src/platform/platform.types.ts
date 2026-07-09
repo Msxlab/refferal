@@ -8,12 +8,13 @@ export const setStatusSchema = z.object({
 });
 export type SetStatusInput = z.infer<typeof setStatusSchema>;
 
-/** C2: billing yapilandirmasi (aylik sabit ucret cent, aktif/pasif, not). */
+/** C2 + Item 10: billing yapilandirmasi (paket veya aylik sabit ucret cent, aktif/pasif, not). */
 export const setBillingSchema = z.object({
-  monthlyFeeCents: z.number().int().min(0).max(100_000_000),
+  packageId: z.string().uuid().optional(),
+  monthlyFeeCents: z.number().int().min(0).max(100_000_000).optional(),
   active: z.boolean(),
   notes: z.string().trim().max(500).optional().nullable(),
-});
+}).refine((v) => v.packageId !== undefined || v.monthlyFeeCents !== undefined, { message: 'packageId veya monthlyFeeCents gerekli' });
 export type SetBillingInput = z.infer<typeof setBillingSchema>;
 
 /** C2: tek sirkete fatura kes. */
@@ -77,3 +78,22 @@ export type SearchQuery = z.infer<typeof searchQuerySchema>;
 /** Item 9: platform admin ver (e-posta ile). */
 export const grantAdminSchema = z.object({ email: z.string().trim().toLowerCase().email().max(254) });
 export type GrantAdminInput = z.infer<typeof grantAdminSchema>;
+
+/** Item 10: billing paket katalogu (Starter/Growth/Enterprise). */
+export const createPackageSchema = z.object({
+  key: z.string().trim().toLowerCase().min(2).max(40).regex(/^[a-z0-9_]+$/),
+  name: z.string().trim().min(2).max(80),
+  monthlyFeeCents: z.number().int().min(0).max(100_000_000),
+  features: z.record(z.unknown()).default({}),
+  limits: z.record(z.unknown()).default({}),
+});
+export type CreatePackageInput = z.infer<typeof createPackageSchema>;
+
+export const updatePackageSchema = z.object({
+  name: z.string().trim().min(2).max(80).optional(),
+  monthlyFeeCents: z.number().int().min(0).max(100_000_000).optional(),
+  features: z.record(z.unknown()).optional(),
+  limits: z.record(z.unknown()).optional(),
+  active: z.boolean().optional(),
+});
+export type UpdatePackageInput = z.infer<typeof updatePackageSchema>;

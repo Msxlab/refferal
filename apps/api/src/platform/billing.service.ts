@@ -31,14 +31,21 @@ export class BillingService {
     };
   }
 
-  /** Billing yapilandirmasini ayarla (upsert). monthlyFeeCents = aylik sabit ucret (cent). */
-  async setConfig(tenantId: string, input: { monthlyFeeCents: bigint; active: boolean; notes?: string | null }) {
+  /** Billing yapilandirmasini ayarla (upsert). monthlyFeeCents = aylik sabit ucret (cent); packageId verilirse ucret paketten gelir (override edilebilir). */
+  async setConfig(tenantId: string, input: { packageId?: string; monthlyFeeCents?: bigint; active: boolean; notes?: string | null }) {
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { currency: true } });
     if (!tenant) throw new NotFoundException('sirket bulunamadi');
+    let fee = input.monthlyFeeCents;
+    if (fee === undefined && input.packageId) {
+      const pkg = await this.prisma.billingPackage.findUnique({ where: { id: input.packageId }, select: { monthlyFeeCents: true } });
+      if (!pkg) throw new NotFoundException('paket bulunamadi');
+      fee = pkg.monthlyFeeCents;
+    }
+    if (fee === undefined) fee = 0n;
     await this.prisma.tenantBilling.upsert({
       where: { tenantId },
-      create: { tenantId, monthlyFeeCents: input.monthlyFeeCents, currency: tenant.currency, active: input.active, notes: input.notes ?? null },
-      update: { monthlyFeeCents: input.monthlyFeeCents, active: input.active, notes: input.notes ?? null },
+      create: { tenantId, monthlyFeeCents: fee, currency: tenant.currency, active: input.active, notes: input.notes ?? null, packageId: input.packageId ?? null },
+      update: { monthlyFeeCents: fee, active: input.active, notes: input.notes ?? null, ...(input.packageId !== undefined ? { packageId: input.packageId } : {}) },
     });
     return this.forTenant(tenantId);
   }
