@@ -3,6 +3,9 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, Toggle, useToast } from '@/components/ui';
+import { useDirty } from '@/hooks/useDirty';
+import { SaveBar } from '@/components/SaveBar';
+import { SettingsSection } from '@/components/SettingsSection';
 
 interface Settings {
   name: string;
@@ -40,8 +43,40 @@ export default function General() {
   const [toast, showToast] = useToast();
   const [busy, setBusy] = useState(false);
 
+  // yalniz DUZENLENEBILIR alanlar dirty karsilastirmasina girer (read-only name/slug/currency haric)
+  const editable = s && {
+    timezone: s.timezone,
+    maturationRule: s.maturationRule,
+    maturationDays: s.maturationDays,
+    payoutMinCents: s.payoutMinCents,
+    notifyNewMemberName: s.notifyNewMemberName,
+    compressionEnabled: s.compressionEnabled,
+    inactiveMembersEarn: s.inactiveMembersEarn,
+    requireSeparateApprover: s.requireSeparateApprover,
+    requireKycForPayout: s.requireKycForPayout,
+    requirePayoutApproval: s.requirePayoutApproval,
+    autoRequestPayouts: s.autoRequestPayouts,
+  };
+  const { dirty, setBaseline } = useDirty(editable ?? null, null);
+
   useEffect(() => {
-    api.get<Settings>('/admin/settings').then(setS).catch((e) => setError(String((e as ApiError).message)));
+    api.get<Settings>('/admin/settings').then((res) => {
+      setS(res);
+      setBaseline({
+        timezone: res.timezone,
+        maturationRule: res.maturationRule,
+        maturationDays: res.maturationDays,
+        payoutMinCents: res.payoutMinCents,
+        notifyNewMemberName: res.notifyNewMemberName,
+        compressionEnabled: res.compressionEnabled,
+        inactiveMembersEarn: res.inactiveMembersEarn,
+        requireSeparateApprover: res.requireSeparateApprover,
+        requireKycForPayout: res.requireKycForPayout,
+        requirePayoutApproval: res.requirePayoutApproval,
+        autoRequestPayouts: res.autoRequestPayouts,
+      });
+    }).catch((e) => setError(String((e as ApiError).message)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function save(e: FormEvent) {
@@ -63,15 +98,33 @@ export default function General() {
         autoRequestPayouts: s.autoRequestPayouts,
       });
       setS(res);
+      setBaseline({
+        timezone: res.timezone,
+        maturationRule: res.maturationRule,
+        maturationDays: res.maturationDays,
+        payoutMinCents: res.payoutMinCents,
+        notifyNewMemberName: res.notifyNewMemberName,
+        compressionEnabled: res.compressionEnabled,
+        inactiveMembersEarn: res.inactiveMembersEarn,
+        requireSeparateApprover: res.requireSeparateApprover,
+        requireKycForPayout: res.requireKycForPayout,
+        requirePayoutApproval: res.requirePayoutApproval,
+        autoRequestPayouts: res.autoRequestPayouts,
+      });
       showToast('Settings saved ✓');
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
+  }
+
+  function discard() {
+    api.get<Settings>('/admin/settings').then((res) => setS(res)).catch((e) => setError(String((e as ApiError).message)));
   }
 
   if (error && !s) return <div className="error">{error}</div>;
   if (!s) return <Loading rows={4} />;
 
   return (
-    <form className="grid" onSubmit={save} style={{ gap: 18, maxWidth: 620 }}>
+    <SettingsSection maxWidth={620}>
+      <form className="grid" onSubmit={save} style={{ gap: 18 }}>
       <div className="card">
         <strong style={{ fontSize: 14 }}>Workspace</strong>
         <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 12 }}>
@@ -124,8 +177,10 @@ export default function General() {
 
       {error && <div className="error">{error}</div>}
       <div className="row"><button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button></div>
+      <SaveBar dirty={dirty} busy={busy} onSave={() => save(new Event('submit') as unknown as FormEvent)} onDiscard={discard} />
       {toast && <div className="toast" role="status">{toast}</div>}
-    </form>
+      </form>
+    </SettingsSection>
   );
 }
 
