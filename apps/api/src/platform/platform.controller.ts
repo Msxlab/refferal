@@ -150,4 +150,17 @@ export class PlatformController {
   voidInvoice(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.billing.voidInvoice(user.sub, id);
   }
+
+  // ---- Item 4: guvenli platform impersonation (salt-okunur owner-view) ----
+  @HttpCode(200)
+  @Post('companies/:id/impersonate')
+  impersonate(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.platform.impersonate(user.sub, id);
+  }
+
+  @HttpCode(200)
+  @Post('companies/:id/impersonate/end')
+  impersonateEnd(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.platform.impersonateEnd(user.sub, id);
+  }
 }

@@ -294,4 +294,40 @@ describe('platform companies (entegrasyon)', () => {
     expect(kinds(suspended.id)).not.toContain('no_members');
     expect(kinds(suspended.id)).not.toContain('no_plan');
   });
+
+  it('item 4: platform admin with NO membership impersonates owner (GET ok, POST 403); suspended rejected; audits land', async () => {
+    const platformUser = await prisma.user.create({
+      data: { email: 'plat-imp@test.refearn.local', passwordHash: 'x', fullName: 'P', isPlatformAdmin: true },
+    });
+    const platTok = token({ sub: platformUser.id, plat: true });
+    const srv = app.getHttpServer();
+
+    const tenant = await createTenant(prisma);
+    const [owner] = await createChain(prisma, tenant.id, 1);
+    await prisma.membership.update({ where: { id: owner.id }, data: { role: 'tenant_owner' } });
+
+    const res = (await request(srv).post(`/v1/platform/companies/${tenant.id}/impersonate`)
+      .set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    expect(res.accessToken).toBeTruthy();
+    const claims = JSON.parse(Buffer.from(res.accessToken.split('.')[1], 'base64').toString());
+    expect(claims.imp).toBe(platformUser.id);
+    expect(claims.mid).toBe(owner.id);
+    expect(claims.role).toBe('tenant_owner');
+
+    // GET works, POST 403 (read-only by construction)
+    await request(srv).get('/v1/app/dashboard').set('Authorization', `Bearer ${res.accessToken}`).expect(200);
+    await request(srv).post('/v1/app/sales').set('Authorization', `Bearer ${res.accessToken}`).send({ amountCents: 1 }).expect(403);
+
+    // start + end audit rows in tenant chain
+    await request(srv).post(`/v1/platform/companies/${tenant.id}/impersonate/end`).set('Authorization', `Bearer ${platTok}`).expect(200);
+    expect(await prisma.auditLog.count({ where: { tenantId: tenant.id, action: 'security.platform_impersonate_start' } })).toBe(1);
+    expect(await prisma.auditLog.count({ where: { tenantId: tenant.id, action: 'security.platform_impersonate_end' } })).toBe(1);
+
+    // suspended tenant rejected
+    const susp = await createTenant(prisma);
+    const [so] = await createChain(prisma, susp.id, 1);
+    await prisma.membership.update({ where: { id: so.id }, data: { role: 'tenant_owner' } });
+    await prisma.tenant.update({ where: { id: susp.id }, data: { status: 'suspended' } });
+    await request(srv).post(`/v1/platform/companies/${susp.id}/impersonate`).set('Authorization', `Bearer ${platTok}`).expect(400);
+  });
 });

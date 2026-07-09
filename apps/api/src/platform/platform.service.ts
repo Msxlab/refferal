@@ -1,8 +1,11 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { MembershipStatus, PayoutStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
 import { hash } from '@node-rs/argon2';
 import { DEFAULT_LEVEL_RATES_BPS, DEFAULT_POOL_RATE_BPS } from '@refearn/shared';
+import { authConfig } from '../auth/auth.config';
 import { ARGON2_OPTS } from '../auth/auth.service';
+import { AccessTokenPayload } from '../auth/auth.types';
 import { ltreeLabel, newUuid, randomCode } from '../common/crypto';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
@@ -14,6 +17,7 @@ export class PlatformService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly billing: BillingService,
+    private readonly jwt: JwtService,
   ) {}
 
   /** Sirketler dizini: sayfali + durum/arama filtreli + TEK grouped ciro sorgusu (N+1 yok). */
@@ -426,5 +430,38 @@ export class PlatformService {
       },
       needsAttention,
     };
+  }
+
+  /**
+   * Item 4: platform-kapsamli impersonation — tenant OWNER'i olarak kisa-omurlu salt-okunur token
+   * mint eder (uyelik GEREKTIRMEZ). imp=platformAdminUserId → guard GET disi her seyi bloklar.
+   * Suspended tenant reddedilir; setup_needed izinli.
+   */
+  async impersonate(platformAdminUserId: string, id: string) {
+    const t = await this.prisma.tenant.findUnique({ where: { id }, select: { status: true } });
+    if (!t) throw new NotFoundException('sirket bulunamadi');
+    if (t.status === TenantStatus.suspended) throw new BadRequestException('askidaki sirkete girilemez');
+    const owner = await this.prisma.membership.findFirst({
+      where: { tenantId: id, role: Role.tenant_owner, status: MembershipStatus.active },
+      select: { id: true },
+    });
+    if (!owner) throw new NotFoundException('sirketin aktif owner uyeligi yok');
+
+    const payload: AccessTokenPayload = {
+      sub: platformAdminUserId, mid: owner.id, tid: id, role: Role.tenant_owner, imp: platformAdminUserId,
+    };
+    const accessToken = await this.jwt.signAsync(payload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
+    await this.prisma.auditLog.create({
+      data: { tenantId: id, actorUserId: platformAdminUserId, action: 'security.platform_impersonate_start', entity: 'security', entityId: owner.id, after: { ownerMembershipId: owner.id } },
+    });
+    return { accessToken, membershipId: owner.id };
+  }
+
+  /** Item 4: impersonation bitti — platform admin'in normal tokeniyle, yalniz audit. */
+  async impersonateEnd(platformAdminUserId: string, id: string) {
+    await this.prisma.auditLog.create({
+      data: { tenantId: id, actorUserId: platformAdminUserId, action: 'security.platform_impersonate_end', entity: 'security', entityId: id, after: {} },
+    });
+    return { ended: true };
   }
 }
