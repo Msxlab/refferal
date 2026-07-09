@@ -18,6 +18,7 @@ const NAV: Array<{ href: string; key: Parameters<typeof t>[0]; ic: string; admin
   { href: '/admin/tree', key: 'nav.tree', ic: '⤳' },
   { href: '/admin/campaigns', key: 'nav.campaigns', ic: '⚑' },
   { href: '/admin/payouts', key: 'nav.payouts', ic: '◆', adminOnly: true },
+  { href: '/admin/fraud', key: 'nav.fraud', ic: '⚠', adminOnly: true },
   { href: '/admin/checks', key: 'nav.checks', ic: '🖶', adminOnly: true },
   { href: '/admin/periods', key: 'nav.periods', ic: '▥', adminOnly: true },
   { href: '/admin/audit', key: 'nav.audit', ic: '☰', adminOnly: true },

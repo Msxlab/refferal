@@ -8,6 +8,7 @@ const en = {
   'nav.tree': 'Network',
   'nav.campaigns': 'Campaigns',
   'nav.payouts': 'Payouts',
+  'nav.fraud': 'Fraud',
   'nav.checks': 'Checks',
   'nav.periods': 'Close',
   'nav.audit': 'Audit',
