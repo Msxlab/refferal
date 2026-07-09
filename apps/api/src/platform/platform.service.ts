@@ -1,12 +1,21 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { MembershipStatus, PayoutStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
+import {
+  MembershipStatus,
+  NotificationChannel,
+  PayoutStatus,
+  Prisma,
+  Role,
+  SaleStatus,
+  TenantStatus,
+  UserTokenPurpose,
+} from '@prisma/client';
 import { hash } from '@node-rs/argon2';
 import { DEFAULT_LEVEL_RATES_BPS, DEFAULT_POOL_RATE_BPS } from '@refearn/shared';
 import { authConfig } from '../auth/auth.config';
 import { ARGON2_OPTS } from '../auth/auth.service';
 import { AccessTokenPayload } from '../auth/auth.types';
-import { ltreeLabel, newUuid, randomCode } from '../common/crypto';
+import { ltreeLabel, newUuid, randomCode, randomToken, sha256 } from '../common/crypto';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
 import { SchedulerService } from '../scheduler/scheduler.service';
@@ -208,7 +217,9 @@ export class PlatformService {
 
   /**
    * Yeni sirket (tenant) kurar: tenant + varsayilan komisyon plani + owner uyeligi (kok, depth 0).
-   * Owner kullanicisi yoksa gecici sifreyle olusturulur ve sifre BIR KEZ geri donulur.
+   * Item 8: owner kullanicisi yoksa gecici sifre YERINE hash'li/suresi-dolan/tek-kullanimlik
+   * owner_invite tokeni uretilir + e-posta bildirimi kuyruklanir (tempPassword hep null doner).
+   * Mevcut owner (existingUser) yolu degismedi: token/e-posta yok, ownerExisting: true doner.
    * Yalniz platform admin (controller guard'i) cagirir.
    */
   async createCompany(
@@ -248,14 +259,15 @@ export class PlatformService {
         },
       });
 
-      // Owner kullanicisi: varsa kullan (mevcut hesap), yoksa gecici sifreyle olustur
+      // Owner kullanicisi: varsa kullan (mevcut hesap), yoksa YENI olustur (item 8: temp sifre YOK —
+      // e-posta davetiyle sifre belirlenir). Gecici rastgele hash login'i engeller.
       const existingUser = await tx.user.findUnique({ where: { email } });
-      let tempPassword: string | null = null;
       let ownerUser = existingUser;
+      let isNewOwner = false;
       if (!ownerUser) {
-        tempPassword = `${randomCode(4)}-${randomCode(4)}-${randomCode(4)}`;
+        isNewOwner = true;
         ownerUser = await tx.user.create({
-          data: { email, passwordHash: await hash(tempPassword, ARGON2_OPTS), fullName: input.ownerName, emailVerifiedAt: new Date() },
+          data: { email, passwordHash: await hash(randomCode(24), ARGON2_OPTS), fullName: input.ownerName },
         });
       }
 
@@ -307,8 +319,31 @@ export class PlatformService {
         },
       });
 
-      return { tenant, tempPassword, ownerExisting: !!existingUser };
+      return { tenant, ownerExisting: !!existingUser, isNewOwner, ownerUserId: ownerUser.id, ownerMembershipId: ownerMembership.id };
     });
+
+    // Item 8: YENI owner icin davet tokeni + e-posta bildirimi TRANSACTION DISINDA (teslimat
+    // hatasi tenant olusturmayi geri almasin). Mevcut owner yolu degismedi: token YOK.
+    if (result.isNewOwner) {
+      const raw = randomToken(32);
+      await this.prisma.userToken.create({
+        data: {
+          userId: result.ownerUserId,
+          purpose: UserTokenPurpose.owner_invite,
+          tokenHash: sha256(raw),
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+      await this.prisma.notification.create({
+        data: {
+          tenantId: result.tenant.id,
+          recipientMembershipId: result.ownerMembershipId,
+          channel: NotificationChannel.email,
+          template: 'owner_invite',
+          payload: { token: raw, companyName: result.tenant.name },
+        },
+      });
+    }
 
     return {
       id: result.tenant.id,
@@ -316,8 +351,7 @@ export class PlatformService {
       name: result.tenant.name,
       ownerEmail: email,
       ownerExisting: result.ownerExisting,
-      // gecici sifre yalniz YENI owner kullanicisi olusturulduysa doludur — bir kez goster
-      tempPassword: result.tempPassword,
+      tempPassword: null, // item 8: gecici sifre yok — e-posta davet gonderilir
     };
   }
 

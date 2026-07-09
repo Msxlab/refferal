@@ -421,4 +421,41 @@ describe('platform companies (entegrasyon)', () => {
     const ownerTok = token({ sub: owner.id, mid: m.id, tid: tenant.id, role: 'tenant_owner' });
     await request(srv).get('/v1/platform/health').set('Authorization', `Bearer ${ownerTok}`).expect(403);
   });
+
+  it('item 8: new owner gets owner_invite token (no tempPassword); accept sets password + verifies; expired rejected; existing owner no token', async () => {
+    const platformUser = await prisma.user.create({
+      data: { email: 'plat-inv@test.refearn.local', passwordHash: 'x', fullName: 'P', isPlatformAdmin: true },
+    });
+    const platTok = token({ sub: platformUser.id, plat: true });
+    const srv = app.getHttpServer();
+
+    // new owner → no tempPassword, one owner_invite UserToken
+    const created = (await request(srv).post('/v1/platform/companies').set('Authorization', `Bearer ${platTok}`)
+      .send({ name: 'Invite Co', slug: 'invite-co', currency: 'USD', timezone: 'America/New_York', ownerEmail: 'newowner@inv.co', ownerName: 'New Owner' })
+      .expect(201)).body;
+    expect(created.tempPassword).toBeNull();
+    const ownerUser = await prisma.user.findUniqueOrThrow({ where: { email: 'newowner@inv.co' } });
+    const tok = await prisma.userToken.findFirst({ where: { userId: ownerUser.id, purpose: 'owner_invite' } });
+    expect(tok).toBeTruthy();
+
+    // accept: we need the raw token; capture it from the enqueued notification payload
+    const notif = await prisma.notification.findFirst({ where: { template: 'owner_invite' }, orderBy: { createdAt: 'desc' } });
+    const rawToken = (notif!.payload as { token: string }).token;
+    const accepted = (await request(srv).post('/v1/auth/accept-owner-invite')
+      .send({ token: rawToken, password: 'BrandNewPass123', fullName: 'New Owner' }).expect(200)).body;
+    expect(accepted.accessToken).toBeTruthy();
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: ownerUser.id } })).emailVerifiedAt).not.toBeNull();
+
+    // reuse rejected
+    await request(srv).post('/v1/auth/accept-owner-invite').send({ token: rawToken, password: 'AnotherPass123' }).expect(400);
+
+    // existing owner → no token
+    await prisma.user.create({ data: { email: 'existing@inv.co', passwordHash: 'x', fullName: 'Existing' } });
+    const c2 = (await request(srv).post('/v1/platform/companies').set('Authorization', `Bearer ${platTok}`)
+      .send({ name: 'Second Co', slug: 'second-co', currency: 'USD', timezone: 'America/New_York', ownerEmail: 'existing@inv.co', ownerName: 'Existing' })
+      .expect(201)).body;
+    expect(c2.ownerExisting).toBe(true);
+    const existingUser = await prisma.user.findUniqueOrThrow({ where: { email: 'existing@inv.co' } });
+    expect(await prisma.userToken.count({ where: { userId: existingUser.id, purpose: 'owner_invite' } })).toBe(0);
+  });
 });

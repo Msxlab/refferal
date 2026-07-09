@@ -448,6 +448,23 @@ export class AuthService {
     return { ok: true };
   }
 
+  /** Item 8: owner davetini kabul et — sifre belirle, e-postayi dogrula, oturum dondur. */
+  async acceptOwnerInvite(tokenRaw: string, password: string, meta: RequestMeta, fullName?: string): Promise<AuthSession> {
+    const token = await this.prisma.userToken.findUnique({ where: { tokenHash: sha256(tokenRaw) } });
+    if (!token || token.purpose !== UserTokenPurpose.owner_invite || token.usedAt || token.expiresAt < new Date()) {
+      throw new BadRequestException('davet linki gecersiz veya suresi dolmus');
+    }
+    const passwordHash = await hash(password, ARGON2_OPTS);
+    await this.prisma.$transaction([
+      this.prisma.userToken.update({ where: { id: token.id }, data: { usedAt: new Date() } }),
+      this.prisma.user.update({
+        where: { id: token.userId },
+        data: { passwordHash, emailVerifiedAt: new Date(), ...(fullName ? { fullName } : {}) },
+      }),
+    ]);
+    return this.issueSession(token.userId, meta);
+  }
+
   // ---------------------------------------------------------------- internals
 
   private async issueSession(userId: string, meta: RequestMeta): Promise<AuthSession> {

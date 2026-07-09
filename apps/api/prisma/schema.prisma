@@ -328,6 +328,7 @@ enum UserTokenPurpose {
   email_verify
   password_reset
   login_otp
+  owner_invite
 }
 
 // E-posta dogrulama / sifre sifirlama token'lari (tek kullanimlik, hash'li)

@@ -91,3 +91,11 @@ export const passwordResetConfirmSchema = z.object({
   newPassword: z.string().min(10).max(128),
 });
 export type PasswordResetConfirmInput = z.infer<typeof passwordResetConfirmSchema>;
+
+/** Item 8: platform owner davetini kabul — token + yeni sifre (+ istege bagli tam ad). */
+export const acceptOwnerInviteSchema = z.object({
+  token: z.string().min(16).max(256),
+  password: z.string().min(10).max(128),
+  fullName: z.string().trim().min(2).max(120).optional(),
+});
+export type AcceptOwnerInviteInput = z.infer<typeof acceptOwnerInviteSchema>;

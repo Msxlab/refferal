@@ -5,6 +5,8 @@ import { ZodValidationPipe } from '../common/zod.pipe';
 import { Public } from './auth.guard';
 import { AuthService, RequestMeta } from './auth.service';
 import {
+  acceptOwnerInviteSchema,
+  AcceptOwnerInviteInput,
   loginSchema,
   LoginInput,
   loginTwoFactorSchema,
@@ -82,5 +84,11 @@ export class AuthController {
   @Post('password-reset/confirm')
   confirmReset(@Body(new ZodValidationPipe(passwordResetConfirmSchema)) body: PasswordResetConfirmInput) {
     return this.auth.confirmPasswordReset(body.token, body.newPassword);
+  }
+
+  @HttpCode(200)
+  @Post('accept-owner-invite')
+  acceptOwnerInvite(@Body(new ZodValidationPipe(acceptOwnerInviteSchema)) body: AcceptOwnerInviteInput, @Req() req: Request) {
+    return this.auth.acceptOwnerInvite(body.token, body.password, meta(req), body.fullName);
   }
 }

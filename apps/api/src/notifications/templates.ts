@@ -26,6 +26,12 @@ export function render(template: string, payload: Record<string, unknown>): Rend
         subject: 'Refearn — Password reset',
         body: `Use this link to reset your password (valid for 1 hour):\n${WEB_URL()}/reset-password?token=${payload.token}\n\nIf you didn't request this, you can safely ignore it.`,
       };
+    case 'owner_invite':
+      // Item 8: platform owner davet e-postasi — sifre BURADA belirlenir (temp sifre yok).
+      return {
+        subject: `You've been invited to set up ${payload.companyName ?? 'your company'} on Refearn`,
+        body: `You've been added as the owner of ${payload.companyName ?? 'a new company'} on Refearn. Use this link to set your password and activate your account (valid for 7 days):\n${WEB_URL()}/accept-owner-invite?token=${payload.token}`,
+      };
     case 'commission_earned':
       return {
         subject: 'You earned a new commission',
