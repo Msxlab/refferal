@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { SentryExceptionFilter } from './common/sentry-exceptions.filter';
 import { ObservabilityModule } from './observability/observability.module';
 import { AccountModule } from './account/account.module';
+import { ActivityModule } from './activity/activity.module';
 import { AnnouncementsModule } from './announcements/announcements.module';
 import { ApiKeysModule } from './apikeys/apikeys.module';
 import { AuthModule } from './auth/auth.module';
@@ -64,6 +65,7 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
     InvitesModule,
     SalesModule,
     WalletModule,
+    ActivityModule,
     PayoutsModule,
     ChecksModule,
     PeriodsModule,
