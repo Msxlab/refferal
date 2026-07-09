@@ -34,9 +34,21 @@ export const reconcilePayoutsSchema = z.object({
 });
 export type ReconcilePayoutsInput = z.infer<typeof reconcilePayoutsSchema>;
 
-export const decidePayoutSchema = z.object({
-  action: z.enum(['approve', 'reject']),
-  // approve: banka/havale referansi; reject: red sebebi
-  ref: z.string().trim().min(1).max(500).optional(),
-});
+export const decidePayoutSchema = z
+  .object({
+    action: z.enum(['approve', 'reject']),
+    // approve: banka/havale referansi (opsiyonel); reject: red sebebi (ZORUNLU, min 3)
+    ref: z.string().trim().min(1).max(500).optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.action === 'reject' && (!v.ref || v.ref.length < 3)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['ref'], message: 'red sebebi zorunlu (en az 3 karakter)' });
+    }
+  });
 export type DecidePayoutInput = z.infer<typeof decidePayoutSchema>;
+
+// Maker-checker batch red: sebep ZORUNLU (audit + uye bildirimi).
+export const rejectBatchSchema = z.object({
+  reason: z.string().trim().min(3).max(500),
+});
+export type RejectBatchInput = z.infer<typeof rejectBatchSchema>;
