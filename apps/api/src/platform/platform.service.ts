@@ -308,4 +308,51 @@ export class PlatformService {
       tempPassword: result.tempPassword,
     };
   }
+
+  /** Item 3: tenant uye listesi (flat, sayfali). where: { tenantId } — capraz-kiraci sizinti yok. */
+  async members(id: string, q: { page: number; pageSize: number }) {
+    const exists = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true } });
+    if (!exists) throw new NotFoundException('sirket bulunamadi');
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.membership.count({ where: { tenantId: id } }),
+      this.prisma.membership.findMany({
+        where: { tenantId: id },
+        orderBy: [{ depth: 'asc' }, { joinedAt: 'asc' }],
+        skip: (q.page - 1) * q.pageSize,
+        take: q.pageSize,
+        include: { user: { select: { fullName: true, email: true } } },
+      }),
+    ]);
+    return {
+      total, page: q.page, pageSize: q.pageSize,
+      rows: rows.map((m) => ({
+        id: m.id, fullName: m.user.fullName, email: m.user.email,
+        referralCode: m.referralCode, role: m.role, status: m.status, depth: m.depth, joinedAt: m.joinedAt,
+      })),
+    };
+  }
+
+  /** Item 3: tenant payout listesi (salt-okunur, sayfali). where: { tenantId }. */
+  async payouts(id: string, q: { page: number; pageSize: number }) {
+    const exists = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true } });
+    if (!exists) throw new NotFoundException('sirket bulunamadi');
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.payout.count({ where: { tenantId: id } }),
+      this.prisma.payout.findMany({
+        where: { tenantId: id },
+        orderBy: { createdAt: 'desc' },
+        skip: (q.page - 1) * q.pageSize,
+        take: q.pageSize,
+        include: { membership: { select: { referralCode: true, user: { select: { fullName: true } } } } },
+      }),
+    ]);
+    return {
+      total, page: q.page, pageSize: q.pageSize,
+      rows: rows.map((p) => ({
+        id: p.id, memberName: p.membership.user.fullName, referralCode: p.membership.referralCode,
+        totalCents: p.totalCents.toString(), method: p.method, status: p.status, period: p.period,
+        createdAt: p.createdAt, paidAt: p.paidAt,
+      })),
+    };
+  }
 }

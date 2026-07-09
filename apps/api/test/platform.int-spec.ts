@@ -236,4 +236,29 @@ describe('platform companies (entegrasyon)', () => {
     await request(srv).patch(`/v1/platform/companies/${bare.id}/status`)
       .set('Authorization', `Bearer ${platTok}`).send({ status: 'active' }).expect(400);
   });
+
+  it('item 3: members + payouts endpoints are tenant-scoped and paginate', async () => {
+    const platformUser = await prisma.user.create({
+      data: { email: 'plat-tab@test.refearn.local', passwordHash: 'x', fullName: 'P', isPlatformAdmin: true },
+    });
+    const platTok = token({ sub: platformUser.id, plat: true });
+    const srv = app.getHttpServer();
+
+    const tA = await createTenant(prisma);
+    const tB = await createTenant(prisma);
+    const chainA = await createChain(prisma, tA.id, 3);
+    await createChain(prisma, tB.id, 2);
+    await prisma.payout.create({ data: { tenantId: tA.id, membershipId: chainA[0].id, totalCents: 1000n, period: '2026-07' } });
+
+    const members = (await request(srv).get(`/v1/platform/companies/${tA.id}/members?page=1&pageSize=2`)
+      .set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    expect(members.total).toBe(3);
+    expect(members.rows).toHaveLength(2);
+    expect(members.rows.every((r: { tenantId: string }) => r.tenantId === undefined || r.tenantId === tA.id)).toBe(true);
+
+    const payouts = (await request(srv).get(`/v1/platform/companies/${tA.id}/payouts`)
+      .set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    expect(payouts.total).toBe(1);
+    expect(payouts.rows[0].totalCents).toBe('1000');
+  });
 });

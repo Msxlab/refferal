@@ -45,6 +45,13 @@ export const companiesQuerySchema = z.object({
 });
 export type CompaniesQuery = z.infer<typeof companiesQuerySchema>;
 
+/** Item 3/6: basit sayfalama query. */
+export const pageQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+});
+export type PageQuery = z.infer<typeof pageQuerySchema>;
+
 /** Item 2: sirket branding (yalniz #hex ve https URL). */
 const HEX = /^#[0-9a-fA-F]{6}$/;
 export const brandingSchema = z.object({

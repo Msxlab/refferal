@@ -11,6 +11,7 @@ import {
   issueInvoiceSchema, IssueInvoiceInput,
   issuePeriodSchema, IssuePeriodInput,
   markPaidSchema, MarkPaidInput,
+  pageQuerySchema, PageQuery,
   setBillingSchema, SetBillingInput,
   setStatusSchema, SetStatusInput,
 } from './platform.types';
@@ -61,6 +62,17 @@ export class PlatformController {
   @Get('companies/:id/network')
   network(@Param('id', ParseUUIDPipe) id: string) {
     return this.platform.network(id);
+  }
+
+  // ---- Item 3: sirket sekmeleri (uyeler + odemeler), sayfali ----
+  @Get('companies/:id/members')
+  members(@Param('id', ParseUUIDPipe) id: string, @Query(new ZodValidationPipe(pageQuerySchema)) q: PageQuery) {
+    return this.platform.members(id, q);
+  }
+
+  @Get('companies/:id/payouts')
+  payouts(@Param('id', ParseUUIDPipe) id: string, @Query(new ZodValidationPipe(pageQuerySchema)) q: PageQuery) {
+    return this.platform.payouts(id, q);
   }
 
   // ---- C1: sirket durumu (askiya al / aktive et) ----
