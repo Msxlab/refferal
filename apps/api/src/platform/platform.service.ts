@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { MembershipStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
 import { hash } from '@node-rs/argon2';
 import { DEFAULT_LEVEL_RATES_BPS, DEFAULT_POOL_RATE_BPS } from '@refearn/shared';
@@ -97,6 +97,13 @@ export class PlatformService {
       this.prisma.ledgerEntry.aggregate({ where: { tenantId: id, status: 'payable' }, _sum: { amountCents: true } }),
     ]);
 
+    const branding = (t.branding ?? {}) as { logoUrl?: string; primaryHex?: string; accentHex?: string };
+    const hasBranding = !!(branding.logoUrl || branding.primaryHex || branding.accentHex);
+    const owner = await this.prisma.membership.findFirst({
+      where: { tenantId: id, role: Role.tenant_owner },
+      include: { user: { select: { emailVerifiedAt: true } } },
+    });
+
     return {
       id: t.id,
       slug: t.slug,
@@ -116,6 +123,12 @@ export class PlatformService {
         outstandingPayableCents: (payable._sum.amountCents ?? 0n).toString(),
       },
       plan: plan ? { name: plan.name, poolRateBps: plan.poolRateBps, depth: plan.depth } : null,
+      setup: {
+        hasPlan: plan !== null,
+        hasBranding,
+        hasOwnerAccepted: owner?.user.emailVerifiedAt !== null && owner !== null,
+        memberCount: members,
+      },
     };
   }
 
@@ -126,6 +139,10 @@ export class PlatformService {
   async setStatus(actorUserId: string, id: string, status: TenantStatus) {
     const t = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true, status: true } });
     if (!t) throw new NotFoundException('sirket bulunamadi');
+    if (status === TenantStatus.active) {
+      const plan = await this.prisma.commissionPlan.findFirst({ where: { tenantId: id, effectiveFrom: { lte: new Date() } }, select: { id: true } });
+      if (!plan) throw new BadRequestException('plansiz sirket aktive edilemez');
+    }
     await this.prisma.tenant.update({ where: { id }, data: { status } });
     await this.prisma.auditLog.create({
       data: {
@@ -134,6 +151,26 @@ export class PlatformService {
       },
     });
     return { id, status };
+  }
+
+  /** Item 2: tenant.branding JSON'unu ayarla (sanitize edilmis hex/URL). Audit'li. */
+  async setBranding(
+    actorUserId: string,
+    id: string,
+    input: { logoUrl?: string | null; primaryHex?: string | null; accentHex?: string | null },
+  ) {
+    const t = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true, branding: true } });
+    if (!t) throw new NotFoundException('sirket bulunamadi');
+    const branding = {
+      ...(input.logoUrl !== undefined ? { logoUrl: input.logoUrl } : {}),
+      ...(input.primaryHex !== undefined ? { primaryHex: input.primaryHex } : {}),
+      ...(input.accentHex !== undefined ? { accentHex: input.accentHex } : {}),
+    };
+    await this.prisma.tenant.update({ where: { id }, data: { branding: branding as Prisma.InputJsonValue } });
+    await this.prisma.auditLog.create({
+      data: { tenantId: id, actorUserId, action: 'platform.tenant_branding', entity: 'tenant', entityId: id, after: branding as Prisma.InputJsonValue },
+    });
+    return { id, branding };
   }
 
   /** Sirketin uye agi (flat node listesi — Ağaç/Liste gorunumu icin). */
@@ -182,6 +219,7 @@ export class PlatformService {
           timezone: input.timezone,
           maturationRule: 'on_delivery',
           payoutMinCents: 100_000n,
+          status: TenantStatus.setup_needed,
         },
       });
 

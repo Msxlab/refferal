@@ -44,3 +44,12 @@ export const companiesQuerySchema = z.object({
   q: z.string().trim().max(80).optional(),
 });
 export type CompaniesQuery = z.infer<typeof companiesQuerySchema>;
+
+/** Item 2: sirket branding (yalniz #hex ve https URL). */
+const HEX = /^#[0-9a-fA-F]{6}$/;
+export const brandingSchema = z.object({
+  logoUrl: z.string().trim().url().startsWith('https://').max(500).optional().nullable(),
+  primaryHex: z.string().trim().regex(HEX, 'gecersiz hex').optional().nullable(),
+  accentHex: z.string().trim().regex(HEX, 'gecersiz hex').optional().nullable(),
+});
+export type BrandingInput = z.infer<typeof brandingSchema>;

@@ -6,6 +6,7 @@ import { ZodValidationPipe } from '../common/zod.pipe';
 import { BillingService } from './billing.service';
 import { PlatformService } from './platform.service';
 import {
+  brandingSchema, BrandingInput,
   companiesQuerySchema, CompaniesQuery,
   issueInvoiceSchema, IssueInvoiceInput,
   issuePeriodSchema, IssuePeriodInput,
@@ -70,6 +71,16 @@ export class PlatformController {
     @Body(new ZodValidationPipe(setStatusSchema)) body: SetStatusInput,
   ) {
     return this.platform.setStatus(user.sub, id, body.status);
+  }
+
+  // ---- Item 2: sirket branding (logo + hex renkler) ----
+  @Put('companies/:id/branding')
+  setBranding(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(brandingSchema)) body: BrandingInput,
+  ) {
+    return this.platform.setBranding(user.sub, id, body);
   }
 
   // ---- C2: billing (manuel — Stripe yok) ----

@@ -116,6 +116,7 @@ describe('platform companies (entegrasyon)', () => {
 
   it('C1: platform admin sirketi askiya alir / aktive eder (audit)', async () => {
     const tenant = await createTenant(prisma);
+    await createPlan(prisma, tenant.id); // item 2 (Task 3) activate-gate: aktivasyon icin plan gerekli
     const platformUser = await prisma.user.create({ data: { email: 'plat3@test.refearn.local', passwordHash: 'x', fullName: 'Platform', isPlatformAdmin: true } });
     const platTok = token({ sub: platformUser.id, plat: true });
     const srv = app.getHttpServer();
@@ -182,6 +183,9 @@ describe('platform companies (entegrasyon)', () => {
     });
     expect((await prisma.tenant.findUniqueOrThrow({ where: { id: tenant.id } })).status).toBe('setup_needed');
 
+    // plan gerekli: item 2 (Task 3) activate-gate plansiz aktivasyonu 400'ler; enum round-trip niyeti korunur
+    await createPlan(prisma, tenant.id);
+
     // PATCH status accepts setup_needed → active
     await request(app.getHttpServer())
       .patch(`/v1/platform/companies/${tenant.id}/status`)
@@ -189,5 +193,47 @@ describe('platform companies (entegrasyon)', () => {
       .send({ status: 'active' })
       .expect(200);
     expect((await prisma.tenant.findUniqueOrThrow({ where: { id: tenant.id } })).status).toBe('active');
+  });
+
+  it('item 2: createCompany lands in setup_needed; branding validates; activate blocked without plan', async () => {
+    const platformUser = await prisma.user.create({
+      data: { email: 'plat-wiz@test.refearn.local', passwordHash: 'x', fullName: 'P', isPlatformAdmin: true },
+    });
+    const platTok = token({ sub: platformUser.id, plat: true });
+    const srv = app.getHttpServer();
+
+    const created = (await request(srv).post('/v1/platform/companies')
+      .set('Authorization', `Bearer ${platTok}`)
+      .send({ name: 'Wizard Co', slug: 'wizard-co', currency: 'USD', timezone: 'America/New_York', ownerEmail: 'own@wiz.co', ownerName: 'Owner' })
+      .expect(201)).body;
+    const t = await prisma.tenant.findUniqueOrThrow({ where: { id: created.id } });
+    expect(t.status).toBe('setup_needed');
+
+    // company() exposes setup block (has default plan → hasPlan true)
+    const detail = (await request(srv).get(`/v1/platform/companies/${created.id}`)
+      .set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    expect(detail.setup).toMatchObject({ hasPlan: true, hasBranding: false });
+
+    // bad hex rejected
+    await request(srv).put(`/v1/platform/companies/${created.id}/branding`)
+      .set('Authorization', `Bearer ${platTok}`)
+      .send({ primaryHex: 'red' }).expect(400);
+
+    // good branding persists
+    await request(srv).put(`/v1/platform/companies/${created.id}/branding`)
+      .set('Authorization', `Bearer ${platTok}`)
+      .send({ primaryHex: '#112233', logoUrl: 'https://cdn.example.com/l.png' }).expect(200);
+    const d2 = (await request(srv).get(`/v1/platform/companies/${created.id}`)
+      .set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    expect(d2.setup.hasBranding).toBe(true);
+
+    // activate with plan → allowed
+    await request(srv).patch(`/v1/platform/companies/${created.id}/status`)
+      .set('Authorization', `Bearer ${platTok}`).send({ status: 'active' }).expect(200);
+
+    // a plan-less tenant cannot be activated
+    const bare = await prisma.tenant.create({ data: { slug: 'bare-co', name: 'Bare', status: 'setup_needed' } });
+    await request(srv).patch(`/v1/platform/companies/${bare.id}/status`)
+      .set('Authorization', `Bearer ${platTok}`).send({ status: 'active' }).expect(400);
   });
 });
