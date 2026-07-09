@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
-import { Role } from '@prisma/client';
+import { Role, Tenant } from '@prisma/client';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { authConfig } from '../src/auth/auth.config';
@@ -9,7 +9,10 @@ import { AccessTokenPayload } from '../src/auth/auth.types';
 import { EngineService } from '../src/engine/engine.service';
 import { RanksService } from '../src/ranks/ranks.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { monthKey } from '../src/engine/month';
 import { createChain, createPlan, createSale, createTenant, truncateAll } from './helpers';
+
+const monthKeyFor = (tz: string) => monthKey(new Date(), tz);
 
 /** Platform yuzeyi: kiracci-ustu sirket dizini + drill-in. Yalniz isPlatformAdmin erisir. */
 describe('platform companies (entegrasyon)', () => {
@@ -48,12 +51,13 @@ describe('platform companies (entegrasyon)', () => {
     });
     const platTok = token({ sub: platformUser.id, plat: true });
 
-    // sirketler dizini
+    // sirketler dizini (sayfali: { total, rows })
     const companies = (await request(app.getHttpServer()).get('/v1/platform/companies').set('Authorization', `Bearer ${platTok}`).expect(200)).body;
-    expect(companies).toHaveLength(1);
-    expect(companies[0].id).toBe(tenant.id);
-    expect(companies[0].members).toBe(4);
-    expect(companies[0].revenueThisMonthCents).toBe('10000000');
+    expect(companies.total).toBe(1);
+    expect(companies.rows).toHaveLength(1);
+    expect(companies.rows[0].id).toBe(tenant.id);
+    expect(companies.rows[0].members).toBe(4);
+    expect(companies.rows[0].revenueThisMonthCents).toBe('10000000');
 
     // sirket ozeti
     const detail = (await request(app.getHttpServer()).get(`/v1/platform/companies/${tenant.id}`).set('Authorization', `Bearer ${platTok}`).expect(200)).body;
@@ -124,6 +128,48 @@ describe('platform companies (entegrasyon)', () => {
 
     const audit = await prisma.auditLog.count({ where: { tenantId: tenant.id, action: { startsWith: 'platform.tenant_' } } });
     expect(audit).toBe(2);
+  });
+
+  it('item 11: paginates, filters by status, and computes revenue in one grouped pass', async () => {
+    const platformUser = await prisma.user.create({
+      data: { email: 'plat-pg@test.refearn.local', passwordHash: 'x', fullName: 'P', isPlatformAdmin: true },
+    });
+    const platTok = token({ sub: platformUser.id, plat: true });
+    const srv = app.getHttpServer();
+
+    // 25 tenants; one gets a current-month approved sale, one is suspended
+    const tenants: Tenant[] = [];
+    for (let i = 0; i < 25; i++) tenants.push(await createTenant(prisma));
+    await prisma.tenant.update({ where: { id: tenants[0].id }, data: { status: 'suspended' } });
+    const chain = await createChain(prisma, tenants[1].id, 1);
+    const sale = await createSale(prisma, tenants[1].id, chain[0].id, 5_000_000n, { status: 'approved' });
+    await prisma.sale.update({
+      where: { id: sale.id },
+      data: { summaryMonth: monthKeyFor(tenants[1].timezone) },
+    });
+
+    // page 1, size 10 → 10 rows, total 25
+    const p1 = (await request(srv).get('/v1/platform/companies?page=1&pageSize=10')
+      .set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    expect(p1.total).toBe(25);
+    expect(p1.rows).toHaveLength(10);
+
+    // page 3 → 5 rows
+    const p3 = (await request(srv).get('/v1/platform/companies?page=3&pageSize=10')
+      .set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    expect(p3.rows).toHaveLength(5);
+
+    // status filter
+    const suspended = (await request(srv).get('/v1/platform/companies?status=suspended&pageSize=100')
+      .set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    expect(suspended.total).toBe(1);
+    expect(suspended.rows[0].id).toBe(tenants[0].id);
+
+    // revenue attributed to the right tenant (single grouped query)
+    const all = (await request(srv).get('/v1/platform/companies?pageSize=100')
+      .set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    const withRev = all.rows.find((r: { id: string }) => r.id === tenants[1].id);
+    expect(withRev.revenueThisMonthCents).toBe('5000000');
   });
 
   it('item 2: setup_needed enum round-trips and status schema accepts it', async () => {

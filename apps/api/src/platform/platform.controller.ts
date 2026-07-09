@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentUser, PlatformAdmin } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
@@ -6,6 +6,7 @@ import { ZodValidationPipe } from '../common/zod.pipe';
 import { BillingService } from './billing.service';
 import { PlatformService } from './platform.service';
 import {
+  companiesQuerySchema, CompaniesQuery,
   issueInvoiceSchema, IssueInvoiceInput,
   issuePeriodSchema, IssuePeriodInput,
   markPaidSchema, MarkPaidInput,
@@ -37,8 +38,8 @@ export class PlatformController {
   ) {}
 
   @Get('companies')
-  companies() {
-    return this.platform.companies();
+  companies(@Query(new ZodValidationPipe(companiesQuerySchema)) q: CompaniesQuery) {
+    return this.platform.companies(q);
   }
 
   // ---- Company onboarding: yeni sirket (tenant + plan + owner) ----

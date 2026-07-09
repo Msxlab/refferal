@@ -12,49 +12,67 @@ import { PrismaService } from '../prisma/prisma.service';
 export class PlatformService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Sirketler dizini + her sirket icin KPI (uye, aktif, bu-ay ciro, durum). */
-  async companies() {
-    const tenants = await this.prisma.tenant.findMany({ orderBy: { createdAt: 'asc' } });
+  /** Sirketler dizini: sayfali + durum/arama filtreli + TEK grouped ciro sorgusu (N+1 yok). */
+  async companies(query: { page: number; pageSize: number; status?: TenantStatus; q?: string }) {
+    const where: Prisma.TenantWhereInput = {
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.q
+        ? { OR: [{ name: { contains: query.q, mode: 'insensitive' } }, { slug: { contains: query.q.toLowerCase() } }] }
+        : {}),
+    };
+    const [total, tenants] = await this.prisma.$transaction([
+      this.prisma.tenant.count({ where }),
+      this.prisma.tenant.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+    ]);
+    const ids = tenants.map((t) => t.id);
 
-    // tek seferde uye sayilari (toplam + aktif)
-    const [byTenant, activeByTenant] = await Promise.all([
-      this.prisma.membership.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+    const [byTenant, activeByTenant, revRows] = await Promise.all([
+      this.prisma.membership.groupBy({ by: ['tenantId'], where: { tenantId: { in: ids } }, _count: { _all: true } }),
       this.prisma.membership.groupBy({
         by: ['tenantId'],
-        where: { status: MembershipStatus.active },
+        where: { tenantId: { in: ids }, status: MembershipStatus.active },
+        _count: { _all: true },
+      }),
+      // TEK sorgu: (tenant, ay) grubu; app-side her tenant'in KENDI timezone ayini secer
+      this.prisma.sale.groupBy({
+        by: ['tenantId', 'summaryMonth'],
+        where: { tenantId: { in: ids }, status: SaleStatus.approved },
+        _sum: { amountCents: true },
         _count: { _all: true },
       }),
     ]);
-    const total = new Map(byTenant.map((r) => [r.tenantId, r._count._all]));
-    const active = new Map(activeByTenant.map((r) => [r.tenantId, r._count._all]));
+    const totalM = new Map(byTenant.map((r) => [r.tenantId, r._count._all]));
+    const activeM = new Map(activeByTenant.map((r) => [r.tenantId, r._count._all]));
+    const revM = new Map<string, { revenue: bigint; sales: number }>();
+    for (const t of tenants) {
+      const month = monthKey(new Date(), t.timezone);
+      const row = revRows.find((r) => r.tenantId === t.id && r.summaryMonth === month);
+      revM.set(t.id, { revenue: row?._sum.amountCents ?? 0n, sales: row?._count._all ?? 0 });
+    }
 
-    // ciro: her sirketin kendi timezone'undaki bu ay (az sayida tenant — dongu kabul edilebilir)
-    const revenues = await Promise.all(
-      tenants.map((t) =>
-        this.prisma.sale
-          .aggregate({
-            where: { tenantId: t.id, status: SaleStatus.approved, summaryMonth: monthKey(new Date(), t.timezone) },
-            _sum: { amountCents: true },
-            _count: { _all: true },
-          })
-          .then((a) => ({ id: t.id, revenue: a._sum.amountCents ?? 0n, sales: a._count._all })),
-      ),
-    );
-    const revMap = new Map(revenues.map((r) => [r.id, r]));
-
-    return tenants.map((t) => ({
-      id: t.id,
-      slug: t.slug,
-      name: t.name,
-      currency: t.currency,
-      status: t.status,
-      timezone: t.timezone,
-      members: total.get(t.id) ?? 0,
-      activeMembers: active.get(t.id) ?? 0,
-      revenueThisMonthCents: (revMap.get(t.id)?.revenue ?? 0n).toString(),
-      salesThisMonth: revMap.get(t.id)?.sales ?? 0,
-      createdAt: t.createdAt,
-    }));
+    return {
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+      rows: tenants.map((t) => ({
+        id: t.id,
+        slug: t.slug,
+        name: t.name,
+        currency: t.currency,
+        status: t.status,
+        timezone: t.timezone,
+        members: totalM.get(t.id) ?? 0,
+        activeMembers: activeM.get(t.id) ?? 0,
+        revenueThisMonthCents: (revM.get(t.id)?.revenue ?? 0n).toString(),
+        salesThisMonth: revM.get(t.id)?.sales ?? 0,
+        createdAt: t.createdAt,
+      })),
+    };
   }
 
   /** Tek sirket ozeti (KPI + aktif plan + ayar ozeti). */
