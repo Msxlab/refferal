@@ -81,11 +81,25 @@ export default function PayoutsPage() {
   }, []);
 
   async function decideBatch(id: string, action: 'approve' | 'reject') {
+    if (action === 'reject') {
+      setReasonText('');
+      setReasonModal({
+        title: 'Reject payout batch',
+        label: 'Reason (required)',
+        run: async (reason) => {
+          if (reason.trim().length < 3) throw new Error('Reason is required (min 3 characters).');
+          await api.post(`/admin/payouts/batches/${id}/reject`, { reason: reason.trim() });
+          showToast('Batch rejected');
+          await refreshAll();
+        },
+      });
+      return;
+    }
     if (busyId) return;
     setBusyId(id);
     try {
-      await api.post(`/admin/payouts/batches/${id}/${action}`);
-      showToast(action === 'approve' ? 'Batch approved & paid ✓' : 'Batch rejected');
+      await api.post(`/admin/payouts/batches/${id}/approve`);
+      showToast('Batch approved & paid ✓');
       await refreshAll();
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusyId(null); }
   }
@@ -442,12 +456,16 @@ export default function PayoutsPage() {
                 : `Reject ${decide.p.fullName}'s request? Their payable balance is returned and the request is closed.`}
             </p>
             <div className="field">
-              <label>{decide.action === 'approve' ? 'Bank / transfer reference (optional)' : 'Reason (optional)'}</label>
+              <label>{decide.action === 'approve' ? 'Bank / transfer reference (optional)' : 'Reason (required)'}</label>
               <input aria-label={decide.action === 'approve' ? 'Bank or transfer reference' : 'Reason'} value={decideRef} onChange={(e) => setDecideRef(e.target.value)} placeholder={decide.action === 'approve' ? 'e.g. ACH-20260613-001' : 'e.g. invalid bank details'} autoFocus />
             </div>
             <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
               <button className="btn ghost" onClick={() => setDecide(null)} disabled={busy}>Cancel</button>
-              <button className={`btn ${decide.action === 'reject' ? 'danger' : 'success'}`} onClick={submitDecide} disabled={busy}>
+              <button
+                className={`btn ${decide.action === 'reject' ? 'danger' : 'success'}`}
+                onClick={submitDecide}
+                disabled={busy || (decide.action === 'reject' && decideRef.trim().length < 3)}
+              >
                 {busy ? '…' : decide.action === 'approve' ? 'Approve & mark paid' : 'Reject'}
               </button>
             </div>
