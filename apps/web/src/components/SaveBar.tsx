@@ -33,8 +33,8 @@ export function SaveBar({
     >
       <span style={{ fontSize: 13, fontWeight: 600 }}>Unsaved changes</span>
       <div className="row" style={{ gap: 10 }}>
-        <button className="btn ghost sm" onClick={onDiscard} disabled={busy}>Discard</button>
-        <button className="btn sm" onClick={onSave} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+        <button type="button" className="btn ghost sm" onClick={onDiscard} disabled={busy}>Discard</button>
+        <button type="button" className="btn sm" onClick={onSave} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
       </div>
     </div>
   );

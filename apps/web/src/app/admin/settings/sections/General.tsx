@@ -24,6 +24,24 @@ interface Settings {
   autoRequestPayouts: boolean;
 }
 
+// yalniz DUZENLENEBILIR alanlar (read-only name/slug/currency haric) dirty karsilastirmasina girer
+type EditableSettings = Omit<Settings, 'name' | 'slug' | 'currency'>;
+function pickEditable(s: Settings): EditableSettings {
+  return {
+    timezone: s.timezone,
+    maturationRule: s.maturationRule,
+    maturationDays: s.maturationDays,
+    payoutMinCents: s.payoutMinCents,
+    notifyNewMemberName: s.notifyNewMemberName,
+    compressionEnabled: s.compressionEnabled,
+    inactiveMembersEarn: s.inactiveMembersEarn,
+    requireSeparateApprover: s.requireSeparateApprover,
+    requireKycForPayout: s.requireKycForPayout,
+    requirePayoutApproval: s.requirePayoutApproval,
+    autoRequestPayouts: s.autoRequestPayouts,
+  };
+}
+
 const MATURATION = [
   { v: 'on_approval', l: 'On approval — payable immediately' },
   { v: 'on_delivery', l: 'On delivery — matures after delivery' },
@@ -43,38 +61,13 @@ export default function General() {
   const [toast, showToast] = useToast();
   const [busy, setBusy] = useState(false);
 
-  // yalniz DUZENLENEBILIR alanlar dirty karsilastirmasina girer (read-only name/slug/currency haric)
-  const editable = s && {
-    timezone: s.timezone,
-    maturationRule: s.maturationRule,
-    maturationDays: s.maturationDays,
-    payoutMinCents: s.payoutMinCents,
-    notifyNewMemberName: s.notifyNewMemberName,
-    compressionEnabled: s.compressionEnabled,
-    inactiveMembersEarn: s.inactiveMembersEarn,
-    requireSeparateApprover: s.requireSeparateApprover,
-    requireKycForPayout: s.requireKycForPayout,
-    requirePayoutApproval: s.requirePayoutApproval,
-    autoRequestPayouts: s.autoRequestPayouts,
-  };
-  const { dirty, setBaseline } = useDirty(editable ?? null, null);
+  const editable = s ? pickEditable(s) : null;
+  const { dirty, baseline, setBaseline } = useDirty<EditableSettings | null>(editable, null);
 
   useEffect(() => {
     api.get<Settings>('/admin/settings').then((res) => {
       setS(res);
-      setBaseline({
-        timezone: res.timezone,
-        maturationRule: res.maturationRule,
-        maturationDays: res.maturationDays,
-        payoutMinCents: res.payoutMinCents,
-        notifyNewMemberName: res.notifyNewMemberName,
-        compressionEnabled: res.compressionEnabled,
-        inactiveMembersEarn: res.inactiveMembersEarn,
-        requireSeparateApprover: res.requireSeparateApprover,
-        requireKycForPayout: res.requireKycForPayout,
-        requirePayoutApproval: res.requirePayoutApproval,
-        autoRequestPayouts: res.autoRequestPayouts,
-      });
+      setBaseline(pickEditable(res));
     }).catch((e) => setError(String((e as ApiError).message)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -98,25 +91,17 @@ export default function General() {
         autoRequestPayouts: s.autoRequestPayouts,
       });
       setS(res);
-      setBaseline({
-        timezone: res.timezone,
-        maturationRule: res.maturationRule,
-        maturationDays: res.maturationDays,
-        payoutMinCents: res.payoutMinCents,
-        notifyNewMemberName: res.notifyNewMemberName,
-        compressionEnabled: res.compressionEnabled,
-        inactiveMembersEarn: res.inactiveMembersEarn,
-        requireSeparateApprover: res.requireSeparateApprover,
-        requireKycForPayout: res.requireKycForPayout,
-        requirePayoutApproval: res.requirePayoutApproval,
-        autoRequestPayouts: res.autoRequestPayouts,
-      });
+      setBaseline(pickEditable(res));
       showToast('Settings saved ✓');
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
   }
 
   function discard() {
-    api.get<Settings>('/admin/settings').then((res) => setS(res)).catch((e) => setError(String((e as ApiError).message)));
+    // son yuklenen baseline'i (yerelde tutulan duzenlenebilir slice) geri yukle — ag turu yok.
+    // read-only name/slug/currency mevcut s'ten korunur; editable === baseline oldugundan dirty temizlenir.
+    if (!s || !baseline) return;
+    setS({ ...s, ...baseline });
+    setError('');
   }
 
   if (error && !s) return <div className="error">{error}</div>;
