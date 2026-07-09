@@ -6,6 +6,7 @@ import { ZodValidationPipe } from '../common/zod.pipe';
 import { BillingService } from './billing.service';
 import { PlatformService } from './platform.service';
 import {
+  auditQuerySchema, AuditQuery,
   brandingSchema, BrandingInput,
   companiesQuerySchema, CompaniesQuery,
   issueInvoiceSchema, IssueInvoiceInput,
@@ -78,6 +79,17 @@ export class PlatformController {
   @Get('companies/:id/payouts')
   payouts(@Param('id', ParseUUIDPipe) id: string, @Query(new ZodValidationPipe(pageQuerySchema)) q: PageQuery) {
     return this.platform.payouts(id, q);
+  }
+
+  // ---- Item 6: audit viewer (tek tenant + global feed) ----
+  @Get('companies/:id/audit')
+  companyAudit(@Param('id', ParseUUIDPipe) id: string, @Query(new ZodValidationPipe(auditQuerySchema)) q: AuditQuery) {
+    return this.platform.companyAudit(id, q);
+  }
+
+  @Get('audit')
+  globalAudit(@Query(new ZodValidationPipe(auditQuerySchema)) q: AuditQuery) {
+    return this.platform.globalAudit(q);
   }
 
   // ---- C1: sirket durumu (askiya al / aktive et) ----

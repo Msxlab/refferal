@@ -334,4 +334,41 @@ describe('platform companies (entegrasyon)', () => {
     await request(srv).post('/v1/platform/companies/00000000-0000-0000-0000-000000000000/impersonate/end')
       .set('Authorization', `Bearer ${platTok}`).expect(404);
   });
+
+  it('item 6: per-tenant + global audit viewer with action filter and actor resolution', async () => {
+    const platformUser = await prisma.user.create({
+      data: { email: 'plat-au@test.refearn.local', passwordHash: 'x', fullName: 'Platform Admin', isPlatformAdmin: true },
+    });
+    const platTok = token({ sub: platformUser.id, plat: true });
+    const srv = app.getHttpServer();
+
+    const tA = await createTenant(prisma);
+    const tB = await createTenant(prisma);
+    // suspend tA (writes platform.tenant_suspended) + billing on tB
+    await request(srv).patch(`/v1/platform/companies/${tA.id}/status`).set('Authorization', `Bearer ${platTok}`).send({ status: 'suspended' }).expect(200);
+    await request(srv).put(`/v1/platform/companies/${tB.id}/billing`).set('Authorization', `Bearer ${platTok}`).send({ monthlyFeeCents: 5000, active: true }).expect(200);
+    const inv = (await request(srv).post(`/v1/platform/companies/${tB.id}/invoices`).set('Authorization', `Bearer ${platTok}`).send({ period: '2026-06' }).expect(200)).body;
+    await request(srv).post(`/v1/platform/invoices/${inv.id}/paid`).set('Authorization', `Bearer ${platTok}`).send({}).expect(200);
+
+    // per-tenant feed for tA
+    const a = (await request(srv).get(`/v1/platform/companies/${tA.id}/audit`).set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    expect(a.items.some((r: { action: string; actorName: string }) => r.action === 'platform.tenant_suspended' && r.actorName === 'Platform Admin')).toBe(true);
+
+    // global feed: rows from multiple tenants + tenantName
+    const g = (await request(srv).get('/v1/platform/audit?pageSize=100').set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    const tenantIds = new Set(g.items.map((r: { tenantId: string }) => r.tenantId));
+    expect(tenantIds.has(tA.id) && tenantIds.has(tB.id)).toBe(true);
+    expect(g.items[0]).toHaveProperty('tenantName');
+
+    // filter by action
+    const paid = (await request(srv).get('/v1/platform/audit?action=billing.invoice_paid&pageSize=100').set('Authorization', `Bearer ${platTok}`).expect(200)).body;
+    expect(paid.items.length).toBe(1);
+    expect(paid.items[0].action).toBe('billing.invoice_paid');
+
+    // tenant_admin token 403 on global feed
+    const owner = await prisma.user.create({ data: { email: 'ow6@test.refearn.local', passwordHash: 'x', fullName: 'O' } });
+    const m = await prisma.membership.create({ data: { tenantId: tB.id, userId: owner.id, role: 'tenant_owner', referralCode: 'OW6', path: 'x', depth: 0 } });
+    const ownerTok = token({ sub: owner.id, mid: m.id, tid: tB.id, role: 'tenant_owner' });
+    await request(srv).get('/v1/platform/audit').set('Authorization', `Bearer ${ownerTok}`).expect(403);
+  });
 });

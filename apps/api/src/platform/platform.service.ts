@@ -466,4 +466,52 @@ export class PlatformService {
     });
     return { ended: true };
   }
+
+  /** actorUserId → { name, email } (batch; null = 'system'). reports.service.resolveActors ile ayni kalip. */
+  private async resolveActors(actorIds: Array<string | null>) {
+    const ids = [...new Set(actorIds.filter((v): v is string => !!v))];
+    const users = ids.length ? await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, fullName: true, email: true } }) : [];
+    const map = new Map(users.map((u) => [u.id, u]));
+    return (id: string | null) => (id ? { name: map.get(id)?.fullName ?? id.slice(0, 8), email: map.get(id)?.email ?? null } : { name: 'system', email: null as string | null });
+  }
+
+  private auditWhere(q: { action?: string; entity?: string }): Prisma.AuditLogWhereInput {
+    return { ...(q.action ? { action: q.action } : {}), ...(q.entity ? { entity: q.entity } : {}) };
+  }
+
+  /** Item 6: tek tenant audit (seq desc, sayfali). where: { tenantId }. */
+  async companyAudit(id: string, q: { page: number; pageSize: number; action?: string; entity?: string }) {
+    const exists = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true } });
+    if (!exists) throw new NotFoundException('sirket bulunamadi');
+    const where = { tenantId: id, ...this.auditWhere(q) };
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.auditLog.count({ where }),
+      this.prisma.auditLog.findMany({ where, orderBy: { seq: 'desc' }, skip: (q.page - 1) * q.pageSize, take: q.pageSize }),
+    ]);
+    const actorOf = await this.resolveActors(rows.map((a) => a.actorUserId));
+    return { total, page: q.page, pageSize: q.pageSize, items: rows.map((a) => this.auditRow(a, actorOf)) };
+  }
+
+  /** Item 6: GLOBAL platform audit (capraz-kiraci — yaptirimli okuma). tenant adi join. */
+  async globalAudit(q: { page: number; pageSize: number; action?: string; entity?: string }) {
+    const where = this.auditWhere(q);
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.auditLog.count({ where }),
+      this.prisma.auditLog.findMany({ where, orderBy: { seq: 'desc' }, skip: (q.page - 1) * q.pageSize, take: q.pageSize }),
+    ]);
+    const actorOf = await this.resolveActors(rows.map((a) => a.actorUserId));
+    const tenantIds = [...new Set(rows.map((r) => r.tenantId).filter((v): v is string => !!v))];
+    const tenants = tenantIds.length ? await this.prisma.tenant.findMany({ where: { id: { in: tenantIds } }, select: { id: true, name: true } }) : [];
+    const nameOf = new Map(tenants.map((t) => [t.id, t.name]));
+    return { total, page: q.page, pageSize: q.pageSize, items: rows.map((a) => ({ ...this.auditRow(a, actorOf), tenantName: a.tenantId ? nameOf.get(a.tenantId) ?? null : null })) };
+  }
+
+  private auditRow(a: { id: string; tenantId: string | null; action: string; entity: string; entityId: string | null; actorUserId: string | null; before: unknown; after: unknown; seq: bigint; createdAt: Date }, actorOf: (id: string | null) => { name: string; email: string | null }) {
+    const actor = actorOf(a.actorUserId);
+    return {
+      seq: a.seq.toString(), tenantId: a.tenantId, action: a.action, entity: a.entity, entityId: a.entityId,
+      actorUserId: a.actorUserId, actorName: actor.name, actorEmail: actor.email,
+      before: a.before, after: a.after, createdAt: a.createdAt,
+    };
+  }
 }

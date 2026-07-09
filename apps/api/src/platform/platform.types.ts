@@ -52,6 +52,15 @@ export const pageQuerySchema = z.object({
 });
 export type PageQuery = z.infer<typeof pageQuerySchema>;
 
+/** Item 6: platform audit filtre + sayfalama. */
+export const auditQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+  action: z.string().trim().max(64).optional(),
+  entity: z.string().trim().max(40).optional(),
+});
+export type AuditQuery = z.infer<typeof auditQuerySchema>;
+
 /** Item 2: sirket branding (yalniz #hex ve https URL). */
 const HEX = /^#[0-9a-fA-F]{6}$/;
 export const brandingSchema = z.object({
