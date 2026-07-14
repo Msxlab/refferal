@@ -21,6 +21,49 @@ export class ApiError extends Error {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isSession(value: unknown): value is Session {
+  if (
+    !isRecord(value) ||
+    !isNonEmptyString(value.accessToken) ||
+    !isNonEmptyString(value.refreshToken) ||
+    !isRecord(value.user) ||
+    !Array.isArray(value.memberships)
+  ) {
+    return false;
+  }
+  const user = value.user;
+  if (
+    !isNonEmptyString(user.id) ||
+    !isNonEmptyString(user.email) ||
+    !isNonEmptyString(user.fullName) ||
+    !isNonEmptyString(user.locale) ||
+    typeof user.emailVerified !== 'boolean' ||
+    (user.isPlatformAdmin !== undefined && typeof user.isPlatformAdmin !== 'boolean') ||
+    (value.activeMembershipId !== null && !isNonEmptyString(value.activeMembershipId))
+  ) {
+    return false;
+  }
+  return value.memberships.every(
+    (membership) =>
+      isRecord(membership) &&
+      isNonEmptyString(membership.id) &&
+      isNonEmptyString(membership.tenantId) &&
+      isNonEmptyString(membership.tenantSlug) &&
+      isNonEmptyString(membership.tenantName) &&
+      isNonEmptyString(membership.role) &&
+      isNonEmptyString(membership.referralCode) &&
+      Number.isInteger(membership.depth),
+  );
+}
+
 async function rawFetch(path: string, init: RequestInit, token?: string): Promise<Response> {
   const headers = new Headers(init.headers);
   if (token) headers.set('Authorization', `Bearer ${token}`);
@@ -28,28 +71,109 @@ async function rawFetch(path: string, init: RequestInit, token?: string): Promis
   return fetch(`${BASE}${path}`, { ...init, headers });
 }
 
-/** If the access token expired, try one refresh; clear the session if it fails. */
-async function refresh(session: Session): Promise<Session | null> {
-  const res = await rawFetch('/auth/refresh', {
-    method: 'POST',
-    body: JSON.stringify({ refreshToken: session.refreshToken }),
-  });
-  if (!res.ok) {
-    await clearSession();
-    return null;
-  }
-  const next = (await res.json()) as Session;
-  await saveSession(next);
-  return next;
+interface RefreshFlight {
+  owner: Session;
+  promise: Promise<Session | null>;
 }
 
-async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
-  const session = await loadSession();
+let refreshInFlight: RefreshFlight | null = null;
+
+function sameSessionIdentity(captured: Session, current: Session): boolean {
+  if (captured.user.id !== current.user.id || captured.activeMembershipId !== current.activeMembershipId) return false;
+  if (captured.activeMembershipId === null) return true;
+  const capturedMembership = captured.memberships.find((membership) => membership.id === captured.activeMembershipId);
+  const currentMembership = current.memberships.find((membership) => membership.id === current.activeMembershipId);
+  return Boolean(capturedMembership && currentMembership && capturedMembership.tenantId === currentMembership.tenantId);
+}
+
+function sameSessionOwner(captured: Session, current: Session): boolean {
+  return (
+    captured.accessToken === current.accessToken &&
+    captured.refreshToken === current.refreshToken &&
+    sameSessionIdentity(captured, current)
+  );
+}
+
+async function ownsSession(owner: Session): Promise<boolean> {
+  try {
+    const current = await loadSession();
+    return Boolean(current && isSession(current) && sameSessionOwner(owner, current));
+  } catch {
+    return false;
+  }
+}
+
+async function clearRefreshSessions(...sessions: Session[]): Promise<void> {
+  try {
+    const current = await loadSession();
+    if (current && isSession(current) && sessions.some((session) => sameSessionOwner(session, current))) {
+      await clearSession();
+    }
+  } catch {
+    // Storage failures must not leak transport or persistence errors to refresh waiters.
+  }
+}
+
+/** If the access token expired, try one refresh; clear the session if it fails. */
+async function performRefresh(owner: Session): Promise<Session | null> {
+  if (!(await ownsSession(owner))) return null;
+  let next: Session | null = null;
+  try {
+    const res = await rawFetch('/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ refreshToken: owner.refreshToken }),
+    });
+    if (res.ok) {
+      const candidate: unknown = await res.json();
+      if (isSession(candidate) && sameSessionIdentity(owner, candidate)) next = candidate;
+    }
+  } catch {
+    // Refresh transport and parsing failures are normalized below.
+  }
+  if (!next) {
+    await clearRefreshSessions(owner);
+    return null;
+  }
+  if (!(await ownsSession(owner))) return null;
+  try {
+    await saveSession(next);
+  } catch {
+    await clearRefreshSessions(owner, next);
+    return null;
+  }
+  return (await ownsSession(next)) ? next : null;
+}
+
+function refresh(owner: Session): Promise<Session | null> {
+  if (refreshInFlight) {
+    return sameSessionOwner(refreshInFlight.owner, owner) ? refreshInFlight.promise : Promise.resolve(null);
+  }
+  let flight: RefreshFlight;
+  const current = performRefresh(owner).finally(() => {
+    if (refreshInFlight === flight) refreshInFlight = null;
+  });
+  flight = { owner, promise: current };
+  refreshInFlight = flight;
+  return current;
+}
+
+async function retrySessionFor(captured: Session, candidate: Session | null): Promise<Session | null> {
+  if (!candidate || !sameSessionIdentity(captured, candidate)) return null;
+  return (await ownsSession(candidate)) ? candidate : null;
+}
+
+async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  retry = true,
+  capturedSession?: Session | null,
+): Promise<T> {
+  const session = capturedSession === undefined ? await loadSession() : capturedSession;
   const res = await rawFetch(path, init, session?.accessToken);
 
   if (res.status === 401 && session && retry) {
-    const refreshed = await refresh(session);
-    if (refreshed) return request<T>(path, init, false);
+    const refreshed = await retrySessionFor(session, await refresh(session));
+    if (refreshed) return request<T>(path, init, false, refreshed);
     throw new ApiError(401, { message: 'session expired' });
   }
 
