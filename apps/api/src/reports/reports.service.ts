@@ -1,14 +1,32 @@
 import { Injectable } from '@nestjs/common';
-import { LedgerType, MembershipStatus, PayoutStatus, SaleStatus } from '@prisma/client';
+import { LedgerType, MembershipStatus, PayoutStatus, Prisma, SaleStatus } from '@prisma/client';
+import { authConfig } from '../auth/auth.config';
+import { auditFingerprint } from '../common/audit-redaction';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
+import { TenantContextService } from '../prisma/tenant-context.service';
+
+function redactInviteeEmail(action: string, value: Prisma.JsonValue | null): Prisma.JsonValue | null {
+  if (action !== 'invite.create' || !value || Array.isArray(value) || typeof value !== 'object') return value;
+  const redacted: Prisma.JsonObject = { ...(value as Prisma.JsonObject) };
+  if (typeof redacted.email === 'string') {
+    const emailFingerprint = auditFingerprint(redacted.email, 'email', authConfig.accessSecret());
+    delete redacted.email;
+    if (emailFingerprint) redacted.emailFingerprint = emailFingerprint;
+  }
+  return redacted;
+}
 
 @Injectable()
 export class ReportsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantContext: TenantContextService,
+  ) {}
 
-  /** Admin dashboard (SPEC 9): ciro, komisyon, uye, payable — secili ay (varsayilan bu ay). */
+  /** Admin dashboard (SPEC 9): revenue, commission, members, and payable for the selected month. */
   async dashboard(tenantId: string, month?: string) {
+    this.tenantContext.assertTenant(tenantId);
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const targetMonth = month ?? monthKey(new Date(), tenant.timezone);
 
@@ -22,8 +40,8 @@ export class ReportsService {
       this.prisma.sale.count({ where: { tenantId, status: SaleStatus.approved, summaryMonth: targetMonth } }),
     ]);
 
-    // bu ayin komisyon gideri: o aya ait commission ledger satirlari (pozitif)
-    // ::bigint cast: SUM(bigint) Postgres'te numeric doner; Prisma raw onu string verir.
+    // Commission expense for the month: positive commission ledger rows in that month.
+    // ::bigint cast: SUM(bigint) returns numeric in Postgres; Prisma raw returns it as string otherwise.
     const commissionRows = await this.prisma.$queryRaw<Array<{ sum: bigint }>>`
       SELECT COALESCE(SUM(le.amount_cents), 0)::bigint AS sum
       FROM ledger_entries le
@@ -32,7 +50,7 @@ export class ReportsService {
         AND le.type = 'commission'
         AND COALESCE(s.summary_month, to_char(s.sale_date AT TIME ZONE ${tenant.timezone}, 'YYYY-MM')) = ${targetMonth}`;
 
-    // toplam odenebilir bakiye (tum zamanlar, payable ledger neti)
+    // Total payable balance across all time, using payable ledger net.
     const payableRows = await this.prisma.$queryRaw<Array<{ sum: bigint }>>`
       SELECT COALESCE(SUM(amount_cents), 0)::bigint AS sum
       FROM ledger_entries
@@ -53,7 +71,7 @@ export class ReportsService {
         approvedSalesCount: salesCount,
         revenueCents: revenue.toString(),
         commissionCents: commission.toString(),
-        // efektif komisyon orani (bps); ciro 0 ise 0
+        // Effective commission rate in bps; 0 when revenue is 0.
         effectiveRateBps: revenue > 0n ? Number((commission * 10000n) / revenue) : 0,
       },
       outstandingPayableCents: (payableRows[0]?.sum ?? 0n).toString(),
@@ -62,20 +80,21 @@ export class ReportsService {
   }
 
   /**
-   * Dashboard analitik (zaman serisi + donem karsilastirma + huni + top performers).
-   * Komisyon zaman serisi monthly_summaries'ten (net: reversal'lar bucket'i dusurur).
-   * Ciro/sayim approved sales'in DONDURULMUS summary_month'una gore — dashboard ile tutarli.
+   * Dashboard analytics: time series, period comparison, funnel, and top performers.
+   * Commission time series comes from monthly_summaries, net of reversals.
+   * Revenue/counts use approved sales' frozen summary_month, matching the dashboard.
    */
   async analytics(tenantId: string, months: number) {
+    this.tenantContext.assertTenant(tenantId);
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const anchor = monthKey(new Date(), tenant.timezone);
     const range = this.monthsBack(anchor, months, 0);
     const prevRange = this.monthsBack(anchor, months, months);
     const rangeStart = new Date(`${range[0]}-01T00:00:00.000Z`);
 
-    // Promise.all (transaction degil): salt-okunur dashboard anlik goruntusu, groupBy tiplerini korur
+    // Promise.all, not a transaction: read-only dashboard snapshot while preserving groupBy types.
     const [revByMonth, comByMonth, prevRev, prevCom, funnelRows, topRows] = await Promise.all([
-      // ciro + onayli satis sayisi (ay basina)
+      // Revenue and approved sale count by month.
       this.prisma.sale.groupBy({
         by: ['summaryMonth'],
         where: { tenantId, status: SaleStatus.approved, summaryMonth: { in: range } },
@@ -83,14 +102,14 @@ export class ReportsService {
         _count: { _all: true },
         orderBy: { summaryMonth: 'asc' },
       }),
-      // komisyon (ay basina, net) — monthly_summaries
+      // Commission by month, net, from monthly_summaries.
       this.prisma.monthlySummary.groupBy({
         by: ['month'],
         where: { tenantId, month: { in: range } },
         _sum: { pendingCents: true, payableCents: true, paidCents: true },
         orderBy: { month: 'asc' },
       }),
-      // onceki esit-uzunluktaki donem (karsilastirma)
+      // Previous same-length period for comparison.
       this.prisma.sale.aggregate({
         where: { tenantId, status: SaleStatus.approved, summaryMonth: { in: prevRange } },
         _sum: { amountCents: true },
@@ -100,7 +119,7 @@ export class ReportsService {
         where: { tenantId, month: { in: prevRange } },
         _sum: { pendingCents: true, payableCents: true, paidCents: true },
       }),
-      // huni: durum dagilimi (secili pencere, sale_date'e gore)
+      // Funnel: status distribution in the selected sale_date window.
       this.prisma.sale.groupBy({
         by: ['status'],
         where: { tenantId, saleDate: { gte: rangeStart } },
@@ -108,7 +127,7 @@ export class ReportsService {
         _count: { _all: true },
         orderBy: { status: 'asc' },
       }),
-      // top performers: onayli ciroya gore en iyi saticilar
+      // Top performers by approved revenue.
       this.prisma.sale.groupBy({
         by: ['sellerMembershipId'],
         where: { tenantId, status: SaleStatus.approved, summaryMonth: { in: range } },
@@ -151,7 +170,7 @@ export class ReportsService {
     const pctN = (cur: number, prev: number): number | null =>
       prev === 0 ? (cur > 0 ? null : 0) : Math.round(((cur - prev) / prev) * 1000) / 10;
 
-    // top performers isim/kod ile zenginlestir
+    // Enrich top performers with name/code.
     const sellerIds = topRows.map((t) => t.sellerMembershipId);
     const sellers = await this.prisma.membership.findMany({
       where: { id: { in: sellerIds } },
@@ -160,7 +179,7 @@ export class ReportsService {
     const sellerMap = new Map(sellers.map((s) => [s.id, s]));
     const topPerformers = topRows.map((t) => ({
       membershipId: t.sellerMembershipId,
-      fullName: sellerMap.get(t.sellerMembershipId)?.user.fullName ?? '—',
+      fullName: sellerMap.get(t.sellerMembershipId)?.user.fullName ?? '-',
       referralCode: sellerMap.get(t.sellerMembershipId)?.referralCode ?? '',
       revenueCents: (t._sum.amountCents ?? 0n).toString(),
       salesCount: t._count._all,
@@ -200,7 +219,7 @@ export class ReportsService {
     };
   }
 
-  /** anchor ('YYYY-MM') dahil, skip kadar oncesinden baslayarak n ayin anahtarlari (eskiden yeniye). */
+  /** Returns n month keys from oldest to newest, starting skip months before the anchor. */
   private monthsBack(anchor: string, n: number, skip: number): string[] {
     const [y, m] = anchor.split('-').map(Number);
     const out: string[] = [];
@@ -213,6 +232,7 @@ export class ReportsService {
 
   /** Tenant audit log (SPEC 9). */
   async audit(tenantId: string, q: { page: number; pageSize: number }) {
+    this.tenantContext.assertTenant(tenantId);
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.auditLog.count({ where: { tenantId } }),
       this.prisma.auditLog.findMany({
@@ -232,8 +252,8 @@ export class ReportsService {
         entity: a.entity,
         entityId: a.entityId,
         actorUserId: a.actorUserId,
-        before: a.before,
-        after: a.after,
+        before: redactInviteeEmail(a.action, a.before),
+        after: redactInviteeEmail(a.action, a.after),
         ip: a.ip,
         createdAt: a.createdAt,
       })),

@@ -1,10 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { AlertCircle, CheckCircle2, Clock3, HandCoins, LoaderCircle, WalletCards, type LucideIcon } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
-import { Loading, MoneyCounter, useToast } from '@/components/ui';
+import { Loading, useToast } from '@/components/ui';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
 
 interface LedgerItem {
   id: string;
@@ -15,15 +22,27 @@ interface LedgerItem {
   createdAt: string;
 }
 interface Wallet {
-  balance: { pendingCents: string; payableCents: string; paidCents: string };
+  currency: string;
+  payoutMinCents: string;
+  payoutEligibility: {
+    requestable: boolean;
+    reason: string;
+    message: string;
+    activePayout: { id: string; status: 'requested' | 'processing' } | null;
+  };
+  balance: { pendingCents: string; payableCents: string; processingCents: string; paidCents: string };
   ledger: { total: number; items: LedgerItem[] };
 }
 interface PayoutReq {
   id: string;
+  batchId: string | null;
   totalCents: string;
+  currency?: string;
   status: string;
   period: string;
+  processingStartedAt: string | null;
   paidAt: string | null;
+  settledAt: string | null;
 }
 
 export default function WalletPage() {
@@ -43,16 +62,14 @@ export default function WalletPage() {
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   async function requestPayout() {
     setBusy(true);
     setError('');
     try {
       await api.post('/app/payout-requests');
-      showToast('Your payout request has been received ✓');
+      showToast('Your payout request has been received.');
       await load();
     } catch (e) {
       setError(String((e as ApiError).message));
@@ -61,9 +78,22 @@ export default function WalletPage() {
     }
   }
 
-  if (error && !wallet) return <div className="error">{error}</div>;
+  if (error && !wallet) {
+    return (
+      <Alert variant="destructive" className="fade-in">
+        <AlertCircle />
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    );
+  }
   if (!wallet) return <Loading />;
   const b = wallet.balance;
+  const currency = wallet.currency;
+  const activityCount = wallet.ledger.total;
+  const payoutEligibility = wallet.payoutEligibility;
+  const activePayout = payoutEligibility.activePayout;
+  const activePayoutDetails = activePayout ? history.find((payout) => payout.id === activePayout.id) ?? null : null;
+  const eligibilityNotice = payoutEligibilityNotice(payoutEligibility, activePayoutDetails, currency, wallet.payoutMinCents);
 
   return (
     <div>
@@ -71,61 +101,143 @@ export default function WalletPage() {
       <h1 className="h1 fade-in">Your Wallet</h1>
       <p className="sub fade-in">Track your payable balance and request a payout.</p>
 
-      <div className="card hero fade-in delay-1">
-        <div className="spread">
+      <Card className="fade-in delay-1">
+        <CardHeader className="border-b">
           <div>
-            <div className="faint" style={{ fontSize: 12 }}>{t('me.payable')} balance</div>
-            <div className="bignum gradient-text" style={{ marginTop: 6 }}>
-              <MoneyCounter cents={b.payableCents} />
-            </div>
-            <div className="faint" style={{ fontSize: 12, marginTop: 8 }}>
-              {t('me.pending')}: <b className="tnum">{money(b.pendingCents)}</b> · {t('me.paid')}:{' '}
-              <b className="tnum">{money(b.paidCents)}</b>
-            </div>
+            <CardTitle>Balance breakdown</CardTitle>
+            <CardDescription>Payable funds can be requested. Processing funds are reserved and cannot be requested again.</CardDescription>
           </div>
-          <button className="btn success" onClick={requestPayout} disabled={busy}>{t('me.requestPayout')}</button>
-        </div>
-        {error && <div className="error" style={{ marginTop: 10 }}>{error}</div>}
-      </div>
+          <CardAction>
+            <Button onClick={requestPayout} disabled={busy || !payoutEligibility.requestable}>
+              <HandCoins data-icon="inline-start" />
+              {t('me.requestPayout')}
+            </Button>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-4">
+          <BalanceTile
+            label={`${t('me.payable')} now`}
+            value={money(b.payableCents, currency)}
+            hint="Ready for payout request"
+            Icon={WalletCards}
+          />
+          <BalanceTile label={t('me.pending')} value={money(b.pendingCents, currency)} hint="Waiting on maturation rules" Icon={Clock3} />
+          <BalanceTile label="Processing" value={money(b.processingCents, currency)} hint="Reserved for a transfer" Icon={LoaderCircle} />
+          <BalanceTile label={t('me.paid')} value={money(b.paidCents, currency)} hint="Already processed" Icon={CheckCircle2} />
+          {!payoutEligibility.requestable && (
+            <Alert className="md:col-span-4">
+              {payoutEligibility.reason === 'processing' ? <LoaderCircle className="animate-spin" /> : <Clock3 />}
+              <AlertDescription>{eligibilityNotice}</AlertDescription>
+            </Alert>
+          )}
+          {error && (
+            <Alert variant="destructive" className="md:col-span-4">
+              <AlertCircle />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
 
-      <div className="card fade-in delay-2" style={{ marginTop: 16 }}>
-        <strong style={{ display: 'block', marginBottom: 12 }}>{t('me.ledger')}</strong>
-        <table>
-          <thead><tr><th>Date</th><th>Level</th><th>Type</th><th>Status</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
-          <tbody>
-            {wallet.ledger.items.map((e) => (
-              <tr key={e.id}>
-                <td className="muted">{dateShort(e.createdAt)}</td>
-                <td>L{e.level}</td>
-                <td className="faint">{e.type}</td>
-                <td><span className={`badge ${e.status}`}>{e.status}</span></td>
-                <td className="tnum" style={{ textAlign: 'right', fontWeight: 650, color: Number(e.amountCents) < 0 ? 'var(--rose)' : undefined }}>{money(e.amountCents)}</td>
-              </tr>
-            ))}
-            {wallet.ledger.items.length === 0 && <tr><td colSpan={5} className="muted">{t('me.noData')}</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      <Card className="mt-4 fade-in delay-2 py-0">
+        <CardHeader className="border-b">
+          <CardTitle>{t('me.ledger')}</CardTitle>
+          <CardDescription>{activityCount} ledger entries across pending, payable, processing and paid states.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Level</TableHead><TableHead>Type</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {wallet.ledger.items.map((entry) => (
+                <TableRow key={entry.id}>
+                  <TableCell className="text-muted-foreground">{dateShort(entry.createdAt)}</TableCell>
+                  <TableCell>L{entry.level}</TableCell>
+                  <TableCell className="text-muted-foreground">{entry.type}</TableCell>
+                  <TableCell><StatusBadge status={entry.status} /></TableCell>
+                  <TableCell className={cn('text-right font-semibold tabular-nums', entry.amountCents.startsWith('-') && 'text-destructive')}>{money(entry.amountCents, currency)}</TableCell>
+                </TableRow>
+              ))}
+              {wallet.ledger.items.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} className="py-8 text-center">
+                    <div className="font-medium text-foreground">No wallet activity yet.</div>
+                    <div className="mt-1 text-xs text-muted-foreground">Approved commissions will create ledger activity here.</div>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
-      <div className="card fade-in delay-3" style={{ marginTop: 16 }}>
-        <strong style={{ display: 'block', marginBottom: 12 }}>{t('me.payoutHistory')}</strong>
-        <table>
-          <thead><tr><th>Period</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead>
-          <tbody>
-            {history.map((p) => (
-              <tr key={p.id}>
-                <td>{p.period}</td>
-                <td className="tnum">{money(p.totalCents)}</td>
-                <td><span className={`badge ${p.status}`}>{p.status}</span></td>
-                <td className="muted">{dateShort(p.paidAt)}</td>
-              </tr>
-            ))}
-            {history.length === 0 && <tr><td colSpan={4} className="muted">{t('me.noData')}</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      <Card className="mt-4 fade-in delay-3 py-0">
+        <CardHeader className="border-b">
+          <CardTitle>{t('me.payoutHistory')}</CardTitle>
+          <CardDescription>Request status and payout run period.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader><TableRow><TableHead>Period</TableHead><TableHead>Amount</TableHead><TableHead>Status</TableHead><TableHead>Date</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {history.map((p) => (
+                <TableRow key={p.id}>
+                  <TableCell>{p.period}</TableCell>
+                  <TableCell className="tabular-nums">{money(p.totalCents, p.currency ?? currency)}</TableCell>
+                  <TableCell><StatusBadge status={p.status} /></TableCell>
+                  <TableCell className="text-muted-foreground">{dateShort(p.settledAt ?? p.paidAt ?? p.processingStartedAt)}</TableCell>
+                </TableRow>
+              ))}
+              {history.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={4} className="py-8 text-center">
+                    <div className="font-medium text-foreground">No payout requests yet.</div>
+                    <div className="mt-1 text-xs text-muted-foreground">Request a payout when your payable balance is ready.</div>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
+}
+
+function BalanceTile({ label, value, hint, Icon }: { label: string; value: ReactNode; hint: string; Icon: LucideIcon }) {
+  return (
+    <div className="rounded-xl border bg-muted/30 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
+        <span className="grid size-7 place-items-center rounded-lg bg-primary/10 text-primary">
+          <Icon className="size-4" aria-hidden="true" />
+        </span>
+      </div>
+      <div className="mt-2 text-lg font-semibold tabular-nums">{value}</div>
+      <div className="mt-1 text-xs text-muted-foreground">{hint}</div>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  return <Badge variant={status === 'paid' || status === 'approved' || status === 'payable' ? 'default' : status === 'rejected' || status === 'void' ? 'destructive' : 'secondary'}>{status}</Badge>;
+}
+
+function payoutEligibilityNotice(
+  eligibility: Wallet['payoutEligibility'],
+  activePayout: PayoutReq | null,
+  currency: string,
+  payoutMinCents: string,
+): string {
+  if (eligibility.reason === 'processing' && activePayout) {
+    return `${money(activePayout.totalCents, activePayout.currency ?? currency)} is reserved for payout processing. It is not paid until settlement.`;
+  }
+  if (eligibility.reason === 'requested' && activePayout) {
+    return `${money(activePayout.totalCents, activePayout.currency ?? currency)} already has an open payout request.`;
+  }
+  if (eligibility.reason === 'below_threshold') {
+    return `${eligibility.message} Payout requests become available at ${money(payoutMinCents, currency)}.`;
+  }
+  return eligibility.message || 'Payout requests are unavailable right now. Please refresh and try again.';
 }

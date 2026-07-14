@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentUser, Public, RequireMembership } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
+import { parseIdempotencyKey } from '../common/idempotency-key';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { InvitesService } from './invites.service';
 
@@ -12,7 +13,7 @@ type CreateInviteInput = z.infer<typeof createInviteSchema>;
 
 const codeSchema = z.string().trim().min(4).max(64);
 
-/** Public: /i/{code} sayfasinin davet cozumlemesi. */
+/** Public invite resolution for the /i/{code} registration page. */
 @Controller('invites')
 export class PublicInvitesController {
   constructor(private readonly invites: InvitesService) {}
@@ -24,7 +25,7 @@ export class PublicInvitesController {
   }
 }
 
-/** Uye yuzeyi: davet olustur + kendi davetlerini listele. */
+/** Member surface: create invites and list the caller's own invites. */
 @RequireMembership()
 @Controller('app/invites')
 export class AppInvitesController {
@@ -34,8 +35,9 @@ export class AppInvitesController {
   create(
     @CurrentUser() user: RequestUser,
     @Body(new ZodValidationPipe(createInviteSchema)) body: CreateInviteInput,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.invites.create(user.mid as string, body);
+    return this.invites.create(user.mid as string, body, parseIdempotencyKey(idempotencyKey));
   }
 
   @Get()

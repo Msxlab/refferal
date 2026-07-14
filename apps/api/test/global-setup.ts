@@ -1,14 +1,20 @@
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import * as dotenv from 'dotenv';
+import { assertEffectiveTestDatabaseUrl, configuredTestDatabaseUrl } from './test-database-guard';
 
-/** Test DB'sine migration'lari uygular (testler kosmadan once bir kez). */
+/** Applies migrations to the test database once before integration tests run. */
 export default async function globalSetup(): Promise<void> {
   dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
-  const url =
-    process.env.DATABASE_URL_TEST ?? 'postgresql://refearn:refearn@localhost:5434/refearn_test';
+  const url = configuredTestDatabaseUrl();
+  assertEffectiveTestDatabaseUrl(url, url);
+  const prismaBin = path.resolve(
+    __dirname,
+    '../node_modules/.bin',
+    process.platform === 'win32' ? 'prisma.cmd' : 'prisma',
+  );
 
-  execSync('pnpm exec prisma migrate deploy', {
+  execSync(`"${prismaBin}" migrate deploy`, {
     cwd: path.resolve(__dirname, '..'),
     env: { ...process.env, DATABASE_URL: url },
     stdio: 'inherit',

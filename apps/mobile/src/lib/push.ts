@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 import { api } from './api';
 
 /**
- * Expo push token'i alir ve API'ye kaydeder (POST /me/devices) — best-effort:
+ * Gets the Expo push token and registers it with the API (POST /me/devices), best-effort:
  * izin reddi / emulator / EAS projectId yoklugu akisi BOZMAZ, sessizce gecilir.
  * SPEC 9: "push token kaydi".
  */
@@ -33,6 +33,6 @@ export async function registerPushToken(): Promise<void> {
       platform: Platform.OS === 'ios' ? 'ios' : 'android',
     });
   } catch {
-    // push opsiyonel — kayit basarisizligi oturum akisini etkilemez
+    // Push is optional; registration failures should not affect the session flow.
   }
 }

@@ -1,8 +1,10 @@
 'use client';
 
 import { ReactNode, useEffect, useRef, useState } from 'react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 
-/** Tetikleyici butona tutturulmus açılır panel (temiz araç çubuğu: filtre/aksiyon talep üzerine). */
+/** Anchored popover panel for compact filters and contextual actions. */
 export function Popover({
   label, badge, children, width = 320, align = 'left', variant = 'ghost',
 }: {
@@ -28,12 +30,18 @@ export function Popover({
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button className={`btn ${variant === 'ghost' ? 'ghost' : ''} sm`} onClick={() => setOpen((v) => !v)} aria-expanded={open} style={{ position: 'relative' }}>
+      <Button
+        type="button"
+        variant={variant === 'ghost' ? 'outline' : 'default'}
+        size="sm"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
         {label}
         {badge !== undefined && badge > 0 && (
-          <span style={{ marginLeft: 6, minWidth: 17, height: 17, padding: '0 4px', borderRadius: 999, background: 'var(--gold-500)', color: 'var(--on-gold)', fontSize: 10, fontWeight: 800, display: 'inline-grid', placeItems: 'center', lineHeight: 1 }}>{badge}</span>
+          <Badge variant="secondary">{badge}</Badge>
         )}
-      </button>
+      </Button>
       {open && (
         <div className="popover-panel" role="dialog" style={{ width: `min(${width}px, 92vw)`, [align]: 0 } as React.CSSProperties}>
           {typeof children === 'function' ? children(close) : children}

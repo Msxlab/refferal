@@ -5,12 +5,12 @@ import { SchedulerService } from '../src/scheduler/scheduler.service';
 import { createChain, createPlan, createSale, createTenant, summaryTotals, truncateAll } from './helpers';
 
 /**
- * Inceleme bulgusu (kritik domino): on_delivery'de markDelivered statuyu cevirmez;
- * pending→payable gecisi YALNIZCA zamanlanmis matureCommissions ile olur. Scheduler
- * olmadan payable hep bos kalir, tum payout dongusu donar. Bu test scheduler wrapper'ini
- * + tum on_delivery→payable zincirini dogrular.
+ * Review finding (critical path): with on_delivery, markDelivered does not change status;
+ * the pending->payable transition happens only through scheduled matureCommissions. Without
+ * the scheduler, payable stays empty and the payout cycle stalls. This test verifies the
+ * scheduler wrapper plus the full on_delivery->payable chain.
  */
-describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
+describe('scheduler - maturation job chain (integration)', () => {
   let prisma: PrismaService;
   let engine: EngineService;
   let scheduler: SchedulerService;
@@ -30,7 +30,7 @@ describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
     await truncateAll(prisma);
   });
 
-  it('on_delivery: approve→pending, deliver, scheduler job→payable', async () => {
+  it('on_delivery: approve->pending, deliver, scheduler job->payable', async () => {
     const tenant = await createTenant(prisma, { maturationRule: MaturationRule.on_delivery });
     await createPlan(prisma, tenant.id);
     const chain = await createChain(prisma, tenant.id, 6);
@@ -39,17 +39,17 @@ describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
     const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
     await engine.approveSale(sale.id);
 
-    // approve sonrasi pending (scheduler henuz calismadi)
+    // Pending after approval because the scheduler has not run yet.
     let s = await summaryTotals(prisma, seller.id);
     expect(s.pending).toBe(500_000n);
     expect(s.payable).toBe(0n);
 
-    // teslim oncesi job hicbir sey olgunlastirmaz
+    // Before delivery, the job does not mature anything.
     await scheduler.matureCommissions();
     s = await summaryTotals(prisma, seller.id);
     expect(s.payable).toBe(0n);
 
-    // teslim → job → payable
+    // Delivery -> job -> payable.
     await engine.markDelivered(sale.id);
     await scheduler.matureCommissions();
 
@@ -61,7 +61,7 @@ describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
     expect(entries.every((e) => e.status === LedgerStatus.payable)).toBe(true);
   });
 
-  it('job tekrar calistiginda idempotent (cift olgunlasma yok)', async () => {
+  it('job is idempotent when run again, with no double maturation', async () => {
     const tenant = await createTenant(prisma, { maturationRule: MaturationRule.on_delivery });
     await createPlan(prisma, tenant.id);
     const [seller] = await createChain(prisma, tenant.id, 1);
@@ -70,9 +70,9 @@ describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
     await engine.markDelivered(sale.id);
 
     await scheduler.matureCommissions();
-    await scheduler.matureCommissions(); // ikinci kosum
+    await scheduler.matureCommissions(); // Second run.
 
     const s = await summaryTotals(prisma, seller.id);
-    expect(s.payable).toBe(500_000n); // cift sayilmadi
+    expect(s.payable).toBe(500_000n); // Not counted twice.
   });
 });

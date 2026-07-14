@@ -1,13 +1,13 @@
 import { z } from 'zod';
 
-// Tutarlar integer cent. JSON number int guvenli araligi cent icin fazlasiyla yeterli.
+// Amounts are integer cents. JSON safe integers are ample for cent values.
 const amountCents = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 
-// ISO tarih/datetime → Date
+// ISO date/datetime -> Date.
 const saleDate = z.coerce.date();
 
 export const createSaleSchema = z.object({
-  // satici ya membership id ya da referral kod ile belirtilir
+  // Seller can be identified by membership id or referral code.
   sellerMembershipId: z.string().uuid().optional(),
   sellerReferralCode: z.string().trim().min(3).max(32).optional(),
   amountCents,
@@ -15,14 +15,14 @@ export const createSaleSchema = z.object({
   customerRef: z.string().trim().max(200).optional(),
   externalRef: z.string().trim().max(200).optional(),
 }).refine((v) => v.sellerMembershipId || v.sellerReferralCode, {
-  message: 'sellerMembershipId veya sellerReferralCode gerekli',
+  message: 'sellerMembershipId or sellerReferralCode is required',
   path: ['sellerMembershipId'],
 });
 export type CreateSaleInput = z.infer<typeof createSaleSchema>;
 
 export const listSalesSchema = z.object({
   status: z.enum(['draft', 'approved', 'void']).optional(),
-  // serbest arama: satici adi/kodu + customer_ref/external_ref
+  // Free search: seller name/code plus customer_ref/external_ref.
   q: z.string().trim().max(120).optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
@@ -44,8 +44,8 @@ export const deliverSchema = z.object({
 });
 export type DeliverInput = z.infer<typeof deliverSchema>;
 
-// CSV import sihirbazi: kolon eslemesi (baslik adlari) + preview (dry-run) destegi.
-// mapping verilmezse varsayilan basliklar kullanilir (referral_code, amount_cents, ...).
+// CSV import wizard: column mapping by header name plus preview dry-run support.
+// If mapping is omitted, amount is preferred; legacy amount_cents/cents still parse as integer cents.
 export const importMappingSchema = z.object({
   code: z.string().trim().min(1),
   amount: z.string().trim().min(1),

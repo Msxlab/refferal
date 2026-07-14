@@ -1,14 +1,14 @@
-// Refearn veri modeli — docs/SPEC.md Bolum 6.
-// Kurallar:
-// - Tum tutarlar BIGINT integer cent; oranlar bps (10000 = %100).
+// Americana Earn data model. See docs/SPEC.md section 6.
+// Rules:
+// - All money amounts are BIGINT integer cents; rates are bps (10000 = 100%).
 // - Tenant-scoped tablolarda tenant_id + index.
 // - ledger_entries SILINMEZ; guncellenen tek alanlar status/payout_id.
-// - memberships.path: ltree-uyumlu TEXT (uuid'ler _ ile), yerlesim DEGISTIRILEMEZ.
-//   ltree extension migration'da aktif (docs/DECISIONS.md).
+// - memberships.path is ltree-compatible TEXT (UUIDs use underscores); placement is immutable.
+//   The ltree extension is enabled by migration (docs/DECISIONS.md).
 
 generator client {
   provider = "prisma-client-js"
-  // native = lokal gelistirme (Windows); debian-openssl-3.0.x = Docker runtime (bookworm)
+  // native = local development (Windows); debian-openssl-3.0.x = Docker runtime (bookworm)
   binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
@@ -63,6 +63,7 @@ enum LedgerType {
 enum LedgerStatus {
   pending
   payable
+  processing
   paid
   reversed
 }
@@ -77,6 +78,13 @@ enum PayoutStatus {
   requested
   processing
   paid
+  rejected
+  failed
+}
+
+enum PayoutSettlementBatchStatus {
+  processing
+  settled
   failed
 }
 
@@ -88,6 +96,7 @@ enum NotificationChannel {
 
 enum NotificationStatus {
   pending
+  processing
   sent
   failed
 }
@@ -104,8 +113,8 @@ model Tenant {
   compressionEnabled  Boolean        @default(false) @map("compression_enabled")
   inactiveMembersEarn Boolean        @default(true) @map("inactive_members_earn")
   notifyNewMemberName Boolean        @default(true) @map("notify_new_member_name")
-  // Gorevler ayrimi (maker-checker): satisi giren onaylayamaz. Varsayilan kapali
-  // (tek-admin tenant'lari kirmasin); kapali iken self-onay audit'te isaretlenir.
+  // Separation of duties (maker-checker): the sale creator cannot approve it.
+  // Default is off so single-admin tenants keep working; self-approval is still audited.
   requireSeparateApprover Boolean    @default(false) @map("require_separate_approver")
   branding            Json           @default("{}")
   status              TenantStatus   @default(active)
@@ -120,14 +129,15 @@ model Tenant {
   summaries   MonthlySummary[]
   teamStats   TeamStat[]
   payouts     Payout[]
+  payoutBatches PayoutBatch[]
   roles       TenantRole[]
 
   @@map("tenants")
 }
 
-// RBAC: kiracci-kapsamli roller. Sistem rolleri (isSystem) silinemez/yeniden adlandirilamaz;
-// ozel roller serbestce duzenlenir. permissions = izin-anahtari dizisi (kod katalogu, common/permissions.ts).
-// tenant_owner enum katmani her zaman tum izinleri tasir (god-mode), roleId'den bagimsiz.
+// RBAC: tenant-scoped roles. System roles (isSystem) cannot be deleted or renamed;
+// custom roles can be edited. permissions = permission-key array from common/permissions.ts.
+// tenant_owner always carries all permissions at the enum layer, independent of roleId.
 model TenantRole {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId    String   @map("tenant_id") @db.Uuid
@@ -156,15 +166,17 @@ model User {
   avatarPath      String?   @map("avatar_path")
   locale          String    @default("en")
   emailVerifiedAt DateTime? @map("email_verified_at")
-  // Platform sahibi (Axtra): kiracci-ustu; sirketleri yonetir, uyelik gerektirmez.
+  // Platform owner (Axtra): cross-tenant; manages companies and does not require membership.
   isPlatformAdmin Boolean   @default(false) @map("is_platform_admin")
-  // 2FA: TOTP gizli anahtari (kayit asamasinda yazilir, enable'da dogrulanir).
+  // 2FA: TOTP secret is written during setup and verified when enabled.
   totpSecret      String?   @map("totp_secret")
   totpEnabledAt   DateTime? @map("totp_enabled_at")
-  // Tek kullanimlik kurtarma kodlari — yalniz sha256 hash dizisi saklanir.
+  // One-time recovery codes; only SHA-256 hashes are stored.
   mfaRecoveryCodes Json?    @map("mfa_recovery_codes")
-  // "son secim hatirlanir" (SPEC 4.1): coklu uyelikte aktif tenant secimi
+  // "Remember last choice" (SPEC 4.1): active tenant selection for multi-membership users.
   lastMembershipId String?  @map("last_membership_id") @db.Uuid
+  // Incremented whenever active credentials must be invalidated. Legacy JWTs and refresh rows lack this value.
+  authGeneration  Int       @default(1) @map("auth_generation")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
@@ -172,17 +184,22 @@ model User {
   devices       Device[]
   refreshTokens RefreshToken[]
   userTokens    UserToken[]
+  pendingInviteAcceptances PendingInviteAcceptance[]
 
   @@map("users")
 }
 
-// Rotasyonlu refresh token (SPEC 5): DB'de yalnizca SHA-256 hash saklanir.
-// Reuse detection: revoke edilmis token sunulursa kullanicinin tum token'lari iptal edilir.
+// Rotating refresh token (SPEC 5): only SHA-256 hashes are stored in the DB.
+// Reuse detection revokes all user tokens if a revoked token is presented.
 model RefreshToken {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId       String    @map("user_id") @db.Uuid
   tokenHash    String    @unique @map("token_hash")
   expiresAt    DateTime  @map("expires_at")
+  // Nullable so sessions issued before MFA session assurance are never trusted as MFA-complete.
+  mfaVerifiedAt DateTime? @map("mfa_verified_at")
+  // Nullable so rows issued before session generation enforcement fail closed.
+  authGeneration Int?      @map("auth_generation")
   revokedAt    DateTime? @map("revoked_at")
   replacedById String?   @map("replaced_by_id") @db.Uuid
   ip           String?
@@ -202,7 +219,7 @@ enum UserTokenPurpose {
   login_otp
 }
 
-// E-posta dogrulama / sifre sifirlama token'lari (tek kullanimlik, hash'li)
+// Email verification and password reset tokens (one-time, hashed).
 model UserToken {
   id        String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId    String           @map("user_id") @db.Uuid
@@ -214,8 +231,11 @@ model UserToken {
   updatedAt DateTime         @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pendingInviteAcceptance PendingInviteAcceptance?
 
   @@index([userId, purpose])
+  // Required as the referenced key for pending invite challenge ownership.
+  @@unique([userId, id], map: "user_tokens_user_id_id_key")
   @@map("user_tokens")
 }
 
@@ -223,17 +243,17 @@ model Membership {
   id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId            String           @map("tenant_id") @db.Uuid
   userId              String           @map("user_id") @db.Uuid
-  // Kaba yetki katmani (auth/scope): platform/tenant ayrimi + owner god-mode bu enum'a bagli.
+  // Coarse authorization layer (auth/scope): platform/tenant split and owner god-mode depend on this enum.
   role                Role             @default(member)
-  // Ince yetki: atanmis ozel rol (izin matrisi). Yoksa enum katmaninin varsayilan izinleri uygulanir.
+  // Fine-grained authorization: assigned custom role. Defaults come from the enum layer when absent.
   roleId              String?          @map("role_id") @db.Uuid
   sponsorMembershipId String?          @map("sponsor_membership_id") @db.Uuid
   referralCode        String           @map("referral_code")
-  // ltree-uyumlu materialized path: parent.path || own_id (uuid'ler _ ile). DEGISTIRILEMEZ.
+  // ltree-compatible materialized path: parent.path || own_id (UUIDs use underscores). Immutable.
   path                String
   depth               Int
   status              MembershipStatus @default(active)
-  // Kanal bazli bildirim tercihleri: { "<event>": { in_app, email, push } } — bos = varsayilanlar.
+  // Channel-based notification preferences: { "<event>": { in_app, email, push } }. Empty means defaults.
   notificationPrefs   Json             @default("{}") @map("notification_prefs")
   joinedAt            DateTime         @default(now()) @map("joined_at")
   createdAt           DateTime         @default(now()) @map("created_at")
@@ -267,15 +287,36 @@ model Invite {
   email               String?
   expiresAt           DateTime     @map("expires_at")
   usedByMembershipId  String?      @map("used_by_membership_id") @db.Uuid
+  idempotencyKeyHash  String?      @map("idempotency_key_hash")
   status              InviteStatus @default(active)
   createdAt           DateTime     @default(now()) @map("created_at")
   updatedAt           DateTime     @updatedAt @map("updated_at")
 
   tenant  Tenant     @relation(fields: [tenantId], references: [id])
   inviter Membership @relation("Inviter", fields: [inviterMembershipId], references: [id])
+  pendingAcceptances PendingInviteAcceptance[]
 
   @@index([tenantId, status])
+  @@unique([inviterMembershipId, idempotencyKeyHash], map: "invites_inviter_idempotency_key_hash_uidx")
   @@map("invites")
+}
+
+// Existing MFA users stage invite acceptance here until the linked one-time MFA challenge succeeds.
+model PendingInviteAcceptance {
+  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String     @map("user_id") @db.Uuid
+  inviteId         String     @map("invite_id") @db.Uuid
+  challengeTokenId String     @unique @map("challenge_token_id") @db.Uuid
+  createdAt        DateTime   @default(now()) @map("created_at")
+  completedAt      DateTime?  @map("completed_at")
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invite     Invite    @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  challenge  UserToken @relation(fields: [userId, challengeTokenId], references: [userId, id], onDelete: Cascade)
+
+  @@index([userId, inviteId])
+  @@unique([userId, challengeTokenId], map: "pending_invite_acceptances_user_challenge_token_key")
+  @@map("pending_invite_acceptances")
 }
 
 model CommissionPlan {
@@ -292,7 +333,7 @@ model CommissionPlan {
   tenant Tenant                @relation(fields: [tenantId], references: [id])
   levels CommissionPlanLevel[]
 
-  // Tarihsel sorgu: satis tarihinde aktif plan (effective_from <= sale_date, en yeni)
+  // Historical query: active plan on sale date (effective_from <= sale_date, newest first).
   @@index([tenantId, effectiveFrom(sort: Desc)])
   @@map("commission_plans")
 }
@@ -307,7 +348,7 @@ model CommissionPlanLevel {
 
   plan CommissionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
-  // SUM(rate_bps) <= pool_rate_bps kurali migration'daki constraint trigger ile zorlanir
+  // SUM(rate_bps) <= pool_rate_bps is enforced by a constraint trigger in the migration.
   @@unique([planId, level])
   @@map("commission_plan_levels")
 }
@@ -321,8 +362,8 @@ model Sale {
   customerRef        String?    @map("customer_ref")
   createdBy          String?    @map("created_by") @db.Uuid
   saleDate           DateTime   @map("sale_date")
-  // monthly_summaries ay anahtari ilk apply'da DONDURULUR (tenant.timezone sonradan
-  // degisse bile kredi/dusum ayni bucket'a gider — bkz. DECISIONS "Inceleme bulgulari").
+  // monthly_summaries month key is frozen on first apply. Later tenant.timezone changes
+  // do not move credits/debits into a different bucket; see DECISIONS review findings.
   summaryMonth       String?    @map("summary_month")
   status             SaleStatus @default(draft)
   approvedBy         String?    @map("approved_by") @db.Uuid
@@ -338,6 +379,7 @@ model Sale {
 
   @@index([tenantId, status])
   @@index([tenantId, saleDate])
+  @@unique([tenantId, externalRef], map: "sales_tenant_external_ref_uidx")
   @@map("sales")
 }
 
@@ -353,20 +395,24 @@ model LedgerEntry {
   status                  LedgerStatus
   maturesAt               DateTime?    @map("matures_at")
   payoutId                String?      @map("payout_id") @db.Uuid
+  payoutBatchId           String?      @map("payout_batch_id") @db.Uuid
   createdAt               DateTime     @default(now()) @map("created_at")
   updatedAt               DateTime     @updatedAt @map("updated_at")
 
   tenant      Tenant     @relation(fields: [tenantId], references: [id])
   sale        Sale       @relation(fields: [saleId], references: [id])
   beneficiary Membership @relation("Beneficiary", fields: [beneficiaryMembershipId], references: [id])
-  // Restrict: payout silinince 'paid' satirin payout_id'si sessizce NULL olmasin
-  // (ledger degismezligi — bkz. DECISIONS "Inceleme bulgulari").
+  // Restrict prevents a deleted payout from silently nulling payout_id on paid rows.
+  // This protects ledger immutability; see DECISIONS review findings.
   payout      Payout?    @relation(fields: [payoutId], references: [id], onDelete: Restrict)
+  payoutBatch PayoutBatch? @relation("CurrentPayoutBatch", fields: [payoutBatchId], references: [id], onDelete: Restrict)
+  batchItems  PayoutBatchItem[]
 
-  // Cift odeme imkansiz: motor kac kez cagrilirsa cagrilsin ayni sonuc
+  // Double payment is impossible: rerunning the engine yields the same result.
   @@unique([saleId, level, type])
   @@index([tenantId, beneficiaryMembershipId, status])
   @@index([status, maturesAt])
+  @@index([payoutBatchId, status])
   @@map("ledger_entries")
 }
 
@@ -374,11 +420,12 @@ model MonthlySummary {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId     String   @map("tenant_id") @db.Uuid
   membershipId String   @map("membership_id") @db.Uuid
-  // Tenant timezone'una gore YYYY-MM (SPEC 10 — Zaman)
+  // YYYY-MM according to tenant timezone (SPEC 10, Time).
   month        String
   level        Int
   pendingCents BigInt   @default(0) @map("pending_cents")
   payableCents BigInt   @default(0) @map("payable_cents")
+  processingCents BigInt @default(0) @map("processing_cents")
   paidCents    BigInt   @default(0) @map("paid_cents")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
@@ -412,22 +459,97 @@ model Payout {
   id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId     String       @map("tenant_id") @db.Uuid
   membershipId String       @map("membership_id") @db.Uuid
+  batchId      String?      @map("batch_id") @db.Uuid
   totalCents   BigInt       @map("total_cents")
   method       PayoutMethod @default(manual)
   status       PayoutStatus @default(requested)
-  // Donem: YYYY-MM (aylik, docs/DECISIONS.md)
+  // Period: YYYY-MM (monthly, docs/DECISIONS.md).
   period       String
+  // Active requested/processing rows receive this key; historical rows remain null.
+  activeKey    String?      @map("active_key")
+  processingStartedAt DateTime? @map("processing_started_at")
+  processingByUserId String? @map("processing_by_user_id") @db.Uuid
   paidAt       DateTime?    @map("paid_at")
+  settledAt    DateTime?    @map("settled_at")
+  settledByUserId String?   @map("settled_by_user_id") @db.Uuid
+  settlementReference String? @map("settlement_reference")
+  settlementEvidence String? @map("settlement_evidence")
+  recipientReferralCode String? @map("recipient_referral_code")
+  recipientFullName String? @map("recipient_full_name")
+  recipientEmail String? @map("recipient_email")
+  rejectedAt  DateTime?     @map("rejected_at")
+  rejectedByUserId String?  @map("rejected_by_user_id") @db.Uuid
+  rejectionReason String?   @map("rejection_reason")
+  failedAt    DateTime?     @map("failed_at")
+  failedByUserId String?    @map("failed_by_user_id") @db.Uuid
+  failureReason String?     @map("failure_reason")
   ref          String?
   createdAt    DateTime     @default(now()) @map("created_at")
   updatedAt    DateTime     @updatedAt @map("updated_at")
 
   tenant     Tenant        @relation(fields: [tenantId], references: [id])
   membership Membership    @relation(fields: [membershipId], references: [id])
+  batch      PayoutBatch?  @relation(fields: [batchId], references: [id], onDelete: Restrict)
   entries    LedgerEntry[]
+  batchItems PayoutBatchItem[]
 
   @@index([tenantId, status])
+  @@index([batchId, status])
   @@map("payouts")
+}
+
+// Processing batch and immutable row snapshots used to prove a later settlement or release.
+model PayoutBatch {
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId            String            @map("tenant_id") @db.Uuid
+  period              String
+  method              PayoutMethod
+  status              PayoutSettlementBatchStatus @default(processing)
+  csvChecksum         String?           @map("csv_checksum")
+  processingStartedAt DateTime          @default(now()) @map("processing_started_at")
+  processingByUserId  String?           @map("processing_by_user_id") @db.Uuid
+  settledAt           DateTime?         @map("settled_at")
+  settledByUserId     String?           @map("settled_by_user_id") @db.Uuid
+  settlementReference String?           @map("settlement_reference")
+  settlementEvidence  String?           @map("settlement_evidence")
+  failedAt            DateTime?         @map("failed_at")
+  failedByUserId      String?           @map("failed_by_user_id") @db.Uuid
+  failureReason       String?           @map("failure_reason")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+
+  tenant  Tenant            @relation(fields: [tenantId], references: [id])
+  payouts Payout[]
+  entries LedgerEntry[]      @relation("CurrentPayoutBatch")
+  items   PayoutBatchItem[]
+
+  @@index([tenantId, status, processingStartedAt])
+  @@map("payout_settlement_batches")
+}
+
+model PayoutBatchItem {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  batchId       String       @map("batch_id") @db.Uuid
+  payoutId      String       @map("payout_id") @db.Uuid
+  ledgerEntryId String       @map("ledger_entry_id") @db.Uuid
+  membershipId  String       @map("membership_id") @db.Uuid
+  month         String
+  level         Int
+  amountCents   BigInt       @map("amount_cents")
+  recipientReferralCode String? @map("recipient_referral_code")
+  recipientFullName     String? @map("recipient_full_name")
+  recipientEmail        String? @map("recipient_email")
+  recipientSnapshotAt   DateTime? @map("recipient_snapshot_at")
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  batch       PayoutBatch @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  payout      Payout      @relation(fields: [payoutId], references: [id], onDelete: Restrict)
+  ledgerEntry LedgerEntry @relation(fields: [ledgerEntryId], references: [id], onDelete: Restrict)
+
+  @@unique([batchId, ledgerEntryId])
+  @@index([payoutId])
+  @@index([ledgerEntryId])
+  @@map("payout_settlement_batch_items")
 }
 
 model Device {
@@ -444,7 +566,7 @@ model Device {
   @@map("devices")
 }
 
-// Outbox (SPEC 5): transaction icinde yazilir, BullMQ worker asenkron gonderir
+// Outbox (SPEC 5): written inside the transaction; BullMQ worker sends asynchronously.
 model Notification {
   id                    String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId              String?             @map("tenant_id") @db.Uuid
@@ -456,7 +578,7 @@ model Notification {
   attempts              Int                 @default(0)
   lastError             String?             @map("last_error")
   sentAt                DateTime?           @map("sent_at")
-  // in_app kanali: gelen kutusunda okundu durumu (diger kanallarda null kalir).
+  // in_app channel: inbox read state; other channels remain null.
   readAt                DateTime?           @map("read_at")
   createdAt             DateTime            @default(now()) @map("created_at")
   updatedAt             DateTime            @updatedAt @map("updated_at")

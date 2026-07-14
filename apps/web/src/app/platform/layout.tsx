@@ -3,10 +3,14 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { clearSession, getSession, type Session } from '@/lib/auth';
-import { ThemeToggle } from '@/components/ui';
+import { Building2, LogOut, type LucideIcon } from 'lucide-react';
+import { getSession, type Session } from '@/lib/auth';
+import { api } from '@/lib/api';
+import { Brand, ThemeToggle } from '@/components/ui';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 
-const NAV = [{ href: '/platform', label: 'Companies', ic: '◳' }];
+const NAV: Array<{ href: string; label: string; Icon: LucideIcon }> = [{ href: '/platform', label: 'Companies', Icon: Building2 }];
 
 export default function PlatformLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -22,38 +26,58 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
     setSession(s);
   }, [router]);
 
-  if (!session) return <div className="center muted">Loading…</div>;
+  if (!session) return <div className="center muted" role="status" aria-live="polite">Loading…</div>;
 
-  function logout() {
-    clearSession();
-    router.replace('/login');
+  async function logout() {
+    try {
+      await api.logout();
+    } finally {
+      router.replace('/login');
+    }
   }
 
   return (
     <div className="shell">
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <aside className="side">
-        <div className="brand"><span className="dot">R</span> Refearn</div>
-        <div className="faint" style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', margin: '0 0 10px 4px' }}>Platform</div>
-        <nav>
-          {NAV.map((n) => (
+        <Brand className="brand" />
+        <div className="mb-2.5 ml-1 text-[10px] uppercase tracking-widest text-muted-foreground">Platform</div>
+        <nav aria-label="Platform navigation">
+          {NAV.map(({ Icon, ...n }) => (
             <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
-              <span className="ic">{n.ic}</span>{n.label}
+              <Icon className="ic size-4" aria-hidden="true" />{n.label}
             </Link>
           ))}
         </nav>
         <div className="foot">
-          <div className="faint" style={{ fontSize: 11 }}>Platform owner</div>
-          <div style={{ fontSize: 13, fontWeight: 600, margin: '2px 0 4px' }}>{session.user.fullName}</div>
+          <div className="text-[11px] text-muted-foreground">Platform owner</div>
+          <div className="my-1 text-sm font-semibold">{session.user.fullName}</div>
           <div className="row spread">
-            <span className="badge active" style={{ fontSize: 10 }}>platform</span>
+            <Badge variant="secondary">platform</Badge>
             <div className="row" style={{ gap: 6 }}>
               <ThemeToggle />
-              <button className="btn ghost sm" onClick={logout}>Log out</button>
+              <Button variant="ghost" size="sm" onClick={logout}><LogOut />Log out</Button>
             </div>
           </div>
         </div>
       </aside>
-      <main className="main">{children}</main>
+      <header className="admin-mobilebar">
+        <div className="admin-mobilebar-head">
+          <Brand className="brand" />
+          <div className="row" style={{ gap: 6 }}>
+            <ThemeToggle />
+            <Button variant="ghost" size="sm" onClick={logout}><LogOut />Log out</Button>
+          </div>
+        </div>
+        <nav aria-label="Platform navigation">
+          {NAV.map(({ Icon, ...n }) => (
+            <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
+              <Icon className="ic size-4" aria-hidden="true" />{n.label}
+            </Link>
+          ))}
+        </nav>
+      </header>
+      <main id="main-content" className="main" tabIndex={-1}>{children}</main>
     </div>
   );
 }

@@ -1,23 +1,35 @@
 {
   "expo": {
-    "name": "Refearn",
+    "name": "Americana Earn",
     "slug": "refearn",
     "version": "0.1.0",
     "scheme": "refearn",
     "orientation": "portrait",
-    "userInterfaceStyle": "dark",
-    "backgroundColor": "#07080f",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#F5F7FB",
     "splash": {
-      "backgroundColor": "#07080f"
+      "backgroundColor": "#F5F7FB"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.axtra.refearn"
+      "bundleIdentifier": "com.axtra.refearn",
+      "splash": {
+        "backgroundColor": "#F5F7FB",
+        "dark": {
+          "backgroundColor": "#0B1324"
+        }
+      }
     },
     "android": {
       "package": "com.axtra.refearn",
+      "splash": {
+        "backgroundColor": "#F5F7FB",
+        "dark": {
+          "backgroundColor": "#0B1324"
+        }
+      },
       "adaptiveIcon": {
-        "backgroundColor": "#07080f"
+        "backgroundColor": "#F5F7FB"
       }
     },
     "plugins": ["expo-router", "expo-notifications"],

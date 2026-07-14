@@ -1,10 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
+import { AlertCircle, CheckCircle2, Users } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
-import { Bars, CountUp, Loading, StatCard } from '@/components/ui';
+import { Bars, CountUp, Loading } from '@/components/ui';
 import { RadialNetwork } from '@/components/RadialNetwork';
 import { t } from '@/lib/i18n';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface TeamLevel {
   level: number;
@@ -25,7 +28,14 @@ export default function TeamPage() {
     api.get<Team>('/app/team').then(setTeam).catch((e) => setError(String((e as ApiError).message)));
   }, []);
 
-  if (error) return <div className="error">{error}</div>;
+  if (error) {
+    return (
+      <Alert variant="destructive" className="fade-in">
+        <AlertCircle />
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    );
+  }
   if (!team) return <Loading />;
 
   const inactive = team.totalMembers - team.totalActive;
@@ -34,37 +44,51 @@ export default function TeamPage() {
     <div>
       <div className="eyebrow fade-in">{t('anav.team')}</div>
       <h1 className="h1 fade-in">My Network</h1>
-      <p className="sub fade-in">Your downline at a glance — sized by level, shaded by activity.</p>
+      <p className="sub fade-in">Your downline at a glance, sized by level and shaded by activity.</p>
 
-      <div className="stat-grid fade-in delay-1" style={{ marginBottom: 16 }}>
-        <StatCard label={t('me.members')} value={<CountUp value={team.totalMembers} />} icon="⬡" grad="var(--grad-primary)" />
-        <StatCard label={t('me.activeMembers')} value={<CountUp value={team.totalActive} />} icon="✓" grad="var(--grad-emerald)" />
+      <div className="mb-4 grid gap-4 fade-in delay-1 sm:grid-cols-2">
+        <TeamStat label={t('me.members')} value={<CountUp value={team.totalMembers} />} Icon={Users} />
+        <TeamStat label={t('me.activeMembers')} value={<CountUp value={team.totalActive} />} Icon={CheckCircle2} />
       </div>
 
-      <div className="grid fade-in delay-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,300px)', gap: 16, alignItems: 'stretch' }}>
-        <div className="card" style={{ display: 'grid', placeItems: 'center', padding: 18 }}>
-          <RadialNetwork levels={team.levels} totalMembers={team.totalMembers} />
-        </div>
+      <div className="grid gap-4 fade-in delay-2 lg:grid-cols-[minmax(0,1fr)_minmax(280px,320px)]">
+        <Card>
+          <CardContent className="grid min-h-[320px] place-items-center">
+            <RadialNetwork levels={team.levels} totalMembers={team.totalMembers} />
+          </CardContent>
+        </Card>
 
-        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
-          <div className="spread" style={{ marginBottom: 14 }}>
-            <strong>Level distribution</strong>
-          </div>
-          {team.levels.some((l) => l.memberCount > 0) ? (
-            <Bars data={team.levels.map((l) => ({ label: `Level ${l.level}`, value: l.memberCount }))} />
-          ) : (
-            <div className="muted">{t('me.noData')}</div>
-          )}
-          <div className="row" style={{ gap: 16, marginTop: 'auto', paddingTop: 16, fontSize: 12 }}>
-            <span className="row" style={{ gap: 6 }}><i style={{ width: 10, height: 10, borderRadius: 999, background: 'var(--emerald)' }} /> Active {team.totalActive}</span>
-            <span className="row" style={{ gap: 6 }}><i style={{ width: 10, height: 10, borderRadius: 999, background: 'var(--muted)' }} /> Inactive {inactive}</span>
-          </div>
-        </div>
+        <Card>
+          <CardHeader><CardTitle>Level distribution</CardTitle></CardHeader>
+          <CardContent className="flex min-h-[320px] flex-col">
+            {team.levels.some((l) => l.memberCount > 0) ? <Bars data={team.levels.map((l) => ({ label: `Level ${l.level}`, value: l.memberCount }))} /> : <div className="text-sm text-muted-foreground">{t('me.noData')}</div>}
+            <div className="mt-auto flex flex-wrap gap-4 pt-4 text-xs">
+              <Legend color="var(--emerald)" label={`Active ${team.totalActive}`} />
+              <Legend color="var(--muted)" label={`Inactive ${inactive}`} />
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="faint fade-in" style={{ fontSize: 11, marginTop: 16 }}>
-        For privacy, individual member or sales details are never shared — only aggregate counts per level.
-      </div>
+      <div className="mt-4 text-[11px] text-muted-foreground fade-in">For privacy, individual member or sales details are never shared; only aggregate counts per level.</div>
     </div>
   );
+}
+
+function TeamStat({ label, value, Icon }: { label: string; value: ReactNode; Icon: typeof Users }) {
+  return (
+    <Card>
+      <CardContent className="grid gap-2">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
+          <span className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary"><Icon className="size-4" /></span>
+        </div>
+        <div className="text-2xl font-semibold tabular-nums">{value}</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Legend({ color, label }: { color: string; label: string }) {
+  return <span className="inline-flex items-center gap-2"><i className="size-2.5 rounded-full" style={{ background: color }} />{label}</span>;
 }

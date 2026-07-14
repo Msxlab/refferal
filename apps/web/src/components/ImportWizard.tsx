@@ -1,16 +1,24 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { AlertCircle, ArrowLeft, ArrowRight } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { Modal } from '@/components/ui';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Field, FieldLabel } from '@/components/ui/field';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
 
 interface Mapping { code: string; amount: string; date: string; customer: string; external: string }
 interface PreviewRow { line: number; ok: boolean; code: string; amountCents?: string; saleDate?: string; sellerName?: string; reason?: string }
-interface PreviewResp { preview: true; okCount: number; errorCount: number; rows: PreviewRow[] }
+interface PreviewResp { preview: true; currency: string; okCount: number; errorCount: number; rows: PreviewRow[] }
 
-const SAMPLE = 'referral_code,amount_cents,sale_date,customer_ref\nALICE1,10000000,2026-06-01,Acme Corp\nBOB1,5000000,2026-06-02,Beta LLC';
+const SAMPLE = 'referral_code,amount,sale_date,customer_ref\nALICE1,100000.00,2026-06-01,Acme Corp\nBOB1,50000.00,2026-06-02,Beta LLC';
+const NONE = '__none__';
 
-/** Otomatik tahmin: bilinen baslik adlarini ilgili alana esle. */
 function guess(headers: string[], names: string[]): string {
   const lower = headers.map((h) => h.toLowerCase());
   for (const n of names) {
@@ -37,7 +45,7 @@ export function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone:
     if (headers.length === 0) { setErr('Add a CSV with a header row first.'); return; }
     setMapping({
       code: guess(headers, ['referral_code', 'code', 'seller']),
-      amount: guess(headers, ['amount_cents', 'amount', 'cents']),
+      amount: guess(headers, ['amount', 'amount_cents', 'cents']),
       date: guess(headers, ['sale_date', 'date']),
       customer: guess(headers, ['customer_ref', 'customer']),
       external: guess(headers, ['external_ref', 'external', 'ref']),
@@ -63,26 +71,25 @@ export function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone:
   }
 
   return (
-    <Modal title="Import sales — wizard" onClose={onClose}>
-      <div style={{ width: 'min(640px, 88vw)' }}>
+    <Modal title="Import sales wizard" onClose={onClose}>
+      <div className="grid w-[min(640px,88vw)] gap-4">
         <Steps step={step} />
 
         {step === 'data' && (
-          <div>
-            <div className="faint" style={{ fontSize: 12, marginBottom: 8 }}>
-              Paste CSV with a header row. Any column names work — you'll map them next.
+          <div className="grid gap-2">
+            <div className="text-sm text-muted-foreground">
+              Paste CSV with a header row. Any column names work; you will map them next.
             </div>
-            <textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={9}
-              style={{ width: '100%', fontFamily: 'ui-monospace, monospace', fontSize: 12 }} />
-            <div className="faint" style={{ fontSize: 11, marginTop: 6 }}>{headers.length} columns detected: {headers.join(', ') || '—'}</div>
+            <Textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={9} className="font-mono text-xs" />
+            <div className="text-xs text-muted-foreground">{headers.length} columns detected: {headers.join(', ') || '-'}</div>
           </div>
         )}
 
         {step === 'map' && (
-          <div className="grid" style={{ gap: 12 }}>
-            <div className="faint" style={{ fontSize: 12 }}>Match your columns to sale fields. * required.</div>
+          <div className="grid gap-3">
+            <div className="text-sm text-muted-foreground">Match your columns to sale fields. Fields marked with * are required.</div>
             <MapRow label="Referral code *" value={mapping.code} headers={headers} onChange={(v) => setMapping({ ...mapping, code: v })} />
-            <MapRow label="Amount (cents) *" value={mapping.amount} headers={headers} onChange={(v) => setMapping({ ...mapping, amount: v })} />
+            <MapRow label="Amount *" value={mapping.amount} headers={headers} onChange={(v) => setMapping({ ...mapping, amount: v })} />
             <MapRow label="Sale date" value={mapping.date} headers={headers} onChange={(v) => setMapping({ ...mapping, date: v })} />
             <MapRow label="Customer ref" value={mapping.customer} headers={headers} onChange={(v) => setMapping({ ...mapping, customer: v })} />
             <MapRow label="External ref" value={mapping.external} headers={headers} onChange={(v) => setMapping({ ...mapping, external: v })} />
@@ -90,43 +97,56 @@ export function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone:
         )}
 
         {step === 'preview' && preview && (
-          <div>
-            <div className="row" style={{ gap: 16, marginBottom: 12 }}>
-              <span className="badge active">{preview.okCount} ready</span>
-              {preview.errorCount > 0 && <span className="badge failed">{preview.errorCount} errors</span>}
+          <div className="grid gap-3">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="default">{preview.okCount} ready</Badge>
+              {preview.errorCount > 0 && <Badge variant="destructive">{preview.errorCount} errors</Badge>}
             </div>
-            <div style={{ maxHeight: '40vh', overflow: 'auto', borderRadius: 10, border: '1px solid var(--border)' }}>
-              <table>
-                <thead><tr><th>#</th><th>Code</th><th>Amount</th><th>Seller / error</th></tr></thead>
-                <tbody>
-                  {preview.rows.map((r) => (
-                    <tr key={r.line}>
-                      <td className="faint">{r.line}</td>
-                      <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>{r.code || '—'}</td>
-                      <td className="tnum">{r.ok && r.amountCents ? `$${(Number(r.amountCents) / 100).toLocaleString('en-US')}` : '—'}</td>
-                      <td>
-                        {r.ok
-                          ? <span style={{ color: 'var(--emerald)' }}>{r.sellerName}</span>
-                          : <span style={{ color: 'var(--rose)', fontSize: 12 }}>{r.reason}</span>}
-                      </td>
-                    </tr>
+            <div className="max-h-[40vh] overflow-auto rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>#</TableHead>
+                    <TableHead>Code</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Seller / error</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {preview.rows.map((row) => (
+                    <TableRow key={row.line}>
+                      <TableCell className="text-muted-foreground">{row.line}</TableCell>
+                      <TableCell className="font-mono text-xs">{row.code || '-'}</TableCell>
+                      <TableCell className="tabular-nums">{formatPreviewAmount(row, preview.currency)}</TableCell>
+                      <TableCell>
+                        {row.ok
+                          ? <span className="text-[color:var(--emerald)]">{row.sellerName}</span>
+                          : <span className="text-xs text-destructive">{row.reason}</span>}
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
-            <div className="faint" style={{ fontSize: 11, marginTop: 8 }}>Imported sales are created as drafts — approve them to distribute commissions.</div>
+            <div className="text-xs text-muted-foreground">Imported sales are created as drafts; approve them to distribute commissions.</div>
           </div>
         )}
 
-        {err && <div className="error" style={{ marginTop: 12 }}>{err}</div>}
+        {err && (
+          <Alert variant="destructive">
+            <AlertCircle />
+            <AlertDescription>{err}</AlertDescription>
+          </Alert>
+        )}
 
-        <div className="row" style={{ justifyContent: 'space-between', marginTop: 16 }}>
-          <button className="btn ghost" onClick={step === 'data' ? onClose : () => setStep(step === 'preview' ? 'map' : 'data')} disabled={busy}>
+        <div className="flex items-center justify-between gap-2">
+          <Button variant="ghost" onClick={step === 'data' ? onClose : () => setStep(step === 'preview' ? 'map' : 'data')} disabled={busy}>
+            {step !== 'data' && <ArrowLeft />}
             {step === 'data' ? 'Cancel' : 'Back'}
-          </button>
-          {step === 'data' && <button className="btn" onClick={toMap}>Next: map columns →</button>}
-          {step === 'map' && <button className="btn" onClick={toPreview} disabled={busy}>{busy ? 'Checking…' : 'Preview →'}</button>}
-          {step === 'preview' && <button className="btn" onClick={confirm} disabled={busy || preview?.okCount === 0}>{busy ? 'Importing…' : `Import ${preview?.okCount ?? 0} sales`}</button>}
+          </Button>
+          {step === 'data' && <Button onClick={toMap}>Next: map columns <ArrowRight /></Button>}
+          {step === 'map' && <Button onClick={toPreview} disabled={busy}>{busy ? 'Checking...' : 'Preview'} {!busy && <ArrowRight />}</Button>}
+          {step === 'preview' && <Button onClick={confirm} disabled={busy || preview?.okCount === 0}>{busy ? 'Importing...' : `Import ${preview?.okCount ?? 0} sales`}</Button>}
         </div>
       </div>
     </Modal>
@@ -140,17 +160,20 @@ function clean(m: Mapping) {
   };
 }
 
+function formatPreviewAmount(row: PreviewRow, currency: string) {
+  if (!row.ok || !row.amountCents) return '-';
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(Number(row.amountCents) / 100);
+}
+
 function Steps({ step }: { step: 'data' | 'map' | 'preview' }) {
   const items: Array<{ k: typeof step; l: string }> = [{ k: 'data', l: 'Data' }, { k: 'map', l: 'Map' }, { k: 'preview', l: 'Preview' }];
   const idx = items.findIndex((i) => i.k === step);
   return (
-    <div className="row" style={{ gap: 8, marginBottom: 16 }}>
+    <div className="grid grid-cols-3 gap-2">
       {items.map((it, i) => (
-        <div key={it.k} className="row" style={{ gap: 8, flex: 1 }}>
-          <span style={{ width: 22, height: 22, borderRadius: 999, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800,
-            background: i <= idx ? 'var(--foil)' : 'var(--panel-2)', color: i <= idx ? 'var(--on-gold)' : 'var(--muted)' }}>{i + 1}</span>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: i === idx ? 'var(--text)' : 'var(--muted)' }}>{it.l}</span>
-          {i < items.length - 1 && <span style={{ flex: 1, height: 1, background: 'var(--border)' }} />}
+        <div key={it.k} className="flex items-center gap-2 rounded-lg border bg-muted/30 p-2">
+          <Badge variant={i <= idx ? 'default' : 'outline'}>{i + 1}</Badge>
+          <span className="text-sm font-medium">{it.l}</span>
         </div>
       ))}
     </div>
@@ -159,12 +182,19 @@ function Steps({ step }: { step: 'data' | 'map' | 'preview' }) {
 
 function MapRow({ label, value, headers, onChange }: { label: string; value: string; headers: string[]; onChange: (v: string) => void }) {
   return (
-    <div className="spread" style={{ gap: 12 }}>
-      <label style={{ fontSize: 13, minWidth: 140 }}>{label}</label>
-      <select value={value} onChange={(e) => onChange(e.target.value)} style={{ flex: 1, maxWidth: 280 }}>
-        <option value="">— none —</option>
-        {headers.map((h) => <option key={h} value={h}>{h}</option>)}
-      </select>
-    </div>
+    <Field className="grid gap-2 sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center">
+      <FieldLabel>{label}</FieldLabel>
+      <Select value={value || NONE} onValueChange={(next: string) => onChange(next === NONE ? '' : next)}>
+        <SelectTrigger className="w-full sm:max-w-[280px]">
+          <SelectValue placeholder="No column" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectItem value={NONE}>No column</SelectItem>
+            {headers.map((header) => <SelectItem key={header} value={header}>{header}</SelectItem>)}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </Field>
   );
 }

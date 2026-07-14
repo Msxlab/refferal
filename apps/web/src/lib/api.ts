@@ -1,4 +1,4 @@
-import { clearSession, getSession, setSession, type Session } from './auth';
+import { clearSession, getSession, requiresMfaSetup, setSession, type Session } from './auth';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1';
 
@@ -15,14 +15,13 @@ async function rawFetch(path: string, init: RequestInit, token?: string): Promis
   const headers = new Headers(init.headers);
   if (token) headers.set('Authorization', `Bearer ${token}`);
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  return fetch(`${BASE}${path}`, { ...init, headers });
+  return fetch(`${BASE}${path}`, { ...init, credentials: 'include', headers });
 }
 
-/** access token suresi dolmussa bir kez refresh dener; basarisizsa oturum kapatir. */
-async function refresh(session: Session): Promise<Session | null> {
+/** Refresh once after an expired access token; clear the session if refresh fails. */
+async function refresh(): Promise<Session | null> {
   const res = await rawFetch('/auth/refresh', {
     method: 'POST',
-    body: JSON.stringify({ refreshToken: session.refreshToken }),
   });
   if (!res.ok) {
     clearSession();
@@ -38,9 +37,9 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   const res = await rawFetch(path, init, session?.accessToken);
 
   if (res.status === 401 && session && retry) {
-    const refreshed = await refresh(session);
+    const refreshed = await refresh();
     if (refreshed) return request<T>(path, init, false);
-    throw new ApiError(401, { message: 'oturum suresi doldu' });
+    throw new ApiError(401, { message: 'session expired' });
   }
 
   if (!res.ok) {
@@ -49,6 +48,15 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
       body = await res.json();
     } catch {
       body = { message: res.statusText };
+    }
+    if (
+      res.status === 403 &&
+      session &&
+      requiresMfaSetup(session) &&
+      typeof window !== 'undefined' &&
+      window.location.pathname !== '/mfa-setup'
+    ) {
+      window.location.assign('/mfa-setup');
     }
     throw new ApiError(res.status, body);
   }
@@ -65,11 +73,42 @@ export const api = {
     request<T>(path, { method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined }),
   del: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'DELETE', body: body !== undefined ? JSON.stringify(body) : undefined }),
+  logout: async (): Promise<void> => {
+    try {
+      await rawFetch('/auth/logout', { method: 'POST' });
+    } finally {
+      clearSession();
+    }
+  },
 };
 
-/** Login ozel: token henuz yok. */
-export async function login(email: string, password: string): Promise<Session> {
+export interface MfaChallenge {
+  mfaRequired: true;
+  challengeToken: string;
+  expiresAt: string;
+}
+
+export function isMfaChallenge(value: Session | MfaChallenge): value is MfaChallenge {
+  return 'mfaRequired' in value && value.mfaRequired === true;
+}
+
+/** Login is special: no bearer token exists yet. */
+export async function login(email: string, password: string): Promise<Session | MfaChallenge> {
   const res = await rawFetch('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = { message: res.statusText };
+    }
+    throw new ApiError(res.status, body);
+  }
+  return (await res.json()) as Session | MfaChallenge;
+}
+
+export async function loginMfa(challengeToken: string, code: string): Promise<Session> {
+  const res = await rawFetch('/auth/login/2fa', { method: 'POST', body: JSON.stringify({ challengeToken, code }) });
   if (!res.ok) {
     let body: unknown = null;
     try {
@@ -82,15 +121,20 @@ export async function login(email: string, password: string): Promise<Session> {
   return (await res.json()) as Session;
 }
 
-/** CSV indirme: metin doner, Bearer ekler. */
+export async function refreshSession(): Promise<Session | null> {
+  const session = getSession();
+  return session ? refresh() : null;
+}
+
+/** CSV download returns raw text and includes the bearer token. */
 export async function getCsv(path: string): Promise<string> {
   const session = getSession();
   let res = await rawFetch(path, {}, session?.accessToken);
   if (res.status === 401 && session) {
-    const refreshed = await refresh(session);
-    if (!refreshed) throw new ApiError(401, { message: 'oturum suresi doldu' });
+    const refreshed = await refresh();
+    if (!refreshed) throw new ApiError(401, { message: 'session expired' });
     res = await rawFetch(path, {}, refreshed.accessToken);
   }
-  if (!res.ok) throw new ApiError(res.status, { message: 'CSV indirilemedi' });
+  if (!res.ok) throw new ApiError(res.status, { message: 'CSV download failed' });
   return res.text();
 }

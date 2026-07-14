@@ -1,15 +1,17 @@
 import { NotificationChannel, NotificationStatus } from '@prisma/client';
+import { authConfig } from '../src/auth/auth.config';
+import { encryptSecret } from '../src/common/crypto';
 import { EmailAdapter, EmailMessage, PushAdapter, PushMessage } from '../src/notifications/adapters';
 import { NotificationRelayService } from '../src/notifications/notification-relay.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createChain, createTenant, truncateAll } from './helpers';
 
-/** Outbox relay: pending bildirimleri drenaj eder, sent/failed/retry isaretler (SPEC 5). */
-describe('bildirim relay (entegrasyon)', () => {
+/** Outbox relay: drains pending notifications and marks sent/failed/retry (SPEC 5). */
+describe('notification relay (integration)', () => {
   let prisma: PrismaService;
   let relay: NotificationRelayService;
 
-  // sahte adapter'lar — gercek SMTP/Expo'ya gitmeden mekanizmayi test eder
+  // Fake adapters test the mechanism without touching real SMTP/Expo.
   const sentEmails: EmailMessage[] = [];
   const sentPush: PushMessage[] = [];
   let emailShouldFail = false;
@@ -45,11 +47,17 @@ describe('bildirim relay (entegrasyon)', () => {
     return { tenantId: tenant.id, membershipId: m.id, userId: m.userId };
   }
 
-  it('e-posta + push bildirimlerini gonderir ve sent isaretler', async () => {
+  it('sends email and push notifications and marks them sent', async () => {
     const r = await recipient();
     await prisma.notification.createMany({
       data: [
-        { tenantId: r.tenantId, recipientMembershipId: r.membershipId, channel: NotificationChannel.email, template: 'verify_email', payload: { token: 'abc' } },
+        {
+          tenantId: r.tenantId,
+          recipientMembershipId: r.membershipId,
+          channel: NotificationChannel.email,
+          template: 'verify_email',
+          payload: { tokenCiphertext: encryptSecret('abc', authConfig.accessSecret()) },
+        },
         { tenantId: r.tenantId, recipientMembershipId: r.membershipId, channel: NotificationChannel.push, template: 'commission_earned', payload: { amountCents: '500000', level: 0 } },
       ],
     });
@@ -63,12 +71,15 @@ describe('bildirim relay (entegrasyon)', () => {
 
     expect(sentEmails).toHaveLength(1);
     expect(sentEmails[0].subject).toContain('Verify');
-    // push: token yok ama dispatch cagrildi (best-effort)
+    expect(sentEmails[0].text).toContain('token=abc');
+    const emailRow = all.find((n) => n.template === 'verify_email');
+    expect(emailRow?.payload).toEqual({ tokenRedacted: true });
+    // Push has no token, but dispatch was called best-effort.
     expect(sentPush).toHaveLength(1);
     expect(sentPush[0].tokens).toHaveLength(0);
   });
 
-  it('push: kayitli cihaz token`i varsa gonderim listesine girer', async () => {
+  it('push: registered device token is included in the send list', async () => {
     const r = await recipient();
     await prisma.device.create({
       data: { userId: r.userId, expoPushToken: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]', platform: 'ios' },
@@ -81,14 +92,20 @@ describe('bildirim relay (entegrasyon)', () => {
     expect(sentPush[0].tokens).toEqual(['ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]']);
   });
 
-  it('gonderim hatasinda pending kalir ve attempts artar; cap`e ulasinca failed', async () => {
+  it('keeps pending and increments attempts on send error, then fails at cap', async () => {
     const r = await recipient();
     emailShouldFail = true;
     const n = await prisma.notification.create({
-      data: { tenantId: r.tenantId, recipientMembershipId: r.membershipId, channel: NotificationChannel.email, template: 'password_reset', payload: { token: 't' } },
+      data: {
+        tenantId: r.tenantId,
+        recipientMembershipId: r.membershipId,
+        channel: NotificationChannel.email,
+        template: 'password_reset',
+        payload: { tokenCiphertext: encryptSecret('t', authConfig.accessSecret()) },
+      },
     });
 
-    // 5 deneme: her biri pending birakir, 5.'te failed
+    // Five attempts: each leaves the row pending until the 5th marks failed.
     for (let i = 1; i <= 5; i++) {
       await relay.drainOnce();
     }
@@ -97,15 +114,21 @@ describe('bildirim relay (entegrasyon)', () => {
     expect(after.status).toBe(NotificationStatus.failed);
     expect(after.lastError).toContain('SMTP down');
 
-    // cap'e ulasan satir artik islenmez
+    // A row that reached the cap is no longer processed.
     const processed = await relay.drainOnce();
     expect(processed).toBe(0);
   });
 
-  it('drainOnce idempotent: gonderilen satir tekrar islenmez', async () => {
+  it('drainOnce is idempotent: sent rows are not processed again', async () => {
     const r = await recipient();
     await prisma.notification.create({
-      data: { tenantId: r.tenantId, recipientMembershipId: r.membershipId, channel: NotificationChannel.email, template: 'team_member_joined', payload: { memberName: 'Ali' } },
+      data: {
+        tenantId: r.tenantId,
+        recipientMembershipId: r.membershipId,
+        channel: NotificationChannel.email,
+        template: 'payout_sent',
+        payload: { totalCents: '100000', period: '2026-06' },
+      },
     });
     await relay.drainOnce();
     const second = await relay.drainOnce();

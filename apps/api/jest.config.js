@@ -2,7 +2,7 @@ const base = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   moduleNameMapper: {
-    // Testlerde shared'in build edilmis dist'i degil kaynaklari kullanilir
+    // Tests use shared package source files instead of the built dist output.
     '^@refearn/shared$': '<rootDir>/../../packages/shared/src/index.ts',
   },
 };

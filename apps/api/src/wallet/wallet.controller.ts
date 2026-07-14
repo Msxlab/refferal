@@ -5,7 +5,7 @@ import { ZodValidationPipe } from '../common/zod.pipe';
 import { WalletService } from './wallet.service';
 import { dashboardQuerySchema, DashboardQuery, walletQuerySchema, WalletQuery } from './wallet.types';
 
-/** Uye yuzeyi (/app). Aktif uyelik gerekli; her zaman KENDI verisini doner. */
+/** Member surface (/app). Requires an active membership and only returns the caller's own data. */
 @RequireMembership()
 @Controller('app')
 export class WalletController {
@@ -19,9 +19,14 @@ export class WalletController {
     return this.wallet.dashboard(user.mid as string, user.tid as string, q.month);
   }
 
+  @Get('brand')
+  brand(@CurrentUser() user: RequestUser) {
+    return this.wallet.brand(user.tid as string);
+  }
+
   @Get('wallet')
   walletView(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(walletQuerySchema)) q: WalletQuery) {
-    return this.wallet.wallet(user.mid as string, q);
+    return this.wallet.wallet(user.mid as string, user.tid as string, q);
   }
 
   @Get('team')

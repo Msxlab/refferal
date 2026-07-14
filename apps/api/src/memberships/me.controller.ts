@@ -6,12 +6,13 @@ import { AuthService } from '../auth/auth.service';
 import { RequestUser, switchTenantSchema, SwitchTenantInput } from '../auth/auth.types';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { PrismaService } from '../prisma/prisma.service';
+import { notificationPreferenceRows, notificationPrefsJson } from '../notifications/preferences';
 import { render } from '../notifications/templates';
 
-// Gelen kutusunda gosterilen kanallar: e-posta haric (token/sir tasiyabilir).
+// Inbox-visible channels exclude email because email can carry tokens or secrets.
 const INBOX_CHANNELS: NotificationChannel[] = [NotificationChannel.in_app, NotificationChannel.push];
 
-/** Sablon → gelen kutusu turu (ikon/renk + erisilebilir etiket). */
+/** Maps template to inbox kind for icon, color, and accessible label. */
 function kindOf(template: string): 'positive' | 'negative' | 'team' | 'system' {
   if (template === 'commission_earned' || template === 'payout_sent') return 'positive';
   if (template === 'commission_reversed') return 'negative';
@@ -24,6 +25,18 @@ const deviceSchema = z.object({
   platform: z.enum(['ios', 'android', 'web']),
 });
 type DeviceInput = z.infer<typeof deviceSchema>;
+
+const channelPreferenceSchema = z
+  .object({
+    in_app: z.boolean().optional(),
+    email: z.boolean().optional(),
+    push: z.boolean().optional(),
+  })
+  .strict();
+const notificationPreferencesSchema = z.object({
+  preferences: z.record(channelPreferenceSchema).default({}),
+});
+type NotificationPreferencesInput = z.infer<typeof notificationPreferencesSchema>;
 
 @Controller('me')
 export class MeController {
@@ -81,10 +94,10 @@ export class MeController {
     @CurrentUser() user: RequestUser,
     @Body(new ZodValidationPipe(switchTenantSchema)) body: SwitchTenantInput,
   ) {
-    return this.auth.switchTenant(user.sub, body.membershipId);
+    return this.auth.switchTenant(user, body.membershipId);
   }
 
-  /** Expo push token kaydi (mobil); token'a gore upsert, last_seen guncellenir. */
+  /** Registers Expo push tokens for mobile; upserts by token and refreshes lastSeenAt. */
   @HttpCode(200)
   @Post('devices')
   async registerDevice(
@@ -100,9 +113,36 @@ export class MeController {
     return device;
   }
 
-  // ----------------------------------------------------- gelen kutusu (in-app inbox)
+  @Get('notification-preferences')
+  async notificationPreferences(@CurrentUser() user: RequestUser) {
+    if (!user.mid) return { events: notificationPreferenceRows({}) };
+    const membership = await this.prisma.membership.findFirst({
+      where: { id: user.mid, userId: user.sub },
+      select: { notificationPrefs: true },
+    });
+    if (!membership) throw new NotFoundException('membership not found');
+    return { events: notificationPreferenceRows(membership.notificationPrefs) };
+  }
 
-  /** Aktif uyeligin bildirimleri (en yeni once) + okunmamis sayisi. */
+  @HttpCode(200)
+  @Post('notification-preferences')
+  async updateNotificationPreferences(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(notificationPreferencesSchema)) body: NotificationPreferencesInput,
+  ) {
+    if (!user.mid) return { events: notificationPreferenceRows({}) };
+    const prefs = notificationPrefsJson(body.preferences);
+    const updated = await this.prisma.membership.updateMany({
+      where: { id: user.mid, userId: user.sub },
+      data: { notificationPrefs: prefs },
+    });
+    if (updated.count === 0) throw new NotFoundException('membership not found');
+    return { events: notificationPreferenceRows(prefs) };
+  }
+
+  // ----------------------------------------------------- in-app inbox
+
+  /** Active membership notifications, newest first, plus unread count. */
   @Get('notifications')
   async notifications(
     @CurrentUser() user: RequestUser,
@@ -111,7 +151,7 @@ export class MeController {
   ) {
     if (!user.mid) return { items: [], unreadCount: 0 };
     const take = Math.min(50, Math.max(1, Number(limit) || 20));
-    // gecersiz cursor Prisma'ya Invalid Date dusurmesin — sessizce yok say
+    // Ignore invalid cursors so Prisma never receives Invalid Date.
     const beforeDate = before ? new Date(before) : null;
     const validBefore = beforeDate && !Number.isNaN(beforeDate.getTime()) ? beforeDate : null;
     const where: Prisma.NotificationWhereInput = {
@@ -119,14 +159,16 @@ export class MeController {
       channel: { in: INBOX_CHANNELS },
       ...(validBefore ? { createdAt: { lt: validBefore } } : {}),
     };
-    const [rows, unreadCount] = await Promise.all([
+    const [rows, unreadCount, tenant] = await Promise.all([
       this.prisma.notification.findMany({ where, orderBy: { createdAt: 'desc' }, take }),
       this.prisma.notification.count({
         where: { recipientMembershipId: user.mid, channel: { in: INBOX_CHANNELS }, readAt: null },
       }),
+      this.prisma.tenant.findUnique({ where: { id: user.tid as string }, select: { currency: true } }),
     ]);
+    const currency = tenant?.currency ?? 'USD';
     const items = rows.map((n) => {
-      const { subject, body } = render(n.template, (n.payload ?? {}) as Record<string, unknown>);
+      const { subject, body } = render(n.template, (n.payload ?? {}) as Record<string, unknown>, currency);
       return {
         id: n.id,
         template: n.template,
@@ -149,7 +191,7 @@ export class MeController {
     return { count };
   }
 
-  /** Tek bildirimi okundu isaretle (yalniz aktif uyeligin satiri — capraz erisim yok). */
+  /** Marks one notification as read for the active membership only; no cross-membership access. */
   @HttpCode(200)
   @Post('notifications/:id/read')
   async markRead(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {

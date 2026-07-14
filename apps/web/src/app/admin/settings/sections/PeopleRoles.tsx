@@ -1,8 +1,50 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { AlertCircle, Pencil, Plus, Trash2 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { Confirm, Loading, Modal, useToast } from '@/components/ui';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
+import { accessChangeConfirmation } from '@/lib/privileged-actions';
 
 interface PermDef { key: string; label: string }
 interface PermGroup { key: string; label: string; permissions: PermDef[] }
@@ -29,19 +71,16 @@ interface Person {
   twoFactor: boolean;
 }
 
-const TIER_LABEL: Record<string, string> = {
-  tenant_owner: 'Owner',
-  tenant_admin: 'Admin',
-  tenant_staff: 'Staff',
-  member: 'Member',
-  platform_admin: 'Platform',
-};
-
 const ASSIGNABLE_TIERS = [
   { v: 'tenant_admin', l: 'Admin' },
   { v: 'tenant_staff', l: 'Staff' },
   { v: 'member', l: 'Member' },
 ];
+
+type PendingAssignment = {
+  person: Person;
+  patch: { tier?: string; roleId?: string | null };
+};
 
 export default function PeopleRoles() {
   const [groups, setGroups] = useState<PermGroup[] | null>(null);
@@ -51,6 +90,7 @@ export default function PeopleRoles() {
   const [toast, showToast] = useToast();
   const [editing, setEditing] = useState<RoleRow | 'new' | null>(null);
   const [deleting, setDeleting] = useState<RoleRow | null>(null);
+  const [pendingAssignment, setPendingAssignment] = useState<PendingAssignment | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function reload() {
@@ -65,12 +105,14 @@ export default function PeopleRoles() {
   }
   useEffect(() => { reload(); }, []);
 
-  async function assign(membershipId: string, patch: { tier?: string; roleId?: string | null }) {
+  async function assign(assignment: PendingAssignment) {
+    setBusy(true);
     try {
-      const next = await api.patch<Person[]>(`/admin/people/${membershipId}/role`, patch);
+      const next = await api.patch<Person[]>(`/admin/people/${assignment.person.membershipId}/role`, assignment.patch);
       setPeople(next);
-      showToast('Role updated ✓');
-    } catch (e) { showToast(String((e as ApiError).message)); }
+      setPendingAssignment(null);
+      showToast('Role updated');
+    } catch (e) { showToast(String((e as ApiError).message)); } finally { setBusy(false); }
   }
 
   async function removeRole() {
@@ -79,130 +121,209 @@ export default function PeopleRoles() {
     try {
       const next = await api.del<RoleRow[]>(`/admin/roles/${deleting.id}`);
       setRoles(next); setDeleting(null);
-      showToast('Role deleted ✓');
+      showToast('Role deleted');
     } catch (e) { showToast(String((e as ApiError).message)); } finally { setBusy(false); }
   }
 
-  if (error && !roles) return <div className="error">{error}</div>;
+  if (error && !roles) {
+    return (
+      <Alert variant="destructive">
+        <AlertCircle />
+        <AlertTitle>People and roles could not be loaded</AlertTitle>
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    );
+  }
   if (!groups || !roles || !people) return <Loading rows={5} />;
 
+  const pendingRole = pendingAssignment?.patch.roleId;
+  const assignmentConfirmation = pendingAssignment
+    ? accessChangeConfirmation({
+        fullName: pendingAssignment.person.fullName,
+        currentTier: pendingAssignment.person.tier,
+        nextTier: pendingAssignment.patch.tier ?? pendingAssignment.person.tier,
+        ...(pendingAssignment.patch.tier === undefined
+          ? {
+              currentRoleName: pendingAssignment.person.role?.name ?? null,
+              nextRoleName: pendingRole ? roles.find((role) => role.id === pendingRole)?.name ?? 'selected role' : null,
+            }
+          : {}),
+      })
+    : null;
+
   return (
-    <div className="grid" style={{ gap: 20 }}>
-      {/* ---- Roles ---- */}
-      <section>
-        <div className="spread" style={{ marginBottom: 12 }}>
-          <div>
-            <strong style={{ fontSize: 15 }}>Roles & permissions</strong>
-            <div className="faint" style={{ fontSize: 12 }}>Define what each role can do. Owner always has full access.</div>
+    <div className="flex flex-col gap-5">
+      <section className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            <h3 className="text-base font-medium">Roles & permissions</h3>
+            <p className="text-sm text-muted-foreground">
+              Define what each role can do. Owner always has full access.
+            </p>
           </div>
-          <button className="btn sm" onClick={() => setEditing('new')}>+ New role</button>
+          <Button size="sm" type="button" onClick={() => setEditing('new')}>
+            <Plus data-icon="inline-start" />
+            New role
+          </Button>
         </div>
 
-        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: 12 }}>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {roles.map((r) => (
-            <div key={r.id} className="card" style={{ padding: 16 }}>
-              <div className="spread">
-                <div className="row" style={{ gap: 9 }}>
-                  <span style={{ width: 11, height: 11, borderRadius: 4, background: r.color ?? 'var(--muted)' }} />
-                  <strong style={{ fontSize: 14 }}>{r.name}</strong>
-                  {r.isSystem && <span className="badge" style={{ fontSize: 9 }}>system</span>}
-                </div>
-                <span className="faint" style={{ fontSize: 11 }}>{r.memberCount} {r.memberCount === 1 ? 'person' : 'people'}</span>
-              </div>
-              {r.description && <div className="faint" style={{ fontSize: 12, marginTop: 7, lineHeight: 1.5 }}>{r.description}</div>}
-              <div className="row" style={{ gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-                <span className="badge active" style={{ fontSize: 10 }}>{r.permissions.length} permissions</span>
-              </div>
-              <div className="row" style={{ gap: 8, marginTop: 12 }}>
-                <button className="btn ghost sm" onClick={() => setEditing(r)}>
-                  {r.isSystem && r.key === 'owner' ? 'View' : 'Edit'}
-                </button>
-                {!r.isSystem && (
-                  <button className="btn ghost sm" onClick={() => setDeleting(r)}>Delete</button>
+            <Card key={r.id} size="sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <span
+                    aria-hidden="true"
+                    className="size-3 rounded-[4px]"
+                    style={{ backgroundColor: r.color ?? 'var(--muted)' }}
+                  />
+                  {r.name}
+                </CardTitle>
+                <CardDescription>
+                  {r.description ?? 'No description provided.'}
+                </CardDescription>
+                {r.isSystem && (
+                  <CardAction>
+                    <Badge variant="outline">system</Badge>
+                  </CardAction>
                 )}
-              </div>
-            </div>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-2">
+                <Badge variant="secondary">{r.permissions.length} permissions</Badge>
+                <Badge variant="outline">
+                  {r.memberCount} {r.memberCount === 1 ? 'person' : 'people'}
+                </Badge>
+              </CardContent>
+              <CardFooter className="flex-wrap gap-2">
+                <Button variant="outline" size="sm" type="button" onClick={() => setEditing(r)}>
+                  <Pencil data-icon="inline-start" />
+                  {r.isSystem && r.key === 'owner' ? 'View' : 'Edit'}
+                </Button>
+                {!r.isSystem && (
+                  <Button variant="destructive" size="sm" type="button" onClick={() => setDeleting(r)}>
+                    <Trash2 data-icon="inline-start" />
+                    Delete
+                  </Button>
+                )}
+              </CardFooter>
+            </Card>
           ))}
         </div>
       </section>
 
-      {/* ---- People ---- */}
       <section>
-        <div className="spread" style={{ marginBottom: 12 }}>
-          <div>
-            <strong style={{ fontSize: 15 }}>People</strong>
-            <div className="faint" style={{ fontSize: 12 }}>Assign a role to each teammate. Owner is managed separately.</div>
-          </div>
-          <span className="faint" style={{ fontSize: 12 }}>{people.length} total</span>
-        </div>
-
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th><th>Tier</th><th>Role</th><th>Security</th><th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
+        <Card>
+          <CardHeader>
+            <CardTitle>People</CardTitle>
+            <CardDescription>
+              Assign a role to each teammate. Owner is managed separately.
+            </CardDescription>
+            <CardAction>
+              <Badge variant="outline">{people.length} total</Badge>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Tier</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Security</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
               {people.map((p) => {
                 const isOwner = p.tier === 'tenant_owner';
                 const isMember = p.tier === 'member';
                 return (
-                  <tr key={p.membershipId}>
-                    <td>
-                      <div style={{ fontWeight: 600 }}>{p.fullName}</div>
-                      <div className="faint" style={{ fontSize: 11 }}>{p.email}</div>
-                    </td>
-                    <td>
+                  <TableRow key={p.membershipId}>
+                    <TableCell>
+                      <div className="font-medium">{p.fullName}</div>
+                      <div className="max-w-[260px] truncate text-sm text-muted-foreground">{p.email}</div>
+                    </TableCell>
+                    <TableCell>
                       {isOwner ? (
-                        <span className="badge active" style={{ fontSize: 10 }}>Owner</span>
+                        <Badge variant="secondary">Owner</Badge>
                       ) : (
-                        <select
+                        <Select
                           value={p.tier}
-                          onChange={(e) => assign(p.membershipId, { tier: e.target.value })}
-                          style={{ padding: '5px 8px', fontSize: 12 }}
+                          disabled={busy}
+                          onValueChange={(tier: string) => {
+                            if (tier !== p.tier) {
+                              setPendingAssignment({
+                                person: p,
+                                patch: tier === 'member' ? { tier, roleId: null } : { tier },
+                              });
+                            }
+                          }}
                         >
-                          {ASSIGNABLE_TIERS.map((tr) => <option key={tr.v} value={tr.v}>{tr.l}</option>)}
-                        </select>
+                          <SelectTrigger size="sm" className="min-w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {ASSIGNABLE_TIERS.map((tr) => (
+                                <SelectItem key={tr.v} value={tr.v}>{tr.l}</SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
                       )}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {isOwner ? (
-                        <span className="faint" style={{ fontSize: 12 }}>Full access</span>
+                        <span className="text-sm text-muted-foreground">Full access</span>
                       ) : isMember ? (
-                        <span className="faint" style={{ fontSize: 12 }}>—</span>
+                        <span className="text-sm text-muted-foreground">-</span>
                       ) : (
-                        <select
-                          value={p.role?.id ?? ''}
-                          onChange={(e) => assign(p.membershipId, { roleId: e.target.value || null })}
-                          style={{ padding: '5px 8px', fontSize: 12 }}
+                        <Select
+                          value={p.role?.id ?? 'none'}
+                          disabled={busy}
+                          onValueChange={(roleId: string) => {
+                            const nextRoleId = roleId === 'none' ? null : roleId;
+                            if (nextRoleId !== (p.role?.id ?? null)) {
+                              setPendingAssignment({ person: p, patch: { roleId: nextRoleId } });
+                            }
+                          }}
                         >
-                          <option value="">No role</option>
-                          {roles.filter((r) => r.key !== 'owner').map((r) => (
-                            <option key={r.id} value={r.id}>{r.name}</option>
-                          ))}
-                        </select>
+                          <SelectTrigger size="sm" className="min-w-40">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              <SelectItem value="none">No role</SelectItem>
+                              {roles.filter((r) => r.key !== 'owner').map((r) => (
+                                <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
                       )}
-                    </td>
-                    <td>
-                      <div className="row" style={{ gap: 5 }}>
-                        <span className="badge" style={{ fontSize: 9 }} title="Email verification">
-                          {p.emailVerified ? '✓ email' : 'unverified'}
-                        </span>
-                        {p.twoFactor && <span className="badge active" style={{ fontSize: 9 }} title="Two-factor enabled">2FA</span>}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant={p.emailVerified ? 'secondary' : 'outline'} title="Email verification">
+                          {p.emailVerified ? 'email verified' : 'unverified'}
+                        </Badge>
+                        {p.twoFactor && (
+                          <Badge variant="secondary" title="Two-factor enabled">2FA</Badge>
+                        )}
                       </div>
-                    </td>
-                    <td>
-                      <span className={`badge ${p.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 10 }}>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={p.status === 'active' ? 'secondary' : 'outline'}>
                         {p.status}
-                      </span>
-                    </td>
-                  </tr>
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       </section>
 
       {editing && (
@@ -210,7 +331,7 @@ export default function PeopleRoles() {
           groups={groups}
           role={editing === 'new' ? null : editing}
           onClose={() => setEditing(null)}
-          onSaved={(next) => { setRoles(next); setEditing(null); showToast('Role saved ✓'); }}
+          onSaved={(next) => { setRoles(next); setEditing(null); showToast('Role saved'); }}
         />
       )}
       {deleting && (
@@ -224,13 +345,24 @@ export default function PeopleRoles() {
           onClose={() => setDeleting(null)}
         />
       )}
+      {pendingAssignment && assignmentConfirmation && (
+        <Confirm
+          title={assignmentConfirmation.title}
+          message={assignmentConfirmation.message}
+          confirmLabel={assignmentConfirmation.confirmLabel}
+          danger={assignmentConfirmation.danger}
+          busy={busy}
+          onConfirm={() => assign(pendingAssignment)}
+          onClose={() => setPendingAssignment(null)}
+        />
+      )}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
 }
 
-/* ----------------------------------------- rol duzenleyici + izin matrisi */
-const SWATCHES = ['#D4AF37', '#5B7CFA', '#23A981', '#C98A2B', '#E0683C', '#8A93A6'];
+/* ----------------------------------------- role editor + permission matrix */
+const SWATCHES = ['#384BB8', '#6F7ACA', '#0E7A5F', '#9A570F', '#B5364B', '#71809A'];
 
 function RoleEditor({ groups, role, onClose, onSaved }: {
   groups: PermGroup[];
@@ -284,88 +416,132 @@ function RoleEditor({ groups, role, onClose, onSaved }: {
 
   return (
     <Modal title={role ? (locked ? 'Owner role' : `Edit ${role.name}`) : 'New role'} onClose={onClose}>
-      <div style={{ width: 'min(620px, 86vw)' }}>
+      <div className="flex w-[620px] max-w-[86vw] flex-col gap-4">
         {locked && (
-          <div className="muted" style={{ fontSize: 12, marginBottom: 12, padding: 10, borderRadius: 10, background: 'var(--panel-2)' }}>
-            The Owner role always holds every permission and can't be edited.
-          </div>
+          <Alert>
+            <AlertCircle />
+            <AlertTitle>Owner role</AlertTitle>
+            <AlertDescription>
+              The Owner role always holds every permission and cannot be edited.
+            </AlertDescription>
+          </Alert>
         )}
-        <div className="row" style={{ gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          <div className="field" style={{ flex: 1, minWidth: 200, margin: 0 }}>
-            <label>Role name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} disabled={nameLocked || locked} placeholder="e.g. Regional manager" />
-          </div>
-          <div className="field" style={{ margin: 0 }}>
-            <label>Color</label>
-            <div className="row" style={{ gap: 6 }}>
+        <FieldGroup>
+          <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
+            <Field>
+              <FieldLabel htmlFor="role-name">Role name</FieldLabel>
+              <Input
+                id="role-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                disabled={nameLocked || locked}
+                placeholder="e.g. Regional manager"
+              />
+            </Field>
+            <Field>
+              <FieldLabel>Color</FieldLabel>
+              <div className="flex gap-2">
               {SWATCHES.map((s) => (
-                <button key={s} type="button" onClick={() => !locked && setColor(s)} aria-label={`color ${s}`}
-                  style={{ width: 22, height: 22, borderRadius: 6, background: s, cursor: locked ? 'default' : 'pointer',
-                    border: color === s ? '2px solid var(--text)' : '2px solid transparent' }} />
+                <Button
+                  key={s}
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  disabled={locked}
+                  aria-label={`Use color ${s}`}
+                  className={cn(color === s && 'ring-2 ring-ring ring-offset-2')}
+                  style={{ backgroundColor: s }}
+                  onClick={() => setColor(s)}
+                />
               ))}
-            </div>
+              </div>
+              <FieldDescription>Used as the role marker in lists.</FieldDescription>
+            </Field>
           </div>
-        </div>
-        <div className="field">
-          <label>Description</label>
-          <input value={description} onChange={(e) => setDescription(e.target.value)} disabled={locked} placeholder="What is this role for?" />
-        </div>
+          <Field>
+            <FieldLabel htmlFor="role-description">Description</FieldLabel>
+            <Textarea
+              id="role-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              disabled={locked}
+              placeholder="What is this role for?"
+            />
+          </Field>
+        </FieldGroup>
 
-        <div className="spread" style={{ margin: '6px 0 8px' }}>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>PERMISSIONS · {perms.size}/{allKeys.length}</label>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm font-medium text-muted-foreground">
+            Permissions - {perms.size}/{allKeys.length}
+          </div>
           {!locked && (
-            <div className="row" style={{ gap: 8 }}>
-              <button type="button" className="btn ghost sm" onClick={() => setAll(true)}>All</button>
-              <button type="button" className="btn ghost sm" onClick={() => setAll(false)}>None</button>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setAll(true)}>All</Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setAll(false)}>None</Button>
             </div>
           )}
         </div>
 
-        <div style={{ maxHeight: '42vh', overflow: 'auto', display: 'grid', gap: 14, paddingRight: 4 }}>
+        <div className="flex max-h-[42vh] flex-col gap-4 overflow-auto pr-1">
           {groups.map((g) => {
             const on = g.permissions.filter((p) => perms.has(p.key)).length;
             const allOn = on === g.permissions.length;
             return (
-              <div key={g.key}>
-                <div className="spread" style={{ marginBottom: 6 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.02em' }}>{g.label}</span>
+              <FieldSet key={g.key} className="gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <FieldLegend variant="label">{g.label}</FieldLegend>
                   {!locked && (
-                    <button type="button" className="link-btn" onClick={() => toggleGroup(g, !allOn)}
-                      style={{ fontSize: 11, color: 'var(--gold-500)', background: 'none', border: 'none', cursor: 'pointer' }}>
-                      {allOn ? 'clear' : 'select all'}
-                    </button>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => toggleGroup(g, !allOn)}>
+                      {allOn ? 'Clear' : 'Select all'}
+                    </Button>
                   )}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(200px,1fr))', gap: 6 }}>
+                <div className="grid gap-2 md:grid-cols-2">
                   {g.permissions.map((p) => {
                     const checked = perms.has(p.key);
+                    const id = `permission-${p.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
                     return (
-                      <label key={p.key} className="perm-chip" onClick={(e) => { e.preventDefault(); toggle(p.key); }}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 9,
-                          cursor: locked ? 'default' : 'pointer', fontSize: 12.5,
-                          background: checked ? 'var(--gold-soft, rgba(212,175,55,.1))' : 'var(--panel-2)',
-                          border: `1px solid ${checked ? 'var(--gold-500)' : 'var(--border)'}`,
-                        }}>
-                        <span style={{
-                          width: 15, height: 15, borderRadius: 4, flexShrink: 0, display: 'grid', placeItems: 'center',
-                          background: checked ? 'var(--gold-500)' : 'transparent', color: 'var(--on-gold)',
-                          border: checked ? 'none' : '1.5px solid var(--border-strong)', fontSize: 10, fontWeight: 900,
-                        }}>{checked ? '✓' : ''}</span>
-                        {p.label}
-                      </label>
+                      <Field
+                        key={p.key}
+                        orientation="horizontal"
+                        data-disabled={locked || undefined}
+                        className={cn(
+                          'rounded-lg border p-2.5',
+                          checked && 'border-primary/30 bg-primary/5',
+                        )}
+                      >
+                        <Checkbox
+                          id={id}
+                          checked={checked}
+                          disabled={locked}
+                          onCheckedChange={() => toggle(p.key)}
+                        />
+                        <FieldLabel htmlFor={id} className="font-normal">
+                          {p.label}
+                        </FieldLabel>
+                      </Field>
                     );
                   })}
                 </div>
-              </div>
+              </FieldSet>
             );
           })}
         </div>
 
-        {err && <div className="error" style={{ marginTop: 12 }}>{err}</div>}
-        <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
-          <button className="btn ghost" onClick={onClose}>{locked ? 'Close' : 'Cancel'}</button>
-          {!locked && <button className="btn" onClick={save} disabled={busy || !name.trim()}>{busy ? 'Saving…' : 'Save role'}</button>}
+        {err && (
+          <Alert variant="destructive">
+            <AlertCircle />
+            <AlertTitle>Role could not be saved</AlertTitle>
+            <AlertDescription>{err}</AlertDescription>
+          </Alert>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" type="button" onClick={onClose}>{locked ? 'Close' : 'Cancel'}</Button>
+          {!locked && (
+            <Button type="button" onClick={save} disabled={busy || !name.trim()}>
+              {busy ? 'Saving...' : 'Save role'}
+            </Button>
+          )}
         </div>
       </div>
     </Modal>

@@ -3,9 +3,9 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { EngineService } from '../engine/engine.service';
 
 /**
- * Zamanlanmis isler (SPEC 7). matureCommissions tum tenant'lar icin tek kosumda
- * calisir (SKIP LOCKED ile guvenli). Bu olmadan on_delivery/days_after olgunlasma
- * uretimde GERCEKLESMEZ — payable hep bos kalir (bkz. DECISIONS "Inceleme bulgulari").
+ * Scheduled jobs (SPEC 7). matureCommissions runs once across all tenants and is
+ * safe with SKIP LOCKED. Without this job, on_delivery/days_after maturation does
+ * not happen in production and payable balances remain empty.
  */
 @Injectable()
 export class SchedulerService {
@@ -17,17 +17,17 @@ export class SchedulerService {
   @Cron(CronExpression.EVERY_5_MINUTES, { name: 'mature-commissions' })
   async matureCommissions(): Promise<void> {
     if (this.running) {
-      // onceki kosum hala suruyorsa atla (ust uste binmeyi onle)
+      // Skip if the previous run is still active.
       return;
     }
     this.running = true;
     try {
       const { matured } = await this.engine.matureCommissions();
       if (matured > 0) {
-        this.logger.log(`olgunlasan komisyon satiri: ${matured}`);
+        this.logger.log(`matured commission rows: ${matured}`);
       }
     } catch (err) {
-      this.logger.error('matureCommissions job hatasi', err instanceof Error ? err.stack : String(err));
+      this.logger.error('matureCommissions job failed', err instanceof Error ? err.stack : String(err));
     } finally {
       this.running = false;
     }

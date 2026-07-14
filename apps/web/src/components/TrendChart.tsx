@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * Gelir + komisyon zaman serisi (tek olcek): gelir barlari (altin) + komisyon cizgisi (emerald).
- * Komisyon ~gelirin %9'u oldugundan cizgi altta seyreder — bu DOGRU ve anlatici.
+ * Revenue plus commission time series on one scale: revenue bars and an emerald commission line.
+ * Commission is roughly 9% of revenue, so the line sits lower by design.
  */
 interface Point { month: string; revenueCents: string; commissionCents: string; approvedSales: number }
 
@@ -36,14 +36,7 @@ export function TrendChart({ series, currency }: { series: Point[]; currency: st
   return (
     <div>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Revenue and commission trend">
-        <defs>
-          <linearGradient id="tc-bar" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--gold-500)" stopOpacity="0.95" />
-            <stop offset="100%" stopColor="var(--gold-600)" stopOpacity="0.35" />
-          </linearGradient>
-        </defs>
-
-        {/* yatay kilavuzlar */}
+        {/* horizontal guides */}
         {[0.25, 0.5, 0.75, 1].map((g) => (
           <line key={g} x1={PAD.l} x2={W - PAD.r} y1={PAD.t + innerH * (1 - g)} y2={PAD.t + innerH * (1 - g)}
             stroke="var(--border)" strokeWidth={1} strokeDasharray="2 5" />
@@ -53,15 +46,15 @@ export function TrendChart({ series, currency }: { series: Point[]; currency: st
           const h = (rev[i] / maxRev) * innerH;
           return (
             <g key={p.month}>
-              <rect x={x(i) - barW / 2} y={PAD.t + innerH - h} width={barW} height={Math.max(0, h)} rx={5} fill="url(#tc-bar)">
-                <title>{`${fmtMonth(p.month)} · revenue ${money(rev[i], currency)} · commission ${money(com[i], currency)} · ${p.approvedSales} sales`}</title>
+              <rect x={x(i) - barW / 2} y={PAD.t + innerH - h} width={barW} height={Math.max(0, h)} rx={5} fill="var(--primary)">
+                <title>{`${fmtMonth(p.month)} - revenue ${money(rev[i], currency)} - commission ${money(com[i], currency)} - ${p.approvedSales} sales`}</title>
               </rect>
               <text x={x(i)} y={H - 9} textAnchor="middle" fontSize={11} fill="var(--faint)">{fmtMonth(p.month)}</text>
             </g>
           );
         })}
 
-        {/* komisyon cizgisi + noktalar */}
+        {/* commission line plus points */}
         {n > 1 && <polyline points={linePts} fill="none" stroke="var(--emerald)" strokeWidth={2} strokeLinejoin="round" />}
         {com.map((v, i) => (
           <circle key={i} cx={x(i)} cy={y(v)} r={3.5} fill="var(--emerald)" stroke="var(--panel)" strokeWidth={1.5}>
@@ -71,7 +64,7 @@ export function TrendChart({ series, currency }: { series: Point[]; currency: st
       </svg>
 
       <div className="row" style={{ gap: 18, fontSize: 12, marginTop: 4, justifyContent: 'center' }}>
-        <span className="row" style={{ gap: 6 }}><i style={{ width: 12, height: 12, borderRadius: 3, background: 'var(--gold-500)' }} /> Revenue</span>
+        <span className="row" style={{ gap: 6 }}><i style={{ width: 12, height: 12, borderRadius: 3, background: 'var(--primary)' }} /> Revenue</span>
         <span className="row" style={{ gap: 6 }}><i style={{ width: 14, height: 3, borderRadius: 2, background: 'var(--emerald)' }} /> Commission</span>
       </div>
     </div>

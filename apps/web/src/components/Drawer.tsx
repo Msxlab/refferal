@@ -1,8 +1,11 @@
 'use client';
 
-import { ReactNode, useEffect, useRef } from 'react';
+import { ReactNode, useId, useRef } from 'react';
+import { X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useOverlayFocus } from '@/components/useOverlayFocus';
 
-/** Sagdan acilan slide-over panel (detay/CRM cekmecesi). ESC + dis-tiklama ile kapanir. */
+/** Right-side slide-over panel for details and CRM-style drawers. Closes with Escape or outside click. */
 export function Drawer({ title, subtitle, onClose, children, footer, width = 460 }: {
   title: string;
   subtitle?: string;
@@ -12,12 +15,8 @@ export function Drawer({ title, subtitle, onClose, children, footer, width = 460
   width?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    ref.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const titleId = useId();
+  const onKeyDown = useOverlayFocus(ref, onClose);
 
   return (
     <div className="drawer-backdrop" onClick={onClose}>
@@ -26,17 +25,20 @@ export function Drawer({ title, subtitle, onClose, children, footer, width = 460
         className="drawer"
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-labelledby={titleId}
         tabIndex={-1}
         style={{ width: `min(${width}px, 94vw)` }}
+        onKeyDown={onKeyDown}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="drawer-head">
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 750, fontSize: 17, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
-            {subtitle && <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>{subtitle}</div>}
+          <div className="min-w-0">
+            <h2 id={titleId} className="drawer-title">{title}</h2>
+            {subtitle && <div className="mt-0.5 text-xs text-muted-foreground">{subtitle}</div>}
           </div>
-          <button className="theme-toggle" aria-label="Close" onClick={onClose}>✕</button>
+          <Button type="button" variant="ghost" size="icon" aria-label="Close" onClick={onClose}>
+            <X />
+          </Button>
         </div>
         <div className="drawer-body">{children}</div>
         {footer && <div className="drawer-foot">{footer}</div>}
