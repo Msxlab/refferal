@@ -1,6 +1,7 @@
 import { clearSession, getSession, requiresMfaSetup, setSession, type Session } from './auth';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1';
+const AUTH_REFRESH_LOCK = 'refearn.auth.refresh';
 
 export class ApiError extends Error {
   constructor(
@@ -59,6 +60,10 @@ interface RefreshFlight {
   ownerAccessToken: string;
   generation: number;
   promise: Promise<Session | null>;
+}
+
+interface RefreshLockManager {
+  request<T>(name: string, options: { mode: 'exclusive' }, callback: () => Promise<T>): Promise<T>;
 }
 
 let refreshInFlight: RefreshFlight | null = null;
@@ -122,6 +127,25 @@ async function performRefresh(owner: Session, generation: number): Promise<Sessi
   }
 }
 
+async function refreshWithCurrentSession(owner: Session, generation: number): Promise<Session | null> {
+  if (generation !== refreshGeneration) return null;
+  const current = getSession();
+  if (!current || !isSession(current) || !sameSessionIdentity(owner, current)) return null;
+  if (current.accessToken !== owner.accessToken) return current;
+  return performRefresh(owner, generation);
+}
+
+function coordinatedRefresh(owner: Session, generation: number): Promise<Session | null> {
+  const locks =
+    typeof navigator === 'undefined'
+      ? undefined
+      : (navigator as unknown as { locks?: RefreshLockManager }).locks;
+  if (!locks || typeof locks.request !== 'function') return performRefresh(owner, generation);
+  return locks
+    .request(AUTH_REFRESH_LOCK, { mode: 'exclusive' }, () => refreshWithCurrentSession(owner, generation))
+    .catch(() => null);
+}
+
 function refresh(owner: Session, generation: number): Promise<Session | null> {
   if (!ownsRefresh(owner.accessToken, generation)) return Promise.resolve(null);
   if (refreshInFlight) {
@@ -130,7 +154,7 @@ function refresh(owner: Session, generation: number): Promise<Session | null> {
       : Promise.resolve(null);
   }
   let flight: RefreshFlight;
-  const current = performRefresh(owner, generation).finally(() => {
+  const current = coordinatedRefresh(owner, generation).finally(() => {
     if (refreshInFlight === flight) refreshInFlight = null;
   });
   flight = { ownerAccessToken: owner.accessToken, generation, promise: current };

@@ -89,6 +89,53 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
+function installRefreshLockQueue(): {
+  requests: Array<{ name: string; mode: string | undefined }>;
+  requested: Promise<void>;
+  releaseNext: () => boolean;
+  restore: () => void;
+} {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const requested = deferred();
+  const requests: Array<{ name: string; mode: string | undefined }> = [];
+  const pending: Array<() => void> = [];
+  const locks = {
+    request<T>(
+      name: string,
+      options: { mode?: string },
+      callback: () => T | PromiseLike<T>,
+    ): Promise<T> {
+      requests.push({ name, mode: options.mode });
+      requested.resolve();
+      return new Promise<T>((resolve, reject) => {
+        pending.push(() => {
+          Promise.resolve(callback()).then(resolve, reject);
+        });
+      });
+    },
+  };
+
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { locks },
+  });
+
+  return {
+    requests,
+    requested: requested.promise,
+    releaseNext: () => {
+      const release = pending.shift();
+      if (!release) return false;
+      release();
+      return true;
+    },
+    restore: () => {
+      if (previous) Object.defineProperty(globalThis, 'navigator', previous);
+      else Reflect.deleteProperty(globalThis, 'navigator');
+    },
+  };
+}
+
 function installFetch(fakeFetch: typeof fetch): () => void {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
   Object.defineProperty(globalThis, 'fetch', { configurable: true, value: fakeFetch });
@@ -717,6 +764,130 @@ test('mismatched refresh response never clears an independently replaced session
   } finally {
     releaseRefresh.resolve();
     restoreFetch();
+    browser.restore();
+  }
+});
+
+test('cross-tab refresh lock reuses a same-workspace session advanced while JSON and CSV retries wait', async () => {
+  const browser = installBrowser();
+  const locks = installRefreshLockQueue();
+  const owner = makeWorkspaceSession('workspace-expired-token', 'user-a', 'membership-a', 'tenant-a');
+  const advanced = { ...owner, accessToken: 'workspace-fresh-token' };
+  setSession(owner);
+  const refreshObserved = deferred();
+  const requestTokens = new Map<string, Array<string | null>>();
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const authorization = new Headers(init?.headers).get('Authorization');
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      refreshObserved.resolve();
+      return Response.json(advanced);
+    }
+    const tokens = requestTokens.get(path) ?? [];
+    tokens.push(authorization);
+    requestTokens.set(path, tokens);
+    if (authorization === 'Bearer workspace-expired-token') return new Response(null, { status: 401 });
+    if (authorization === 'Bearer workspace-fresh-token') {
+      return path.endsWith('.csv') ? new Response('cross-tab-csv') : Response.json({ crossTab: true });
+    }
+    throw new Error(`unexpected authorization for ${path}: ${authorization}`);
+  });
+
+  try {
+    const pending = Promise.all([
+      api.get<{ crossTab: boolean }>('/cross-tab-resource'),
+      getCsv('/cross-tab-report.csv'),
+    ]);
+    const observed = await Promise.race([
+      locks.requested.then(() => 'lock' as const),
+      refreshObserved.promise.then(() => 'refresh' as const),
+    ]);
+    if (observed === 'lock') {
+      setSession(advanced);
+      assert.equal(locks.releaseNext(), true);
+    }
+    const [json, csv] = await pending;
+
+    assert.equal(observed, 'lock');
+    assert.deepEqual(locks.requests, [{ name: 'refearn.auth.refresh', mode: 'exclusive' }]);
+    assert.equal(refreshCalls, 0);
+    assert.deepEqual(json, { crossTab: true });
+    assert.equal(csv, 'cross-tab-csv');
+    assert.deepEqual(requestTokens.get('http://localhost:3001/v1/cross-tab-resource'), [
+      'Bearer workspace-expired-token',
+      'Bearer workspace-fresh-token',
+    ]);
+    assert.deepEqual(requestTokens.get('http://localhost:3001/v1/cross-tab-report.csv'), [
+      'Bearer workspace-expired-token',
+      'Bearer workspace-fresh-token',
+    ]);
+    assert.equal(getSession()?.accessToken, 'workspace-fresh-token');
+  } finally {
+    locks.releaseNext();
+    restoreFetch();
+    locks.restore();
+    browser.restore();
+  }
+});
+
+test('cross-tab refresh lock fails closed when the workspace changes while waiting', async () => {
+  const browser = installBrowser();
+  const locks = installRefreshLockQueue();
+  const owner = makeWorkspaceSession('tenant-a-expired-token', 'user-a', 'membership-a', 'tenant-a');
+  const ownerRefresh = { ...owner, accessToken: 'tenant-a-fresh-token' };
+  const replacement = makeWorkspaceSession('tenant-a-expired-token', 'user-a', 'membership-b', 'tenant-b');
+  setSession(owner);
+  const refreshObserved = deferred();
+  const replayAuthorizations: Array<string | null> = [];
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const authorization = new Headers(init?.headers).get('Authorization');
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      refreshObserved.resolve();
+      return Response.json(ownerRefresh);
+    }
+    if (path.endsWith('/workspace-resource') && authorization === 'Bearer tenant-a-expired-token') {
+      return new Response(null, { status: 401 });
+    }
+    if (path.endsWith('/workspace-resource')) {
+      replayAuthorizations.push(authorization);
+      return Response.json({ replayed: true });
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const pending = Promise.allSettled([api.get('/workspace-resource')]);
+    const observed = await Promise.race([
+      locks.requested.then(() => 'lock' as const),
+      refreshObserved.promise.then(() => 'refresh' as const),
+    ]);
+    if (observed === 'lock') {
+      setSession(replacement);
+      assert.equal(locks.releaseNext(), true);
+    }
+    const result = await pending;
+
+    assert.equal(observed, 'lock');
+    assert.deepEqual(locks.requests, [{ name: 'refearn.auth.refresh', mode: 'exclusive' }]);
+    assert.equal(refreshCalls, 0);
+    assert.equal(result[0]?.status, 'rejected');
+    if (result[0]?.status === 'rejected') {
+      assert.ok(result[0].reason instanceof ApiError);
+      assert.equal(result[0].reason.status, 401);
+      assert.equal(result[0].reason.message, 'session expired');
+    }
+    assert.deepEqual(replayAuthorizations, []);
+    assert.equal(browser.removeCalls(), 0);
+    assert.equal(getSession()?.activeMembershipId, 'membership-b');
+  } finally {
+    locks.releaseNext();
+    restoreFetch();
+    locks.restore();
     browser.restore();
   }
 });
