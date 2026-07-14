@@ -40,14 +40,14 @@ export class ReportsService {
       this.prisma.sale.count({ where: { tenantId, status: SaleStatus.approved, summaryMonth: targetMonth } }),
     ]);
 
-    // Commission expense for the month: positive commission ledger rows in that month.
+    // Net commission expense for the month across every payable lifecycle bucket and signed ledger type.
     // ::bigint cast: SUM(bigint) returns numeric in Postgres; Prisma raw returns it as string otherwise.
     const commissionRows = await this.prisma.$queryRaw<Array<{ sum: bigint }>>`
       SELECT COALESCE(SUM(le.amount_cents), 0)::bigint AS sum
       FROM ledger_entries le
       JOIN sales s ON s.id = le.sale_id
       WHERE le.tenant_id = ${tenantId}::uuid
-        AND le.type = 'commission'
+        AND le.status IN ('pending', 'payable', 'processing', 'paid')
         AND COALESCE(s.summary_month, to_char(s.sale_date AT TIME ZONE ${tenant.timezone}, 'YYYY-MM')) = ${targetMonth}`;
 
     // Total payable balance across all time, using payable ledger net.
@@ -106,7 +106,7 @@ export class ReportsService {
       this.prisma.monthlySummary.groupBy({
         by: ['month'],
         where: { tenantId, month: { in: range } },
-        _sum: { pendingCents: true, payableCents: true, paidCents: true },
+        _sum: { pendingCents: true, payableCents: true, processingCents: true, paidCents: true },
         orderBy: { month: 'asc' },
       }),
       // Previous same-length period for comparison.
@@ -117,7 +117,7 @@ export class ReportsService {
       }),
       this.prisma.monthlySummary.aggregate({
         where: { tenantId, month: { in: prevRange } },
-        _sum: { pendingCents: true, payableCents: true, paidCents: true },
+        _sum: { pendingCents: true, payableCents: true, processingCents: true, paidCents: true },
       }),
       // Funnel: status distribution in the selected sale_date window.
       this.prisma.sale.groupBy({
@@ -142,7 +142,10 @@ export class ReportsService {
     const comMap = new Map(
       comByMonth.map((c) => [
         c.month,
-        (c._sum.pendingCents ?? 0n) + (c._sum.payableCents ?? 0n) + (c._sum.paidCents ?? 0n),
+        (c._sum.pendingCents ?? 0n) +
+          (c._sum.payableCents ?? 0n) +
+          (c._sum.processingCents ?? 0n) +
+          (c._sum.paidCents ?? 0n),
       ]),
     );
     const series = range.map((m) => {
@@ -162,7 +165,10 @@ export class ReportsService {
 
     const prevRevenue = prevRev._sum.amountCents ?? 0n;
     const prevCommission =
-      (prevCom._sum.pendingCents ?? 0n) + (prevCom._sum.payableCents ?? 0n) + (prevCom._sum.paidCents ?? 0n);
+      (prevCom._sum.pendingCents ?? 0n) +
+      (prevCom._sum.payableCents ?? 0n) +
+      (prevCom._sum.processingCents ?? 0n) +
+      (prevCom._sum.paidCents ?? 0n);
     const prevSales = prevRev._count._all;
 
     const pct = (cur: bigint, prev: bigint): number | null =>

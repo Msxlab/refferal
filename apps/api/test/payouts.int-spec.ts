@@ -57,6 +57,202 @@ describe('payouts (integration)', () => {
     return { tenant, chain, seller: chain[5], owner: chain[0] };
   }
 
+  it('uses the canonical net commission across dashboard and current/previous analytics periods', async () => {
+    const { tenant, seller, owner } = await scenario();
+    await prisma.tenant.update({ where: { id: tenant.id }, data: { timezone: 'UTC' } });
+    const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
+    const now = new Date();
+    const monthAt = (offset: number) => {
+      const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1));
+      return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+    };
+    const currentMonth = monthAt(0);
+    const previousMonth = monthAt(-1);
+    const previousPeriodMonth = monthAt(-3);
+
+    async function addLedgerFixture(options: {
+      month: string;
+      amountCents: bigint;
+      type: LedgerType;
+      status: LedgerStatus;
+      saleStatus?: SaleStatus;
+      summaryMonth?: string | null;
+    }) {
+      const sale = await prisma.sale.create({
+        data: {
+          tenantId: tenant.id,
+          sellerMembershipId: seller.id,
+          amountCents: 10_000n,
+          saleDate: new Date(`${options.month}-15T12:00:00.000Z`),
+          summaryMonth: options.summaryMonth === undefined ? options.month : options.summaryMonth,
+          status: options.saleStatus ?? SaleStatus.approved,
+        },
+      });
+      await prisma.ledgerEntry.create({
+        data: {
+          tenantId: tenant.id,
+          saleId: sale.id,
+          beneficiaryMembershipId: seller.id,
+          level: 0,
+          rateBpsUsed: 0,
+          amountCents: options.amountCents,
+          type: options.type,
+          status: options.status,
+        },
+      });
+      return sale;
+    }
+
+    await addLedgerFixture({
+      month: currentMonth,
+      amountCents: 100n,
+      type: LedgerType.commission,
+      status: LedgerStatus.pending,
+    });
+    await addLedgerFixture({
+      month: currentMonth,
+      amountCents: 200n,
+      type: LedgerType.commission,
+      status: LedgerStatus.payable,
+    });
+    await addLedgerFixture({
+      month: currentMonth,
+      amountCents: 300n,
+      type: LedgerType.commission,
+      status: LedgerStatus.processing,
+    });
+    await addLedgerFixture({
+      month: currentMonth,
+      amountCents: 400n,
+      type: LedgerType.commission,
+      status: LedgerStatus.paid,
+    });
+    await addLedgerFixture({
+      month: currentMonth,
+      amountCents: 500n,
+      type: LedgerType.commission,
+      status: LedgerStatus.reversed,
+      saleStatus: SaleStatus.void,
+    });
+    const paidThenVoided = await addLedgerFixture({
+      month: currentMonth,
+      amountCents: 60n,
+      type: LedgerType.commission,
+      status: LedgerStatus.paid,
+      saleStatus: SaleStatus.void,
+    });
+    await prisma.ledgerEntry.create({
+      data: {
+        tenantId: tenant.id,
+        saleId: paidThenVoided.id,
+        beneficiaryMembershipId: seller.id,
+        level: 0,
+        rateBpsUsed: 0,
+        amountCents: -60n,
+        type: LedgerType.reversal,
+        status: LedgerStatus.payable,
+      },
+    });
+    await addLedgerFixture({
+      month: currentMonth,
+      summaryMonth: null,
+      amountCents: -25n,
+      type: LedgerType.adjustment,
+      status: LedgerStatus.payable,
+    });
+    await addLedgerFixture({
+      month: previousMonth,
+      amountCents: 250n,
+      type: LedgerType.commission,
+      status: LedgerStatus.processing,
+    });
+    await addLedgerFixture({
+      month: previousPeriodMonth,
+      amountCents: 700n,
+      type: LedgerType.commission,
+      status: LedgerStatus.processing,
+    });
+
+    const currentBuckets = { pending: 100n, payable: 115n, processing: 300n, paid: 460n };
+    const currentNet =
+      currentBuckets.pending + currentBuckets.payable + currentBuckets.processing + currentBuckets.paid;
+    await prisma.monthlySummary.createMany({
+      data: [
+        {
+          tenantId: tenant.id,
+          membershipId: seller.id,
+          month: currentMonth,
+          level: 0,
+          pendingCents: currentBuckets.pending,
+          payableCents: currentBuckets.payable,
+          processingCents: currentBuckets.processing,
+          paidCents: currentBuckets.paid,
+        },
+        {
+          tenantId: tenant.id,
+          membershipId: seller.id,
+          month: previousMonth,
+          level: 0,
+          processingCents: 250n,
+        },
+        {
+          tenantId: tenant.id,
+          membershipId: seller.id,
+          month: previousPeriodMonth,
+          level: 0,
+          processingCents: 700n,
+        },
+      ],
+    });
+
+    const currentDashboard = await request(app.getHttpServer())
+      .get(`/v1/admin/dashboard?month=${currentMonth}`)
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .expect(200);
+    const previousDashboard = await request(app.getHttpServer())
+      .get(`/v1/admin/dashboard?month=${previousMonth}`)
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .expect(200);
+    const analytics = await request(app.getHttpServer())
+      .get('/v1/admin/analytics?months=3')
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .expect(200);
+
+    expect(currentDashboard.body.thisMonth).toMatchObject({
+      approvedSalesCount: 4,
+      revenueCents: '40000',
+      commissionCents: currentNet.toString(),
+    });
+    expect(previousDashboard.body.thisMonth).toMatchObject({
+      approvedSalesCount: 1,
+      revenueCents: '10000',
+      commissionCents: '250',
+    });
+
+    const currentSeries = analytics.body.series.find((item: { month: string }) => item.month === currentMonth);
+    const previousSeries = analytics.body.series.find((item: { month: string }) => item.month === previousMonth);
+    expect(currentSeries).toMatchObject({
+      revenueCents: currentDashboard.body.thisMonth.revenueCents,
+      commissionCents: currentDashboard.body.thisMonth.commissionCents,
+      approvedSales: currentDashboard.body.thisMonth.approvedSalesCount,
+    });
+    expect(previousSeries).toMatchObject({
+      revenueCents: previousDashboard.body.thisMonth.revenueCents,
+      commissionCents: previousDashboard.body.thisMonth.commissionCents,
+      approvedSales: previousDashboard.body.thisMonth.approvedSalesCount,
+    });
+    expect(analytics.body.totals).toMatchObject({
+      revenueCents: '50000',
+      commissionCents: (currentNet + 250n).toString(),
+      approvedSales: 5,
+    });
+    expect(analytics.body.previous).toMatchObject({
+      revenueCents: '10000',
+      commissionCents: '700',
+      approvedSales: 1,
+    });
+  });
+
   it('reserves a bounded payout batch into processing and settles it only with evidence', async () => {
     const { tenant, seller, owner } = await scenario();
     const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
