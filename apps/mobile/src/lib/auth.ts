@@ -36,8 +36,8 @@ type SessionTokenPair = Pick<Session, 'accessToken' | 'refreshToken'>;
 
 interface TokenAdvancement {
   owner: Session;
-  oldTokens: SessionTokenPair;
-  freshTokens: SessionTokenPair;
+  ancestors: SessionTokenPair[];
+  latestTokens: SessionTokenPair;
 }
 
 let tokenAdvancement: TokenAdvancement | null = null;
@@ -88,10 +88,30 @@ function sameSessionIdentity(left: Session, right: Session): boolean {
   );
 }
 
-function hasTokenPair(session: Session, tokens: SessionTokenPair): boolean {
+function hasTokenPair(session: SessionTokenPair, tokens: SessionTokenPair): boolean {
   return (
     session.accessToken === tokens.accessToken && session.refreshToken === tokens.refreshToken
   );
+}
+
+function tokenPairOf(session: SessionTokenPair): SessionTokenPair {
+  return { accessToken: session.accessToken, refreshToken: session.refreshToken };
+}
+
+function isKnownTokenPair(advancement: TokenAdvancement, tokens: SessionTokenPair): boolean {
+  return (
+    hasTokenPair(tokens, advancement.latestTokens) ||
+    advancement.ancestors.some((ancestor) => hasTokenPair(tokens, ancestor))
+  );
+}
+
+function appendUniqueTokenPair(
+  pairs: SessionTokenPair[],
+  tokens: SessionTokenPair,
+): SessionTokenPair[] {
+  return pairs.some((pair) => hasTokenPair(pair, tokens))
+    ? pairs
+    : [...pairs, tokenPairOf(tokens)];
 }
 
 function registerTokenAdvancement(owner: Session | null, refreshed: Session): void {
@@ -104,21 +124,33 @@ function registerTokenAdvancement(owner: Session | null, refreshed: Session): vo
     if (
       current &&
       sameSessionIdentity(current.owner, refreshed) &&
-      (hasTokenPair(refreshed, current.oldTokens) ||
-        hasTokenPair(refreshed, current.freshTokens))
+      isKnownTokenPair(current, refreshed)
     ) {
       return;
     }
     tokenAdvancement = null;
     return;
   }
+  const current = tokenAdvancement;
+  if (
+    current &&
+    sameSessionIdentity(current.owner, refreshed) &&
+    isKnownTokenPair(current, owner)
+  ) {
+    let ancestors = appendUniqueTokenPair(current.ancestors, current.latestTokens);
+    ancestors = appendUniqueTokenPair(ancestors, owner);
+    const latestTokens = tokenPairOf(refreshed);
+    tokenAdvancement = {
+      owner: current.owner,
+      ancestors: ancestors.filter((ancestor) => !hasTokenPair(ancestor, latestTokens)),
+      latestTokens,
+    };
+    return;
+  }
   tokenAdvancement = {
     owner,
-    oldTokens: { accessToken: owner.accessToken, refreshToken: owner.refreshToken },
-    freshTokens: {
-      accessToken: refreshed.accessToken,
-      refreshToken: refreshed.refreshToken,
-    },
+    ancestors: [tokenPairOf(owner)],
+    latestTokens: tokenPairOf(refreshed),
   };
 }
 
@@ -130,14 +162,14 @@ function resolveQueuedSessionSave(session: Session): {
   if (!advancement || !sameSessionIdentity(advancement.owner, session)) {
     return { session, advancement: null };
   }
-  if (hasTokenPair(session, advancement.oldTokens)) {
+  if (hasTokenPair(session, advancement.latestTokens)) {
+    return { session, advancement };
+  }
+  if (advancement.ancestors.some((ancestor) => hasTokenPair(session, ancestor))) {
     return {
-      session: { ...session, ...advancement.freshTokens },
+      session: { ...session, ...advancement.latestTokens },
       advancement,
     };
-  }
-  if (hasTokenPair(session, advancement.freshTokens)) {
-    return { session, advancement };
   }
   return { session, advancement: null };
 }

@@ -615,6 +615,68 @@ test('merged token lineage upgrades later metadata saves but lets a third token 
   assert.deepEqual(storage.storedSession(), thirdPair);
 });
 
+test('multi-hop token lineage upgrades every known ancestor while an unknown pair wins', async () => {
+  const storage = createControlledAsyncStorage();
+  const auth = loadActualAuth(storage);
+  const tokenA = makeSession();
+  const tokenB = makeSession({
+    accessToken: 'lineage-hop-b-access-token',
+    refreshToken: 'lineage-hop-b-refresh-token',
+  });
+  const tokenC = makeSession({
+    accessToken: 'lineage-hop-c-access-token',
+    refreshToken: 'lineage-hop-c-refresh-token',
+  });
+  await auth.saveSession(tokenA);
+  const capturedA = await auth.loadSessionSnapshot();
+  assert.notEqual(await auth.saveSessionIfCurrent(capturedA, tokenB), null);
+  const capturedB = await auth.loadSessionSnapshot();
+  assert.notEqual(await auth.saveSessionIfCurrent(capturedB, tokenC), null);
+
+  const latestFromA = {
+    ...tokenA,
+    user: { ...tokenA.user, fullName: 'Newest metadata from ancestor A', locale: 'nl' },
+    memberships: tokenA.memberships.map((membership) => ({
+      ...membership,
+      role: 'owner',
+      tenantName: 'Newest tenant metadata from A',
+    })),
+  };
+  await auth.saveSession(latestFromA);
+  const expectedFromA = {
+    ...latestFromA,
+    accessToken: tokenC.accessToken,
+    refreshToken: tokenC.refreshToken,
+  };
+  assert.deepEqual((await auth.loadSessionSnapshot()).session, expectedFromA);
+  assert.deepEqual(storage.storedSession(), expectedFromA);
+
+  const latestFromB = {
+    ...latestFromA,
+    accessToken: tokenB.accessToken,
+    refreshToken: tokenB.refreshToken,
+    user: { ...latestFromA.user, fullName: 'Newest metadata from ancestor B' },
+  };
+  await auth.saveSession(latestFromB);
+  const expectedFromB = {
+    ...latestFromB,
+    accessToken: tokenC.accessToken,
+    refreshToken: tokenC.refreshToken,
+  };
+  assert.deepEqual((await auth.loadSessionSnapshot()).session, expectedFromB);
+  assert.deepEqual(storage.storedSession(), expectedFromB);
+
+  const unknownD = {
+    ...latestFromB,
+    accessToken: 'unknown-lineage-d-access-token',
+    refreshToken: 'unknown-lineage-d-refresh-token',
+    user: { ...latestFromB.user, fullName: 'Real re-login metadata D' },
+  };
+  await auth.saveSession(unknownD);
+  assert.deepEqual((await auth.loadSessionSnapshot()).session, unknownD);
+  assert.deepEqual(storage.storedSession(), unknownD);
+});
+
 test('clear and different identity saves invalidate token lineage boundaries', async () => {
   const owner = makeSession();
   const fresh = makeSession({
