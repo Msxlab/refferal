@@ -194,7 +194,6 @@ function refresh(owner: Session): Promise<Session | null> {
   if (refreshInFlight) {
     return sameSessionOwner(refreshInFlight.owner, owner) ? refreshInFlight.promise : Promise.resolve(null);
   }
-  completedRefresh = null;
   let flight: RefreshFlight;
   const current = performRefresh(owner)
     .then((refreshed) => {

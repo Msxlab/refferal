@@ -291,6 +291,97 @@ test('a completed refresh is ignored when persisted session details no longer ma
   }
 });
 
+test('a stale different-session attempt cannot erase another owner completed refresh', async () => {
+  const ownerA = makeSession();
+  const freshA = makeSession({
+    accessToken: 'owner-a-fresh-access-token',
+    refreshToken: 'owner-a-rotated-refresh-token',
+  });
+  const ownerB = makeSession({
+    accessToken: 'stale-owner-b-access-token',
+    refreshToken: 'stale-owner-b-refresh-token',
+    userId: 'user-b',
+    membershipId: 'membership-b',
+    tenantId: 'tenant-b',
+  });
+  const loaded = loadApi(ownerA);
+  const lateAStarted = deferred();
+  const staleBStarted = deferred();
+  const releaseLateA = deferred();
+  const releaseStaleB = deferred();
+  const requestTokens = new Map();
+  let refreshCalls = 0;
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    const token = authorization(init);
+    if (url.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      assert.deepEqual(JSON.parse(String(init?.body)), { refreshToken: ownerA.refreshToken });
+      return Response.json(freshA);
+    }
+    const tokens = requestTokens.get(url) ?? [];
+    tokens.push(token);
+    requestTokens.set(url, tokens);
+    if (url.endsWith('/late-owner-a') && token === `Bearer ${ownerA.accessToken}`) {
+      lateAStarted.resolve();
+      await releaseLateA.promise;
+      return new Response(null, { status: 401 });
+    }
+    if (url.endsWith('/stale-owner-b') && token === `Bearer ${ownerB.accessToken}`) {
+      staleBStarted.resolve();
+      await releaseStaleB.promise;
+      return new Response(null, { status: 401 });
+    }
+    if (url.endsWith('/fast-owner-a') && token === `Bearer ${ownerA.accessToken}`) {
+      return new Response(null, { status: 401 });
+    }
+    if (token === `Bearer ${freshA.accessToken}`) {
+      return Response.json({ owner: 'a', timing: url.endsWith('/fast-owner-a') ? 'fast' : 'late' });
+    }
+    throw new Error(`unexpected authorization for ${url}: ${token}`);
+  };
+
+  try {
+    const lateA = loaded.api.get('/late-owner-a');
+    await lateAStarted.promise;
+
+    loaded.persistence.replace(ownerB);
+    const staleB = loaded.api.get('/stale-owner-b');
+    await staleBStarted.promise;
+
+    loaded.persistence.replace(ownerA);
+    assert.deepEqual(await loaded.api.get('/fast-owner-a'), { owner: 'a', timing: 'fast' });
+    assert.equal(refreshCalls, 1);
+    assert.deepEqual(loaded.persistence.current(), freshA);
+
+    releaseStaleB.resolve();
+    const [staleResult] = await Promise.allSettled([staleB]);
+    assert.equal(staleResult.status, 'rejected');
+    if (staleResult.status === 'rejected') {
+      assert.ok(staleResult.reason instanceof loaded.ApiError);
+      assert.equal(staleResult.reason.status, 401);
+      assert.equal(staleResult.reason.message, 'session expired');
+    }
+    assert.equal(refreshCalls, 1);
+    assert.deepEqual(loaded.persistence.current(), freshA);
+
+    releaseLateA.resolve();
+    assert.deepEqual(await lateA, { owner: 'a', timing: 'late' });
+    assert.equal(refreshCalls, 1);
+    assert.deepEqual(requestTokens.get(`${apiBase}/late-owner-a`), [
+      `Bearer ${ownerA.accessToken}`,
+      `Bearer ${freshA.accessToken}`,
+    ]);
+    assert.deepEqual(requestTokens.get(`${apiBase}/stale-owner-b`), [`Bearer ${ownerB.accessToken}`]);
+    assert.deepEqual(loaded.persistence.current(), freshA);
+  } finally {
+    releaseStaleB.resolve();
+    releaseLateA.resolve();
+    globalThis.fetch = previousFetch;
+  }
+});
+
 async function assertConcurrentRefreshFailure(refreshFailure) {
   const owner = makeSession();
   const loaded = loadApi(owner);
