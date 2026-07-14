@@ -92,7 +92,7 @@ const en = {
   'payouts.history': 'Payout history',
   'anav.home': 'Overview',
   'anav.wallet': 'Wallet',
-  'anav.team': 'Team',
+  'anav.team': 'Network',
   'anav.invite': 'Invite',
   'me.title': 'Your earnings',
   'me.sub': "How this month's commissions from your network are doing.",

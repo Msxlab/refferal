@@ -19,6 +19,37 @@ const NAV: Array<{ href: string; key: Parameters<typeof t>[0]; Icon: LucideIcon 
   { href: '/app/invite', key: 'anav.invite', Icon: Gift },
 ];
 
+function isMemberNavItemActive(pathname: string, href: string) {
+  if (href === '/app') return pathname === href;
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function MemberNavigationLinks({ pathname }: { pathname: string }) {
+  return NAV.map(({ Icon, ...item }) => {
+    const active = isMemberNavItemActive(pathname, item.href);
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        className={`member-nav-link${active ? ' active' : ''}`}
+        aria-current={active ? 'page' : undefined}
+      >
+        <Icon aria-hidden="true" />
+        <span>{t(item.key)}</span>
+      </Link>
+    );
+  });
+}
+
+function userInitials(name: string) {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || '?';
+}
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -39,7 +70,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     api.get<RuntimeBrand>('/app/brand').then((next) => setBrand(normalizeRuntimeBrand(next))).catch(() => undefined);
   }, [session]);
 
-  if (!session) return <div className="center muted" role="status" aria-live="polite">{t('common.loading')}</div>;
+  if (!session) {
+    return (
+      <div className="member-auth-loading" role="status" aria-live="polite">
+        <Brand size="lg" />
+        <span>{t('common.loading')}</span>
+      </div>
+    );
+  }
   const active = activeMembership(session);
 
   async function logout() {
@@ -51,33 +89,59 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   const activeBrand = brand ?? normalizeRuntimeBrand({ name: active?.tenantName ?? undefined });
+  const tenantName = active?.tenantName ?? activeBrand.name;
   const brandVars = {
     '--brand-accent': activeBrand.primaryColor,
   } as CSSProperties;
 
   return (
-    <div style={brandVars}>
+    <div className="member-shell" data-slot="member-shell" style={brandVars}>
       <a className="skip-link" href="#main-content">Skip to main content</a>
-      <header className="topbar">
-        <div className="inner">
-          <Brand className="brand" brand={activeBrand} />
-          <nav aria-label="Member navigation">
-            {NAV.map(({ Icon, ...n }) => (
-              <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
-                <Icon className="mr-1.5 inline size-4 opacity-85" aria-hidden="true" />{t(n.key)}
-              </Link>
-            ))}
+
+      <header className="member-topbar" data-slot="member-topbar">
+        <div className="member-topbar-inner">
+          <div className="member-brand-cluster">
+            <Link href="/app" className="member-home-link" aria-label="Go to member overview">
+              <Brand brand={activeBrand} />
+            </Link>
+            <span className="member-brand-context" title={activeBrand.tagline}>{activeBrand.tagline}</span>
+          </div>
+
+          <nav className="member-desktop-nav" data-slot="member-desktop-nav" aria-label="Member navigation">
+            <MemberNavigationLinks pathname={pathname} />
           </nav>
-          <span className="min-w-0 max-w-48 truncate text-xs text-muted-foreground" title={activeBrand.tagline}>{activeBrand.tagline}</span>
-          <NotificationBell />
-          <ThemeToggle />
-          <Button variant="ghost" size="sm" onClick={logout}>
-            <LogOut />
-            {t('nav.logout')}
-          </Button>
+
+          <div className="member-utilities" role="group" aria-label="Member utilities">
+            <div className="member-account" title={`${session.user.fullName} · ${tenantName}`}>
+              <span className="member-avatar" aria-hidden="true">{userInitials(session.user.fullName)}</span>
+              <span className="member-account-copy">
+                <strong>{session.user.fullName}</strong>
+                <span>{tenantName}</span>
+              </span>
+            </div>
+            <ThemeToggle />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="member-logout"
+              aria-label={t('nav.logout')}
+              title={t('nav.logout')}
+              onClick={logout}
+            >
+              <LogOut />
+              <span>{t('nav.logout')}</span>
+            </Button>
+            <NotificationBell />
+          </div>
         </div>
       </header>
-      <main id="main-content" className="appmain" tabIndex={-1}>{children}</main>
+
+      <nav className="member-bottom-nav" data-slot="member-bottom-nav" aria-label="Member mobile navigation">
+        <MemberNavigationLinks pathname={pathname} />
+      </nav>
+
+      <main id="main-content" className="member-main" data-slot="member-main" tabIndex={-1}>{children}</main>
     </div>
   );
 }
