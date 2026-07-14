@@ -7,6 +7,8 @@ const ts = require('typescript');
 
 const apiPath = path.resolve(__dirname, '..', 'src', 'lib', 'api.ts');
 const apiSource = fs.readFileSync(apiPath, 'utf8');
+const authPath = path.resolve(__dirname, '..', 'src', 'lib', 'auth.ts');
+const authSource = fs.readFileSync(authPath, 'utf8');
 const apiBase = 'http://mobile-api.test/v1';
 
 function deferred() {
@@ -51,19 +53,41 @@ function makeSession({
 
 function loadApi(initialSession) {
   let session = initialSession;
+  let generation = 0;
   const saves = [];
   let clears = 0;
+  const queuedSnapshots = [];
+  const sameSnapshot = (left, right) => JSON.stringify(left) === JSON.stringify(right);
   const auth = {
     async loadSession() {
       return session;
     },
+    async loadSessionSnapshot() {
+      return queuedSnapshots.shift() ?? { session, generation };
+    },
     async saveSession(next) {
+      generation += 1;
       saves.push(next);
       session = next;
     },
     async clearSession() {
+      generation += 1;
       clears += 1;
       session = null;
+    },
+    async saveSessionIfCurrent(expected, next) {
+      if (generation !== expected.generation || !sameSnapshot(session, expected.session)) return null;
+      generation += 1;
+      saves.push(next);
+      session = next;
+      return { session: next, generation };
+    },
+    async clearSessionIfCurrent(expected) {
+      if (generation !== expected.generation || !sameSnapshot(session, expected.session)) return false;
+      generation += 1;
+      clears += 1;
+      session = null;
+      return true;
     },
   };
 
@@ -98,7 +122,11 @@ function loadApi(initialSession) {
     persistence: {
       clearCalls: () => clears,
       current: () => session,
+      queueSnapshot(next, snapshotGeneration = generation) {
+        queuedSnapshots.push({ session: next, generation: snapshotGeneration });
+      },
       replace(next) {
+        generation += 1;
         session = next;
       },
       saves,
@@ -106,9 +134,181 @@ function loadApi(initialSession) {
   };
 }
 
+function createControlledAsyncStorage() {
+  let stored = null;
+  const delayedSets = [];
+  const delayedRemoves = [];
+  const createDelay = (queue) => {
+    const started = deferred();
+    const released = deferred();
+    queue.push({ started, released });
+    return {
+      started: started.promise,
+      release: released.resolve,
+    };
+  };
+  return {
+    async getItem() {
+      return stored;
+    },
+    async setItem(key, value) {
+      const delay = delayedSets.shift();
+      if (delay) {
+        delay.started.resolve({ key, value });
+        await delay.released.promise;
+      }
+      stored = value;
+    },
+    async removeItem(key) {
+      const delay = delayedRemoves.shift();
+      if (delay) {
+        delay.started.resolve({ key });
+        await delay.released.promise;
+      }
+      stored = null;
+    },
+    delayNextSet() {
+      return createDelay(delayedSets);
+    },
+    delayNextRemove() {
+      return createDelay(delayedRemoves);
+    },
+    storedSession() {
+      return stored === null ? null : JSON.parse(stored);
+    },
+  };
+}
+
+function loadActualAuth(asyncStorage) {
+  const compiled = ts.transpileModule(authSource, {
+    compilerOptions: {
+      esModuleInterop: true,
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+    },
+    fileName: authPath,
+  }).outputText;
+  const authModule = new Module(authPath, module);
+  authModule.filename = authPath;
+  authModule.paths = Module._nodeModulePaths(path.dirname(authPath));
+  const originalLoad = Module._load;
+  Module._load = function load(request, parent, isMain) {
+    if (request === '@react-native-async-storage/async-storage' && parent?.filename === authPath) {
+      return asyncStorage;
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+  try {
+    authModule._compile(compiled, authPath);
+  } finally {
+    Module._load = originalLoad;
+  }
+  return authModule.exports;
+}
+
 function authorization(init) {
   return new Headers(init?.headers).get('Authorization');
 }
+
+test('atomic refresh save loses when a replacement save is invoked during delayed persistence', async () => {
+  const storage = createControlledAsyncStorage();
+  const auth = loadActualAuth(storage);
+  const owner = makeSession();
+  const staleRefresh = makeSession({
+    accessToken: 'stale-cas-access-token',
+    refreshToken: 'stale-cas-refresh-token',
+  });
+  const replacement = makeSession({
+    accessToken: 'replacement-cas-access-token',
+    refreshToken: 'replacement-cas-refresh-token',
+    userId: 'replacement-user',
+    membershipId: 'replacement-membership',
+    tenantId: 'replacement-tenant',
+  });
+  await auth.saveSession(owner);
+  const captured = await auth.loadSessionSnapshot();
+  const staleWrite = storage.delayNextSet();
+  const staleSave = auth.saveSessionIfCurrent(captured, staleRefresh);
+  await staleWrite.started;
+
+  const replacementSave = auth.saveSession(replacement);
+  staleWrite.release();
+
+  assert.equal(await staleSave, null);
+  await replacementSave;
+  const current = await auth.loadSessionSnapshot();
+  assert.deepEqual(current.session, replacement);
+  assert.deepEqual(storage.storedSession(), replacement);
+});
+
+test('atomic refresh clear loses when a replacement save is invoked during delayed removal', async () => {
+  const storage = createControlledAsyncStorage();
+  const auth = loadActualAuth(storage);
+  const owner = makeSession();
+  const replacement = makeSession({
+    accessToken: 'replacement-after-clear-access-token',
+    refreshToken: 'replacement-after-clear-refresh-token',
+    userId: 'replacement-after-clear-user',
+    membershipId: 'replacement-after-clear-membership',
+    tenantId: 'replacement-after-clear-tenant',
+  });
+  await auth.saveSession(owner);
+  const captured = await auth.loadSessionSnapshot();
+  const staleRemoval = storage.delayNextRemove();
+  const staleClear = auth.clearSessionIfCurrent(captured);
+  await staleRemoval.started;
+
+  const replacementSave = auth.saveSession(replacement);
+  staleRemoval.release();
+
+  assert.equal(await staleClear, false);
+  await replacementSave;
+  const current = await auth.loadSessionSnapshot();
+  assert.deepEqual(current.session, replacement);
+  assert.deepEqual(storage.storedSession(), replacement);
+});
+
+test('a pending delayed replacement invalidates stale CAS immediately through generation', async () => {
+  const storage = createControlledAsyncStorage();
+  const auth = loadActualAuth(storage);
+  const owner = makeSession();
+  const staleRefresh = makeSession({
+    accessToken: 'pending-stale-access-token',
+    refreshToken: 'pending-stale-refresh-token',
+  });
+  const replacement = makeSession({
+    accessToken: 'pending-replacement-access-token',
+    refreshToken: 'pending-replacement-refresh-token',
+    userId: 'pending-replacement-user',
+    membershipId: 'pending-replacement-membership',
+    tenantId: 'pending-replacement-tenant',
+  });
+  await auth.saveSession(owner);
+  const captured = await auth.loadSessionSnapshot();
+  const replacementWrite = storage.delayNextSet();
+  const replacementSave = auth.saveSession(replacement);
+  await replacementWrite.started;
+
+  let staleSettled = false;
+  let staleResult;
+  const staleSave = auth.saveSessionIfCurrent(captured, staleRefresh);
+  void staleSave.then((result) => {
+    staleSettled = true;
+    staleResult = result;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const settledBeforeReplacementWrite = staleSettled;
+
+  replacementWrite.release();
+  await replacementSave;
+  await staleSave;
+
+  assert.equal(settledBeforeReplacementWrite, true);
+  assert.equal(staleResult, null);
+  const current = await auth.loadSessionSnapshot();
+  assert.deepEqual(current.session, replacement);
+  assert.deepEqual(storage.storedSession(), replacement);
+});
 
 test('parallel 401 operations share one refresh and retry once with the same new session', async () => {
   const owner = makeSession();
@@ -346,11 +546,10 @@ test('a stale different-session attempt cannot erase another owner completed ref
     const lateA = loaded.api.get('/late-owner-a');
     await lateAStarted.promise;
 
-    loaded.persistence.replace(ownerB);
+    loaded.persistence.queueSnapshot(ownerB);
     const staleB = loaded.api.get('/stale-owner-b');
     await staleBStarted.promise;
 
-    loaded.persistence.replace(ownerA);
     assert.deepEqual(await loaded.api.get('/fast-owner-a'), { owner: 'a', timing: 'fast' });
     assert.equal(refreshCalls, 1);
     assert.deepEqual(loaded.persistence.current(), freshA);

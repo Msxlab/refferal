@@ -29,22 +29,140 @@ const KEY = 'refearn.session';
 
 // In-memory cache for call sites that need synchronous access while AsyncStorage is async.
 let cached: Session | null = null;
+let generation = 0;
+let sessionQueue: Promise<void> = Promise.resolve();
 
-export async function loadSession(): Promise<Session | null> {
+export interface SessionSnapshot {
+  session: Session | null;
+  generation: number;
+}
+
+function sameSessionSnapshot(left: Session | null, right: Session | null): boolean {
+  if (!left || !right) return left === right;
+  return (
+    left.accessToken === right.accessToken &&
+    left.refreshToken === right.refreshToken &&
+    left.user.id === right.user.id &&
+    left.user.email === right.user.email &&
+    left.user.fullName === right.user.fullName &&
+    left.user.locale === right.user.locale &&
+    left.user.emailVerified === right.user.emailVerified &&
+    left.user.isPlatformAdmin === right.user.isPlatformAdmin &&
+    left.activeMembershipId === right.activeMembershipId &&
+    left.memberships.length === right.memberships.length &&
+    left.memberships.every((membership, index) => {
+      const other = right.memberships[index];
+      return Boolean(
+        other &&
+          membership.id === other.id &&
+          membership.tenantId === other.tenantId &&
+          membership.tenantSlug === other.tenantSlug &&
+          membership.tenantName === other.tenantName &&
+          membership.role === other.role &&
+          membership.referralCode === other.referralCode &&
+          membership.depth === other.depth,
+      );
+    })
+  );
+}
+
+function enqueueSessionOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = sessionQueue.then(operation, operation);
+  sessionQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+async function loadSessionWithinQueue(): Promise<Session | null> {
   if (cached) return cached;
   const raw = await AsyncStorage.getItem(KEY);
   cached = raw ? (JSON.parse(raw) as Session) : null;
   return cached;
 }
 
-export async function saveSession(s: Session): Promise<void> {
-  cached = s;
-  await AsyncStorage.setItem(KEY, JSON.stringify(s));
+export function loadSessionSnapshot(): Promise<SessionSnapshot> {
+  const observedGeneration = generation;
+  return enqueueSessionOperation(async () => ({
+    session: await loadSessionWithinQueue(),
+    generation: observedGeneration,
+  }));
 }
 
-export async function clearSession(): Promise<void> {
-  cached = null;
-  await AsyncStorage.removeItem(KEY);
+export async function loadSession(): Promise<Session | null> {
+  return (await loadSessionSnapshot()).session;
+}
+
+export function saveSession(s: Session): Promise<void> {
+  generation += 1;
+  return enqueueSessionOperation(async () => {
+    await AsyncStorage.setItem(KEY, JSON.stringify(s));
+    cached = s;
+  });
+}
+
+export function clearSession(): Promise<void> {
+  generation += 1;
+  return enqueueSessionOperation(async () => {
+    await AsyncStorage.removeItem(KEY);
+    cached = null;
+  });
+}
+
+export function saveSessionIfCurrent(
+  expected: SessionSnapshot,
+  next: Session,
+): Promise<SessionSnapshot | null> {
+  if (generation !== expected.generation) return Promise.resolve(null);
+  const operationGeneration = ++generation;
+  return enqueueSessionOperation(async () => {
+    const current = await loadSessionWithinQueue();
+    if (
+      generation !== operationGeneration ||
+      !sameSessionSnapshot(expected.session, current)
+    ) {
+      return null;
+    }
+    try {
+      await AsyncStorage.setItem(KEY, JSON.stringify(next));
+    } catch {
+      if (generation === operationGeneration) {
+        try {
+          await AsyncStorage.removeItem(KEY);
+          if (generation === operationGeneration) cached = null;
+        } catch {
+          // The caller still receives a failed CAS without a raw storage error.
+        }
+      }
+      return null;
+    }
+    if (generation !== operationGeneration) return null;
+    cached = next;
+    return { session: next, generation: operationGeneration };
+  });
+}
+
+export function clearSessionIfCurrent(expected: SessionSnapshot): Promise<boolean> {
+  if (generation !== expected.generation) return Promise.resolve(false);
+  const operationGeneration = ++generation;
+  return enqueueSessionOperation(async () => {
+    const current = await loadSessionWithinQueue();
+    if (
+      generation !== operationGeneration ||
+      !sameSessionSnapshot(expected.session, current)
+    ) {
+      return false;
+    }
+    try {
+      await AsyncStorage.removeItem(KEY);
+    } catch {
+      return false;
+    }
+    if (generation !== operationGeneration) return false;
+    cached = null;
+    return true;
+  });
 }
 
 export function activeMembership(s: Session): MembershipSummary | null {

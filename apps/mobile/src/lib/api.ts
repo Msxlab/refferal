@@ -1,4 +1,10 @@
-import { clearSession, loadSession, saveSession, type Session } from './auth';
+import {
+  clearSessionIfCurrent,
+  loadSessionSnapshot,
+  saveSessionIfCurrent,
+  type Session,
+  type SessionSnapshot,
+} from './auth';
 
 /**
  * API base URL:
@@ -71,14 +77,18 @@ async function rawFetch(path: string, init: RequestInit, token?: string): Promis
   return fetch(`${BASE}${path}`, { ...init, headers });
 }
 
+interface AuthenticatedSessionSnapshot extends SessionSnapshot {
+  session: Session;
+}
+
 interface RefreshFlight {
-  owner: Session;
-  promise: Promise<Session | null>;
+  owner: AuthenticatedSessionSnapshot;
+  promise: Promise<AuthenticatedSessionSnapshot | null>;
 }
 
 interface CompletedRefresh {
-  owner: Session;
-  refreshed: Session;
+  owner: AuthenticatedSessionSnapshot;
+  refreshed: AuthenticatedSessionSnapshot;
 }
 
 let refreshInFlight: RefreshFlight | null = null;
@@ -125,32 +135,37 @@ function sameSessionSnapshot(captured: Session, current: Session): boolean {
   );
 }
 
-async function ownsSession(owner: Session): Promise<boolean> {
+function isAuthenticatedSnapshot(snapshot: SessionSnapshot): snapshot is AuthenticatedSessionSnapshot {
+  return Boolean(snapshot.session && isSession(snapshot.session));
+}
+
+function sameAuthenticatedSnapshot(
+  captured: AuthenticatedSessionSnapshot,
+  current: SessionSnapshot,
+): boolean {
+  return Boolean(
+    current.session &&
+      captured.generation === current.generation &&
+      sameSessionSnapshot(captured.session, current.session),
+  );
+}
+
+async function refreshOwnerIsCurrent(owner: AuthenticatedSessionSnapshot): Promise<boolean> {
   try {
-    const current = await loadSession();
-    return Boolean(current && isSession(current) && sameSessionSnapshot(owner, current));
+    return sameAuthenticatedSnapshot(owner, await loadSessionSnapshot());
   } catch {
     return false;
   }
 }
 
-async function clearRefreshSessions(...sessions: Session[]): Promise<void> {
-  try {
-    const current = await loadSession();
-    if (current && isSession(current) && sessions.some((session) => sameSessionSnapshot(session, current))) {
-      await clearSession();
-    }
-  } catch {
-    // Storage failures must not leak transport or persistence errors to refresh waiters.
-  }
-}
-
-async function completedSessionFor(captured: Session): Promise<Session | null> {
+async function completedSessionFor(
+  captured: AuthenticatedSessionSnapshot,
+): Promise<AuthenticatedSessionSnapshot | null> {
   const completed = completedRefresh;
-  if (!completed || !sameSessionSnapshot(captured, completed.owner)) return null;
+  if (!completed || !sameAuthenticatedSnapshot(captured, completed.owner)) return null;
   try {
-    const current = await loadSession();
-    if (current && isSession(current) && sameSessionSnapshot(completed.refreshed, current)) {
+    const current = await loadSessionSnapshot();
+    if (isAuthenticatedSnapshot(current) && sameAuthenticatedSnapshot(completed.refreshed, current)) {
       return completed.refreshed;
     }
   } catch {
@@ -161,38 +176,49 @@ async function completedSessionFor(captured: Session): Promise<Session | null> {
 }
 
 /** If the access token expired, try one refresh; clear the session if it fails. */
-async function performRefresh(owner: Session): Promise<Session | null> {
-  if (!(await ownsSession(owner))) return null;
+async function performRefresh(
+  owner: AuthenticatedSessionSnapshot,
+): Promise<AuthenticatedSessionSnapshot | null> {
+  if (!(await refreshOwnerIsCurrent(owner))) return null;
   let next: Session | null = null;
   try {
     const res = await rawFetch('/auth/refresh', {
       method: 'POST',
-      body: JSON.stringify({ refreshToken: owner.refreshToken }),
+      body: JSON.stringify({ refreshToken: owner.session.refreshToken }),
     });
     if (res.ok) {
       const candidate: unknown = await res.json();
-      if (isSession(candidate) && sameSessionIdentity(owner, candidate)) next = candidate;
+      if (isSession(candidate) && sameSessionIdentity(owner.session, candidate)) next = candidate;
     }
   } catch {
     // Refresh transport and parsing failures are normalized below.
   }
   if (!next) {
-    await clearRefreshSessions(owner);
+    try {
+      await clearSessionIfCurrent(owner);
+    } catch {
+      // Refresh waiters still receive the normalized unauthorized outcome.
+    }
     return null;
   }
-  if (!(await ownsSession(owner))) return null;
   try {
-    await saveSession(next);
+    const saved = await saveSessionIfCurrent(owner, next);
+    return saved && isAuthenticatedSnapshot(saved) ? saved : null;
   } catch {
-    await clearRefreshSessions(owner, next);
+    try {
+      await clearSessionIfCurrent(owner);
+    } catch {
+      // Refresh waiters still receive the normalized unauthorized outcome.
+    }
     return null;
   }
-  return (await ownsSession(next)) ? next : null;
 }
 
-function refresh(owner: Session): Promise<Session | null> {
+function refresh(owner: AuthenticatedSessionSnapshot): Promise<AuthenticatedSessionSnapshot | null> {
   if (refreshInFlight) {
-    return sameSessionSnapshot(refreshInFlight.owner, owner) ? refreshInFlight.promise : Promise.resolve(null);
+    return sameAuthenticatedSnapshot(refreshInFlight.owner, owner)
+      ? refreshInFlight.promise
+      : Promise.resolve(null);
   }
   let flight: RefreshFlight;
   const current = performRefresh(owner)
@@ -208,14 +234,23 @@ function refresh(owner: Session): Promise<Session | null> {
   return current;
 }
 
-async function retrySessionFor(captured: Session, candidate: Session | null): Promise<Session | null> {
-  if (!candidate || !sameSessionIdentity(captured, candidate)) return null;
-  return (await ownsSession(candidate)) ? candidate : null;
+async function retrySessionFor(
+  captured: AuthenticatedSessionSnapshot,
+  candidate: AuthenticatedSessionSnapshot | null,
+): Promise<AuthenticatedSessionSnapshot | null> {
+  if (!candidate || !sameSessionIdentity(captured.session, candidate.session)) return null;
+  try {
+    return sameAuthenticatedSnapshot(candidate, await loadSessionSnapshot()) ? candidate : null;
+  } catch {
+    return null;
+  }
 }
 
-async function sessionForRetry(captured: Session): Promise<Session | null> {
+async function sessionForRetry(
+  captured: AuthenticatedSessionSnapshot,
+): Promise<AuthenticatedSessionSnapshot | null> {
   const completed = await completedSessionFor(captured);
-  if (completed) return completed;
+  if (completed) return retrySessionFor(captured, completed);
   return retrySessionFor(captured, await refresh(captured));
 }
 
@@ -223,13 +258,14 @@ async function request<T>(
   path: string,
   init: RequestInit = {},
   retry = true,
-  capturedSession?: Session | null,
+  capturedSnapshot?: SessionSnapshot,
 ): Promise<T> {
-  const session = capturedSession === undefined ? await loadSession() : capturedSession;
+  const snapshot = capturedSnapshot ?? (await loadSessionSnapshot());
+  const session = snapshot.session;
   const res = await rawFetch(path, init, session?.accessToken);
 
   if (res.status === 401 && session && retry) {
-    const refreshed = await sessionForRetry(session);
+    const refreshed = await sessionForRetry({ session, generation: snapshot.generation });
     if (refreshed) return request<T>(path, init, false, refreshed);
     throw new ApiError(401, { message: 'session expired' });
   }
