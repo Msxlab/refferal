@@ -334,7 +334,7 @@ model CommissionPlan {
   levels CommissionPlanLevel[]
 
   // Historical query: active plan on sale date (effective_from <= sale_date, newest first).
-  @@index([tenantId, effectiveFrom(sort: Desc)])
+  @@unique([tenantId, effectiveFrom], map: "commission_plans_tenant_id_effective_from_key")
   @@map("commission_plans")
 }
 

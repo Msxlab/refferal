@@ -1,9 +1,27 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { computeCommissionLines, totalDistributed } from '@refearn/shared';
 import { ActorContext } from '../common/actor';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../prisma/tenant-context.service';
 import { CreatePlanInput, SimulatePlanInput } from './plans.types';
+
+const EFFECTIVE_FROM_UNIQUE_CONSTRAINT = 'commission_plans_tenant_id_effective_from_key';
+const EFFECTIVE_FROM_CONFLICT_MESSAGE = 'a plan already exists for this effectiveFrom value';
+
+function isEffectiveFromUniqueConflict(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return false;
+  const target = error.meta?.target;
+  if (target === EFFECTIVE_FROM_UNIQUE_CONSTRAINT) return true;
+  if (!Array.isArray(target) || target.length !== 2 || !target.every((field) => typeof field === 'string')) {
+    return false;
+  }
+  const fields = new Set(target as string[]);
+  return (
+    (fields.has('tenant_id') && fields.has('effective_from')) ||
+    (fields.has('tenantId') && fields.has('effectiveFrom'))
+  );
+}
 
 @Injectable()
 export class PlansService {
@@ -39,40 +57,47 @@ export class PlansService {
       select: { id: true },
     });
     if (existing) {
-      throw new BadRequestException('a plan already exists for this effectiveFrom value');
+      throw new ConflictException(EFFECTIVE_FROM_CONFLICT_MESSAGE);
     }
 
-    const plan = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.commissionPlan.create({
-        data: {
-          tenantId: actor.tenantId,
-          name: input.name,
-          poolRateBps: input.poolRateBps,
-          depth: input.depth,
-          effectiveFrom,
-          createdBy: actor.userId,
-          levels: { create: input.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })) },
-        },
-        include: { levels: { orderBy: { level: 'asc' } } },
-      });
-      await tx.auditLog.create({
-        data: {
-          tenantId: actor.tenantId,
-          actorUserId: actor.userId,
-          action: 'commission_plan.create',
-          entity: 'commission_plan',
-          entityId: created.id,
-          after: {
-            name: created.name,
-            poolRateBps: created.poolRateBps,
-            depth: created.depth,
-            effectiveFrom: created.effectiveFrom.toISOString(),
-            levels: created.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })),
+    const plan = await this.prisma
+      .$transaction(async (tx) => {
+        const created = await tx.commissionPlan.create({
+          data: {
+            tenantId: actor.tenantId,
+            name: input.name,
+            poolRateBps: input.poolRateBps,
+            depth: input.depth,
+            effectiveFrom,
+            createdBy: actor.userId,
+            levels: { create: input.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })) },
           },
-        },
+          include: { levels: { orderBy: { level: 'asc' } } },
+        });
+        await tx.auditLog.create({
+          data: {
+            tenantId: actor.tenantId,
+            actorUserId: actor.userId,
+            action: 'commission_plan.create',
+            entity: 'commission_plan',
+            entityId: created.id,
+            after: {
+              name: created.name,
+              poolRateBps: created.poolRateBps,
+              depth: created.depth,
+              effectiveFrom: created.effectiveFrom.toISOString(),
+              levels: created.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })),
+            },
+          },
+        });
+        return created;
+      })
+      .catch((error: unknown) => {
+        if (isEffectiveFromUniqueConflict(error)) {
+          throw new ConflictException(EFFECTIVE_FROM_CONFLICT_MESSAGE);
+        }
+        throw error;
       });
-      return created;
-    });
 
     return {
       id: plan.id,

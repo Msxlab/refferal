@@ -39,6 +39,67 @@ describe('admin settings (integration)', () => {
     return jwt.sign(p, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
   }
 
+  it('enforces one commission plan per tenant and exact effective date under concurrent creates', async () => {
+    const tenant = await createTenant(prisma);
+    const otherTenant = await createTenant(prisma);
+    const [owner] = await createChain(prisma, tenant.id, 1);
+    const [otherOwner] = await createChain(prisma, otherTenant.id, 1);
+    await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
+    await prisma.membership.update({ where: { id: otherOwner.id }, data: { role: Role.tenant_owner } });
+    const ownerTok = token({
+      userId: owner.userId,
+      membershipId: owner.id,
+      tenantId: tenant.id,
+      role: Role.tenant_owner,
+    });
+    const otherOwnerTok = token({
+      userId: otherOwner.userId,
+      membershipId: otherOwner.id,
+      tenantId: otherTenant.id,
+      role: Role.tenant_owner,
+    });
+    const effectiveFrom = '2026-07-14T12:00:00.000Z';
+    const plan = (name: string) => ({
+      name,
+      poolRateBps: 500,
+      depth: 1,
+      effectiveFrom,
+      levels: [{ level: 0, rateBps: 500 }],
+    });
+
+    const concurrent = await Promise.all([
+      request(app.getHttpServer())
+        .post('/v1/admin/plans')
+        .set('Authorization', `Bearer ${ownerTok}`)
+        .send(plan('Concurrent plan A')),
+      request(app.getHttpServer())
+        .post('/v1/admin/plans')
+        .set('Authorization', `Bearer ${ownerTok}`)
+        .send(plan('Concurrent plan B')),
+    ]);
+
+    expect(concurrent.map((response) => response.status).sort((a, b) => a - b)).toEqual([201, 409]);
+    expect(concurrent.find((response) => response.status === 409)?.body.message).toBe(
+      'a plan already exists for this effectiveFrom value',
+    );
+    expect(
+      await prisma.commissionPlan.count({
+        where: { tenantId: tenant.id, effectiveFrom: new Date(effectiveFrom) },
+      }),
+    ).toBe(1);
+
+    await request(app.getHttpServer())
+      .post('/v1/admin/plans')
+      .set('Authorization', `Bearer ${otherOwnerTok}`)
+      .send(plan('Other tenant same timestamp'))
+      .expect(201);
+    expect(
+      await prisma.commissionPlan.count({
+        where: { tenantId: otherTenant.id, effectiveFrom: new Date(effectiveFrom) },
+      }),
+    ).toBe(1);
+  });
+
   it('gets and updates settings, writes audit, and rejects staff updates', async () => {
     const tenant = await createTenant(prisma, { maturationRule: MaturationRule.on_approval });
     const [owner, staff] = await createChain(prisma, tenant.id, 2);
