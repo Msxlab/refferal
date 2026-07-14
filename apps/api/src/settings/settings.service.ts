@@ -113,77 +113,85 @@ export class SettingsService {
 
   async update(actor: ActorContext, input: UpdateSettingsInput) {
     this.tenantContext.assertActor(actor);
-    const before = await this.prisma.tenant.findUniqueOrThrow({ where: { id: actor.tenantId } });
-    const nextRule = input.maturationRule ?? before.maturationRule;
-    let nextMaturationDays = input.maturationDays !== undefined ? input.maturationDays : before.maturationDays;
-    if (
-      nextRule !== MaturationRule.days_after_approval &&
-      input.maturationDays !== undefined &&
-      input.maturationDays !== null
-    ) {
-      throw new BadRequestException('maturationDays must be null unless maturationRule is days_after_approval');
-    }
-    if (
-      nextRule !== MaturationRule.days_after_approval &&
-      nextMaturationDays !== null
-    ) {
-      nextMaturationDays = null;
-    }
-    const shouldUpdateMaturationDays =
-      input.maturationDays !== undefined ||
-      input.maturationRule !== undefined ||
-      nextMaturationDays !== before.maturationDays;
-    const nextTimezone = input.timezone ?? before.timezone;
-    assertValidTimeZone(nextTimezone);
-    assertMaturationConfig(nextRule, nextMaturationDays);
-    const brandingPatch = normalizeBrandingPatch(input.branding);
+    await this.prisma.$transaction(async (tx) => {
+      const before = await tx.tenant.findUniqueOrThrow({ where: { id: actor.tenantId } });
+      const nextRule = input.maturationRule ?? before.maturationRule;
+      let nextMaturationDays = input.maturationDays !== undefined ? input.maturationDays : before.maturationDays;
+      if (
+        nextRule !== MaturationRule.days_after_approval &&
+        input.maturationDays !== undefined &&
+        input.maturationDays !== null
+      ) {
+        throw new BadRequestException('maturationDays must be null unless maturationRule is days_after_approval');
+      }
+      if (
+        nextRule !== MaturationRule.days_after_approval &&
+        nextMaturationDays !== null
+      ) {
+        nextMaturationDays = null;
+      }
+      const shouldUpdateMaturationDays =
+        input.maturationDays !== undefined ||
+        input.maturationRule !== undefined ||
+        nextMaturationDays !== before.maturationDays;
+      const nextTimezone = input.timezone ?? before.timezone;
+      assertValidTimeZone(nextTimezone);
+      assertMaturationConfig(nextRule, nextMaturationDays);
+      const brandingPatch = normalizeBrandingPatch(input.branding);
 
-    const updated = await this.prisma.tenant.update({
-      where: { id: actor.tenantId },
-      data: {
-        name: input.name,
-        maturationRule: input.maturationRule,
-        maturationDays: shouldUpdateMaturationDays ? nextMaturationDays : undefined,
-        payoutMinCents: input.payoutMinCents,
-        timezone: input.timezone,
-        notifyNewMemberName: input.notifyNewMemberName,
-        compressionEnabled: input.compressionEnabled,
-        inactiveMembersEarn: input.inactiveMembersEarn,
-        requireSeparateApprover: input.requireSeparateApprover,
-        // Merge partial branding updates without overwriting the whole column.
-        branding:
-          brandingPatch === undefined
-            ? undefined
-            : ({ ...asRecord(before.branding), ...brandingPatch } as Prisma.InputJsonValue),
-      },
-    });
+      const updated = await tx.tenant.update({
+        where: { id: actor.tenantId },
+        data: {
+          name: input.name,
+          maturationRule: input.maturationRule,
+          maturationDays: shouldUpdateMaturationDays ? nextMaturationDays : undefined,
+          payoutMinCents: input.payoutMinCents,
+          timezone: input.timezone,
+          notifyNewMemberName: input.notifyNewMemberName,
+          compressionEnabled: input.compressionEnabled,
+          inactiveMembersEarn: input.inactiveMembersEarn,
+          requireSeparateApprover: input.requireSeparateApprover,
+          // Merge partial branding updates without overwriting the whole column.
+          branding:
+            brandingPatch === undefined
+              ? undefined
+              : ({ ...asRecord(before.branding), ...brandingPatch } as Prisma.InputJsonValue),
+        },
+      });
 
-    await this.prisma.auditLog.create({
-      data: {
-        tenantId: actor.tenantId,
-        actorUserId: actor.userId,
-        action: 'tenant.update_settings',
-        entity: 'tenant',
-        entityId: actor.tenantId,
-        before: {
-          name: before.name,
-          maturationRule: before.maturationRule,
-          maturationDays: before.maturationDays,
-          payoutMinCents: before.payoutMinCents.toString(),
-          timezone: before.timezone,
-          notifyNewMemberName: before.notifyNewMemberName,
-          branding: before.branding,
+      await tx.auditLog.create({
+        data: {
+          tenantId: actor.tenantId,
+          actorUserId: actor.userId,
+          action: 'tenant.update_settings',
+          entity: 'tenant',
+          entityId: actor.tenantId,
+          before: {
+            name: before.name,
+            maturationRule: before.maturationRule,
+            maturationDays: before.maturationDays,
+            payoutMinCents: before.payoutMinCents.toString(),
+            timezone: before.timezone,
+            notifyNewMemberName: before.notifyNewMemberName,
+            compressionEnabled: before.compressionEnabled,
+            inactiveMembersEarn: before.inactiveMembersEarn,
+            requireSeparateApprover: before.requireSeparateApprover,
+            branding: before.branding,
+          },
+          after: {
+            name: updated.name,
+            maturationRule: updated.maturationRule,
+            maturationDays: updated.maturationDays,
+            payoutMinCents: updated.payoutMinCents.toString(),
+            timezone: updated.timezone,
+            notifyNewMemberName: updated.notifyNewMemberName,
+            compressionEnabled: updated.compressionEnabled,
+            inactiveMembersEarn: updated.inactiveMembersEarn,
+            requireSeparateApprover: updated.requireSeparateApprover,
+            branding: updated.branding,
+          },
         },
-        after: {
-          name: updated.name,
-          maturationRule: updated.maturationRule,
-          maturationDays: updated.maturationDays,
-          payoutMinCents: updated.payoutMinCents.toString(),
-          timezone: updated.timezone,
-          notifyNewMemberName: updated.notifyNewMemberName,
-          branding: updated.branding,
-        },
-      },
+      });
     });
 
     return this.get(actor.tenantId);
