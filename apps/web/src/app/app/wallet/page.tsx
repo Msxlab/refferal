@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useReducer, useState } from 'react';
 import { AlertCircle, CheckCircle2, Clock3, HandCoins, LoaderCircle, WalletCards, type LucideIcon } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { initialPayoutActionState, payoutActionIsLocked, payoutActionReducer } from './payout-reconciliation';
 
 interface LedgerItem {
   id: string;
@@ -45,34 +46,66 @@ interface PayoutReq {
   settledAt: string | null;
 }
 
+type WalletReloadResult = { status: 'success' } | { status: 'failed'; message: string };
+
 export default function WalletPage() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [history, setHistory] = useState<PayoutReq[]>([]);
   const [error, setError] = useState('');
   const [toast, showToast] = useToast();
   const [busy, setBusy] = useState(false);
+  const [payoutAction, dispatchPayoutAction] = useReducer(payoutActionReducer, initialPayoutActionState);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<WalletReloadResult> => {
     try {
       const [w, h] = await Promise.all([api.get<Wallet>('/app/wallet'), api.get<PayoutReq[]>('/app/payout-requests')]);
       setWallet(w);
       setHistory(h);
+      return { status: 'success' };
     } catch (e) {
-      setError(String((e as ApiError).message));
+      return { status: 'failed', message: String((e as ApiError).message) };
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load().then((result) => {
+      if (result.status === 'failed') setError(result.message);
+    });
+  }, [load]);
 
   async function requestPayout() {
     setBusy(true);
     setError('');
+    dispatchPayoutAction({ type: 'submit-started' });
     try {
       await api.post('/app/payout-requests');
       showToast('Your payout request has been received.');
-      await load();
+      dispatchPayoutAction({ type: 'submit-succeeded' });
+      const reload = await load();
+      dispatchPayoutAction(
+        reload.status === 'success'
+          ? { type: 'reload-succeeded' }
+          : { type: 'reload-failed', message: reload.message },
+      );
     } catch (e) {
+      dispatchPayoutAction({ type: 'submit-failed' });
       setError(String((e as ApiError).message));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function retryPayoutStatus() {
+    setBusy(true);
+    dispatchPayoutAction({ type: 'retry-started' });
+    try {
+      const reload = await load();
+      if (reload.status === 'success') {
+        setError('');
+        dispatchPayoutAction({ type: 'reload-succeeded' });
+      } else {
+        dispatchPayoutAction({ type: 'reload-failed', message: reload.message });
+      }
     } finally {
       setBusy(false);
     }
@@ -94,6 +127,10 @@ export default function WalletPage() {
   const activePayout = payoutEligibility.activePayout;
   const activePayoutDetails = activePayout ? history.find((payout) => payout.id === activePayout.id) ?? null : null;
   const eligibilityNotice = payoutEligibilityNotice(payoutEligibility, activePayoutDetails, currency, wallet.payoutMinCents);
+  const reconciliationMessage =
+    payoutAction.status === 'awaiting-reconciliation' || payoutAction.status === 'checking'
+      ? payoutAction.message
+      : null;
 
   return (
     <div>
@@ -108,7 +145,7 @@ export default function WalletPage() {
             <CardDescription>Payable funds can be requested. Processing funds are reserved and cannot be requested again.</CardDescription>
           </div>
           <CardAction>
-            <Button onClick={requestPayout} disabled={busy || !payoutEligibility.requestable}>
+            <Button onClick={requestPayout} disabled={busy || payoutActionIsLocked(payoutAction) || !payoutEligibility.requestable}>
               <HandCoins data-icon="inline-start" />
               {t('me.requestPayout')}
             </Button>
@@ -124,6 +161,28 @@ export default function WalletPage() {
           <BalanceTile label={t('me.pending')} value={money(b.pendingCents, currency)} hint="Waiting on maturation rules" Icon={Clock3} />
           <BalanceTile label="Processing" value={money(b.processingCents, currency)} hint="Reserved for a transfer" Icon={LoaderCircle} />
           <BalanceTile label={t('me.paid')} value={money(b.paidCents, currency)} hint="Already processed" Icon={CheckCircle2} />
+          {reconciliationMessage && (
+            <Alert className="md:col-span-4" role="status" aria-live="polite" aria-atomic="true">
+              {payoutAction.status === 'checking' ? <LoaderCircle className="animate-spin" /> : <CheckCircle2 />}
+              <AlertDescription className="grid gap-3">
+                <span>
+                  Your payout request was received, but the latest wallet status could not be confirmed. {reconciliationMessage}{' '}
+                  Payout requests remain locked until a status check succeeds.
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-fit"
+                  onClick={retryPayoutStatus}
+                  disabled={payoutAction.status === 'checking'}
+                >
+                  {payoutAction.status === 'checking' ? <LoaderCircle className="animate-spin" /> : <Clock3 />}
+                  {payoutAction.status === 'checking' ? 'Checking status...' : 'Retry status check'}
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
           {!payoutEligibility.requestable && (
             <Alert className="md:col-span-4">
               {payoutEligibility.reason === 'processing' ? <LoaderCircle className="animate-spin" /> : <Clock3 />}
