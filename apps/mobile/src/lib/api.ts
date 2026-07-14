@@ -128,7 +128,7 @@ function sameSessionSnapshot(captured: Session, current: Session): boolean {
 async function ownsSession(owner: Session): Promise<boolean> {
   try {
     const current = await loadSession();
-    return Boolean(current && isSession(current) && sameSessionOwner(owner, current));
+    return Boolean(current && isSession(current) && sameSessionSnapshot(owner, current));
   } catch {
     return false;
   }
@@ -137,7 +137,7 @@ async function ownsSession(owner: Session): Promise<boolean> {
 async function clearRefreshSessions(...sessions: Session[]): Promise<void> {
   try {
     const current = await loadSession();
-    if (current && isSession(current) && sessions.some((session) => sameSessionOwner(session, current))) {
+    if (current && isSession(current) && sessions.some((session) => sameSessionSnapshot(session, current))) {
       await clearSession();
     }
   } catch {
@@ -192,7 +192,7 @@ async function performRefresh(owner: Session): Promise<Session | null> {
 
 function refresh(owner: Session): Promise<Session | null> {
   if (refreshInFlight) {
-    return sameSessionOwner(refreshInFlight.owner, owner) ? refreshInFlight.promise : Promise.resolve(null);
+    return sameSessionSnapshot(refreshInFlight.owner, owner) ? refreshInFlight.promise : Promise.resolve(null);
   }
   let flight: RefreshFlight;
   const current = performRefresh(owner)

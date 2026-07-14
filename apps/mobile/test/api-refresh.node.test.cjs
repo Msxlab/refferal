@@ -500,3 +500,188 @@ test('an in-flight refresh never overwrites or replays after a different session
     globalThis.fetch = previousFetch;
   }
 });
+
+test('refresh success cannot overwrite a same-token authorization snapshot replacement', async () => {
+  const owner = makeSession();
+  const replacement = {
+    ...owner,
+    memberships: owner.memberships.map((membership) => ({ ...membership, role: 'tenant_admin' })),
+  };
+  const staleRefresh = makeSession({
+    accessToken: 'stale-role-refresh-access-token',
+    refreshToken: 'stale-role-rotated-refresh-token',
+  });
+  const loaded = loadApi(owner);
+  const refreshStarted = deferred();
+  const releaseRefresh = deferred();
+  const replayAuthorizations = [];
+  let refreshCalls = 0;
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    const token = authorization(init);
+    if (url.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      refreshStarted.resolve();
+      await releaseRefresh.promise;
+      return Response.json(staleRefresh);
+    }
+    if (url.endsWith('/role-replacement-success') && token === `Bearer ${owner.accessToken}`) {
+      return new Response(null, { status: 401 });
+    }
+    replayAuthorizations.push(token);
+    return Response.json({ replayed: true });
+  };
+
+  try {
+    const pending = loaded.api.get('/role-replacement-success');
+    await refreshStarted.promise;
+    loaded.persistence.replace(replacement);
+    releaseRefresh.resolve();
+    const [result] = await Promise.allSettled([pending]);
+
+    assert.equal(refreshCalls, 1);
+    assert.equal(result.status, 'rejected');
+    if (result.status === 'rejected') {
+      assert.ok(result.reason instanceof loaded.ApiError);
+      assert.equal(result.reason.status, 401);
+      assert.equal(result.reason.message, 'session expired');
+    }
+    assert.equal(loaded.persistence.saves.length, 0);
+    assert.equal(loaded.persistence.clearCalls(), 0);
+    assert.deepEqual(replayAuthorizations, []);
+    assert.deepEqual(loaded.persistence.current(), replacement);
+  } finally {
+    releaseRefresh.resolve();
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('refresh failure cannot clear a same-token authorization snapshot replacement', async () => {
+  const owner = makeSession();
+  const replacement = {
+    ...owner,
+    memberships: owner.memberships.map((membership) => ({ ...membership, role: 'tenant_admin' })),
+  };
+  const loaded = loadApi(owner);
+  const refreshStarted = deferred();
+  const releaseRefresh = deferred();
+  let refreshCalls = 0;
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    const token = authorization(init);
+    if (url.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      refreshStarted.resolve();
+      await releaseRefresh.promise;
+      return Response.json({ message: 'refresh rejected' }, { status: 401 });
+    }
+    if (url.endsWith('/role-replacement-failure') && token === `Bearer ${owner.accessToken}`) {
+      return new Response(null, { status: 401 });
+    }
+    throw new Error(`unexpected authorization for ${url}: ${token}`);
+  };
+
+  try {
+    const pending = loaded.api.get('/role-replacement-failure');
+    await refreshStarted.promise;
+    loaded.persistence.replace(replacement);
+    releaseRefresh.resolve();
+    const [result] = await Promise.allSettled([pending]);
+
+    assert.equal(refreshCalls, 1);
+    assert.equal(result.status, 'rejected');
+    if (result.status === 'rejected') {
+      assert.ok(result.reason instanceof loaded.ApiError);
+      assert.equal(result.reason.status, 401);
+      assert.equal(result.reason.message, 'session expired');
+    }
+    assert.equal(loaded.persistence.clearCalls(), 0);
+    assert.deepEqual(loaded.persistence.current(), replacement);
+  } finally {
+    releaseRefresh.resolve();
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('a changed authorization snapshot operation never joins an older same-token refresh flight', async () => {
+  const owner = makeSession();
+  const replacement = {
+    ...owner,
+    memberships: owner.memberships.map((membership) => ({ ...membership, role: 'tenant_admin' })),
+  };
+  const staleRefresh = makeSession({
+    accessToken: 'old-flight-fresh-access-token',
+    refreshToken: 'old-flight-rotated-refresh-token',
+  });
+  const loaded = loadApi(owner);
+  const refreshStarted = deferred();
+  const changedUnauthorized = deferred();
+  const releaseRefresh = deferred();
+  const replayAuthorizations = [];
+  let changedSettled = false;
+  let refreshCalls = 0;
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    const token = authorization(init);
+    if (url.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      refreshStarted.resolve();
+      await releaseRefresh.promise;
+      return Response.json(staleRefresh);
+    }
+    if (url.endsWith('/old-role-flight') && token === `Bearer ${owner.accessToken}`) {
+      return new Response(null, { status: 401 });
+    }
+    if (url.endsWith('/changed-role-operation') && token === `Bearer ${replacement.accessToken}`) {
+      changedUnauthorized.resolve();
+      return new Response(null, { status: 401 });
+    }
+    replayAuthorizations.push(token);
+    return Response.json({ replayed: true });
+  };
+
+  try {
+    const oldPending = loaded.api.get('/old-role-flight');
+    await refreshStarted.promise;
+    loaded.persistence.replace(replacement);
+    const changedPending = loaded.api.get('/changed-role-operation');
+    void changedPending.then(
+      () => {
+        changedSettled = true;
+      },
+      () => {
+        changedSettled = true;
+      },
+    );
+    await changedUnauthorized.promise;
+    await new Promise((resolve) => setImmediate(resolve));
+    const settledBeforeOldFlight = changedSettled;
+
+    releaseRefresh.resolve();
+    const [oldResult, changedResult] = await Promise.all([
+      Promise.allSettled([oldPending]).then(([result]) => result),
+      Promise.allSettled([changedPending]).then(([result]) => result),
+    ]);
+
+    assert.equal(settledBeforeOldFlight, true);
+    assert.equal(refreshCalls, 1);
+    for (const result of [oldResult, changedResult]) {
+      assert.equal(result.status, 'rejected');
+      if (result.status === 'rejected') {
+        assert.ok(result.reason instanceof loaded.ApiError);
+        assert.equal(result.reason.status, 401);
+        assert.equal(result.reason.message, 'session expired');
+      }
+    }
+    assert.equal(loaded.persistence.saves.length, 0);
+    assert.equal(loaded.persistence.clearCalls(), 0);
+    assert.deepEqual(replayAuthorizations, []);
+    assert.deepEqual(loaded.persistence.current(), replacement);
+  } finally {
+    releaseRefresh.resolve();
+    globalThis.fetch = previousFetch;
+  }
+});
