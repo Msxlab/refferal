@@ -530,6 +530,124 @@ test('token salvage never replaces an already-advanced same-identity token pair'
   }
 });
 
+test('CAS token lineage upgrades metadata saves queued during write and promise resolution', async () => {
+  for (const phase of ['write', 'promise-resolution']) {
+    const storage = createControlledAsyncStorage();
+    const auth = loadActualAuth(storage);
+    const owner = makeSession();
+    const fresh = makeSession({
+      accessToken: `lineage-${phase}-fresh-access-token`,
+      refreshToken: `lineage-${phase}-fresh-refresh-token`,
+    });
+    const latestMetadata = {
+      ...owner,
+      user: { ...owner.user, fullName: `Latest ${phase} metadata`, locale: 'it' },
+      memberships: owner.memberships.map((membership) => ({
+        ...membership,
+        role: 'owner',
+        tenantName: `Latest ${phase} tenant`,
+      })),
+    };
+    const expected = {
+      ...latestMetadata,
+      accessToken: fresh.accessToken,
+      refreshToken: fresh.refreshToken,
+    };
+    await auth.saveSession(owner);
+    const captured = await auth.loadSessionSnapshot();
+
+    let casResult;
+    if (phase === 'write') {
+      const delayedWrite = storage.delayNextSet();
+      const cas = auth.saveSessionIfCurrent(captured, fresh);
+      await delayedWrite.started;
+      const metadataSave = auth.saveSession(latestMetadata);
+      delayedWrite.release();
+      casResult = await cas;
+      await metadataSave;
+      assert.equal(casResult, null);
+    } else {
+      const cas = auth.saveSessionIfCurrent(captured, fresh);
+      await cas.then(async (result) => {
+        casResult = result;
+        await auth.saveSession(latestMetadata);
+      });
+      assert.notEqual(casResult, null);
+    }
+
+    const current = await auth.loadSessionSnapshot();
+    assert.deepEqual(current.session, expected);
+    assert.deepEqual(storage.storedSession(), expected);
+  }
+});
+
+test('merged token lineage upgrades later metadata saves but lets a third token pair win', async () => {
+  const storage = createControlledAsyncStorage();
+  const auth = loadActualAuth(storage);
+  const owner = makeSession();
+  const freshTokens = {
+    accessToken: 'merged-lineage-fresh-access-token',
+    refreshToken: 'merged-lineage-fresh-refresh-token',
+  };
+  const latestMetadata = {
+    ...owner,
+    user: { ...owner.user, fullName: 'Merged lineage metadata', locale: 'es' },
+    memberships: owner.memberships.map((membership) => ({
+      ...membership,
+      role: 'manager',
+    })),
+  };
+  await auth.saveSession(owner);
+  assert.equal(await auth.mergeSessionTokensIfSameIdentity(owner, freshTokens), true);
+
+  await auth.saveSession(latestMetadata);
+  const merged = { ...latestMetadata, ...freshTokens };
+  assert.deepEqual((await auth.loadSessionSnapshot()).session, merged);
+  assert.deepEqual(storage.storedSession(), merged);
+
+  const thirdPair = {
+    ...latestMetadata,
+    accessToken: 'same-identity-relogin-access-token',
+    refreshToken: 'same-identity-relogin-refresh-token',
+  };
+  await auth.saveSession(thirdPair);
+  assert.deepEqual((await auth.loadSessionSnapshot()).session, thirdPair);
+  assert.deepEqual(storage.storedSession(), thirdPair);
+});
+
+test('clear and different identity saves invalidate token lineage boundaries', async () => {
+  const owner = makeSession();
+  const fresh = makeSession({
+    accessToken: 'boundary-fresh-access-token',
+    refreshToken: 'boundary-fresh-refresh-token',
+  });
+
+  for (const boundary of ['clear', 'different-identity']) {
+    const storage = createControlledAsyncStorage();
+    const auth = loadActualAuth(storage);
+    await auth.saveSession(owner);
+    const captured = await auth.loadSessionSnapshot();
+    assert.notEqual(await auth.saveSessionIfCurrent(captured, fresh), null);
+
+    if (boundary === 'clear') {
+      await auth.clearSession();
+      assert.equal((await auth.loadSessionSnapshot()).session, null);
+      assert.equal(storage.storedSession(), null);
+    } else {
+      const replacement = makeSession({
+        accessToken: 'boundary-replacement-access-token',
+        refreshToken: 'boundary-replacement-refresh-token',
+        userId: 'boundary-replacement-user',
+        membershipId: 'boundary-replacement-membership',
+        tenantId: 'boundary-replacement-tenant',
+      });
+      await auth.saveSession(replacement);
+      assert.deepEqual((await auth.loadSessionSnapshot()).session, replacement);
+      assert.deepEqual(storage.storedSession(), replacement);
+    }
+  }
+});
+
 async function assertFinalRetryMutationDoesNotReplay(mutation) {
   const owner = makeSession();
   const fresh = makeSession({

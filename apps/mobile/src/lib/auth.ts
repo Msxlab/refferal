@@ -32,6 +32,16 @@ let cached: Session | null = null;
 let generation = 0;
 let sessionQueue: Promise<void> = Promise.resolve();
 
+type SessionTokenPair = Pick<Session, 'accessToken' | 'refreshToken'>;
+
+interface TokenAdvancement {
+  owner: Session;
+  oldTokens: SessionTokenPair;
+  freshTokens: SessionTokenPair;
+}
+
+let tokenAdvancement: TokenAdvancement | null = null;
+
 export interface SessionSnapshot {
   session: Session | null;
   generation: number;
@@ -78,6 +88,60 @@ function sameSessionIdentity(left: Session, right: Session): boolean {
   );
 }
 
+function hasTokenPair(session: Session, tokens: SessionTokenPair): boolean {
+  return (
+    session.accessToken === tokens.accessToken && session.refreshToken === tokens.refreshToken
+  );
+}
+
+function registerTokenAdvancement(owner: Session | null, refreshed: Session): void {
+  if (!owner || !sameSessionIdentity(owner, refreshed)) {
+    tokenAdvancement = null;
+    return;
+  }
+  if (hasTokenPair(refreshed, owner)) {
+    const current = tokenAdvancement;
+    if (
+      current &&
+      sameSessionIdentity(current.owner, refreshed) &&
+      (hasTokenPair(refreshed, current.oldTokens) ||
+        hasTokenPair(refreshed, current.freshTokens))
+    ) {
+      return;
+    }
+    tokenAdvancement = null;
+    return;
+  }
+  tokenAdvancement = {
+    owner,
+    oldTokens: { accessToken: owner.accessToken, refreshToken: owner.refreshToken },
+    freshTokens: {
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken,
+    },
+  };
+}
+
+function resolveQueuedSessionSave(session: Session): {
+  session: Session;
+  advancement: TokenAdvancement | null;
+} {
+  const advancement = tokenAdvancement;
+  if (!advancement || !sameSessionIdentity(advancement.owner, session)) {
+    return { session, advancement: null };
+  }
+  if (hasTokenPair(session, advancement.oldTokens)) {
+    return {
+      session: { ...session, ...advancement.freshTokens },
+      advancement,
+    };
+  }
+  if (hasTokenPair(session, advancement.freshTokens)) {
+    return { session, advancement };
+  }
+  return { session, advancement: null };
+}
+
 function enqueueSessionOperation<T>(operation: () => Promise<T>): Promise<T> {
   const result = sessionQueue.then(operation, operation);
   sessionQueue = result.then(
@@ -119,8 +183,10 @@ export async function loadSession(): Promise<Session | null> {
 export function saveSession(s: Session): Promise<void> {
   generation += 1;
   return enqueueSessionOperation(async () => {
-    await AsyncStorage.setItem(KEY, JSON.stringify(s));
-    cached = s;
+    const resolved = resolveQueuedSessionSave(s);
+    await AsyncStorage.setItem(KEY, JSON.stringify(resolved.session));
+    cached = resolved.session;
+    tokenAdvancement = resolved.advancement;
   });
 }
 
@@ -129,6 +195,7 @@ export function clearSession(): Promise<void> {
   return enqueueSessionOperation(async () => {
     await AsyncStorage.removeItem(KEY);
     cached = null;
+    tokenAdvancement = null;
   });
 }
 
@@ -152,13 +219,17 @@ export function saveSessionIfCurrent(
       if (generation === operationGeneration) {
         try {
           await AsyncStorage.removeItem(KEY);
-          if (generation === operationGeneration) cached = null;
+          if (generation === operationGeneration) {
+            cached = null;
+            tokenAdvancement = null;
+          }
         } catch {
           // The caller still receives a failed CAS without a raw storage error.
         }
       }
       return null;
     }
+    registerTokenAdvancement(expected.session, next);
     if (generation !== operationGeneration) return null;
     cached = next;
     return { session: next, generation: operationGeneration };
@@ -183,6 +254,7 @@ export function clearSessionIfCurrent(expected: SessionSnapshot): Promise<boolea
     }
     if (generation !== operationGeneration) return false;
     cached = null;
+    tokenAdvancement = null;
     return true;
   });
 }
@@ -200,14 +272,14 @@ function mergeSessionTokensAttempt(
   return enqueueSessionOperation(async (): Promise<TokenMergeAttempt> => {
     const current = await loadSessionWithinQueue();
     if (generation !== observedGeneration) return { status: 'retry' };
-    if (
-      !current ||
-      !sameSessionIdentity(owner, current) ||
-      current.accessToken !== owner.accessToken ||
-      current.refreshToken !== owner.refreshToken
-    ) {
+    if (!current || !sameSessionIdentity(owner, current)) {
       return { status: 'stopped' };
     }
+    if (hasTokenPair(current, tokens)) {
+      registerTokenAdvancement(owner, current);
+      return { status: 'merged', generation: observedGeneration };
+    }
+    if (!hasTokenPair(current, owner)) return { status: 'stopped' };
 
     const operationGeneration = ++generation;
     const merged: Session = {
@@ -220,6 +292,7 @@ function mergeSessionTokensAttempt(
     } catch {
       return generation === operationGeneration ? { status: 'stopped' } : { status: 'retry' };
     }
+    registerTokenAdvancement(owner, merged);
     if (generation !== operationGeneration) return { status: 'retry' };
     cached = merged;
     return { status: 'merged', generation: operationGeneration };
