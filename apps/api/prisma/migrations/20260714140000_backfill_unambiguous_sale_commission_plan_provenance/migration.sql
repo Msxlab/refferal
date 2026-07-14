@@ -1,6 +1,7 @@
 -- This deliberately backfills only the subset supported by current, timestamped
--- plan rows and immutable original commission rows. Deleted history or timestamps
--- changed outside the application cannot be reconstructed and must remain NULL.
+-- plan rows and immutable original commission rows. It assumes plan history was
+-- not deleted and timestamps were not changed outside the application; those
+-- external mutations are not detectable from the surviving rows.
 WITH evidence AS (
   SELECT
     s.id AS sale_id,
@@ -56,7 +57,8 @@ as_of_winners AS (
 trusted_winners AS (
   SELECT w.sale_id, w.tenant_id, w.plan_id
   FROM as_of_winners w
-  WHERE w.plan_updated_at < w.evidence_at
+  WHERE w.depth > 0
+    AND w.plan_updated_at < w.evidence_at
     -- now() on ledger rows is the engine transaction start. A higher plan that
     -- appears after that cutoff could be late-backdated or could have committed
     -- before lookup; without a resolution timestamp the sale stays unpinned.
@@ -69,12 +71,19 @@ trusted_winners AS (
         AND later_higher.effective_from > w.effective_from
     )
     -- The current complete level snapshot must already have existed unchanged.
+    AND (
+      SELECT COUNT(*)
+      FROM commission_plan_levels snapshot_count
+      WHERE snapshot_count.plan_id = w.plan_id
+    ) = w.depth
     AND NOT EXISTS (
       SELECT 1
       FROM commission_plan_levels snapshot_level
       WHERE snapshot_level.plan_id = w.plan_id
         AND (
-          snapshot_level.created_at >= w.evidence_at
+          snapshot_level.level < 0
+          OR snapshot_level.level >= w.depth
+          OR snapshot_level.created_at >= w.evidence_at
           OR snapshot_level.updated_at >= w.evidence_at
         )
     )
