@@ -77,6 +77,10 @@ function ownsRefresh(ownerAccessToken: string, generation: number): boolean {
   return refreshGeneration === generation && sessionMatches(ownerAccessToken);
 }
 
+function clearRefreshOwner(owner: Session, generation: number): void {
+  if (ownsRefresh(owner.accessToken, generation)) clearSession();
+}
+
 function sameSessionIdentity(captured: Session, current: Session): boolean {
   if (captured.user.id !== current.user.id || captured.activeMembershipId !== current.activeMembershipId) return false;
   if (captured.activeMembershipId === null) return true;
@@ -114,7 +118,7 @@ async function performRefresh(owner: Session, generation: number): Promise<Sessi
     // Refresh transport, parsing, and session persistence failures all fail closed.
   }
   if (!next) {
-    if (ownsRefresh(owner.accessToken, generation)) clearSession();
+    clearRefreshOwner(owner, generation);
     return null;
   }
   if (!ownsRefresh(owner.accessToken, generation)) return null;
@@ -143,7 +147,10 @@ function coordinatedRefresh(owner: Session, generation: number): Promise<Session
   if (!locks || typeof locks.request !== 'function') return performRefresh(owner, generation);
   return locks
     .request(AUTH_REFRESH_LOCK, { mode: 'exclusive' }, () => refreshWithCurrentSession(owner, generation))
-    .catch(() => null);
+    .catch(() => {
+      clearRefreshOwner(owner, generation);
+      return null;
+    });
 }
 
 function refresh(owner: Session, generation: number): Promise<Session | null> {

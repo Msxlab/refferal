@@ -93,12 +93,13 @@ function installRefreshLockQueue(): {
   requests: Array<{ name: string; mode: string | undefined }>;
   requested: Promise<void>;
   releaseNext: () => boolean;
+  rejectNext: (reason?: unknown) => boolean;
   restore: () => void;
 } {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   const requested = deferred();
   const requests: Array<{ name: string; mode: string | undefined }> = [];
-  const pending: Array<() => void> = [];
+  const pending: Array<{ release: () => void; reject: (reason?: unknown) => void }> = [];
   const locks = {
     request<T>(
       name: string,
@@ -108,8 +109,11 @@ function installRefreshLockQueue(): {
       requests.push({ name, mode: options.mode });
       requested.resolve();
       return new Promise<T>((resolve, reject) => {
-        pending.push(() => {
-          Promise.resolve(callback()).then(resolve, reject);
+        pending.push({
+          release: () => {
+            Promise.resolve(callback()).then(resolve, reject);
+          },
+          reject,
         });
       });
     },
@@ -124,9 +128,15 @@ function installRefreshLockQueue(): {
     requests,
     requested: requested.promise,
     releaseNext: () => {
-      const release = pending.shift();
-      if (!release) return false;
-      release();
+      const next = pending.shift();
+      if (!next) return false;
+      next.release();
+      return true;
+    },
+    rejectNext: (reason) => {
+      const next = pending.shift();
+      if (!next) return false;
+      next.reject(reason);
       return true;
     },
     restore: () => {
@@ -886,6 +896,115 @@ test('cross-tab refresh lock fails closed when the workspace changes while waiti
     assert.equal(getSession()?.activeMembershipId, 'membership-b');
   } finally {
     locks.releaseNext();
+    restoreFetch();
+    locks.restore();
+    browser.restore();
+  }
+});
+
+test('rejected cross-tab refresh lock clears its owner once and rejects concurrent waiters', async () => {
+  const browser = installBrowser();
+  const locks = installRefreshLockQueue();
+  const owner = makeWorkspaceSession('lock-owner-token', 'user-a', 'membership-a', 'tenant-a');
+  setSession(owner);
+  const bothUnauthorized = deferred();
+  const replayAuthorizations: Array<string | null> = [];
+  let unauthorizedCalls = 0;
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const authorization = new Headers(init?.headers).get('Authorization');
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      return Response.json({ ...owner, accessToken: 'unexpected-refresh-token' });
+    }
+    if (authorization === 'Bearer lock-owner-token') {
+      unauthorizedCalls += 1;
+      if (unauthorizedCalls === 2) bothUnauthorized.resolve();
+      await bothUnauthorized.promise;
+      return new Response(null, { status: 401 });
+    }
+    replayAuthorizations.push(authorization);
+    return path.endsWith('.csv') ? new Response('unexpected-csv') : Response.json({ replayed: true });
+  });
+
+  try {
+    const pending = Promise.allSettled([
+      api.get('/lock-rejection-resource'),
+      getCsv('/lock-rejection-report.csv'),
+    ]);
+    await Promise.all([bothUnauthorized.promise, locks.requested]);
+    await Promise.resolve();
+    assert.equal(locks.rejectNext(new Error('lock manager unavailable')), true);
+    const results = await pending;
+
+    assert.deepEqual(locks.requests, [{ name: 'refearn.auth.refresh', mode: 'exclusive' }]);
+    assert.equal(refreshCalls, 0);
+    assert.equal(browser.removeCalls(), 1);
+    assert.equal(getSession(), null);
+    assert.deepEqual(replayAuthorizations, []);
+    for (const result of results) {
+      assert.equal(result.status, 'rejected');
+      if (result.status === 'rejected') {
+        assert.ok(result.reason instanceof ApiError);
+        assert.equal(result.reason.status, 401);
+        assert.equal(result.reason.message, 'session expired');
+      }
+    }
+  } finally {
+    locks.rejectNext(new Error('test cleanup'));
+    restoreFetch();
+    locks.restore();
+    browser.restore();
+  }
+});
+
+test('rejected cross-tab refresh lock preserves an independently replaced session', async () => {
+  const browser = installBrowser();
+  const locks = installRefreshLockQueue();
+  const owner = makeWorkspaceSession('expired-owner-token', 'user-a', 'membership-a', 'tenant-a');
+  const replacement = makeWorkspaceSession('replacement-token', 'user-b', 'membership-b', 'tenant-b');
+  setSession(owner);
+  const replayAuthorizations: Array<string | null> = [];
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const authorization = new Headers(init?.headers).get('Authorization');
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      return Response.json({ ...owner, accessToken: 'unexpected-refresh-token' });
+    }
+    if (path.endsWith('/replacement-resource') && authorization === 'Bearer expired-owner-token') {
+      return new Response(null, { status: 401 });
+    }
+    if (path.endsWith('/replacement-resource')) {
+      replayAuthorizations.push(authorization);
+      return Response.json({ replayed: true });
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const pending = Promise.allSettled([api.get('/replacement-resource')]);
+    await locks.requested;
+    setSession(replacement);
+    assert.equal(locks.rejectNext(new Error('lock manager unavailable')), true);
+    const result = await pending;
+
+    assert.deepEqual(locks.requests, [{ name: 'refearn.auth.refresh', mode: 'exclusive' }]);
+    assert.equal(refreshCalls, 0);
+    assert.equal(result[0]?.status, 'rejected');
+    if (result[0]?.status === 'rejected') {
+      assert.ok(result[0].reason instanceof ApiError);
+      assert.equal(result[0].reason.status, 401);
+      assert.equal(result[0].reason.message, 'session expired');
+    }
+    assert.deepEqual(replayAuthorizations, []);
+    assert.equal(browser.removeCalls(), 0);
+    assert.equal(getSession()?.accessToken, 'replacement-token');
+    assert.equal(getSession()?.activeMembershipId, 'membership-b');
+  } finally {
+    locks.rejectNext(new Error('test cleanup'));
     restoreFetch();
     locks.restore();
     browser.restore();
