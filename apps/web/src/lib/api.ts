@@ -11,6 +11,43 @@ export class ApiError extends Error {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isSession(value: unknown): value is Session {
+  if (!isRecord(value) || !isNonEmptyString(value.accessToken) || !isRecord(value.user)) return false;
+  const user = value.user;
+  if (
+    !isNonEmptyString(user.id) ||
+    !isNonEmptyString(user.email) ||
+    !isNonEmptyString(user.fullName) ||
+    !isNonEmptyString(user.locale) ||
+    typeof user.emailVerified !== 'boolean' ||
+    (user.isPlatformAdmin !== undefined && typeof user.isPlatformAdmin !== 'boolean') ||
+    (value.refreshToken !== undefined && !isNonEmptyString(value.refreshToken)) ||
+    (value.activeMembershipId !== null && !isNonEmptyString(value.activeMembershipId)) ||
+    !Array.isArray(value.memberships)
+  ) {
+    return false;
+  }
+  return value.memberships.every(
+    (membership) =>
+      isRecord(membership) &&
+      isNonEmptyString(membership.id) &&
+      isNonEmptyString(membership.tenantId) &&
+      isNonEmptyString(membership.tenantSlug) &&
+      isNonEmptyString(membership.tenantName) &&
+      isNonEmptyString(membership.role) &&
+      isNonEmptyString(membership.referralCode) &&
+      Number.isInteger(membership.depth),
+  );
+}
+
 async function rawFetch(path: string, init: RequestInit, token?: string): Promise<Response> {
   const headers = new Headers(init.headers);
   if (token) headers.set('Authorization', `Bearer ${token}`);
@@ -18,42 +55,74 @@ async function rawFetch(path: string, init: RequestInit, token?: string): Promis
   return fetch(`${BASE}${path}`, { ...init, credentials: 'include', headers });
 }
 
-let refreshInFlight: Promise<Session | null> | null = null;
+interface RefreshFlight {
+  ownerAccessToken: string;
+  generation: number;
+  promise: Promise<Session | null>;
+}
+
+let refreshInFlight: RefreshFlight | null = null;
+let refreshGeneration = 0;
+
+function sessionMatches(accessToken: string): boolean {
+  return getSession()?.accessToken === accessToken;
+}
+
+function ownsRefresh(ownerAccessToken: string, generation: number): boolean {
+  return refreshGeneration === generation && sessionMatches(ownerAccessToken);
+}
 
 /** Refresh once after an expired access token; clear the session if refresh fails. */
-async function performRefresh(): Promise<Session | null> {
+async function performRefresh(ownerAccessToken: string, generation: number): Promise<Session | null> {
+  let next: Session | null = null;
   try {
     const res = await rawFetch('/auth/refresh', {
       method: 'POST',
     });
     if (res.ok) {
-      const next = (await res.json()) as Session;
-      setSession(next);
-      return next;
+      const candidate: unknown = await res.json();
+      if (isSession(candidate)) next = candidate;
     }
   } catch {
     // Refresh transport, parsing, and session persistence failures all fail closed.
   }
-  clearSession();
-  return null;
+  if (!next) {
+    if (ownsRefresh(ownerAccessToken, generation)) clearSession();
+    return null;
+  }
+  if (!ownsRefresh(ownerAccessToken, generation)) return null;
+  try {
+    setSession(next);
+    return next;
+  } catch {
+    clearSession();
+    return null;
+  }
 }
 
-function refresh(): Promise<Session | null> {
-  if (refreshInFlight) return refreshInFlight;
-  const current = performRefresh().finally(() => {
-    if (refreshInFlight === current) refreshInFlight = null;
+function refresh(owner: Session): Promise<Session | null> {
+  const generation = refreshGeneration;
+  if (!ownsRefresh(owner.accessToken, generation)) return Promise.resolve(null);
+  if (refreshInFlight) {
+    return refreshInFlight.ownerAccessToken === owner.accessToken && refreshInFlight.generation === generation
+      ? refreshInFlight.promise
+      : Promise.resolve(null);
+  }
+  let flight: RefreshFlight;
+  const current = performRefresh(owner.accessToken, generation).finally(() => {
+    if (refreshInFlight === flight) refreshInFlight = null;
   });
-  refreshInFlight = current;
+  flight = { ownerAccessToken: owner.accessToken, generation, promise: current };
+  refreshInFlight = flight;
   return current;
 }
 
-async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
-  const session = getSession();
+async function request<T>(path: string, init: RequestInit = {}, retry = true, session = getSession()): Promise<T> {
   const res = await rawFetch(path, init, session?.accessToken);
 
   if (res.status === 401 && session && retry) {
-    const refreshed = await refresh();
-    if (refreshed) return request<T>(path, init, false);
+    const refreshed = await refresh(session);
+    if (refreshed && sessionMatches(refreshed.accessToken)) return request<T>(path, init, false, refreshed);
     throw new ApiError(401, { message: 'session expired' });
   }
 
@@ -89,6 +158,7 @@ export const api = {
   del: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'DELETE', body: body !== undefined ? JSON.stringify(body) : undefined }),
   logout: async (): Promise<void> => {
+    refreshGeneration += 1;
     try {
       await rawFetch('/auth/logout', { method: 'POST' });
     } finally {
@@ -138,7 +208,7 @@ export async function loginMfa(challengeToken: string, code: string): Promise<Se
 
 export async function refreshSession(): Promise<Session | null> {
   const session = getSession();
-  return session ? refresh() : null;
+  return session ? refresh(session) : null;
 }
 
 /** CSV download returns raw text and includes the bearer token. */
@@ -146,8 +216,10 @@ export async function getCsv(path: string): Promise<string> {
   const session = getSession();
   let res = await rawFetch(path, {}, session?.accessToken);
   if (res.status === 401 && session) {
-    const refreshed = await refresh();
-    if (!refreshed) throw new ApiError(401, { message: 'session expired' });
+    const refreshed = await refresh(session);
+    if (!refreshed || !sessionMatches(refreshed.accessToken)) {
+      throw new ApiError(401, { message: 'session expired' });
+    }
     res = await rawFetch(path, {}, refreshed.accessToken);
   }
   if (!res.ok) throw new ApiError(res.status, { message: 'CSV download failed' });

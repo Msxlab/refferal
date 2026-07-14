@@ -318,3 +318,158 @@ test('explicit refresh and CSV retry share the active refresh result', async () 
     browser.restore();
   }
 });
+
+test('stale JSON and CSV operations never replay after the session changes during refresh', async () => {
+  const browser = installBrowser();
+  setSession(makeSession('user-a-expired-token'));
+  const bothUnauthorized = deferred();
+  const refreshStarted = deferred();
+  const releaseRefresh = deferred();
+  const replayAuthorizations: Array<string | null> = [];
+  let unauthorizedCalls = 0;
+  let refreshCalls = 0;
+  const userBSession: Session = {
+    ...makeSession('user-b-current-token'),
+    user: { ...makeSession().user, id: 'user-2', email: 'user-b@example.test' },
+  };
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const authorization = new Headers(init?.headers).get('Authorization');
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      refreshStarted.resolve();
+      await releaseRefresh.promise;
+      return Response.json({ ...userBSession, accessToken: 'user-b-refreshed-token' });
+    }
+    if (
+      (path.endsWith('/owned-resource') || path.endsWith('/owned-report.csv')) &&
+      authorization === 'Bearer user-a-expired-token'
+    ) {
+      unauthorizedCalls += 1;
+      if (unauthorizedCalls === 2) bothUnauthorized.resolve();
+      return new Response(null, { status: 401 });
+    }
+    if (path.endsWith('/owned-resource') || path.endsWith('/owned-report.csv')) {
+      replayAuthorizations.push(authorization);
+      return path.endsWith('.csv') ? new Response('cross-session-csv') : Response.json({ crossSession: true });
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const pending = Promise.allSettled([api.get('/owned-resource'), getCsv('/owned-report.csv')]);
+    await Promise.all([bothUnauthorized.promise, refreshStarted.promise]);
+    setSession(userBSession);
+    releaseRefresh.resolve();
+    const results = await pending;
+
+    assert.equal(refreshCalls, 1);
+    assert.deepEqual(replayAuthorizations, []);
+    assert.equal(getSession()?.accessToken, 'user-b-current-token');
+    for (const result of results) {
+      assert.equal(result.status, 'rejected');
+      if (result.status === 'rejected') {
+        assert.ok(result.reason instanceof ApiError);
+        assert.equal(result.reason.status, 401);
+        assert.equal(result.reason.message, 'session expired');
+      }
+    }
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('logout invalidates an in-flight refresh so it cannot restore or replay the session', async () => {
+  const browser = installBrowser();
+  setSession(makeSession('expired-access-token'));
+  const refreshStarted = deferred();
+  const releaseRefresh = deferred();
+  const replayAuthorizations: Array<string | null> = [];
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const authorization = new Headers(init?.headers).get('Authorization');
+    if (path.endsWith('/auth/refresh')) {
+      refreshStarted.resolve();
+      await releaseRefresh.promise;
+      return Response.json(makeSession('resurrected-access-token'));
+    }
+    if (path.endsWith('/auth/logout')) return new Response(null, { status: 204 });
+    if (path.endsWith('/owned-resource') && authorization === 'Bearer expired-access-token') {
+      return new Response(null, { status: 401 });
+    }
+    if (path.endsWith('/owned-resource')) {
+      replayAuthorizations.push(authorization);
+      return Response.json({ resurrected: true });
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const pending = api.get('/owned-resource');
+    await refreshStarted.promise;
+    await api.logout();
+    assert.equal(getSession(), null);
+    releaseRefresh.resolve();
+    const result = await Promise.allSettled([pending]);
+
+    assert.equal(result[0]?.status, 'rejected');
+    if (result[0]?.status === 'rejected') {
+      assert.ok(result[0].reason instanceof ApiError);
+      assert.equal(result[0].reason.status, 401);
+      assert.equal(result[0].reason.message, 'session expired');
+    }
+    assert.deepEqual(replayAuthorizations, []);
+    assert.equal(browser.removeCalls(), 1);
+    assert.equal(getSession(), null);
+  } finally {
+    releaseRefresh.resolve();
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('malformed successful refresh clears once and rejects every waiter as unauthorized', async () => {
+  const browser = installBrowser();
+  setSession(makeSession('expired-access-token'));
+  const bothUnauthorized = deferred();
+  const retryAuthorizations: Array<string | null> = [];
+  let unauthorizedCalls = 0;
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const authorization = new Headers(init?.headers).get('Authorization');
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      await bothUnauthorized.promise;
+      return Response.json({});
+    }
+    if (authorization === 'Bearer expired-access-token') {
+      unauthorizedCalls += 1;
+      if (unauthorizedCalls === 2) bothUnauthorized.resolve();
+      return new Response(null, { status: 401 });
+    }
+    retryAuthorizations.push(authorization);
+    return Response.json({ malformedRefreshWasUsed: true });
+  });
+
+  try {
+    const results = await Promise.allSettled([api.get('/first-resource'), api.get('/second-resource')]);
+
+    assert.equal(refreshCalls, 1);
+    assert.equal(browser.removeCalls(), 1);
+    assert.equal(getSession(), null);
+    assert.deepEqual(retryAuthorizations, []);
+    for (const result of results) {
+      assert.equal(result.status, 'rejected');
+      if (result.status === 'rejected') {
+        assert.ok(result.reason instanceof ApiError);
+        assert.equal(result.reason.status, 401);
+        assert.equal(result.reason.message, 'session expired');
+      }
+    }
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
