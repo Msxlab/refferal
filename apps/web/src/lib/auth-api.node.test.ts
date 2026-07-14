@@ -473,3 +473,87 @@ test('malformed successful refresh clears once and rejects every waiter as unaut
     browser.restore();
   }
 });
+
+test('late JSON and CSV 401 responses reuse the already advanced token for the same workspace', async () => {
+  const browser = installBrowser();
+  const originalSession: Session = {
+    ...makeSession('workspace-expired-token'),
+    activeMembershipId: 'membership-1',
+    memberships: [
+      {
+        id: 'membership-1',
+        tenantId: 'tenant-1',
+        tenantSlug: 'tenant-one',
+        tenantName: 'Tenant One',
+        role: 'member',
+        referralCode: 'MEMBER1',
+        depth: 1,
+      },
+    ],
+  };
+  const refreshedSession = { ...originalSession, accessToken: 'workspace-fresh-token' };
+  setSession(originalSession);
+  const releaseLateUnauthorized = deferred();
+  const requestTokens = new Map<string, Array<string | null>>();
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const authorization = new Headers(init?.headers).get('Authorization');
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      return Response.json(refreshedSession);
+    }
+    const calls = requestTokens.get(path) ?? [];
+    calls.push(authorization);
+    requestTokens.set(path, calls);
+    if (path.endsWith('/fast-resource') && authorization === 'Bearer workspace-expired-token') {
+      return new Response(null, { status: 401 });
+    }
+    if (
+      (path.endsWith('/slow-resource') || path.endsWith('/slow-report.csv')) &&
+      authorization === 'Bearer workspace-expired-token'
+    ) {
+      await releaseLateUnauthorized.promise;
+      return new Response(null, { status: 401 });
+    }
+    if (authorization === 'Bearer workspace-fresh-token') {
+      return path.endsWith('.csv') ? new Response('late-csv-data') : Response.json({ path });
+    }
+    throw new Error(`unexpected authorization for ${path}: ${authorization}`);
+  });
+
+  try {
+    const fast = api.get<{ path: string }>('/fast-resource');
+    const late = Promise.allSettled([
+      api.get<{ path: string }>('/slow-resource'),
+      getCsv('/slow-report.csv'),
+    ]);
+
+    assert.equal((await fast).path, 'http://localhost:3001/v1/fast-resource');
+    assert.equal(getSession()?.accessToken, 'workspace-fresh-token');
+    releaseLateUnauthorized.resolve();
+    const lateResults = await late;
+
+    assert.equal(refreshCalls, 1);
+    assert.equal(lateResults[0]?.status, 'fulfilled');
+    assert.equal(lateResults[1]?.status, 'fulfilled');
+    if (lateResults[0]?.status === 'fulfilled') {
+      assert.equal(lateResults[0].value.path, 'http://localhost:3001/v1/slow-resource');
+    }
+    if (lateResults[1]?.status === 'fulfilled') assert.equal(lateResults[1].value, 'late-csv-data');
+    for (const path of [
+      'http://localhost:3001/v1/fast-resource',
+      'http://localhost:3001/v1/slow-resource',
+      'http://localhost:3001/v1/slow-report.csv',
+    ]) {
+      assert.deepEqual(requestTokens.get(path), [
+        'Bearer workspace-expired-token',
+        'Bearer workspace-fresh-token',
+      ]);
+    }
+  } finally {
+    releaseLateUnauthorized.resolve();
+    restoreFetch();
+    browser.restore();
+  }
+});

@@ -72,6 +72,28 @@ function ownsRefresh(ownerAccessToken: string, generation: number): boolean {
   return refreshGeneration === generation && sessionMatches(ownerAccessToken);
 }
 
+function sameSessionIdentity(captured: Session, current: Session): boolean {
+  if (captured.user.id !== current.user.id || captured.activeMembershipId !== current.activeMembershipId) return false;
+  if (captured.activeMembershipId === null) return true;
+  const capturedMembership = captured.memberships.find((membership) => membership.id === captured.activeMembershipId);
+  const currentMembership = current.memberships.find((membership) => membership.id === current.activeMembershipId);
+  return Boolean(capturedMembership && currentMembership && capturedMembership.tenantId === currentMembership.tenantId);
+}
+
+function advancedSessionFor(captured: Session, generation: number): Session | null {
+  if (generation !== refreshGeneration) return null;
+  const current = getSession();
+  if (
+    !current ||
+    !isSession(current) ||
+    current.accessToken === captured.accessToken ||
+    !sameSessionIdentity(captured, current)
+  ) {
+    return null;
+  }
+  return current;
+}
+
 /** Refresh once after an expired access token; clear the session if refresh fails. */
 async function performRefresh(ownerAccessToken: string, generation: number): Promise<Session | null> {
   let next: Session | null = null;
@@ -100,8 +122,7 @@ async function performRefresh(ownerAccessToken: string, generation: number): Pro
   }
 }
 
-function refresh(owner: Session): Promise<Session | null> {
-  const generation = refreshGeneration;
+function refresh(owner: Session, generation: number): Promise<Session | null> {
   if (!ownsRefresh(owner.accessToken, generation)) return Promise.resolve(null);
   if (refreshInFlight) {
     return refreshInFlight.ownerAccessToken === owner.accessToken && refreshInFlight.generation === generation
@@ -117,12 +138,26 @@ function refresh(owner: Session): Promise<Session | null> {
   return current;
 }
 
-async function request<T>(path: string, init: RequestInit = {}, retry = true, session = getSession()): Promise<T> {
+async function sessionForRetry(captured: Session, generation: number): Promise<Session | null> {
+  const advanced = advancedSessionFor(captured, generation);
+  if (advanced) return advanced;
+  const refreshed = await refresh(captured, generation);
+  if (refreshed && sessionMatches(refreshed.accessToken)) return refreshed;
+  return advancedSessionFor(captured, generation);
+}
+
+async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  retry = true,
+  session = getSession(),
+  generation = refreshGeneration,
+): Promise<T> {
   const res = await rawFetch(path, init, session?.accessToken);
 
   if (res.status === 401 && session && retry) {
-    const refreshed = await refresh(session);
-    if (refreshed && sessionMatches(refreshed.accessToken)) return request<T>(path, init, false, refreshed);
+    const retrySession = await sessionForRetry(session, generation);
+    if (retrySession) return request<T>(path, init, false, retrySession, generation);
     throw new ApiError(401, { message: 'session expired' });
   }
 
@@ -207,20 +242,20 @@ export async function loginMfa(challengeToken: string, code: string): Promise<Se
 }
 
 export async function refreshSession(): Promise<Session | null> {
+  const generation = refreshGeneration;
   const session = getSession();
-  return session ? refresh(session) : null;
+  return session ? refresh(session, generation) : null;
 }
 
 /** CSV download returns raw text and includes the bearer token. */
 export async function getCsv(path: string): Promise<string> {
+  const generation = refreshGeneration;
   const session = getSession();
   let res = await rawFetch(path, {}, session?.accessToken);
   if (res.status === 401 && session) {
-    const refreshed = await refresh(session);
-    if (!refreshed || !sessionMatches(refreshed.accessToken)) {
-      throw new ApiError(401, { message: 'session expired' });
-    }
-    res = await rawFetch(path, {}, refreshed.accessToken);
+    const retrySession = await sessionForRetry(session, generation);
+    if (!retrySession) throw new ApiError(401, { message: 'session expired' });
+    res = await rawFetch(path, {}, retrySession.accessToken);
   }
   if (!res.ok) throw new ApiError(res.status, { message: 'CSV download failed' });
   return res.text();
