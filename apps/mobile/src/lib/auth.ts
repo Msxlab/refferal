@@ -66,6 +66,18 @@ function sameSessionSnapshot(left: Session | null, right: Session | null): boole
   );
 }
 
+function sameSessionIdentity(left: Session, right: Session): boolean {
+  if (left.user.id !== right.user.id || left.activeMembershipId !== right.activeMembershipId) {
+    return false;
+  }
+  if (left.activeMembershipId === null) return true;
+  const leftMembership = left.memberships.find(({ id }) => id === left.activeMembershipId);
+  const rightMembership = right.memberships.find(({ id }) => id === right.activeMembershipId);
+  return Boolean(
+    leftMembership && rightMembership && leftMembership.tenantId === rightMembership.tenantId,
+  );
+}
+
 function enqueueSessionOperation<T>(operation: () => Promise<T>): Promise<T> {
   const result = sessionQueue.then(operation, operation);
   sessionQueue = result.then(
@@ -173,6 +185,53 @@ export function clearSessionIfCurrent(expected: SessionSnapshot): Promise<boolea
     cached = null;
     return true;
   });
+}
+
+type TokenMergeAttempt =
+  | { status: 'merged'; generation: number }
+  | { status: 'retry' }
+  | { status: 'stopped' };
+
+function mergeSessionTokensAttempt(
+  owner: Session,
+  tokens: Pick<Session, 'accessToken' | 'refreshToken'>,
+): Promise<boolean> {
+  const observedGeneration = generation;
+  return enqueueSessionOperation(async (): Promise<TokenMergeAttempt> => {
+    const current = await loadSessionWithinQueue();
+    if (generation !== observedGeneration) return { status: 'retry' };
+    if (!current || !sameSessionIdentity(owner, current)) return { status: 'stopped' };
+
+    const operationGeneration = ++generation;
+    const merged: Session = {
+      ...current,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    };
+    try {
+      await AsyncStorage.setItem(KEY, JSON.stringify(merged));
+    } catch {
+      return generation === operationGeneration ? { status: 'stopped' } : { status: 'retry' };
+    }
+    if (generation !== operationGeneration) return { status: 'retry' };
+    cached = merged;
+    return { status: 'merged', generation: operationGeneration };
+  }).then((result) => {
+    if (
+      result.status === 'retry' ||
+      (result.status === 'merged' && generation !== result.generation)
+    ) {
+      return mergeSessionTokensAttempt(owner, tokens);
+    }
+    return result.status === 'merged';
+  });
+}
+
+export function mergeSessionTokensIfSameIdentity(
+  owner: Session,
+  tokens: Pick<Session, 'accessToken' | 'refreshToken'>,
+): Promise<boolean> {
+  return mergeSessionTokensAttempt(owner, tokens);
 }
 
 export function activeMembership(s: Session): MembershipSummary | null {

@@ -59,6 +59,15 @@ function loadApi(initialSession) {
   const queuedSnapshots = [];
   const delayedSnapshots = [];
   const sameSnapshot = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+  const sameIdentity = (left, right) => {
+    if (left.user.id !== right.user.id || left.activeMembershipId !== right.activeMembershipId) {
+      return false;
+    }
+    if (left.activeMembershipId === null) return true;
+    const leftMembership = left.memberships.find(({ id }) => id === left.activeMembershipId);
+    const rightMembership = right.memberships.find(({ id }) => id === right.activeMembershipId);
+    return Boolean(leftMembership && rightMembership && leftMembership.tenantId === rightMembership.tenantId);
+  };
   const auth = {
     async loadSession() {
       return session;
@@ -97,6 +106,13 @@ function loadApi(initialSession) {
       generation += 1;
       clears += 1;
       session = null;
+      return true;
+    },
+    async mergeSessionTokensIfSameIdentity(owner, tokens) {
+      if (!session || !sameIdentity(owner, session)) return false;
+      generation += 1;
+      session = { ...session, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
+      saves.push(session);
       return true;
     },
   };
@@ -387,6 +403,98 @@ test('a session snapshot retries after a clear starts during its delayed storage
   assert.equal(storage.storedSession(), null);
 });
 
+async function assertTokenSalvageSurvivesDelayedIo(io) {
+  const storage = createControlledAsyncStorage();
+  const owner = makeSession();
+  const firstMetadata = {
+    ...owner,
+    user: { ...owner.user, fullName: 'First metadata', locale: 'tr' },
+    memberships: owner.memberships.map((membership) => ({
+      ...membership,
+      role: 'manager',
+      tenantName: 'First tenant name',
+    })),
+  };
+  const latestMetadata = {
+    ...owner,
+    user: { ...owner.user, fullName: 'Latest metadata', locale: 'de' },
+    memberships: owner.memberships.map((membership) => ({
+      ...membership,
+      role: 'owner',
+      tenantName: 'Latest tenant name',
+    })),
+  };
+  const freshTokens = {
+    accessToken: `salvaged-${io}-access-token`,
+    refreshToken: `salvaged-${io}-refresh-token`,
+  };
+  if (io === 'read') storage.seedSession(firstMetadata);
+  const auth = loadActualAuth(storage);
+  if (io === 'write') await auth.saveSession(firstMetadata);
+  const delayedIo = io === 'read' ? storage.delayNextGet() : storage.delayNextSet();
+  const salvage = auth.mergeSessionTokensIfSameIdentity(owner, freshTokens);
+  await delayedIo.started;
+
+  const latestSave = auth.saveSession(latestMetadata);
+  delayedIo.release();
+
+  assert.equal(await salvage, true);
+  await latestSave;
+  const expected = { ...latestMetadata, ...freshTokens };
+  const current = await auth.loadSessionSnapshot();
+  assert.deepEqual(current.session, expected);
+  assert.deepEqual(storage.storedSession(), expected);
+}
+
+test('token salvage requeues behind same-owner metadata saves during delayed read and write I/O', async () => {
+  await assertTokenSalvageSurvivesDelayedIo('read');
+  await assertTokenSalvageSurvivesDelayedIo('write');
+});
+
+test('token salvage never crosses a different user, workspace, or cleared session', async () => {
+  const owner = makeSession();
+  const freshTokens = {
+    accessToken: 'forbidden-salvage-access-token',
+    refreshToken: 'forbidden-salvage-refresh-token',
+  };
+  const cases = [
+    makeSession({
+      userId: 'different-user',
+      membershipId: owner.activeMembershipId,
+      tenantId: owner.memberships[0].tenantId,
+    }),
+    makeSession({
+      userId: owner.user.id,
+      membershipId: 'different-workspace-membership',
+      tenantId: 'different-workspace-tenant',
+    }),
+    {
+      ...owner,
+      memberships: owner.memberships.map((membership) => ({
+        ...membership,
+        tenantId: 'different-tenant-for-same-membership',
+      })),
+    },
+    null,
+  ];
+
+  for (const currentSession of cases) {
+    const storage = createControlledAsyncStorage();
+    const auth = loadActualAuth(storage);
+    if (currentSession) await auth.saveSession(currentSession);
+    else {
+      await auth.saveSession(owner);
+      await auth.clearSession();
+    }
+    const before = await auth.loadSessionSnapshot();
+
+    assert.equal(await auth.mergeSessionTokensIfSameIdentity(owner, freshTokens), false);
+    const current = await auth.loadSessionSnapshot();
+    assert.deepEqual(current.session, before.session);
+    assert.deepEqual(storage.storedSession(), before.session);
+  }
+});
+
 async function assertFinalRetryMutationDoesNotReplay(mutation) {
   const owner = makeSession();
   const fresh = makeSession({
@@ -452,6 +560,99 @@ test('a replacement save during final retry snapshot validation prevents stale r
 
 test('a clear during final retry snapshot validation prevents stale replay', async () => {
   await assertFinalRetryMutationDoesNotReplay('clear');
+});
+
+test('same-owner metadata replacement salvages rotated tokens without replaying the stale request', async () => {
+  const owner = makeSession();
+  const fresh = makeSession({
+    accessToken: 'salvage-first-access-token',
+    refreshToken: 'salvage-first-refresh-token',
+  });
+  const replacement = {
+    ...owner,
+    user: { ...owner.user, fullName: 'Authorized metadata', locale: 'fr' },
+    memberships: owner.memberships.map((membership) => ({
+      ...membership,
+      role: 'admin',
+      tenantName: 'Authorized tenant name',
+    })),
+  };
+  const merged = {
+    ...replacement,
+    accessToken: fresh.accessToken,
+    refreshToken: fresh.refreshToken,
+  };
+  const fresher = {
+    ...replacement,
+    accessToken: 'salvage-second-access-token',
+    refreshToken: 'salvage-second-refresh-token',
+  };
+  const loaded = loadApi(owner);
+  const firstRefreshStarted = deferred();
+  const releaseFirstRefresh = deferred();
+  const refreshBodies = [];
+  const requestAuthorizations = new Map();
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    const token = authorization(init);
+    if (url.endsWith('/auth/refresh')) {
+      const body = JSON.parse(String(init?.body));
+      refreshBodies.push(body);
+      if (refreshBodies.length === 1) {
+        firstRefreshStarted.resolve();
+        await releaseFirstRefresh.promise;
+        return Response.json(fresh);
+      }
+      assert.deepEqual(body, { refreshToken: fresh.refreshToken });
+      return Response.json(fresher);
+    }
+    const tokens = requestAuthorizations.get(url) ?? [];
+    tokens.push(token);
+    requestAuthorizations.set(url, tokens);
+    if (url.endsWith('/stale-metadata') && token === `Bearer ${owner.accessToken}`) {
+      return new Response(null, { status: 401 });
+    }
+    if (url.endsWith('/after-salvage') && token === `Bearer ${fresh.accessToken}`) {
+      return new Response(null, { status: 401 });
+    }
+    if (url.endsWith('/after-salvage') && token === `Bearer ${fresher.accessToken}`) {
+      return Response.json({ refreshed: true });
+    }
+    return Response.json({ staleReplay: true });
+  };
+
+  try {
+    const staleRequest = loaded.api.get('/stale-metadata');
+    await firstRefreshStarted.promise;
+    await loaded.persistence.save(replacement);
+    releaseFirstRefresh.resolve();
+
+    const [staleResult] = await Promise.allSettled([staleRequest]);
+    assert.equal(staleResult.status, 'rejected');
+    if (staleResult.status === 'rejected') {
+      assert.ok(staleResult.reason instanceof loaded.ApiError);
+      assert.equal(staleResult.reason.status, 401);
+      assert.equal(staleResult.reason.message, 'session expired');
+    }
+    assert.deepEqual(requestAuthorizations.get(`${apiBase}/stale-metadata`), [
+      `Bearer ${owner.accessToken}`,
+    ]);
+    assert.deepEqual(loaded.persistence.current(), merged);
+
+    assert.deepEqual(await loaded.api.get('/after-salvage'), { refreshed: true });
+    assert.deepEqual(refreshBodies, [
+      { refreshToken: owner.refreshToken },
+      { refreshToken: fresh.refreshToken },
+    ]);
+    assert.deepEqual(requestAuthorizations.get(`${apiBase}/after-salvage`), [
+      `Bearer ${fresh.accessToken}`,
+      `Bearer ${fresher.accessToken}`,
+    ]);
+  } finally {
+    releaseFirstRefresh.resolve();
+    globalThis.fetch = previousFetch;
+  }
 });
 
 test('parallel 401 operations share one refresh and retry once with the same new session', async () => {
@@ -854,6 +1055,11 @@ test('refresh success cannot overwrite a same-token authorization snapshot repla
     accessToken: 'stale-role-refresh-access-token',
     refreshToken: 'stale-role-rotated-refresh-token',
   });
+  const merged = {
+    ...replacement,
+    accessToken: staleRefresh.accessToken,
+    refreshToken: staleRefresh.refreshToken,
+  };
   const loaded = loadApi(owner);
   const refreshStarted = deferred();
   const releaseRefresh = deferred();
@@ -890,10 +1096,10 @@ test('refresh success cannot overwrite a same-token authorization snapshot repla
       assert.equal(result.reason.status, 401);
       assert.equal(result.reason.message, 'session expired');
     }
-    assert.equal(loaded.persistence.saves.length, 0);
+    assert.deepEqual(loaded.persistence.saves, [merged]);
     assert.equal(loaded.persistence.clearCalls(), 0);
     assert.deepEqual(replayAuthorizations, []);
-    assert.deepEqual(loaded.persistence.current(), replacement);
+    assert.deepEqual(loaded.persistence.current(), merged);
   } finally {
     releaseRefresh.resolve();
     globalThis.fetch = previousFetch;
@@ -958,6 +1164,11 @@ test('a changed authorization snapshot operation never joins an older same-token
     accessToken: 'old-flight-fresh-access-token',
     refreshToken: 'old-flight-rotated-refresh-token',
   });
+  const merged = {
+    ...replacement,
+    accessToken: staleRefresh.accessToken,
+    refreshToken: staleRefresh.refreshToken,
+  };
   const loaded = loadApi(owner);
   const refreshStarted = deferred();
   const changedUnauthorized = deferred();
@@ -1019,10 +1230,10 @@ test('a changed authorization snapshot operation never joins an older same-token
         assert.equal(result.reason.message, 'session expired');
       }
     }
-    assert.equal(loaded.persistence.saves.length, 0);
+    assert.deepEqual(loaded.persistence.saves, [merged]);
     assert.equal(loaded.persistence.clearCalls(), 0);
     assert.deepEqual(replayAuthorizations, []);
-    assert.deepEqual(loaded.persistence.current(), replacement);
+    assert.deepEqual(loaded.persistence.current(), merged);
   } finally {
     releaseRefresh.resolve();
     globalThis.fetch = previousFetch;

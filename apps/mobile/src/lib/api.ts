@@ -2,6 +2,7 @@ import {
   clearSessionIfCurrent,
   isSessionGenerationCurrent,
   loadSessionSnapshot,
+  mergeSessionTokensIfSameIdentity,
   saveSessionIfCurrent,
   type Session,
   type SessionSnapshot,
@@ -204,15 +205,23 @@ async function performRefresh(
   }
   try {
     const saved = await saveSessionIfCurrent(owner, next);
-    return saved && isAuthenticatedSnapshot(saved) ? saved : null;
+    if (saved && isAuthenticatedSnapshot(saved)) return saved;
+  } catch {
+    // A stable same-owner metadata snapshot may still accept only the rotated tokens below.
+  }
+  try {
+    await mergeSessionTokensIfSameIdentity(owner.session, {
+      accessToken: next.accessToken,
+      refreshToken: next.refreshToken,
+    });
   } catch {
     try {
       await clearSessionIfCurrent(owner);
     } catch {
       // Refresh waiters still receive the normalized unauthorized outcome.
     }
-    return null;
   }
+  return null;
 }
 
 function refresh(owner: AuthenticatedSessionSnapshot): Promise<AuthenticatedSessionSnapshot | null> {
