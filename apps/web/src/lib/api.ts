@@ -69,24 +69,27 @@ interface RefreshLockManager {
 let refreshInFlight: RefreshFlight | null = null;
 let refreshGeneration = 0;
 
-function sessionMatches(accessToken: string): boolean {
-  return getSession()?.accessToken === accessToken;
-}
-
-function ownsRefresh(ownerAccessToken: string, generation: number): boolean {
-  return refreshGeneration === generation && sessionMatches(ownerAccessToken);
-}
-
-function clearRefreshOwner(owner: Session, generation: number): void {
-  if (ownsRefresh(owner.accessToken, generation)) clearSession();
-}
-
 function sameSessionIdentity(captured: Session, current: Session): boolean {
   if (captured.user.id !== current.user.id || captured.activeMembershipId !== current.activeMembershipId) return false;
   if (captured.activeMembershipId === null) return true;
   const capturedMembership = captured.memberships.find((membership) => membership.id === captured.activeMembershipId);
   const currentMembership = current.memberships.find((membership) => membership.id === current.activeMembershipId);
   return Boolean(capturedMembership && currentMembership && capturedMembership.tenantId === currentMembership.tenantId);
+}
+
+function ownsRefresh(owner: Session, generation: number): boolean {
+  if (refreshGeneration !== generation) return false;
+  const current = getSession();
+  return Boolean(
+    current &&
+      isSession(current) &&
+      current.accessToken === owner.accessToken &&
+      sameSessionIdentity(owner, current),
+  );
+}
+
+function clearRefreshOwner(owner: Session, generation: number): void {
+  if (ownsRefresh(owner, generation)) clearSession();
 }
 
 function advancedSessionFor(captured: Session, generation: number): Session | null {
@@ -121,12 +124,12 @@ async function performRefresh(owner: Session, generation: number): Promise<Sessi
     clearRefreshOwner(owner, generation);
     return null;
   }
-  if (!ownsRefresh(owner.accessToken, generation)) return null;
+  if (!ownsRefresh(owner, generation)) return null;
   try {
     setSession(next);
     return next;
   } catch {
-    clearSession();
+    clearRefreshOwner(owner, generation);
     return null;
   }
 }
@@ -136,6 +139,7 @@ async function refreshWithCurrentSession(owner: Session, generation: number): Pr
   const current = getSession();
   if (!current || !isSession(current) || !sameSessionIdentity(owner, current)) return null;
   if (current.accessToken !== owner.accessToken) return current;
+  if (!ownsRefresh(owner, generation)) return null;
   return performRefresh(owner, generation);
 }
 
@@ -154,7 +158,7 @@ function coordinatedRefresh(owner: Session, generation: number): Promise<Session
 }
 
 function refresh(owner: Session, generation: number): Promise<Session | null> {
-  if (!ownsRefresh(owner.accessToken, generation)) return Promise.resolve(null);
+  if (!ownsRefresh(owner, generation)) return Promise.resolve(null);
   if (refreshInFlight) {
     return refreshInFlight.ownerAccessToken === owner.accessToken && refreshInFlight.generation === generation
       ? refreshInFlight.promise
@@ -173,7 +177,7 @@ async function sessionForRetry(captured: Session, generation: number): Promise<S
   const advanced = advancedSessionFor(captured, generation);
   if (advanced) return advanced;
   const refreshed = await refresh(captured, generation);
-  if (refreshed && sessionMatches(refreshed.accessToken)) return refreshed;
+  if (refreshed && ownsRefresh(refreshed, generation)) return refreshed;
   return advancedSessionFor(captured, generation);
 }
 

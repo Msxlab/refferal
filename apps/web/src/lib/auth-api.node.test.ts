@@ -959,11 +959,11 @@ test('rejected cross-tab refresh lock clears its owner once and rejects concurre
   }
 });
 
-test('rejected cross-tab refresh lock preserves an independently replaced session', async () => {
+test('rejected cross-tab refresh lock preserves a same-token workspace replacement', async () => {
   const browser = installBrowser();
   const locks = installRefreshLockQueue();
   const owner = makeWorkspaceSession('expired-owner-token', 'user-a', 'membership-a', 'tenant-a');
-  const replacement = makeWorkspaceSession('replacement-token', 'user-b', 'membership-b', 'tenant-b');
+  const replacement = makeWorkspaceSession('expired-owner-token', 'user-a', 'membership-b', 'tenant-b');
   setSession(owner);
   const replayAuthorizations: Array<string | null> = [];
   let refreshCalls = 0;
@@ -1001,12 +1001,68 @@ test('rejected cross-tab refresh lock preserves an independently replaced sessio
     }
     assert.deepEqual(replayAuthorizations, []);
     assert.equal(browser.removeCalls(), 0);
-    assert.equal(getSession()?.accessToken, 'replacement-token');
+    assert.equal(getSession()?.accessToken, 'expired-owner-token');
     assert.equal(getSession()?.activeMembershipId, 'membership-b');
   } finally {
     locks.rejectNext(new Error('test cleanup'));
     restoreFetch();
     locks.restore();
+    browser.restore();
+  }
+});
+
+test('in-flight refresh cannot overwrite or replay after a same-token workspace replacement', async () => {
+  const browser = installBrowser();
+  const owner = makeWorkspaceSession('shared-workspace-token', 'user-a', 'membership-a', 'tenant-a');
+  const replacement = makeWorkspaceSession('shared-workspace-token', 'user-a', 'membership-b', 'tenant-b');
+  const oldWorkspaceRefresh = { ...owner, accessToken: 'old-workspace-refreshed-token' };
+  setSession(owner);
+  const refreshStarted = deferred();
+  const releaseRefresh = deferred();
+  const replayAuthorizations: Array<string | null> = [];
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const authorization = new Headers(init?.headers).get('Authorization');
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      refreshStarted.resolve();
+      await releaseRefresh.promise;
+      return Response.json(oldWorkspaceRefresh);
+    }
+    if (path.endsWith('/same-token-resource') && authorization === 'Bearer shared-workspace-token') {
+      return new Response(null, { status: 401 });
+    }
+    if (path.endsWith('/same-token-resource')) {
+      replayAuthorizations.push(authorization);
+      return Response.json({ replayed: true });
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const pending = Promise.allSettled([api.get('/same-token-resource')]);
+    await refreshStarted.promise;
+    setSession(replacement);
+    releaseRefresh.resolve();
+    const result = await pending;
+
+    assert.equal(refreshCalls, 1);
+    assert.equal(result[0]?.status, 'rejected');
+    if (result[0]?.status === 'rejected') {
+      assert.ok(result[0].reason instanceof ApiError);
+      assert.equal(result[0].reason.status, 401);
+      assert.equal(result[0].reason.message, 'session expired');
+    }
+    assert.deepEqual(replayAuthorizations, []);
+    assert.equal(browser.removeCalls(), 0);
+    const current = getSession();
+    assert.equal(current?.accessToken, 'shared-workspace-token');
+    assert.equal(current?.activeMembershipId, 'membership-b');
+    assert.equal(current?.memberships[0]?.tenantId, 'tenant-b');
+  } finally {
+    releaseRefresh.resolve();
+    restoreFetch();
     browser.restore();
   }
 });
