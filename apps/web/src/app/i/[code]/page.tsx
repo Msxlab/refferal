@@ -20,7 +20,6 @@ interface InviteResolve {
   code: string;
   valid: boolean;
   tenantName: string;
-  inviterName: string;
   emailLocked: boolean;
   brand?: RuntimeBrand;
 }
@@ -110,7 +109,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
               {inviteUnavailable
                 ? 'Invitation unavailable'
                 : invite
-                  ? `${invite.inviterName} invited you`
+                  ? `You're invited to join ${invite.tenantName}`
                   : 'Checking invitation'}
             </CardTitle>
           </CardHeader>

@@ -14,7 +14,6 @@ interface InviteResolve {
   code: string;
   valid: boolean;
   tenantName: string;
-  inviterName: string;
   emailLocked: boolean;
   brand?: RuntimeBrand;
 }
@@ -110,7 +109,7 @@ export default function InviteRegisterScreen() {
         <Card glow>
           <Brand brand={activeBrand} style={{ alignSelf: 'center', marginBottom: space.s5 }} />
 
-          <Title eyebrow={t('reg.title')} title={invite ? `${invite.inviterName} invited you` : ' '} />
+          <Title eyebrow={t('reg.title')} title={invite ? `You're invited to join ${invite.tenantName}` : ' '} />
 
           {loadError || (invite && !invite.valid) ? (
             <ErrorText>{t('reg.invalid')}</ErrorText>
