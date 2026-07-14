@@ -57,13 +57,23 @@ function loadApi(initialSession) {
   const saves = [];
   let clears = 0;
   const queuedSnapshots = [];
+  const delayedSnapshots = [];
   const sameSnapshot = (left, right) => JSON.stringify(left) === JSON.stringify(right);
   const auth = {
     async loadSession() {
       return session;
     },
     async loadSessionSnapshot() {
-      return queuedSnapshots.shift() ?? { session, generation };
+      const snapshot = queuedSnapshots.shift() ?? { session, generation };
+      const delay = delayedSnapshots.shift();
+      if (delay) {
+        delay.started.resolve(snapshot);
+        await delay.released.promise;
+      }
+      return snapshot;
+    },
+    isSessionGenerationCurrent(expected) {
+      return generation === expected;
     },
     async saveSession(next) {
       generation += 1;
@@ -121,7 +131,14 @@ function loadApi(initialSession) {
     ...apiModule.exports,
     persistence: {
       clearCalls: () => clears,
+      clear: () => auth.clearSession(),
       current: () => session,
+      delayNextSnapshot() {
+        const started = deferred();
+        const released = deferred();
+        delayedSnapshots.push({ started, released });
+        return { started: started.promise, release: released.resolve };
+      },
       queueSnapshot(next, snapshotGeneration = generation) {
         queuedSnapshots.push({ session: next, generation: snapshotGeneration });
       },
@@ -129,6 +146,7 @@ function loadApi(initialSession) {
         generation += 1;
         session = next;
       },
+      save: (next) => auth.saveSession(next),
       saves,
     },
   };
@@ -136,6 +154,7 @@ function loadApi(initialSession) {
 
 function createControlledAsyncStorage() {
   let stored = null;
+  const delayedGets = [];
   const delayedSets = [];
   const delayedRemoves = [];
   const createDelay = (queue) => {
@@ -148,7 +167,12 @@ function createControlledAsyncStorage() {
     };
   };
   return {
-    async getItem() {
+    async getItem(key) {
+      const delay = delayedGets.shift();
+      if (delay) {
+        delay.started.resolve({ key });
+        await delay.released.promise;
+      }
       return stored;
     },
     async setItem(key, value) {
@@ -170,11 +194,17 @@ function createControlledAsyncStorage() {
     delayNextSet() {
       return createDelay(delayedSets);
     },
+    delayNextGet() {
+      return createDelay(delayedGets);
+    },
     delayNextRemove() {
       return createDelay(delayedRemoves);
     },
     storedSession() {
       return stored === null ? null : JSON.parse(stored);
+    },
+    seedSession(session) {
+      stored = session === null ? null : JSON.stringify(session);
     },
   };
 }
@@ -308,6 +338,120 @@ test('a pending delayed replacement invalidates stale CAS immediately through ge
   const current = await auth.loadSessionSnapshot();
   assert.deepEqual(current.session, replacement);
   assert.deepEqual(storage.storedSession(), replacement);
+});
+
+test('a session snapshot retries after a replacement save starts during its delayed storage read', async () => {
+  const storage = createControlledAsyncStorage();
+  const owner = makeSession();
+  const replacement = makeSession({
+    accessToken: 'snapshot-replacement-access-token',
+    refreshToken: 'snapshot-replacement-refresh-token',
+    userId: 'snapshot-replacement-user',
+    membershipId: 'snapshot-replacement-membership',
+    tenantId: 'snapshot-replacement-tenant',
+  });
+  storage.seedSession(owner);
+  const auth = loadActualAuth(storage);
+  const delayedRead = storage.delayNextGet();
+  const snapshotPromise = auth.loadSessionSnapshot();
+  await delayedRead.started;
+
+  const replacementSave = auth.saveSession(replacement);
+  delayedRead.release();
+
+  const snapshot = await snapshotPromise;
+  await replacementSave;
+  const current = await auth.loadSessionSnapshot();
+  assert.deepEqual(snapshot, current);
+  assert.deepEqual(snapshot.session, replacement);
+  assert.deepEqual(storage.storedSession(), replacement);
+});
+
+test('a session snapshot retries after a clear starts during its delayed storage read', async () => {
+  const storage = createControlledAsyncStorage();
+  const owner = makeSession();
+  storage.seedSession(owner);
+  const auth = loadActualAuth(storage);
+  const delayedRead = storage.delayNextGet();
+  const snapshotPromise = auth.loadSessionSnapshot();
+  await delayedRead.started;
+
+  const clearing = auth.clearSession();
+  delayedRead.release();
+
+  const snapshot = await snapshotPromise;
+  await clearing;
+  const current = await auth.loadSessionSnapshot();
+  assert.deepEqual(snapshot, current);
+  assert.equal(snapshot.session, null);
+  assert.equal(storage.storedSession(), null);
+});
+
+async function assertFinalRetryMutationDoesNotReplay(mutation) {
+  const owner = makeSession();
+  const fresh = makeSession({
+    accessToken: `fresh-before-${mutation}-access-token`,
+    refreshToken: `fresh-before-${mutation}-refresh-token`,
+  });
+  const replacement = makeSession({
+    accessToken: 'final-validation-replacement-access-token',
+    refreshToken: 'final-validation-replacement-refresh-token',
+    userId: 'final-validation-replacement-user',
+    membershipId: 'final-validation-replacement-membership',
+    tenantId: 'final-validation-replacement-tenant',
+  });
+  const loaded = loadApi(owner);
+  const validationArmed = deferred();
+  const replayAuthorizations = [];
+  let validation;
+  let refreshCalls = 0;
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    const token = authorization(init);
+    if (url.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      validation = loaded.persistence.delayNextSnapshot();
+      validationArmed.resolve(validation);
+      return Response.json(fresh);
+    }
+    if (token === `Bearer ${owner.accessToken}`) return new Response(null, { status: 401 });
+    replayAuthorizations.push(token);
+    return Response.json({ replayed: true });
+  };
+
+  try {
+    const request = loaded.api.get(`/final-validation-${mutation}`);
+    validation = await validationArmed.promise;
+    await validation.started;
+
+    const mutationPromise =
+      mutation === 'save' ? loaded.persistence.save(replacement) : loaded.persistence.clear();
+    validation.release();
+
+    const [result] = await Promise.allSettled([request]);
+    await mutationPromise;
+    assert.equal(result.status, 'rejected');
+    if (result.status === 'rejected') {
+      assert.ok(result.reason instanceof loaded.ApiError);
+      assert.equal(result.reason.status, 401);
+      assert.equal(result.reason.message, 'session expired');
+    }
+    assert.equal(refreshCalls, 1);
+    assert.deepEqual(replayAuthorizations, []);
+    assert.deepEqual(loaded.persistence.current(), mutation === 'save' ? replacement : null);
+  } finally {
+    validation?.release();
+    globalThis.fetch = previousFetch;
+  }
+}
+
+test('a replacement save during final retry snapshot validation prevents stale replay', async () => {
+  await assertFinalRetryMutationDoesNotReplay('save');
+});
+
+test('a clear during final retry snapshot validation prevents stale replay', async () => {
+  await assertFinalRetryMutationDoesNotReplay('clear');
 });
 
 test('parallel 401 operations share one refresh and retry once with the same new session', async () => {

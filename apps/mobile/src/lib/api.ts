@@ -1,5 +1,6 @@
 import {
   clearSessionIfCurrent,
+  isSessionGenerationCurrent,
   loadSessionSnapshot,
   saveSessionIfCurrent,
   type Session,
@@ -262,6 +263,9 @@ async function request<T>(
 ): Promise<T> {
   const snapshot = capturedSnapshot ?? (await loadSessionSnapshot());
   const session = snapshot.session;
+  if (capturedSnapshot && !isSessionGenerationCurrent(snapshot.generation)) {
+    throw new ApiError(401, { message: 'session expired' });
+  }
   const res = await rawFetch(path, init, session?.accessToken);
 
   if (res.status === 401 && session && retry) {

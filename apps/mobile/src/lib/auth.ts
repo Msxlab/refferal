@@ -82,12 +82,22 @@ async function loadSessionWithinQueue(): Promise<Session | null> {
   return cached;
 }
 
-export function loadSessionSnapshot(): Promise<SessionSnapshot> {
+function loadStableSessionSnapshot(): Promise<SessionSnapshot> {
   const observedGeneration = generation;
   return enqueueSessionOperation(async () => ({
     session: await loadSessionWithinQueue(),
     generation: observedGeneration,
-  }));
+  })).then((snapshot) =>
+    generation === snapshot.generation ? snapshot : loadStableSessionSnapshot(),
+  );
+}
+
+export function loadSessionSnapshot(): Promise<SessionSnapshot> {
+  return loadStableSessionSnapshot();
+}
+
+export function isSessionGenerationCurrent(expected: number): boolean {
+  return generation === expected;
 }
 
 export async function loadSession(): Promise<Session | null> {
