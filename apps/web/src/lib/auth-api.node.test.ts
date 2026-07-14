@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { api, refreshSession } from './api';
+import { api, ApiError, getCsv, refreshSession } from './api';
 import { getSession, setSession, type Session } from './auth';
 
 const SESSION_KEY = 'refearn.session';
@@ -21,8 +21,9 @@ function makeSession(accessToken = 'access-token', refreshToken = 'legacy-refres
   };
 }
 
-function installBrowser(): { storage: Map<string, string>; restore: () => void } {
+function installBrowser(): { storage: Map<string, string>; removeCalls: () => number; restore: () => void } {
   const storage = new Map<string, string>();
+  let removals = 0;
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
   const localStorage = {
     getItem(key: string): string | null {
@@ -32,6 +33,7 @@ function installBrowser(): { storage: Map<string, string>; restore: () => void }
       storage.set(key, value);
     },
     removeItem(key: string): void {
+      removals += 1;
       storage.delete(key);
     },
   };
@@ -43,11 +45,20 @@ function installBrowser(): { storage: Map<string, string>; restore: () => void }
 
   return {
     storage,
+    removeCalls: () => removals,
     restore: () => {
       if (previous) Object.defineProperty(globalThis, 'window', previous);
       else Reflect.deleteProperty(globalThis, 'window');
     },
   };
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
 function installFetch(fakeFetch: typeof fetch): () => void {
@@ -138,6 +149,129 @@ test('logout revokes the cookie session before clearing browser storage', async 
     resolveRequest?.(new Response(null, { status: 204 }));
     await loggingOut;
     assert.equal(browser.storage.has(SESSION_KEY), false);
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('concurrent unauthorized requests share one refresh and retry with the same new access token', async () => {
+  const browser = installBrowser();
+  setSession(makeSession('expired-access-token'));
+  const bothUnauthorized = deferred();
+  const calls: Array<{ path: string; authorization: string | null }> = [];
+  let unauthorizedCalls = 0;
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const authorization = new Headers(init?.headers).get('Authorization');
+    calls.push({ path, authorization });
+
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      await bothUnauthorized.promise;
+      return Response.json(makeSession('fresh-access-token'));
+    }
+    if (authorization === 'Bearer expired-access-token') {
+      unauthorizedCalls += 1;
+      if (unauthorizedCalls === 2) bothUnauthorized.resolve();
+      return new Response(null, { status: 401 });
+    }
+    return Response.json({ path });
+  });
+
+  try {
+    const [first, second] = await Promise.all([
+      api.get<{ path: string }>('/first-resource'),
+      api.get<{ path: string }>('/second-resource'),
+    ]);
+
+    assert.equal(refreshCalls, 1);
+    assert.deepEqual([first.path, second.path], [
+      'http://localhost:3001/v1/first-resource',
+      'http://localhost:3001/v1/second-resource',
+    ]);
+    const retries = calls.filter((call) => !call.path.endsWith('/auth/refresh') && call.authorization === 'Bearer fresh-access-token');
+    assert.deepEqual(retries.map((call) => call.path), [
+      'http://localhost:3001/v1/first-resource',
+      'http://localhost:3001/v1/second-resource',
+    ]);
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('concurrent refresh failure clears the session once and rejects every waiter as unauthorized', async () => {
+  const browser = installBrowser();
+  setSession(makeSession('expired-access-token'));
+  const bothUnauthorized = deferred();
+  let unauthorizedCalls = 0;
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      await bothUnauthorized.promise;
+      return Response.json({ message: 'refresh rejected' }, { status: 401 });
+    }
+    if (new Headers(init?.headers).get('Authorization') === 'Bearer expired-access-token') {
+      unauthorizedCalls += 1;
+      if (unauthorizedCalls === 2) bothUnauthorized.resolve();
+      return new Response(null, { status: 401 });
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const results = await Promise.allSettled([api.get('/first-resource'), api.get('/second-resource')]);
+
+    assert.equal(refreshCalls, 1);
+    assert.equal(browser.removeCalls(), 1);
+    assert.equal(getSession(), null);
+    for (const result of results) {
+      assert.equal(result.status, 'rejected');
+      if (result.status === 'rejected') {
+        assert.ok(result.reason instanceof ApiError);
+        assert.equal(result.reason.status, 401);
+        assert.equal(result.reason.message, 'session expired');
+      }
+    }
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('explicit refresh and CSV retry share the active refresh result', async () => {
+  const browser = installBrowser();
+  setSession(makeSession('expired-access-token'));
+  const csvUnauthorized = deferred();
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const authorization = new Headers(init?.headers).get('Authorization');
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      await csvUnauthorized.promise;
+      return Response.json(makeSession('fresh-access-token'));
+    }
+    if (path.endsWith('/report.csv') && authorization === 'Bearer expired-access-token') {
+      csvUnauthorized.resolve();
+      return new Response(null, { status: 401 });
+    }
+    if (path.endsWith('/report.csv') && authorization === 'Bearer fresh-access-token') {
+      return new Response('csv-data');
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const [session, csv] = await Promise.all([refreshSession(), getCsv('/report.csv')]);
+
+    assert.equal(refreshCalls, 1);
+    assert.equal(session?.accessToken, 'fresh-access-token');
+    assert.equal(csv, 'csv-data');
   } finally {
     restoreFetch();
     browser.restore();

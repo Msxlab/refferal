@@ -18,8 +18,10 @@ async function rawFetch(path: string, init: RequestInit, token?: string): Promis
   return fetch(`${BASE}${path}`, { ...init, credentials: 'include', headers });
 }
 
+let refreshInFlight: Promise<Session | null> | null = null;
+
 /** Refresh once after an expired access token; clear the session if refresh fails. */
-async function refresh(): Promise<Session | null> {
+async function performRefresh(): Promise<Session | null> {
   const res = await rawFetch('/auth/refresh', {
     method: 'POST',
   });
@@ -30,6 +32,15 @@ async function refresh(): Promise<Session | null> {
   const next = (await res.json()) as Session;
   setSession(next);
   return next;
+}
+
+function refresh(): Promise<Session | null> {
+  if (refreshInFlight) return refreshInFlight;
+  const current = performRefresh().finally(() => {
+    if (refreshInFlight === current) refreshInFlight = null;
+  });
+  refreshInFlight = current;
+  return current;
 }
 
 async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
