@@ -76,7 +76,13 @@ interface RefreshFlight {
   promise: Promise<Session | null>;
 }
 
+interface CompletedRefresh {
+  owner: Session;
+  refreshed: Session;
+}
+
 let refreshInFlight: RefreshFlight | null = null;
+let completedRefresh: CompletedRefresh | null = null;
 
 function sameSessionIdentity(captured: Session, current: Session): boolean {
   if (captured.user.id !== current.user.id || captured.activeMembershipId !== current.activeMembershipId) return false;
@@ -91,6 +97,31 @@ function sameSessionOwner(captured: Session, current: Session): boolean {
     captured.accessToken === current.accessToken &&
     captured.refreshToken === current.refreshToken &&
     sameSessionIdentity(captured, current)
+  );
+}
+
+function sameSessionSnapshot(captured: Session, current: Session): boolean {
+  return (
+    sameSessionOwner(captured, current) &&
+    captured.user.email === current.user.email &&
+    captured.user.fullName === current.user.fullName &&
+    captured.user.locale === current.user.locale &&
+    captured.user.emailVerified === current.user.emailVerified &&
+    captured.user.isPlatformAdmin === current.user.isPlatformAdmin &&
+    captured.memberships.length === current.memberships.length &&
+    captured.memberships.every((membership, index) => {
+      const other = current.memberships[index];
+      return Boolean(
+        other &&
+          membership.id === other.id &&
+          membership.tenantId === other.tenantId &&
+          membership.tenantSlug === other.tenantSlug &&
+          membership.tenantName === other.tenantName &&
+          membership.role === other.role &&
+          membership.referralCode === other.referralCode &&
+          membership.depth === other.depth,
+      );
+    })
   );
 }
 
@@ -112,6 +143,21 @@ async function clearRefreshSessions(...sessions: Session[]): Promise<void> {
   } catch {
     // Storage failures must not leak transport or persistence errors to refresh waiters.
   }
+}
+
+async function completedSessionFor(captured: Session): Promise<Session | null> {
+  const completed = completedRefresh;
+  if (!completed || !sameSessionSnapshot(captured, completed.owner)) return null;
+  try {
+    const current = await loadSession();
+    if (current && isSession(current) && sameSessionSnapshot(completed.refreshed, current)) {
+      return completed.refreshed;
+    }
+  } catch {
+    // A storage read failure makes the advancement unusable.
+  }
+  if (completedRefresh === completed) completedRefresh = null;
+  return null;
 }
 
 /** If the access token expired, try one refresh; clear the session if it fails. */
@@ -148,10 +194,16 @@ function refresh(owner: Session): Promise<Session | null> {
   if (refreshInFlight) {
     return sameSessionOwner(refreshInFlight.owner, owner) ? refreshInFlight.promise : Promise.resolve(null);
   }
+  completedRefresh = null;
   let flight: RefreshFlight;
-  const current = performRefresh(owner).finally(() => {
-    if (refreshInFlight === flight) refreshInFlight = null;
-  });
+  const current = performRefresh(owner)
+    .then((refreshed) => {
+      if (refreshed) completedRefresh = { owner, refreshed };
+      return refreshed;
+    })
+    .finally(() => {
+      if (refreshInFlight === flight) refreshInFlight = null;
+    });
   flight = { owner, promise: current };
   refreshInFlight = flight;
   return current;
@@ -160,6 +212,12 @@ function refresh(owner: Session): Promise<Session | null> {
 async function retrySessionFor(captured: Session, candidate: Session | null): Promise<Session | null> {
   if (!candidate || !sameSessionIdentity(captured, candidate)) return null;
   return (await ownsSession(candidate)) ? candidate : null;
+}
+
+async function sessionForRetry(captured: Session): Promise<Session | null> {
+  const completed = await completedSessionFor(captured);
+  if (completed) return completed;
+  return retrySessionFor(captured, await refresh(captured));
 }
 
 async function request<T>(
@@ -172,7 +230,7 @@ async function request<T>(
   const res = await rawFetch(path, init, session?.accessToken);
 
   if (res.status === 401 && session && retry) {
-    const refreshed = await retrySessionFor(session, await refresh(session));
+    const refreshed = await sessionForRetry(session);
     if (refreshed) return request<T>(path, init, false, refreshed);
     throw new ApiError(401, { message: 'session expired' });
   }

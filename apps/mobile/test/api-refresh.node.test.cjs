@@ -166,6 +166,131 @@ test('parallel 401 operations share one refresh and retry once with the same new
   }
 });
 
+test('a late same-session 401 reuses the completed refresh after the active flight is cleared', async () => {
+  const owner = makeSession();
+  const fresh = makeSession({
+    accessToken: 'late-fresh-access-token',
+    refreshToken: 'late-rotated-refresh-token',
+  });
+  const loaded = loadApi(owner);
+  const slowOriginalStarted = deferred();
+  const releaseSlowUnauthorized = deferred();
+  const requestTokens = new Map();
+  let refreshCalls = 0;
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    const token = authorization(init);
+    if (url.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      assert.deepEqual(JSON.parse(String(init?.body)), { refreshToken: owner.refreshToken });
+      return Response.json(fresh);
+    }
+    const tokens = requestTokens.get(url) ?? [];
+    tokens.push(token);
+    requestTokens.set(url, tokens);
+    if (url.endsWith('/slow-resource') && token === `Bearer ${owner.accessToken}`) {
+      slowOriginalStarted.resolve();
+      await releaseSlowUnauthorized.promise;
+      return new Response(null, { status: 401 });
+    }
+    if (url.endsWith('/fast-resource') && token === `Bearer ${owner.accessToken}`) {
+      return new Response(null, { status: 401 });
+    }
+    if (token === `Bearer ${fresh.accessToken}`) {
+      return Response.json({ resource: url.endsWith('/fast-resource') ? 'fast' : 'slow' });
+    }
+    throw new Error(`unexpected authorization for ${url}: ${token}`);
+  };
+
+  try {
+    const slow = loaded.api.get('/slow-resource');
+    await slowOriginalStarted.promise;
+    const fastResult = await loaded.api.get('/fast-resource');
+    assert.deepEqual(fastResult, { resource: 'fast' });
+    assert.equal(refreshCalls, 1);
+    assert.deepEqual(loaded.persistence.current(), fresh);
+
+    releaseSlowUnauthorized.resolve();
+    const slowResult = await slow;
+
+    assert.deepEqual(slowResult, { resource: 'slow' });
+    assert.equal(refreshCalls, 1);
+    assert.deepEqual(requestTokens.get(`${apiBase}/fast-resource`), [
+      `Bearer ${owner.accessToken}`,
+      `Bearer ${fresh.accessToken}`,
+    ]);
+    assert.deepEqual(requestTokens.get(`${apiBase}/slow-resource`), [
+      `Bearer ${owner.accessToken}`,
+      `Bearer ${fresh.accessToken}`,
+    ]);
+  } finally {
+    releaseSlowUnauthorized.resolve();
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('a completed refresh is ignored when persisted session details no longer match exactly', async () => {
+  const owner = makeSession();
+  const fresh = makeSession({
+    accessToken: 'recorded-fresh-access-token',
+    refreshToken: 'recorded-rotated-refresh-token',
+  });
+  const replacement = {
+    ...fresh,
+    memberships: fresh.memberships.map((membership) => ({ ...membership, role: 'tenant_admin' })),
+  };
+  const loaded = loadApi(owner);
+  const slowOriginalStarted = deferred();
+  const releaseSlowUnauthorized = deferred();
+  const replayAuthorizations = [];
+  let refreshCalls = 0;
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    const token = authorization(init);
+    if (url.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      return Response.json(fresh);
+    }
+    if (url.endsWith('/slow-exact-resource') && token === `Bearer ${owner.accessToken}`) {
+      slowOriginalStarted.resolve();
+      await releaseSlowUnauthorized.promise;
+      return new Response(null, { status: 401 });
+    }
+    if (url.endsWith('/fast-exact-resource') && token === `Bearer ${owner.accessToken}`) {
+      return new Response(null, { status: 401 });
+    }
+    if (url.endsWith('/fast-exact-resource') && token === `Bearer ${fresh.accessToken}`) {
+      return Response.json({ resource: 'fast' });
+    }
+    replayAuthorizations.push(token);
+    return Response.json({ replayed: true });
+  };
+
+  try {
+    const slow = loaded.api.get('/slow-exact-resource');
+    await slowOriginalStarted.promise;
+    assert.deepEqual(await loaded.api.get('/fast-exact-resource'), { resource: 'fast' });
+    loaded.persistence.replace(replacement);
+    releaseSlowUnauthorized.resolve();
+    const [result] = await Promise.allSettled([slow]);
+
+    assert.equal(refreshCalls, 1);
+    assert.equal(result.status, 'rejected');
+    if (result.status === 'rejected') {
+      assert.ok(result.reason instanceof loaded.ApiError);
+      assert.equal(result.reason.status, 401);
+      assert.equal(result.reason.message, 'session expired');
+    }
+    assert.deepEqual(replayAuthorizations, []);
+    assert.deepEqual(loaded.persistence.current(), replacement);
+  } finally {
+    releaseSlowUnauthorized.resolve();
+    globalThis.fetch = previousFetch;
+  }
+});
+
 async function assertConcurrentRefreshFailure(refreshFailure) {
   const owner = makeSession();
   const loaded = loadApi(owner);
