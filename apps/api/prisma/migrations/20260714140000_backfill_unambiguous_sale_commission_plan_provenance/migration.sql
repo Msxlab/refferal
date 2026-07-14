@@ -1,7 +1,7 @@
--- This deliberately backfills only the subset supported by current, timestamped
--- plan rows and immutable original commission rows. It assumes plan history was
--- not deleted and timestamps were not changed outside the application; those
--- external mutations are not detectable from the surviving rows.
+-- Deployment precondition: plan/level history is append-only and its timestamps
+-- are trusted. Out-of-band deletion or timestamp tampering is not detectable from
+-- surviving rows. Subject to that boundary, only current timestamped plans and
+-- immutable original commission rows may prove provenance below.
 WITH evidence AS (
   SELECT
     s.id AS sale_id,
