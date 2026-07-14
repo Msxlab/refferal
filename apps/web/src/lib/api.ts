@@ -95,7 +95,7 @@ function advancedSessionFor(captured: Session, generation: number): Session | nu
 }
 
 /** Refresh once after an expired access token; clear the session if refresh fails. */
-async function performRefresh(ownerAccessToken: string, generation: number): Promise<Session | null> {
+async function performRefresh(owner: Session, generation: number): Promise<Session | null> {
   let next: Session | null = null;
   try {
     const res = await rawFetch('/auth/refresh', {
@@ -103,16 +103,16 @@ async function performRefresh(ownerAccessToken: string, generation: number): Pro
     });
     if (res.ok) {
       const candidate: unknown = await res.json();
-      if (isSession(candidate)) next = candidate;
+      if (isSession(candidate) && sameSessionIdentity(owner, candidate)) next = candidate;
     }
   } catch {
     // Refresh transport, parsing, and session persistence failures all fail closed.
   }
   if (!next) {
-    if (ownsRefresh(ownerAccessToken, generation)) clearSession();
+    if (ownsRefresh(owner.accessToken, generation)) clearSession();
     return null;
   }
-  if (!ownsRefresh(ownerAccessToken, generation)) return null;
+  if (!ownsRefresh(owner.accessToken, generation)) return null;
   try {
     setSession(next);
     return next;
@@ -130,7 +130,7 @@ function refresh(owner: Session, generation: number): Promise<Session | null> {
       : Promise.resolve(null);
   }
   let flight: RefreshFlight;
-  const current = performRefresh(owner.accessToken, generation).finally(() => {
+  const current = performRefresh(owner, generation).finally(() => {
     if (refreshInFlight === flight) refreshInFlight = null;
   });
   flight = { ownerAccessToken: owner.accessToken, generation, promise: current };

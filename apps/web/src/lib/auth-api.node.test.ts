@@ -21,6 +21,34 @@ function makeSession(accessToken = 'access-token', refreshToken = 'legacy-refres
   };
 }
 
+function makeWorkspaceSession(
+  accessToken: string,
+  userId: string,
+  membershipId: string,
+  tenantId: string,
+): Session {
+  return {
+    ...makeSession(accessToken),
+    user: {
+      ...makeSession().user,
+      id: userId,
+      email: `${userId}@example.test`,
+    },
+    activeMembershipId: membershipId,
+    memberships: [
+      {
+        id: membershipId,
+        tenantId,
+        tenantSlug: tenantId,
+        tenantName: tenantId,
+        role: 'member',
+        referralCode: `${membershipId}-referral`,
+        depth: 1,
+      },
+    ],
+  };
+}
+
 function installBrowser(): { storage: Map<string, string>; removeCalls: () => number; restore: () => void } {
   const storage = new Map<string, string>();
   let removals = 0;
@@ -553,6 +581,141 @@ test('late JSON and CSV 401 responses reuse the already advanced token for the s
     }
   } finally {
     releaseLateUnauthorized.resolve();
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('JSON refresh rejects a different-user session without persisting or replaying it', async () => {
+  const browser = installBrowser();
+  const owner = makeWorkspaceSession('user-a-expired-token', 'user-a', 'membership-a', 'tenant-a');
+  const mismatched = makeWorkspaceSession('user-b-refresh-token', 'user-b', 'membership-b', 'tenant-b');
+  setSession(owner);
+  const replayAuthorizations: Array<string | null> = [];
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const authorization = new Headers(init?.headers).get('Authorization');
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      return Response.json(mismatched);
+    }
+    if (path.endsWith('/owned-resource') && authorization === 'Bearer user-a-expired-token') {
+      return new Response(null, { status: 401 });
+    }
+    if (path.endsWith('/owned-resource')) {
+      replayAuthorizations.push(authorization);
+      return Response.json({ replayed: true });
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const result = await Promise.allSettled([api.get('/owned-resource')]);
+
+    assert.equal(refreshCalls, 1);
+    assert.equal(result[0]?.status, 'rejected');
+    if (result[0]?.status === 'rejected') {
+      assert.ok(result[0].reason instanceof ApiError);
+      assert.equal(result[0].reason.status, 401);
+      assert.equal(result[0].reason.message, 'session expired');
+    }
+    assert.deepEqual(replayAuthorizations, []);
+    assert.equal(browser.removeCalls(), 1);
+    assert.equal(getSession(), null);
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('CSV refresh rejects a different-workspace session without persisting or replaying it', async () => {
+  const browser = installBrowser();
+  const owner = makeWorkspaceSession('tenant-a-expired-token', 'user-a', 'membership-a', 'tenant-a');
+  const mismatched = makeWorkspaceSession('tenant-b-refresh-token', 'user-a', 'membership-b', 'tenant-b');
+  setSession(owner);
+  const replayAuthorizations: Array<string | null> = [];
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const authorization = new Headers(init?.headers).get('Authorization');
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      return Response.json(mismatched);
+    }
+    if (path.endsWith('/owned-report.csv') && authorization === 'Bearer tenant-a-expired-token') {
+      return new Response(null, { status: 401 });
+    }
+    if (path.endsWith('/owned-report.csv')) {
+      replayAuthorizations.push(authorization);
+      return new Response('cross-workspace-csv');
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const result = await Promise.allSettled([getCsv('/owned-report.csv')]);
+
+    assert.equal(refreshCalls, 1);
+    assert.equal(result[0]?.status, 'rejected');
+    if (result[0]?.status === 'rejected') {
+      assert.ok(result[0].reason instanceof ApiError);
+      assert.equal(result[0].reason.status, 401);
+      assert.equal(result[0].reason.message, 'session expired');
+    }
+    assert.deepEqual(replayAuthorizations, []);
+    assert.equal(browser.removeCalls(), 1);
+    assert.equal(getSession(), null);
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('mismatched refresh response never clears an independently replaced session', async () => {
+  const browser = installBrowser();
+  const owner = makeWorkspaceSession('owner-expired-token', 'owner', 'membership-a', 'tenant-a');
+  const replacement = makeWorkspaceSession('replacement-token', 'replacement', 'membership-c', 'tenant-c');
+  const mismatched = makeWorkspaceSession('mismatched-token', 'mismatched', 'membership-b', 'tenant-b');
+  setSession(owner);
+  const refreshStarted = deferred();
+  const releaseRefresh = deferred();
+  const replayAuthorizations: Array<string | null> = [];
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const authorization = new Headers(init?.headers).get('Authorization');
+    if (path.endsWith('/auth/refresh')) {
+      refreshStarted.resolve();
+      await releaseRefresh.promise;
+      return Response.json(mismatched);
+    }
+    if (path.endsWith('/owned-resource') && authorization === 'Bearer owner-expired-token') {
+      return new Response(null, { status: 401 });
+    }
+    if (path.endsWith('/owned-resource')) {
+      replayAuthorizations.push(authorization);
+      return Response.json({ replayed: true });
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const pending = api.get('/owned-resource');
+    await refreshStarted.promise;
+    setSession(replacement);
+    releaseRefresh.resolve();
+    const result = await Promise.allSettled([pending]);
+
+    assert.equal(result[0]?.status, 'rejected');
+    if (result[0]?.status === 'rejected') {
+      assert.ok(result[0].reason instanceof ApiError);
+      assert.equal(result[0].reason.status, 401);
+    }
+    assert.deepEqual(replayAuthorizations, []);
+    assert.equal(browser.removeCalls(), 0);
+    assert.equal(getSession()?.accessToken, 'replacement-token');
+  } finally {
+    releaseRefresh.resolve();
     restoreFetch();
     browser.restore();
   }
