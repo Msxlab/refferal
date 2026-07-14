@@ -200,15 +200,20 @@ describe('commission engine (integration)', () => {
     const tomorrow = new Date('2026-06-11T12:00:00Z');
     const dayAfter = new Date('2026-06-12T12:00:00Z');
 
-    await createPlan(prisma, tenant.id, { effectiveFrom: new Date('2026-01-01T00:00:00Z') });
+    const oldPlan = await createPlan(prisma, tenant.id, { effectiveFrom: new Date('2026-01-01T00:00:00Z') });
     const chain = await createChain(prisma, tenant.id, 6);
 
     // Sale with the old plan.
     const oldSale = await createSale(prisma, tenant.id, chain[5].id, 10_000_000n, { saleDate: now });
     await engine.approveSale(oldSale.id);
+    const [oldProvenance] = await prisma.$queryRaw<Array<{ commissionPlanId: string | null }>>`
+      SELECT commission_plan_id AS "commissionPlanId"
+      FROM sales
+      WHERE id = ${oldSale.id}::uuid`;
+    expect(oldProvenance.commissionPlanId).toBe(oldPlan.id);
 
     // New plan with different rates starting tomorrow.
-    await createPlan(prisma, tenant.id, {
+    const newPlan = await createPlan(prisma, tenant.id, {
       effectiveFrom: tomorrow,
       rates: [600, 200, 100, 50, 50],
     });
@@ -225,12 +230,96 @@ describe('commission engine (integration)', () => {
     // New sale uses the new rate.
     const newSale = await createSale(prisma, tenant.id, chain[5].id, 10_000_000n, { saleDate: dayAfter });
     await engine.approveSale(newSale.id);
+    const [newProvenance] = await prisma.$queryRaw<Array<{ commissionPlanId: string | null }>>`
+      SELECT commission_plan_id AS "commissionPlanId"
+      FROM sales
+      WHERE id = ${newSale.id}::uuid`;
+    expect(newProvenance.commissionPlanId).toBe(newPlan.id);
     const newEntries = await prisma.ledgerEntry.findMany({
       where: { saleId: newSale.id },
       orderBy: { level: 'asc' },
     });
     expect(newEntries.map((e) => e.rateBpsUsed)).toEqual([600, 200, 100, 50, 50]);
     expect(newEntries.map((e) => e.amountCents)).toEqual([600_000n, 200_000n, 100_000n, 50_000n, 50_000n]);
+  });
+
+  it('uses a pinned plan when a later backdated plan becomes eligible', async () => {
+    const tenant = await createTenant(prisma);
+    const pinnedPlan = await createPlan(prisma, tenant.id, {
+      effectiveFrom: new Date('2026-01-01T00:00:00Z'),
+    });
+    const chain = await createChain(prisma, tenant.id, 6);
+    const sale = await createSale(prisma, tenant.id, chain[5].id, 10_000_000n, {
+      saleDate: new Date('2026-06-10T12:00:00Z'),
+    });
+    await prisma.$executeRaw`
+      UPDATE sales
+      SET status = 'approved', commission_plan_id = ${pinnedPlan.id}::uuid
+      WHERE id = ${sale.id}::uuid`;
+    await createPlan(prisma, tenant.id, {
+      effectiveFrom: new Date('2026-05-01T00:00:00Z'),
+      rates: [700, 100, 75, 75, 50],
+    });
+
+    const result = await engine.applyCommissions(sale.id);
+
+    expect(result.applied).toBe(true);
+    const entries = await prisma.ledgerEntry.findMany({
+      where: { saleId: sale.id, type: LedgerType.commission },
+      orderBy: { level: 'asc' },
+    });
+    expect(entries.map((entry) => entry.rateBpsUsed)).toEqual([500, 200, 150, 100, 50]);
+    const [persisted] = await prisma.$queryRaw<Array<{ commissionPlanId: string | null }>>`
+      SELECT commission_plan_id AS "commissionPlanId"
+      FROM sales
+      WHERE id = ${sale.id}::uuid`;
+    expect(persisted.commissionPlanId).toBe(pinnedPlan.id);
+  });
+
+  it('enforces same-tenant plan provenance and restricts deleting a referenced plan', async () => {
+    const tenant = await createTenant(prisma);
+    const otherTenant = await createTenant(prisma);
+    const plan = await createPlan(prisma, tenant.id);
+    const otherPlan = await createPlan(prisma, otherTenant.id, {
+      effectiveFrom: new Date('2026-02-01T00:00:00Z'),
+    });
+    const [seller] = await createChain(prisma, tenant.id, 1);
+    const sale = await createSale(prisma, tenant.id, seller.id, 100_000n);
+
+    await prisma.$executeRaw`
+      UPDATE sales
+      SET commission_plan_id = ${plan.id}::uuid
+      WHERE id = ${sale.id}::uuid`;
+    await expect(
+      prisma.$executeRaw`
+        UPDATE sales
+        SET commission_plan_id = ${otherPlan.id}::uuid
+        WHERE id = ${sale.id}::uuid`,
+    ).rejects.toThrow();
+    await expect(prisma.commissionPlan.delete({ where: { id: plan.id } })).rejects.toThrow();
+    await expect(
+      prisma.commissionPlan.update({ where: { id: plan.id }, data: { tenantId: otherTenant.id } }),
+    ).rejects.toThrow();
+
+    const [persisted] = await prisma.$queryRaw<Array<{ commissionPlanId: string | null }>>`
+      SELECT commission_plan_id AS "commissionPlanId"
+      FROM sales
+      WHERE id = ${sale.id}::uuid`;
+    expect(persisted.commissionPlanId).toBe(plan.id);
+  });
+
+  it('rolls back approval and provenance together when no plan is effective', async () => {
+    const tenant = await createTenant(prisma);
+    const [seller] = await createChain(prisma, tenant.id, 1);
+    const sale = await createSale(prisma, tenant.id, seller.id, 100_000n);
+
+    await expect(engine.approveSale(sale.id)).rejects.toThrow('no commission plan is effective');
+
+    const [persisted] = await prisma.$queryRaw<Array<{ status: SaleStatus; commissionPlanId: string | null }>>`
+      SELECT status, commission_plan_id AS "commissionPlanId"
+      FROM sales
+      WHERE id = ${sale.id}::uuid`;
+    expect(persisted).toEqual({ status: SaleStatus.draft, commissionPlanId: null });
   });
 
   it('T7: on_delivery - approved but not delivered -> pending; delivery + job -> payable', async () => {

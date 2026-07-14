@@ -27,6 +27,7 @@ interface LockedSale {
   status: SaleStatus;
   saleDate: Date;
   summaryMonth: string | null;
+  commissionPlanId: string | null;
   createdBy: string | null;
   approvedAt: Date | null;
   deliveredAt: Date | null;
@@ -845,7 +846,7 @@ export class EngineService {
     }
 
     const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: sale.tenantId } });
-    const plan = await this.resolvePlan(tx, sale.tenantId, sale.saleDate);
+    const plan = await this.resolvePlan(tx, sale.tenantId, sale.saleDate, sale.commissionPlanId);
     const chain = await this.uplineChain(tx, sale.sellerMembershipId, plan.depth, tenant);
     const lines = computeCommissionLines(sale.amountCents, plan.levels, chain);
 
@@ -854,9 +855,16 @@ export class EngineService {
     // Freeze the month key on first apply; void/mature use the same bucket.
     // This preserves the bucket even if tenant.timezone changes later.
     const month = sale.summaryMonth ?? monthKey(sale.saleDate, tenant.timezone);
-    if (!sale.summaryMonth) {
-      await tx.sale.update({ where: { id: sale.id }, data: { summaryMonth: month } });
-      sale.summaryMonth = month;
+    if (!sale.summaryMonth || !sale.commissionPlanId) {
+      await tx.sale.update({
+        where: { id: sale.id },
+        data: {
+          ...(!sale.summaryMonth ? { summaryMonth: month } : {}),
+          ...(!sale.commissionPlanId ? { commissionPlanId: plan.id } : {}),
+        },
+      });
+      sale.summaryMonth ??= month;
+      sale.commissionPlanId ??= plan.id;
     }
 
     for (const line of lines) {
@@ -902,6 +910,7 @@ export class EngineService {
              status,
              sale_date            AS "saleDate",
              summary_month        AS "summaryMonth",
+             commission_plan_id   AS "commissionPlanId",
              created_by           AS "createdBy",
              approved_at          AS "approvedAt",
              delivered_at         AS "deliveredAt"
@@ -925,16 +934,26 @@ export class EngineService {
     tx: Tx,
     tenantId: string,
     saleDate: Date,
-  ): Promise<{ depth: number; levels: PlanLevelRate[] }> {
-    const plan = await tx.commissionPlan.findFirst({
-      where: { tenantId, effectiveFrom: { lte: saleDate } },
-      orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
-      include: { levels: { orderBy: { level: 'asc' } } },
-    });
+    commissionPlanId: string | null,
+  ): Promise<{ id: string; depth: number; levels: PlanLevelRate[] }> {
+    const plan = commissionPlanId
+      ? await tx.commissionPlan.findFirst({
+          where: { tenantId, id: commissionPlanId },
+          include: { levels: { orderBy: { level: 'asc' } } },
+        })
+      : await tx.commissionPlan.findFirst({
+          where: { tenantId, effectiveFrom: { lte: saleDate } },
+          orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
+          include: { levels: { orderBy: { level: 'asc' } } },
+        });
     if (!plan) {
+      if (commissionPlanId) {
+        throw new ConflictException(`pinned commission plan is unavailable (tenant=${tenantId}, plan=${commissionPlanId})`);
+      }
       throw new ConflictException(`no commission plan is effective on the sale date (tenant=${tenantId})`);
     }
     return {
+      id: plan.id,
       depth: plan.depth,
       levels: plan.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })),
     };
