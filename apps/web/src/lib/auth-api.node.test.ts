@@ -243,6 +243,47 @@ test('concurrent refresh failure clears the session once and rejects every waite
   }
 });
 
+test('concurrent refresh network failure clears the session once and rejects every waiter as unauthorized', async () => {
+  const browser = installBrowser();
+  setSession(makeSession('expired-access-token'));
+  const bothUnauthorized = deferred();
+  let unauthorizedCalls = 0;
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      await bothUnauthorized.promise;
+      throw new TypeError('refresh network unavailable');
+    }
+    if (new Headers(init?.headers).get('Authorization') === 'Bearer expired-access-token') {
+      unauthorizedCalls += 1;
+      if (unauthorizedCalls === 2) bothUnauthorized.resolve();
+      return new Response(null, { status: 401 });
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const results = await Promise.allSettled([api.get('/first-resource'), api.get('/second-resource')]);
+
+    assert.equal(refreshCalls, 1);
+    assert.equal(browser.removeCalls(), 1);
+    assert.equal(getSession(), null);
+    for (const result of results) {
+      assert.equal(result.status, 'rejected');
+      if (result.status === 'rejected') {
+        assert.ok(result.reason instanceof ApiError);
+        assert.equal(result.reason.status, 401);
+        assert.equal(result.reason.message, 'session expired');
+      }
+    }
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
 test('explicit refresh and CSV retry share the active refresh result', async () => {
   const browser = installBrowser();
   setSession(makeSession('expired-access-token'));

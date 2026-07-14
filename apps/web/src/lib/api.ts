@@ -22,16 +22,20 @@ let refreshInFlight: Promise<Session | null> | null = null;
 
 /** Refresh once after an expired access token; clear the session if refresh fails. */
 async function performRefresh(): Promise<Session | null> {
-  const res = await rawFetch('/auth/refresh', {
-    method: 'POST',
-  });
-  if (!res.ok) {
-    clearSession();
-    return null;
+  try {
+    const res = await rawFetch('/auth/refresh', {
+      method: 'POST',
+    });
+    if (res.ok) {
+      const next = (await res.json()) as Session;
+      setSession(next);
+      return next;
+    }
+  } catch {
+    // Refresh transport, parsing, and session persistence failures all fail closed.
   }
-  const next = (await res.json()) as Session;
-  setSession(next);
-  return next;
+  clearSession();
+  return null;
 }
 
 function refresh(): Promise<Session | null> {
