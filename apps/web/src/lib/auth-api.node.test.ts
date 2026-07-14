@@ -1066,3 +1066,76 @@ test('in-flight refresh cannot overwrite or replay after a same-token workspace 
     browser.restore();
   }
 });
+
+test('same-token workspace ABA never lets a B operation join and replay an A refresh', async () => {
+  const browser = installBrowser();
+  const workspaceA = makeWorkspaceSession('aba-shared-token', 'user-a', 'membership-a', 'tenant-a');
+  const workspaceB = makeWorkspaceSession('aba-shared-token', 'user-a', 'membership-b', 'tenant-b');
+  const refreshedA = { ...workspaceA, accessToken: 'workspace-a-refreshed-token' };
+  setSession(workspaceA);
+  const refreshStarted = deferred();
+  const releaseRefresh = deferred();
+  const bUnauthorized = deferred();
+  const requestTokens = new Map<string, Array<string | null>>();
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const authorization = new Headers(init?.headers).get('Authorization');
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      refreshStarted.resolve();
+      await releaseRefresh.promise;
+      return Response.json(refreshedA);
+    }
+    const tokens = requestTokens.get(path) ?? [];
+    tokens.push(authorization);
+    requestTokens.set(path, tokens);
+    if (authorization === 'Bearer aba-shared-token') {
+      if (path.endsWith('/aba-workspace-b')) bUnauthorized.resolve();
+      return new Response(null, { status: 401 });
+    }
+    if (path.endsWith('/aba-workspace-a') && authorization === 'Bearer workspace-a-refreshed-token') {
+      return Response.json({ workspace: 'a' });
+    }
+    if (path.endsWith('/aba-workspace-b')) return Response.json({ crossWorkspaceReplay: true });
+    throw new Error(`unexpected authorization for ${path}: ${authorization}`);
+  });
+
+  try {
+    const pendingA = api.get<{ workspace: string }>('/aba-workspace-a');
+    await refreshStarted.promise;
+
+    setSession(workspaceB);
+    const pendingB = Promise.allSettled([api.get('/aba-workspace-b')]);
+    await bUnauthorized.promise;
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    setSession(workspaceA);
+    releaseRefresh.resolve();
+    const [resultA, resultB] = await Promise.all([pendingA, pendingB]);
+
+    assert.deepEqual(resultA, { workspace: 'a' });
+    assert.equal(resultB[0]?.status, 'rejected');
+    if (resultB[0]?.status === 'rejected') {
+      assert.ok(resultB[0].reason instanceof ApiError);
+      assert.equal(resultB[0].reason.status, 401);
+      assert.equal(resultB[0].reason.message, 'session expired');
+    }
+    assert.equal(refreshCalls, 1);
+    assert.deepEqual(requestTokens.get('http://localhost:3001/v1/aba-workspace-a'), [
+      'Bearer aba-shared-token',
+      'Bearer workspace-a-refreshed-token',
+    ]);
+    assert.deepEqual(requestTokens.get('http://localhost:3001/v1/aba-workspace-b'), ['Bearer aba-shared-token']);
+    const current = getSession();
+    assert.equal(current?.accessToken, 'workspace-a-refreshed-token');
+    assert.equal(current?.activeMembershipId, 'membership-a');
+    assert.equal(current?.memberships[0]?.tenantId, 'tenant-a');
+  } finally {
+    releaseRefresh.resolve();
+    restoreFetch();
+    browser.restore();
+  }
+});

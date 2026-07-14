@@ -57,7 +57,7 @@ async function rawFetch(path: string, init: RequestInit, token?: string): Promis
 }
 
 interface RefreshFlight {
-  ownerAccessToken: string;
+  owner: Session;
   generation: number;
   promise: Promise<Session | null>;
 }
@@ -160,7 +160,9 @@ function coordinatedRefresh(owner: Session, generation: number): Promise<Session
 function refresh(owner: Session, generation: number): Promise<Session | null> {
   if (!ownsRefresh(owner, generation)) return Promise.resolve(null);
   if (refreshInFlight) {
-    return refreshInFlight.ownerAccessToken === owner.accessToken && refreshInFlight.generation === generation
+    return refreshInFlight.generation === generation &&
+      refreshInFlight.owner.accessToken === owner.accessToken &&
+      sameSessionIdentity(refreshInFlight.owner, owner)
       ? refreshInFlight.promise
       : Promise.resolve(null);
   }
@@ -168,17 +170,25 @@ function refresh(owner: Session, generation: number): Promise<Session | null> {
   const current = coordinatedRefresh(owner, generation).finally(() => {
     if (refreshInFlight === flight) refreshInFlight = null;
   });
-  flight = { ownerAccessToken: owner.accessToken, generation, promise: current };
+  flight = { owner, generation, promise: current };
   refreshInFlight = flight;
   return current;
 }
 
+function retrySessionFor(
+  captured: Session,
+  candidate: Session | null,
+  generation: number,
+): Session | null {
+  return candidate && sameSessionIdentity(captured, candidate) && ownsRefresh(candidate, generation) ? candidate : null;
+}
+
 async function sessionForRetry(captured: Session, generation: number): Promise<Session | null> {
-  const advanced = advancedSessionFor(captured, generation);
+  const advanced = retrySessionFor(captured, advancedSessionFor(captured, generation), generation);
   if (advanced) return advanced;
-  const refreshed = await refresh(captured, generation);
-  if (refreshed && ownsRefresh(refreshed, generation)) return refreshed;
-  return advancedSessionFor(captured, generation);
+  const refreshed = retrySessionFor(captured, await refresh(captured, generation), generation);
+  if (refreshed) return refreshed;
+  return retrySessionFor(captured, advancedSessionFor(captured, generation), generation);
 }
 
 async function request<T>(
