@@ -109,7 +109,14 @@ function loadApi(initialSession) {
       return true;
     },
     async mergeSessionTokensIfSameIdentity(owner, tokens) {
-      if (!session || !sameIdentity(owner, session)) return false;
+      if (
+        !session ||
+        !sameIdentity(owner, session) ||
+        session.accessToken !== owner.accessToken ||
+        session.refreshToken !== owner.refreshToken
+      ) {
+        return false;
+      }
       generation += 1;
       session = { ...session, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
       saves.push(session);
@@ -495,6 +502,34 @@ test('token salvage never crosses a different user, workspace, or cleared sessio
   }
 });
 
+test('token salvage never replaces an already-advanced same-identity token pair', async () => {
+  const owner = makeSession();
+  const staleFreshTokens = {
+    accessToken: 'stale-old-refresh-access-token',
+    refreshToken: 'stale-old-refresh-token',
+  };
+  const advancedSessions = [
+    { ...owner, accessToken: 'new-login-access-token' },
+    { ...owner, refreshToken: 'other-advancement-refresh-token' },
+    {
+      ...owner,
+      accessToken: 'fully-advanced-access-token',
+      refreshToken: 'fully-advanced-refresh-token',
+    },
+  ];
+
+  for (const advanced of advancedSessions) {
+    const storage = createControlledAsyncStorage();
+    const auth = loadActualAuth(storage);
+    await auth.saveSession(advanced);
+
+    assert.equal(await auth.mergeSessionTokensIfSameIdentity(owner, staleFreshTokens), false);
+    const current = await auth.loadSessionSnapshot();
+    assert.deepEqual(current.session, advanced);
+    assert.deepEqual(storage.storedSession(), advanced);
+  }
+});
+
 async function assertFinalRetryMutationDoesNotReplay(mutation) {
   const owner = makeSession();
   const fresh = makeSession({
@@ -653,6 +688,78 @@ test('same-owner metadata replacement salvages rotated tokens without replaying 
     releaseFirstRefresh.resolve();
     globalThis.fetch = previousFetch;
   }
+});
+
+async function assertAdvancedTokenRaceDoesNotSalvage(label, tokenOverrides) {
+  const owner = makeSession();
+  const staleRefresh = makeSession({
+    accessToken: `stale-${label}-access-token`,
+    refreshToken: `stale-${label}-refresh-token`,
+  });
+  const advanced = {
+    ...owner,
+    ...tokenOverrides,
+    user: { ...owner.user, fullName: `Latest ${label} metadata` },
+    memberships: owner.memberships.map((membership) => ({
+      ...membership,
+      role: 'admin',
+    })),
+  };
+  const loaded = loadApi(owner);
+  const refreshStarted = deferred();
+  const releaseRefresh = deferred();
+  const replayAuthorizations = [];
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    const token = authorization(init);
+    if (url.endsWith('/auth/refresh')) {
+      assert.deepEqual(JSON.parse(String(init?.body)), { refreshToken: owner.refreshToken });
+      refreshStarted.resolve();
+      await releaseRefresh.promise;
+      return Response.json(staleRefresh);
+    }
+    if (url.endsWith(`/advanced-${label}`) && token === `Bearer ${owner.accessToken}`) {
+      return new Response(null, { status: 401 });
+    }
+    replayAuthorizations.push(token);
+    return Response.json({ replayed: true });
+  };
+
+  try {
+    const staleRequest = loaded.api.get(`/advanced-${label}`);
+    await refreshStarted.promise;
+    await loaded.persistence.save(advanced);
+    releaseRefresh.resolve();
+
+    const [result] = await Promise.allSettled([staleRequest]);
+    assert.equal(result.status, 'rejected');
+    if (result.status === 'rejected') {
+      assert.ok(result.reason instanceof loaded.ApiError);
+      assert.equal(result.reason.status, 401);
+      assert.equal(result.reason.message, 'session expired');
+    }
+    assert.deepEqual(loaded.persistence.saves, [advanced]);
+    assert.equal(loaded.persistence.clearCalls(), 0);
+    assert.deepEqual(replayAuthorizations, []);
+    assert.deepEqual(loaded.persistence.current(), advanced);
+  } finally {
+    releaseRefresh.resolve();
+    globalThis.fetch = previousFetch;
+  }
+}
+
+test('same-identity access or refresh token advancement always wins an older refresh race', async () => {
+  await assertAdvancedTokenRaceDoesNotSalvage('access-only', {
+    accessToken: 'new-login-access-token',
+  });
+  await assertAdvancedTokenRaceDoesNotSalvage('refresh-only', {
+    refreshToken: 'other-advancement-refresh-token',
+  });
+  await assertAdvancedTokenRaceDoesNotSalvage('both-tokens', {
+    accessToken: 'fully-advanced-access-token',
+    refreshToken: 'fully-advanced-refresh-token',
+  });
 });
 
 test('parallel 401 operations share one refresh and retry once with the same new session', async () => {

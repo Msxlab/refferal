@@ -200,7 +200,14 @@ function mergeSessionTokensAttempt(
   return enqueueSessionOperation(async (): Promise<TokenMergeAttempt> => {
     const current = await loadSessionWithinQueue();
     if (generation !== observedGeneration) return { status: 'retry' };
-    if (!current || !sameSessionIdentity(owner, current)) return { status: 'stopped' };
+    if (
+      !current ||
+      !sameSessionIdentity(owner, current) ||
+      current.accessToken !== owner.accessToken ||
+      current.refreshToken !== owner.refreshToken
+    ) {
+      return { status: 'stopped' };
+    }
 
     const operationGeneration = ++generation;
     const merged: Session = {
