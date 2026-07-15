@@ -25,6 +25,16 @@ const KEY = 'refearn.session';
 const IMP_KEY = 'refearn.session.impersonator';
 const SESSION_MUTATION_LOCK = 'refearn.auth.session-mutation';
 
+export type SessionChangeOrigin = 'local' | 'storage';
+export type SessionChangeReason = 'mutation' | 'transition' | 'external';
+type LocalSessionChangeReason = Exclude<SessionChangeReason, 'external'>;
+type LocalSessionChangeListener = (
+  oldValue: string | null,
+  newValue: string | null,
+  reason: LocalSessionChangeReason,
+) => void;
+const localSessionChangeListeners = new Set<LocalSessionChangeListener>();
+
 interface SessionLockManager {
   request<T>(
     name: string,
@@ -37,8 +47,8 @@ type SynchronousResult<T> = T extends PromiseLike<unknown> ? never : T;
 
 export interface LockedSessionStore {
   read(): SessionReadResult;
-  set(session: Session): void;
-  clear(): void;
+  set(session: Session, reason?: LocalSessionChangeReason): void;
+  clear(reason?: LocalSessionChangeReason): void;
 }
 
 export class InvalidSessionError extends Error {
@@ -98,16 +108,41 @@ export type SessionReadResult =
 export interface SessionStorageChange {
   session: Session | null;
   reload: boolean;
+  origin: SessionChangeOrigin;
+  reason: SessionChangeReason;
 }
 
-function rawSetSession(session: Session): void {
+function currentRawMainSession(): string | null {
+  try {
+    return window.localStorage.getItem(KEY);
+  } catch {
+    return null;
+  }
+}
+
+function publishLocalSessionChange(
+  oldValue: string | null,
+  newValue: string | null,
+  reason: LocalSessionChangeReason,
+): void {
+  for (const listener of [...localSessionChangeListeners]) {
+    try { listener(oldValue, newValue, reason); } catch { /* subscriber isolation */ }
+  }
+}
+
+function rawSetSession(session: Session, reason: LocalSessionChangeReason = 'mutation'): void {
   if (!isSession(session)) throw new InvalidSessionError();
-  window.localStorage.setItem(KEY, JSON.stringify(session));
+  const oldValue = currentRawMainSession();
+  const newValue = JSON.stringify(session);
+  window.localStorage.setItem(KEY, newValue);
+  publishLocalSessionChange(oldValue, newValue, reason);
 }
 
-function rawClearMainSession(): void {
+function rawClearMainSession(reason: LocalSessionChangeReason = 'mutation'): void {
+  const oldValue = currentRawMainSession();
   try {
     window.localStorage.removeItem(KEY);
+    publishLocalSessionChange(oldValue, null, reason);
   } finally {
     setActiveCompanyToken(null);
   }
@@ -121,9 +156,9 @@ function rawClearImpersonator(): void {
   if (rawImpersonator() !== null) window.localStorage.removeItem(IMP_KEY);
 }
 
-function rawClearSessionState(): void {
+function rawClearSessionState(reason: LocalSessionChangeReason = 'mutation'): void {
   const errors: unknown[] = [];
-  try { rawClearMainSession(); } catch (error) { errors.push(error); }
+  try { rawClearMainSession(reason); } catch (error) { errors.push(error); }
   try { rawClearImpersonator(); } catch (error) { errors.push(error); }
   if (errors.length === 1) throw errors[0];
   if (errors.length > 1) throw new AggregateError(errors, 'session and impersonator cleanup failed');
@@ -180,16 +215,39 @@ function sessionFromStorageValue(raw: string | null): Session | null {
   }
 }
 
-/** Diger sekmedeki session degisimini owner/workspace sinirinda shell state'ine tasir. */
+/** Session degisimini owner/workspace sinirinda shell state'ine tasir. */
 export function subscribeToSessionStorageChanges(
   onChange: (change: SessionStorageChange) => void,
   acceptsSession: (session: Session) => boolean = () => true,
 ): () => void {
   if (typeof window === 'undefined') return () => {};
-  const onStorage = (event: StorageEvent) => {
-    if (event.key !== KEY) return;
-    const previous = sessionFromStorageValue(event.oldValue);
-    const next = sessionFromStorageValue(event.newValue);
+  let active = true;
+  const pendingDeliveries = new Set<ReturnType<typeof setTimeout>>();
+  const deliver = (change: SessionStorageChange) => {
+    const run = () => {
+      if (!active) return;
+      try { onChange(change); } catch { /* subscriber isolation */ }
+    };
+    const { origin, reload } = change;
+    if (origin === 'local' && reload) {
+      let timer: ReturnType<typeof setTimeout>;
+      timer = setTimeout(() => {
+        pendingDeliveries.delete(timer);
+        run();
+      }, 0);
+      pendingDeliveries.add(timer);
+      return;
+    }
+    run();
+  };
+  const handleSessionChange = (
+    oldValue: string | null,
+    newValue: string | null,
+    reason: SessionChangeReason = 'mutation',
+    origin: SessionChangeOrigin = 'local',
+  ) => {
+    const previous = sessionFromStorageValue(oldValue);
+    const next = sessionFromStorageValue(newValue);
     let compatible = false;
     try {
       compatible = Boolean(previous && next && sameSessionFamily(previous, next) && acceptsSession(next));
@@ -197,15 +255,25 @@ export function subscribeToSessionStorageChanges(
       compatible = false;
     }
     if (compatible && next) {
-      onChange({ session: next, reload: false });
+      deliver({ session: next, reload: false, origin, reason });
       return;
     }
     setActiveCompanyToken(null);
-    if (event.newValue !== null && !next) void tryClearInvalidSession(event.newValue);
-    onChange({ session: null, reload: true });
+    deliver({ session: null, reload: true, origin, reason });
   };
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== KEY) return;
+    handleSessionChange(event.oldValue, event.newValue, 'external', 'storage');
+  };
+  localSessionChangeListeners.add(handleSessionChange);
   window.addEventListener('storage', onStorage);
-  return () => window.removeEventListener('storage', onStorage);
+  return () => {
+    active = false;
+    localSessionChangeListeners.delete(handleSessionChange);
+    window.removeEventListener('storage', onStorage);
+    for (const timer of pendingDeliveries) clearTimeout(timer);
+    pendingDeliveries.clear();
+  };
 }
 
 function lockedStore(): { store: LockedSessionStore; release: () => void } {
@@ -220,13 +288,13 @@ function lockedStore(): { store: LockedSessionStore; release: () => void } {
         try { rawClearSessionState(); } catch { /* best effort */ }
       });
     },
-    set: (session) => {
+    set: (session, reason) => {
       assertActive();
-      rawSetSession(session);
+      rawSetSession(session, reason);
     },
-    clear: () => {
+    clear: (reason) => {
       assertActive();
-      rawClearSessionState();
+      rawClearSessionState(reason);
     },
   };
   return { store, release: () => { active = false; } };
@@ -313,7 +381,7 @@ export function withSessionMutation<T>(
 
 export async function setSession(session: Session): Promise<void> {
   await withSessionMutation((store) => {
-    store.set(session);
+    store.set(session, 'transition');
     rawClearImpersonator();
   });
 }
@@ -329,7 +397,7 @@ export async function trySetSession(session: Session): Promise<boolean> {
 
 export async function clearSession(): Promise<void> {
   try {
-    await withSessionMutation((store) => { store.clear(); });
+    await withSessionMutation((store) => { store.clear('transition'); });
   } finally {
     // Kilit callback'i calismadan reject olsa bile bellek token'i guvenli-kapali temizlenir.
     setActiveCompanyToken(null);
@@ -392,7 +460,7 @@ export function replaceSessionIfCurrent(expected: Session | null, next: Session)
   return withSessionMutation((store) => {
     const current = sessionOrThrow(store.read());
     if (!matchesSessionSnapshot(expected, current)) throw new Error('session owner changed');
-    store.set(next);
+    store.set(next, 'transition');
     rawClearImpersonator();
     return next;
   });
@@ -401,11 +469,12 @@ export function replaceSessionIfCurrent(expected: Session | null, next: Session)
 export function updateSession(
   expected: Session,
   updater: (session: Session) => Session,
+  reason: LocalSessionChangeReason = 'mutation',
 ): Promise<Session> {
   return withSessionMutation((store) => {
     const current = exactCurrentSession(store, expected);
     const next = updater(current);
-    store.set(next);
+    store.set(next, reason);
     return next;
   });
 }
@@ -425,7 +494,11 @@ export function applyTenantSwitch(
   accessToken: string,
   activeMembershipId: string,
 ): Promise<Session> {
-  return updateSession(expected, (session) => ({ ...session, accessToken, activeMembershipId }));
+  return updateSession(
+    expected,
+    (session) => ({ ...session, accessToken, activeMembershipId }),
+    'transition',
+  );
 }
 
 const ADMIN_ROLES = new Set(['tenant_owner', 'tenant_admin', 'tenant_staff']);
@@ -454,7 +527,7 @@ export async function startImpersonation(expectedAdmin: Session, impSession: Ses
     const previousBackup = rawImpersonator();
     window.localStorage.setItem(IMP_KEY, JSON.stringify(current));
     try {
-      store.set(impSession);
+      store.set(impSession, 'transition');
     } catch (error) {
       try {
         restoreRawImpersonator(previousBackup);
@@ -488,11 +561,11 @@ export function stopImpersonation(): Promise<Session | null> {
     const currentIsImpersonation = typeof currentImp === 'string';
     const raw = rawImpersonator();
     if (!raw) {
-      if (currentIsImpersonation) store.clear();
+      if (currentIsImpersonation) store.clear('transition');
       return null;
     }
     const rejectBackup = () => {
-      if (currentIsImpersonation) store.clear();
+      if (currentIsImpersonation) store.clear('transition');
       else window.localStorage.removeItem(IMP_KEY);
       return null;
     };
@@ -505,7 +578,7 @@ export function stopImpersonation(): Promise<Session | null> {
     if (!current || !isSession(candidate) || currentImp !== candidate.user.id) {
       return rejectBackup();
     }
-    store.set(candidate);
+    store.set(candidate, 'transition');
     window.localStorage.removeItem(IMP_KEY);
     return candidate;
   });
