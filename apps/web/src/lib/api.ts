@@ -84,6 +84,11 @@ function ownsRefresh(owner: Session): boolean {
   return Boolean(current && sameRefreshOwner(owner, current));
 }
 
+function failedOwnerStillRequiresLogin(owner: Session): boolean {
+  const current = currentSession();
+  return !current || sameRefreshOwner(owner, current);
+}
+
 function lockedCurrentSession(store: LockedSessionStore): Session | null {
   const result = store.read();
   return result.ok ? result.session : null;
@@ -108,8 +113,13 @@ async function commitRefresh(owner: Session, next: Session): Promise<Session | n
       const current = lockedCurrentSession(store);
       if (!current || !sameRefreshOwner(owner, current)) return null;
       try {
-        store.set(next);
-        return next;
+        const committed = {
+          ...current,
+          accessToken: next.accessToken,
+          refreshToken: next.refreshToken,
+        };
+        store.set(committed);
+        return committed;
       } catch {
         try { store.clear(); } catch { /* best effort */ }
         return null;
@@ -134,6 +144,10 @@ function advancedSessionFor(captured: Session): Session | null {
 }
 
 async function performRefresh(owner: Session): Promise<Session | null> {
+  if (owner.refreshToken.length === 0) {
+    await clearRefreshOwner(owner);
+    return null;
+  }
   let next: Session | null = null;
   try {
     const res = await rawFetch('/auth/refresh', {
@@ -142,7 +156,13 @@ async function performRefresh(owner: Session): Promise<Session | null> {
     });
     if (res.ok) {
       const candidate: unknown = await res.json();
-      if (isSession(candidate) && sameSessionIdentity(owner, candidate)) next = candidate;
+      if (
+        isSession(candidate) &&
+        candidate.refreshToken.length > 0 &&
+        sameSessionIdentity(owner, candidate)
+      ) {
+        next = candidate;
+      }
     }
   } catch {
     // Ag, JSON ve localStorage hatalari ayni guvenli-kapali davranisa iner.
@@ -216,7 +236,11 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true, se
     const retrySession = await sessionForRetry(session);
     if (retrySession) return request<T>(path, init, false, retrySession);
     // refresh basarisiz -> oturum temizlendi; bayat ekranda kalmak yerine login'e dondur
-    if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+    if (
+      failedOwnerStillRequiresLogin(session) &&
+      typeof window !== 'undefined' &&
+      !window.location.pathname.startsWith('/login')
+    ) {
       window.location.href = '/login';
     }
     throw expiredSessionError();
@@ -248,9 +272,34 @@ export const api = {
     request<T>(path, { method: 'DELETE', body: body !== undefined ? JSON.stringify(body) : undefined }),
 };
 
+/** Bir async sonucunu yakalanan exact session sahibiyle ayni Bearer'a baglar. */
+export function apiForSession(session: Session) {
+  return {
+    get: <T>(path: string) => request<T>(path, {}, true, session),
+    post: <T>(path: string, body?: unknown) =>
+      request<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }, true, session),
+    patch: <T>(path: string, body?: unknown) =>
+      request<T>(path, { method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined }, true, session),
+    put: <T>(path: string, body?: unknown) =>
+      request<T>(path, { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined }, true, session),
+    del: <T>(path: string, body?: unknown) =>
+      request<T>(path, { method: 'DELETE', body: body !== undefined ? JSON.stringify(body) : undefined }, true, session),
+  };
+}
+
 /** Aktif sirketi (tenant) degistir: yeni access token secilen uyeligin tenant'ina scoped doner. */
-export function switchTenant(membershipId: string): Promise<{ accessToken: string; activeMembershipId: string }> {
-  return api.post('/me/switch-tenant', { membershipId });
+export async function switchTenant(
+  membershipId: string,
+  accessToken?: string,
+): Promise<{ accessToken: string; activeMembershipId: string }> {
+  if (accessToken === undefined) return api.post('/me/switch-tenant', { membershipId });
+  if (accessToken.length === 0) throw new ApiError(401, { message: 'invalid access token' });
+  const res = await rawFetch(
+    '/me/switch-tenant',
+    { method: 'POST', body: JSON.stringify({ membershipId }) },
+    accessToken,
+  );
+  return (await readOrThrow(res)) as { accessToken: string; activeMembershipId: string };
 }
 
 /** Login ozel: token henuz yok. */

@@ -2,24 +2,34 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   api,
+  apiForSession,
   ApiError,
   getActiveCompanyToken,
   getCsv,
   postBlob,
   setActiveCompanyToken,
+  switchTenant,
 } from './api';
 import {
   applyTenantSwitch,
   clearSession,
   getSession,
+  isImpersonating,
+  replaceSessionIfCurrent,
   setSession,
   startImpersonation,
   stopImpersonation,
   updateSession,
+  withSessionMutation,
   type Session,
 } from './auth';
 
 const SESSION_KEY = 'refearn.session';
+const IMPERSONATOR_KEY = 'refearn.session.impersonator';
+
+function makeAccessToken(claims: Record<string, unknown>): string {
+  return `e30.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.signature`;
+}
 
 function makeSession(accessToken = 'access-token', refreshToken = 'refresh-token'): Session {
   return {
@@ -66,6 +76,38 @@ function makeWorkspaceSession(
   };
 }
 
+function makeProductionImpersonationSession(adminUserId: string): Session {
+  return {
+    accessToken: makeAccessToken({
+      sub: 'member-user',
+      mid: 'member-membership',
+      tid: 'tenant-a',
+      role: 'member',
+      imp: adminUserId,
+    }),
+    refreshToken: '',
+    user: {
+      id: 'member-user',
+      email: 'member@example.test',
+      fullName: 'Member Example',
+      locale: 'en',
+      emailVerified: true,
+    },
+    activeMembershipId: 'member-membership',
+    memberships: [
+      {
+        id: 'member-membership',
+        tenantId: 'tenant-a',
+        tenantSlug: '',
+        tenantName: 'Tenant A',
+        role: 'member',
+        referralCode: 'MEMBER-REF',
+        depth: 0,
+      },
+    ],
+  };
+}
+
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
   const promise = new Promise<void>((done) => {
@@ -76,8 +118,8 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 
 interface StorageFailures {
   getItem?: unknown;
-  setItem?: unknown;
-  removeItem?: unknown;
+  setItem?: unknown | ((key: string, value: string, call: number) => unknown);
+  removeItem?: unknown | ((key: string, call: number) => unknown);
 }
 
 function installBrowser(failures: StorageFailures = {}): {
@@ -99,12 +141,22 @@ function installBrowser(failures: StorageFailures = {}): {
     },
     setItem(key: string, value: string): void {
       writes += 1;
-      if (Object.hasOwn(failures, 'setItem')) throw failures.setItem;
+      if (typeof failures.setItem === 'function') {
+        const error = failures.setItem(key, value, writes);
+        if (error !== undefined) throw error;
+      } else if (Object.hasOwn(failures, 'setItem')) {
+        throw failures.setItem;
+      }
       storage.set(key, value);
     },
     removeItem(key: string): void {
       removals += 1;
-      if (Object.hasOwn(failures, 'removeItem')) throw failures.removeItem;
+      if (typeof failures.removeItem === 'function') {
+        const error = failures.removeItem(key, removals);
+        if (error !== undefined) throw error;
+      } else if (Object.hasOwn(failures, 'removeItem')) {
+        throw failures.removeItem;
+      }
       storage.delete(key);
     },
   };
@@ -269,6 +321,34 @@ function installCoordinatedLockManager(): {
   };
 }
 
+function installRejectedMutationLock(error: unknown): () => void {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: {
+      locks: {
+        request<T>(
+          name: string,
+          _options: { mode?: string },
+          callback: () => T | PromiseLike<T>,
+        ): Promise<T> {
+          if (name === 'refearn.auth.session-mutation') return Promise.reject(error);
+          return Promise.resolve(callback());
+        },
+      },
+    },
+  });
+  return () => {
+    if (previous) Object.defineProperty(globalThis, 'navigator', previous);
+    else Reflect.deleteProperty(globalThis, 'navigator');
+  };
+}
+
+if (false) {
+  // @ts-expect-error session mutation callbacks must be synchronous
+  void withSessionMutation(async () => undefined);
+}
+
 function authorization(init?: RequestInit): string | null {
   return new Headers(init?.headers).get('Authorization');
 }
@@ -428,6 +508,7 @@ test('an in-flight refresh cannot overwrite or replay after the session is repla
     assert.deepEqual(replayAuthorizations, []);
     assert.equal(browser.removeCalls(), 0);
     assert.equal(getSession()?.accessToken, 'replacement-access');
+    assert.equal(browser.location.href, '/app');
   } finally {
     releaseRefresh.resolve();
     restoreFetch();
@@ -902,7 +983,12 @@ test('startImpersonation aborts before any write when the current session read f
 
   try {
     await assert.rejects(
-      Promise.resolve().then(() => startImpersonation(makeSession('imp-access', ''))),
+      Promise.resolve().then(() =>
+        startImpersonation(
+          makeWorkspaceSession('admin-access', 'admin-refresh', 'admin-user', 'admin-membership', 'tenant-a'),
+          makeProductionImpersonationSession('admin-user'),
+        ),
+      ),
       (error: unknown) => error === readError,
     );
     assert.equal(browser.setCalls(), 0);
@@ -920,7 +1006,9 @@ test('applyTenantSwitch aborts before any write when the current session read fa
 
   try {
     await assert.rejects(
-      Promise.resolve().then(() => applyTenantSwitch('switched-access', 'membership-b')),
+      Promise.resolve().then(() =>
+        applyTenantSwitch(makeSession('captured-access', 'captured-refresh'), 'switched-access', 'membership-b'),
+      ),
       (error: unknown) => error === readError,
     );
     assert.equal(browser.setCalls(), 0);
@@ -940,7 +1028,7 @@ test('profile-style updateSession aborts before write or success after a read fa
   try {
     await assert.rejects(
       Promise.resolve()
-        .then(() => updateSession((session) => ({
+        .then(() => updateSession(makeSession('captured-access', 'captured-refresh'), (session) => ({
           ...session,
           user: { ...session.user, fullName: 'Updated Name' },
         })))
@@ -1304,21 +1392,27 @@ test('all production session mutation helpers use the shared mutation lock', asy
   const browser = installBrowser();
   const locks = installCoordinatedLockManager();
   const owner = makeWorkspaceSession('owner-access', 'owner-refresh', 'owner', 'membership-a', 'tenant-a');
-  const impersonated = makeWorkspaceSession('imp-access', 'imp-refresh', 'member', 'membership-b', 'tenant-b');
+  const impersonated = makeProductionImpersonationSession(owner.user.id);
 
   try {
     await setSession(owner);
-    await applyTenantSwitch('switched-access', 'membership-a');
-    await updateSession((session) => ({
+    const replaced = await replaceSessionIfCurrent(owner, {
+      ...owner,
+      user: { ...owner.user, locale: 'en' },
+    });
+    const switched = await applyTenantSwitch(replaced, 'switched-access', 'membership-a');
+    await updateSession(switched, (session) => ({
       ...session,
       user: { ...session.user, fullName: 'Updated Owner' },
     }));
-    await startImpersonation(impersonated);
+    const expectedAdmin = getSession();
+    assert.ok(expectedAdmin);
+    await startImpersonation(expectedAdmin, impersonated);
     await stopImpersonation();
     await clearSession();
 
     const mutationRequests = locks.requests.filter((request) => request.name === 'refearn.auth.session-mutation');
-    assert.equal(mutationRequests.length, 6);
+    assert.equal(mutationRequests.length, 7);
     assert.ok(mutationRequests.every((request) => request.mode === 'exclusive'));
   } finally {
     locks.restore();
@@ -1330,12 +1424,12 @@ test('a refreshless impersonation session remains readable and restores the admi
   const browser = installBrowser();
   const locks = installCoordinatedLockManager();
   const admin = makeWorkspaceSession('admin-access', 'admin-refresh', 'admin', 'membership-a', 'tenant-a');
-  const impersonated = makeWorkspaceSession('imp-access', '', 'member', 'membership-b', 'tenant-b');
+  const impersonated = makeProductionImpersonationSession(admin.user.id);
 
   try {
     await setSession(admin);
-    await startImpersonation(impersonated);
-    assert.equal(getSession()?.accessToken, 'imp-access');
+    await startImpersonation(admin, impersonated);
+    assert.equal(getSession()?.accessToken, impersonated.accessToken);
 
     const restored = await stopImpersonation();
     assert.equal(restored?.accessToken, 'admin-access');
@@ -1508,6 +1602,599 @@ test('refresh mutation-lock rejection preserves storage bytes and clears active-
     restoreFetch();
     if (previousNavigator) Object.defineProperty(globalThis, 'navigator', previousNavigator);
     else Reflect.deleteProperty(globalThis, 'navigator');
+    browser.restore();
+  }
+});
+
+test('the exact production impersonation fixture remains readable with empty tenantSlug and refreshToken', () => {
+  const browser = installBrowser();
+  const fixture = makeProductionImpersonationSession('admin-user');
+  browser.storage.set(SESSION_KEY, JSON.stringify(fixture));
+
+  try {
+    assert.deepEqual(getSession(), fixture);
+  } finally {
+    browser.restore();
+  }
+});
+
+test('startImpersonation binds the backup and impersonation token to the exact captured admin', async () => {
+  const browser = installBrowser();
+  const admin = makeWorkspaceSession('admin-access', 'admin-refresh', 'admin-user', 'admin-membership', 'tenant-a');
+  const impersonated = makeProductionImpersonationSession(admin.user.id);
+
+  try {
+    await setSession(admin);
+    await startImpersonation(admin, impersonated);
+
+    assert.deepEqual(getSession(), impersonated);
+    assert.equal(browser.storage.get(IMPERSONATOR_KEY), JSON.stringify(admin));
+    assert.equal(isImpersonating(), true);
+  } finally {
+    browser.restore();
+  }
+});
+
+test('startImpersonation rejects a token whose imp claim does not identify the captured admin', async () => {
+  const browser = installBrowser();
+  const admin = makeWorkspaceSession('admin-access', 'admin-refresh', 'admin-user', 'admin-membership', 'tenant-a');
+  const mismatched = makeProductionImpersonationSession('different-admin');
+  browser.storage.set(SESSION_KEY, JSON.stringify(admin));
+
+  try {
+    await assert.rejects(startImpersonation(admin, mismatched), /impersonation owner mismatch/);
+    assert.equal(browser.storage.get(SESSION_KEY), JSON.stringify(admin));
+    assert.equal(browser.storage.has(IMPERSONATOR_KEY), false);
+  } finally {
+    browser.restore();
+  }
+});
+
+test('startImpersonation rejects a stale network result when the captured admin snapshot was replaced', async () => {
+  const browser = installBrowser();
+  const admin = makeWorkspaceSession('admin-access', 'admin-refresh', 'admin-user', 'admin-membership', 'tenant-a');
+  const replacement = { ...admin, user: { ...admin.user, fullName: 'Newer Admin Profile' } };
+  const impersonated = makeProductionImpersonationSession(admin.user.id);
+  browser.storage.set(SESSION_KEY, JSON.stringify(replacement));
+
+  try {
+    await assert.rejects(startImpersonation(admin, impersonated), /session owner changed/);
+    assert.equal(browser.storage.get(SESSION_KEY), JSON.stringify(replacement));
+    assert.equal(browser.storage.has(IMPERSONATOR_KEY), false);
+  } finally {
+    browser.restore();
+  }
+});
+
+test('startImpersonation restores the prior backup when the main session write fails', async () => {
+  const writeError = new Error('main session write failed');
+  const browser = installBrowser({
+    setItem: (key: string, _value: string, call: number) =>
+      key === SESSION_KEY && call === 2 ? writeError : undefined,
+  });
+  const admin = makeWorkspaceSession('admin-access', 'admin-refresh', 'admin-user', 'admin-membership', 'tenant-a');
+  const priorBackup = makeWorkspaceSession('prior-access', 'prior-refresh', 'prior-admin', 'prior-membership', 'tenant-z');
+  const impersonated = makeProductionImpersonationSession(admin.user.id);
+  browser.storage.set(SESSION_KEY, JSON.stringify(admin));
+  browser.storage.set(IMPERSONATOR_KEY, JSON.stringify(priorBackup));
+
+  try {
+    await assert.rejects(startImpersonation(admin, impersonated), writeError);
+    assert.equal(browser.storage.get(SESSION_KEY), JSON.stringify(admin));
+    assert.equal(browser.storage.get(IMPERSONATOR_KEY), JSON.stringify(priorBackup));
+  } finally {
+    browser.restore();
+  }
+});
+
+test('logout then normal login then exit can never restore the old impersonator backup', async () => {
+  const browser = installBrowser();
+  const admin = makeWorkspaceSession('admin-access', 'admin-refresh', 'admin-user', 'admin-membership', 'tenant-a');
+  const impersonated = makeProductionImpersonationSession(admin.user.id);
+  const newLogin = makeWorkspaceSession('new-access', 'new-refresh', 'new-user', 'new-membership', 'tenant-b');
+
+  try {
+    await setSession(admin);
+    await startImpersonation(admin, impersonated);
+    await clearSession();
+    await setSession(newLogin);
+
+    assert.equal(browser.storage.has(IMPERSONATOR_KEY), false);
+    assert.equal(isImpersonating(), false);
+    assert.equal(await stopImpersonation(), null);
+    assert.deepEqual(getSession(), newLogin);
+  } finally {
+    browser.restore();
+  }
+});
+
+test('isImpersonating ignores a stale backup beside an unrelated normal session', () => {
+  const browser = installBrowser();
+  const staleAdmin = makeWorkspaceSession('admin-access', 'admin-refresh', 'admin-user', 'admin-membership', 'tenant-a');
+  const normal = makeWorkspaceSession('normal-access', 'normal-refresh', 'normal-user', 'normal-membership', 'tenant-b');
+  browser.storage.set(SESSION_KEY, JSON.stringify(normal));
+  browser.storage.set(IMPERSONATOR_KEY, JSON.stringify(staleAdmin));
+
+  try {
+    assert.equal(isImpersonating(), false);
+  } finally {
+    browser.restore();
+  }
+});
+
+test('stopImpersonation never restores a backup whose admin does not match the current imp claim', async () => {
+  const browser = installBrowser();
+  const staleAdmin = makeWorkspaceSession('admin-access', 'admin-refresh', 'admin-user', 'admin-membership', 'tenant-a');
+  const unrelatedImpersonation = makeProductionImpersonationSession('different-admin');
+  browser.storage.set(SESSION_KEY, JSON.stringify(unrelatedImpersonation));
+  browser.storage.set(IMPERSONATOR_KEY, JSON.stringify(staleAdmin));
+
+  try {
+    assert.equal(await stopImpersonation(), null);
+    assert.equal(getSession(), null);
+    assert.equal(browser.storage.has(IMPERSONATOR_KEY), false);
+  } finally {
+    browser.restore();
+  }
+});
+
+test('stopImpersonation clears an impersonation session whose privileged backup is missing', async () => {
+  const browser = installBrowser();
+  const impersonated = makeProductionImpersonationSession('admin-user');
+  browser.storage.set(SESSION_KEY, JSON.stringify(impersonated));
+
+  try {
+    assert.equal(await stopImpersonation(), null);
+    assert.equal(getSession(), null);
+    assert.equal(browser.storage.has(IMPERSONATOR_KEY), false);
+  } finally {
+    browser.restore();
+  }
+});
+
+test('applyTenantSwitch rejects a response when the exact captured session was replaced', async () => {
+  const browser = installBrowser();
+  const expected = makeWorkspaceSession('old-access', 'refresh', 'user-1', 'membership-a', 'tenant-a');
+  const replacement = { ...expected, user: { ...expected.user, fullName: 'Newer Profile' } };
+  browser.storage.set(SESSION_KEY, JSON.stringify(replacement));
+
+  try {
+    await assert.rejects(
+      applyTenantSwitch(expected, 'switched-access', 'membership-a'),
+      /session owner changed/,
+    );
+    assert.deepEqual(getSession(), replacement);
+  } finally {
+    browser.restore();
+  }
+});
+
+test('updateSession rejects instead of reporting success when the captured session is missing', async () => {
+  const browser = installBrowser();
+  const expected = makeSession('old-access', 'old-refresh');
+
+  try {
+    await assert.rejects(
+      updateSession(expected, (session) => ({ ...session, user: { ...session.user, fullName: 'Updated' } })),
+      /session owner changed/,
+    );
+    assert.equal(browser.setCalls(), 0);
+  } finally {
+    browser.restore();
+  }
+});
+
+test('updateSession never applies a stale profile result to a same-user replacement', async () => {
+  const browser = installBrowser();
+  const expected = makeWorkspaceSession('access', 'refresh', 'user-1', 'membership-a', 'tenant-a');
+  const replacement = { ...expected, user: { ...expected.user, locale: 'fr' } };
+  browser.storage.set(SESSION_KEY, JSON.stringify(replacement));
+
+  try {
+    await assert.rejects(
+      updateSession(expected, (session) => ({ ...session, user: { ...session.user, fullName: 'Stale Name' } })),
+      /session owner changed/,
+    );
+    assert.deepEqual(getSession(), replacement);
+  } finally {
+    browser.restore();
+  }
+});
+
+test('setSession lock rejection preserves storage and clears active-company memory', async () => {
+  const browser = installBrowser();
+  const owner = makeSession('owner-access', 'owner-refresh');
+  const ownerRaw = JSON.stringify(owner);
+  browser.storage.set(SESSION_KEY, ownerRaw);
+  browser.storage.set(IMPERSONATOR_KEY, JSON.stringify(makeSession('backup-access', 'backup-refresh')));
+  setActiveCompanyToken('active-company-token');
+  const lockError = new Error('mutation lock rejected');
+  const restoreLock = installRejectedMutationLock(lockError);
+
+  try {
+    await assert.rejects(setSession(makeSession('next-access', 'next-refresh')), (error: unknown) => error === lockError);
+    assert.equal(browser.storage.get(SESSION_KEY), ownerRaw);
+    assert.equal(browser.setCalls(), 0);
+    assert.equal(browser.removeCalls(), 0);
+    assert.equal(getActiveCompanyToken(), null);
+  } finally {
+    setActiveCompanyToken(null);
+    restoreLock();
+    browser.restore();
+  }
+});
+
+test('updateSession lock rejection preserves storage and clears active-company memory', async () => {
+  const browser = installBrowser();
+  const owner = makeSession('owner-access', 'owner-refresh');
+  const ownerRaw = JSON.stringify(owner);
+  browser.storage.set(SESSION_KEY, ownerRaw);
+  setActiveCompanyToken('active-company-token');
+  const lockError = new Error('mutation lock rejected');
+  const restoreLock = installRejectedMutationLock(lockError);
+
+  try {
+    await assert.rejects(updateSession(owner, (session) => session), (error: unknown) => error === lockError);
+    assert.equal(browser.storage.get(SESSION_KEY), ownerRaw);
+    assert.equal(browser.setCalls(), 0);
+    assert.equal(browser.removeCalls(), 0);
+    assert.equal(getActiveCompanyToken(), null);
+  } finally {
+    setActiveCompanyToken(null);
+    restoreLock();
+    browser.restore();
+  }
+});
+
+test('startImpersonation lock rejection preserves storage and clears active-company memory', async () => {
+  const browser = installBrowser();
+  const owner = makeWorkspaceSession('owner-access', 'owner-refresh', 'admin-user', 'membership-a', 'tenant-a');
+  const ownerRaw = JSON.stringify(owner);
+  browser.storage.set(SESSION_KEY, ownerRaw);
+  setActiveCompanyToken('active-company-token');
+  const lockError = new Error('mutation lock rejected');
+  const restoreLock = installRejectedMutationLock(lockError);
+
+  try {
+    await assert.rejects(
+      startImpersonation(owner, makeProductionImpersonationSession(owner.user.id)),
+      (error: unknown) => error === lockError,
+    );
+    assert.equal(browser.storage.get(SESSION_KEY), ownerRaw);
+    assert.equal(browser.storage.has(IMPERSONATOR_KEY), false);
+    assert.equal(browser.setCalls(), 0);
+    assert.equal(browser.removeCalls(), 0);
+    assert.equal(getActiveCompanyToken(), null);
+  } finally {
+    setActiveCompanyToken(null);
+    restoreLock();
+    browser.restore();
+  }
+});
+
+test('stopImpersonation lock rejection preserves storage and clears active-company memory', async () => {
+  const browser = installBrowser();
+  const admin = makeWorkspaceSession('admin-access', 'admin-refresh', 'admin-user', 'membership-a', 'tenant-a');
+  const impersonated = makeProductionImpersonationSession(admin.user.id);
+  const impRaw = JSON.stringify(impersonated);
+  const adminRaw = JSON.stringify(admin);
+  browser.storage.set(SESSION_KEY, impRaw);
+  browser.storage.set(IMPERSONATOR_KEY, adminRaw);
+  setActiveCompanyToken('active-company-token');
+  const lockError = new Error('mutation lock rejected');
+  const restoreLock = installRejectedMutationLock(lockError);
+
+  try {
+    await assert.rejects(stopImpersonation(), (error: unknown) => error === lockError);
+    assert.equal(browser.storage.get(SESSION_KEY), impRaw);
+    assert.equal(browser.storage.get(IMPERSONATOR_KEY), adminRaw);
+    assert.equal(browser.setCalls(), 0);
+    assert.equal(browser.removeCalls(), 0);
+    assert.equal(getActiveCompanyToken(), null);
+  } finally {
+    setActiveCompanyToken(null);
+    restoreLock();
+    browser.restore();
+  }
+});
+
+test('withSessionMutation rejects a thenable callback without assimilating it', async () => {
+  const browser = installBrowser();
+  let thenCalls = 0;
+  const thenable = {
+    then(resolve: (value: string) => void): void {
+      thenCalls += 1;
+      resolve('async-result');
+    },
+  };
+  const asyncBoundaryEscape = (() => thenable) as unknown as () => string;
+
+  try {
+    await assert.rejects(withSessionMutation(asyncBoundaryEscape), /must be synchronous/);
+    assert.equal(thenCalls, 0);
+  } finally {
+    browser.restore();
+  }
+});
+
+test('setSession leaves the previous impersonator backup untouched when the main write fails', async () => {
+  const writeError = new Error('main write denied');
+  const browser = installBrowser({ setItem: writeError });
+  const owner = makeSession('owner-access', 'owner-refresh');
+  const backup = makeSession('backup-access', 'backup-refresh');
+  const ownerRaw = JSON.stringify(owner);
+  const backupRaw = JSON.stringify(backup);
+  browser.storage.set(SESSION_KEY, ownerRaw);
+  browser.storage.set(IMPERSONATOR_KEY, backupRaw);
+
+  try {
+    await assert.rejects(setSession(makeSession('new-access', 'new-refresh')), (error: unknown) => error === writeError);
+    assert.equal(browser.storage.get(SESSION_KEY), ownerRaw);
+    assert.equal(browser.storage.get(IMPERSONATOR_KEY), backupRaw);
+  } finally {
+    browser.restore();
+  }
+});
+
+test('clearSession attempts main removal before stale backup cleanup and attempts both on failure', async () => {
+  const removalOrder: string[] = [];
+  const mainRemovalError = new Error('main removal denied');
+  const browser = installBrowser({
+    removeItem: (key: string) => {
+      removalOrder.push(key);
+      return key === SESSION_KEY ? mainRemovalError : undefined;
+    },
+  });
+  const ownerRaw = JSON.stringify(makeSession('owner-access', 'owner-refresh'));
+  browser.storage.set(SESSION_KEY, ownerRaw);
+  browser.storage.set(IMPERSONATOR_KEY, JSON.stringify(makeSession('backup-access', 'backup-refresh')));
+
+  try {
+    await assert.rejects(clearSession());
+    assert.deepEqual(removalOrder, [SESSION_KEY, IMPERSONATOR_KEY]);
+    assert.equal(browser.storage.get(SESSION_KEY), ownerRaw);
+    assert.equal(browser.storage.has(IMPERSONATOR_KEY), false);
+  } finally {
+    browser.restore();
+  }
+});
+
+test('a deferred login or invite result cannot replace a session installed after its null snapshot', async () => {
+  const browser = installBrowser();
+  const incoming = makeSession('incoming-access', 'incoming-refresh');
+  const replacement = makeWorkspaceSession('replacement-access', 'replacement-refresh', 'replacement-user', 'membership-b', 'tenant-b');
+  browser.storage.set(SESSION_KEY, JSON.stringify(replacement));
+
+  try {
+    await assert.rejects(
+      Promise.resolve().then(() => replaceSessionIfCurrent(null, incoming)),
+      /session owner changed/,
+    );
+    assert.deepEqual(getSession(), replacement);
+  } finally {
+    browser.restore();
+  }
+});
+
+test('branded-login tenant switching authenticates with the newly returned login token', async () => {
+  const browser = installBrowser();
+  const oldStored = makeSession('old-stored-access', 'old-stored-refresh');
+  browser.storage.set(SESSION_KEY, JSON.stringify(oldStored));
+  const authorizations: Array<string | null> = [];
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    if (!path.endsWith('/me/switch-tenant')) throw new Error(`unexpected request: ${path}`);
+    authorizations.push(authorization(init));
+    return Response.json({ accessToken: 'tenant-access', activeMembershipId: 'target-membership' });
+  });
+
+  try {
+    const switched = await switchTenant('target-membership', 'new-login-access');
+
+    assert.deepEqual(switched, { accessToken: 'tenant-access', activeMembershipId: 'target-membership' });
+    assert.deepEqual(authorizations, ['Bearer new-login-access']);
+    assert.deepEqual(getSession(), oldStored);
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('branded-login tenant switching never falls back to stored auth for an explicit empty token', async () => {
+  const browser = installBrowser();
+  const oldStored = makeSession('old-stored-access', 'old-stored-refresh');
+  browser.storage.set(SESSION_KEY, JSON.stringify(oldStored));
+  let fetchCalls = 0;
+  const restoreFetch = installFetch(async () => {
+    fetchCalls += 1;
+    return Response.json({ accessToken: 'unsafe', activeMembershipId: 'unsafe' });
+  });
+
+  try {
+    await assert.rejects(switchTenant('target-membership', ''), /invalid access token/);
+    assert.equal(fetchCalls, 0);
+    assert.deepEqual(getSession(), oldStored);
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('owner-bound API calls use the captured session bearer even after storage is replaced', async () => {
+  const browser = installBrowser();
+  const expected = makeWorkspaceSession('captured-access', 'captured-refresh', 'user-a', 'membership-a', 'tenant-a');
+  const replacement = makeWorkspaceSession('replacement-access', 'replacement-refresh', 'user-b', 'membership-b', 'tenant-b');
+  browser.storage.set(SESSION_KEY, JSON.stringify(replacement));
+  const authorizations: Array<string | null> = [];
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    if (!path.endsWith('/owner-bound-update')) throw new Error(`unexpected request: ${path}`);
+    authorizations.push(authorization(init));
+    return Response.json({ ok: true });
+  });
+
+  try {
+    const result = await apiForSession(expected).patch<{ ok: boolean }>('/owner-bound-update', { value: 'A' });
+
+    assert.deepEqual(result, { ok: true });
+    assert.deepEqual(authorizations, ['Bearer captured-access']);
+    assert.deepEqual(getSession(), replacement);
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('refresh merges only rotated tokens so a concurrent same-owner profile update survives', async () => {
+  const browser = installBrowser();
+  const owner = makeWorkspaceSession('expired-access', 'owner-refresh', 'user-1', 'membership-a', 'tenant-a');
+  const refreshed = { ...owner, accessToken: 'fresh-access', refreshToken: 'next-refresh' };
+  await setSession(owner);
+  const refreshStarted = deferred();
+  const releaseRefresh = deferred();
+  const replayAuthorizations: Array<string | null> = [];
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const bearer = authorization(init);
+    if (path.endsWith('/auth/refresh')) {
+      refreshStarted.resolve();
+      await releaseRefresh.promise;
+      return Response.json(refreshed);
+    }
+    if (path.endsWith('/profile-resource') && bearer === 'Bearer expired-access') {
+      return new Response(null, { status: 401 });
+    }
+    if (path.endsWith('/profile-resource')) {
+      replayAuthorizations.push(bearer);
+      return Response.json({ ok: true });
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const pending = api.get<{ ok: boolean }>('/profile-resource');
+    await refreshStarted.promise;
+    await updateSession(owner, (session) => ({
+      ...session,
+      user: { ...session.user, fullName: 'Profile Updated During Refresh' },
+    }));
+    releaseRefresh.resolve();
+
+    assert.deepEqual(await pending, { ok: true });
+    assert.deepEqual(replayAuthorizations, ['Bearer fresh-access']);
+    assert.equal(getSession()?.accessToken, 'fresh-access');
+    assert.equal(getSession()?.refreshToken, 'next-refresh');
+    assert.equal(getSession()?.user.fullName, 'Profile Updated During Refresh');
+  } finally {
+    releaseRefresh.resolve();
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('a refresh response with an empty refreshToken is cleared and never replayed', async () => {
+  const browser = installBrowser();
+  const owner = makeWorkspaceSession('expired-access', 'owner-refresh', 'user-1', 'membership-a', 'tenant-a');
+  const invalidRotation = { ...owner, accessToken: 'unsafe-fresh-access', refreshToken: '' };
+  await setSession(owner);
+  const replayAuthorizations: Array<string | null> = [];
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const bearer = authorization(init);
+    if (path.endsWith('/auth/refresh')) return Response.json(invalidRotation);
+    if (path.endsWith('/empty-rotation') && bearer === 'Bearer expired-access') {
+      return new Response(null, { status: 401 });
+    }
+    if (path.endsWith('/empty-rotation')) {
+      replayAuthorizations.push(bearer);
+      return Response.json({ unsafeReplay: true });
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const [result] = await Promise.allSettled([api.get('/empty-rotation')]);
+
+    assertExpired(result);
+    assert.deepEqual(replayAuthorizations, []);
+    assert.equal(getSession(), null);
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('a local refreshless impersonation 401 never sends an empty refresh credential', async () => {
+  const browser = installBrowser();
+  const impersonated = makeProductionImpersonationSession('admin-user');
+  const admin = makeWorkspaceSession('admin-access', 'admin-refresh', 'admin-user', 'membership-a', 'tenant-a');
+  browser.storage.set(SESSION_KEY, JSON.stringify(impersonated));
+  browser.storage.set(IMPERSONATOR_KEY, JSON.stringify(admin));
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      return Response.json({ message: 'must not be called' }, { status: 500 });
+    }
+    if (path.endsWith('/impersonated-resource') && authorization(init) === `Bearer ${impersonated.accessToken}`) {
+      return new Response(null, { status: 401 });
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const [result] = await Promise.allSettled([api.get('/impersonated-resource')]);
+
+    assertExpired(result);
+    assert.equal(refreshCalls, 0);
+    assert.equal(getSession(), null);
+    assert.equal(browser.storage.has(IMPERSONATOR_KEY), false);
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('setSession rejects a malformed API session before any main or backup write', async () => {
+  const browser = installBrowser();
+  const current = makeSession('current-access', 'current-refresh');
+  const backup = makeSession('backup-access', 'backup-refresh');
+  const currentRaw = JSON.stringify(current);
+  const backupRaw = JSON.stringify(backup);
+  const malformed = { ...makeSession('unsafe-access', 'unsafe-refresh'), user: null } as unknown as Session;
+  browser.storage.set(SESSION_KEY, currentRaw);
+  browser.storage.set(IMPERSONATOR_KEY, backupRaw);
+
+  try {
+    await assert.rejects(setSession(malformed), /invalid session/);
+    assert.equal(browser.storage.get(SESSION_KEY), currentRaw);
+    assert.equal(browser.storage.get(IMPERSONATOR_KEY), backupRaw);
+    assert.equal(browser.setCalls(), 0);
+    assert.equal(browser.removeCalls(), 0);
+  } finally {
+    browser.restore();
+  }
+});
+
+test('startImpersonation rejects a malformed owner-claimed payload before writing its backup', async () => {
+  const browser = installBrowser();
+  const admin = makeWorkspaceSession('admin-access', 'admin-refresh', 'admin-user', 'membership-a', 'tenant-a');
+  const validFixture = makeProductionImpersonationSession(admin.user.id);
+  const malformed: Session = {
+    ...validFixture,
+    memberships: [{ ...validFixture.memberships[0], tenantName: '' }],
+  };
+  const adminRaw = JSON.stringify(admin);
+  browser.storage.set(SESSION_KEY, adminRaw);
+
+  try {
+    await assert.rejects(startImpersonation(admin, malformed), /invalid session/);
+    assert.equal(browser.storage.get(SESSION_KEY), adminRaw);
+    assert.equal(browser.storage.has(IMPERSONATOR_KEY), false);
+    assert.equal(browser.setCalls(), 0);
+    assert.equal(browser.removeCalls(), 0);
+  } finally {
     browser.restore();
   }
 });

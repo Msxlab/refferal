@@ -22,6 +22,7 @@ export interface Session {
 }
 
 const KEY = 'refearn.session';
+const IMP_KEY = 'refearn.session.impersonator';
 const SESSION_MUTATION_LOCK = 'refearn.auth.session-mutation';
 
 interface SessionLockManager {
@@ -31,6 +32,8 @@ interface SessionLockManager {
     callback: () => T | PromiseLike<T>,
   ): Promise<T>;
 }
+
+type SynchronousResult<T> = T extends PromiseLike<unknown> ? never : T;
 
 export interface LockedSessionStore {
   read(): SessionReadResult;
@@ -80,7 +83,7 @@ export function isSession(value: unknown): value is Session {
       isRecord(membership) &&
       isNonEmptyString(membership.id) &&
       isNonEmptyString(membership.tenantId) &&
-      isNonEmptyString(membership.tenantSlug) &&
+      typeof membership.tenantSlug === 'string' &&
       isNonEmptyString(membership.tenantName) &&
       isNonEmptyString(membership.role) &&
       isNonEmptyString(membership.referralCode) &&
@@ -93,15 +96,37 @@ export type SessionReadResult =
   | { ok: false; session: null; error: unknown };
 
 function rawSetSession(session: Session): void {
+  if (!isSession(session)) throw new InvalidSessionError();
   window.localStorage.setItem(KEY, JSON.stringify(session));
 }
 
-function rawClearSession(): void {
+function rawClearMainSession(): void {
   try {
     window.localStorage.removeItem(KEY);
   } finally {
     setActiveCompanyToken(null);
   }
+}
+
+function rawImpersonator(): string | null {
+  return window.localStorage.getItem(IMP_KEY);
+}
+
+function rawClearImpersonator(): void {
+  if (rawImpersonator() !== null) window.localStorage.removeItem(IMP_KEY);
+}
+
+function rawClearSessionState(): void {
+  const errors: unknown[] = [];
+  try { rawClearMainSession(); } catch (error) { errors.push(error); }
+  try { rawClearImpersonator(); } catch (error) { errors.push(error); }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) throw new AggregateError(errors, 'session and impersonator cleanup failed');
+}
+
+function restoreRawImpersonator(raw: string | null): void {
+  if (raw === null) window.localStorage.removeItem(IMP_KEY);
+  else window.localStorage.setItem(IMP_KEY, raw);
 }
 
 function readStoredSession(onKnownInvalid: (raw: string) => void): SessionReadResult {
@@ -149,7 +174,7 @@ function lockedStore(): { store: LockedSessionStore; release: () => void } {
     read: () => {
       assertActive();
       return readStoredSession(() => {
-        try { rawClearSession(); } catch { /* best effort */ }
+        try { rawClearSessionState(); } catch { /* best effort */ }
       });
     },
     set: (session) => {
@@ -158,16 +183,24 @@ function lockedStore(): { store: LockedSessionStore; release: () => void } {
     },
     clear: () => {
       assertActive();
-      rawClearSession();
+      rawClearSessionState();
     },
   };
   return { store, release: () => { active = false; } };
 }
 
-async function invokeLocked<T>(operation: (store: LockedSessionStore) => T | PromiseLike<T>): Promise<T> {
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return (
+    (typeof value === 'object' && value !== null) || typeof value === 'function'
+  ) && typeof (value as { then?: unknown }).then === 'function';
+}
+
+function invokeLocked<T>(operation: (store: LockedSessionStore) => T): T {
   const locked = lockedStore();
   try {
-    return await operation(locked.store);
+    const result = operation(locked.store);
+    if (isThenable(result)) throw new Error('session mutation callback must be synchronous');
+    return result;
   } finally {
     locked.release();
   }
@@ -176,37 +209,70 @@ async function invokeLocked<T>(operation: (store: LockedSessionStore) => T | Pro
 let fallbackMutationActive = false;
 const fallbackMutationQueue: Array<() => void> = [];
 
-function runFallbackMutation<T>(operation: (store: LockedSessionStore) => T | PromiseLike<T>): Promise<T> {
+function runFallbackMutation<T>(operation: (store: LockedSessionStore) => T): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const run = () => {
       fallbackMutationActive = true;
-      invokeLocked(operation)
-        .then(resolve, reject)
-        .finally(() => {
-          const next = fallbackMutationQueue.shift();
-          if (next) next();
-          else fallbackMutationActive = false;
-        });
+      try {
+        resolve(invokeLocked(operation));
+      } catch (error) {
+        reject(error);
+      } finally {
+        const next = fallbackMutationQueue.shift();
+        if (next) next();
+        else fallbackMutationActive = false;
+      }
     };
     if (fallbackMutationActive) fallbackMutationQueue.push(run);
     else run();
   });
 }
 
+class SessionMutationCallbackFailure extends Error {
+  constructor(readonly cause: unknown) {
+    super('session mutation callback failed');
+    this.name = 'SessionMutationCallbackFailure';
+  }
+}
+
+function rejectLockRequest<T>(error: unknown): Promise<T> {
+  setActiveCompanyToken(null);
+  return Promise.reject(error);
+}
+
 /** Tum uretim session mutation'lari bu tek kilit protokolunden gecer. */
 export function withSessionMutation<T>(
-  operation: (store: LockedSessionStore) => T | PromiseLike<T>,
+  operation: (store: LockedSessionStore) => SynchronousResult<T>,
 ): Promise<T> {
   const locks =
     typeof navigator === 'undefined'
       ? undefined
       : (navigator as unknown as { locks?: SessionLockManager }).locks;
-  if (!locks || typeof locks.request !== 'function') return runFallbackMutation(operation);
-  return locks.request(SESSION_MUTATION_LOCK, { mode: 'exclusive' }, () => invokeLocked(operation));
+  const synchronousOperation = operation as (store: LockedSessionStore) => T;
+  if (!locks || typeof locks.request !== 'function') return runFallbackMutation(synchronousOperation);
+  try {
+    return locks
+      .request(SESSION_MUTATION_LOCK, { mode: 'exclusive' }, () => {
+        try {
+          return invokeLocked(synchronousOperation);
+        } catch (error) {
+          return Promise.reject(new SessionMutationCallbackFailure(error));
+        }
+      })
+      .catch((error: unknown) => {
+        if (error instanceof SessionMutationCallbackFailure) throw error.cause;
+        return rejectLockRequest<T>(error);
+      });
+  } catch (error) {
+    return rejectLockRequest(error);
+  }
 }
 
 export async function setSession(session: Session): Promise<void> {
-  await withSessionMutation((store) => { store.set(session); });
+  await withSessionMutation((store) => {
+    store.set(session);
+    rawClearImpersonator();
+  });
 }
 
 export async function trySetSession(session: Session): Promise<boolean> {
@@ -264,12 +330,37 @@ function sessionOrThrow(result: SessionReadResult): Session | null {
   return result.session;
 }
 
-export function updateSession(
-  updater: (session: Session) => Session,
-): Promise<Session | null> {
+function sameSessionSnapshot(expected: Session, current: Session): boolean {
+  return JSON.stringify(expected) === JSON.stringify(current);
+}
+
+function exactCurrentSession(store: LockedSessionStore, expected: Session): Session {
+  const current = sessionOrThrow(store.read());
+  if (!current || !sameSessionSnapshot(expected, current)) throw new Error('session owner changed');
+  return current;
+}
+
+function matchesSessionSnapshot(expected: Session | null, current: Session | null): boolean {
+  if (!expected || !current) return expected === current;
+  return sameSessionSnapshot(expected, current);
+}
+
+export function replaceSessionIfCurrent(expected: Session | null, next: Session): Promise<Session> {
   return withSessionMutation((store) => {
     const current = sessionOrThrow(store.read());
-    if (!current) return null;
+    if (!matchesSessionSnapshot(expected, current)) throw new Error('session owner changed');
+    store.set(next);
+    rawClearImpersonator();
+    return next;
+  });
+}
+
+export function updateSession(
+  expected: Session,
+  updater: (session: Session) => Session,
+): Promise<Session> {
+  return withSessionMutation((store) => {
+    const current = exactCurrentSession(store, expected);
     const next = updater(current);
     store.set(next);
     return next;
@@ -286,8 +377,12 @@ export function membershipForTenant(s: Session, tenantId: string): MembershipSum
 }
 
 /** switch-tenant sonucunu oturuma uygula: token o tenant'a scoped, aktif uyelik guncellenir. */
-export async function applyTenantSwitch(accessToken: string, activeMembershipId: string): Promise<void> {
-  await updateSession((session) => ({ ...session, accessToken, activeMembershipId }));
+export function applyTenantSwitch(
+  expected: Session,
+  accessToken: string,
+  activeMembershipId: string,
+): Promise<Session> {
+  return updateSession(expected, (session) => ({ ...session, accessToken, activeMembershipId }));
 }
 
 const ADMIN_ROLES = new Set(['tenant_owner', 'tenant_admin', 'tenant_staff']);
@@ -306,33 +401,66 @@ interface AccessClaims {
   imp?: string;
 }
 
-/* ---- impersonation: admin'in uye oturumunu gecici devralmasi (salt-okunur) ---- */
-const IMP_KEY = 'refearn.session.impersonator';
-
 /** Mevcut (admin) oturumu yedekle, uye imp oturumuna gec. */
-export async function startImpersonation(impSession: Session): Promise<void> {
+export async function startImpersonation(expectedAdmin: Session, impSession: Session): Promise<void> {
   await withSessionMutation((store) => {
-    const current = sessionOrThrow(store.read());
-    if (current) window.localStorage.setItem(IMP_KEY, JSON.stringify(current));
-    store.set(impSession);
+    if (!isSession(impSession)) throw new InvalidSessionError();
+    const current = exactCurrentSession(store, expectedAdmin);
+    if (accessClaims(impSession).imp !== current.user.id) throw new Error('impersonation owner mismatch');
+    const previousBackup = rawImpersonator();
+    window.localStorage.setItem(IMP_KEY, JSON.stringify(current));
+    try {
+      store.set(impSession);
+    } catch (error) {
+      try {
+        restoreRawImpersonator(previousBackup);
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], 'impersonation session write and backup rollback failed');
+      }
+      throw error;
+    }
   });
 }
 
 export function isImpersonating(): boolean {
-  return typeof window !== 'undefined' && !!window.localStorage.getItem(IMP_KEY);
+  if (typeof window === 'undefined') return false;
+  try {
+    const current = getSession();
+    const raw = rawImpersonator();
+    if (!current || !raw) return false;
+    const candidate: unknown = JSON.parse(raw);
+    return isSession(candidate) && accessClaims(current).imp === candidate.user.id;
+  } catch {
+    return false;
+  }
 }
 
 /** Yedeklenen admin oturumunu dondur ve imp bayragini temizle (yoksa null). */
 export function stopImpersonation(): Promise<Session | null> {
   return withSessionMutation((store) => {
     if (typeof window === 'undefined') return null;
-    const raw = window.localStorage.getItem(IMP_KEY);
+    const current = sessionOrThrow(store.read());
+    const currentImp = accessClaims(current).imp;
+    const currentIsImpersonation = typeof currentImp === 'string';
+    const raw = rawImpersonator();
     if (!raw) {
-      window.localStorage.removeItem(IMP_KEY);
+      if (currentIsImpersonation) store.clear();
       return null;
     }
-    const candidate: unknown = JSON.parse(raw);
-    if (!isSession(candidate)) throw new InvalidSessionError();
+    const rejectBackup = () => {
+      if (currentIsImpersonation) store.clear();
+      else window.localStorage.removeItem(IMP_KEY);
+      return null;
+    };
+    let candidate: unknown;
+    try {
+      candidate = JSON.parse(raw);
+    } catch {
+      return rejectBackup();
+    }
+    if (!current || !isSession(candidate) || currentImp !== candidate.user.id) {
+      return rejectBackup();
+    }
     store.set(candidate);
     window.localStorage.removeItem(IMP_KEY);
     return candidate;

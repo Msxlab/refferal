@@ -1,9 +1,9 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getTenantBrand, login, loginTwoFactor, switchTenant, type TenantBrand } from '@/lib/api';
-import { applyTenantSwitch, landingForSession, setSession, type Session } from '@/lib/auth';
+import { getSession, landingForSession, replaceSessionIfCurrent, type Session } from '@/lib/auth';
 import { currentSlug, isHqHost, ROOT_DOMAIN } from '@/lib/subdomain';
 import { Brand } from '@/components/ui';
 import { Button } from '@/components/ui/button';
@@ -21,6 +21,7 @@ export default function LoginPage() {
   // 2FA 2. adim
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [code, setCode] = useState('');
+  const loginOwner = useRef<{ session: Session | null } | null>(null);
 
   // Alt-proje B: markali subdomain baglami (ROOT_DOMAIN unset iken hep null/false — no-op)
   const [slug] = useState<string | null>(() => currentSlug());
@@ -39,7 +40,7 @@ export default function LoginPage() {
     return () => { alive = false; };
   }, [slug]);
 
-  async function completeLogin(session: Session): Promise<boolean> {
+  async function completeLogin(session: Session, expectedSession: Session | null): Promise<boolean> {
     if (hq && !session.user.isPlatformAdmin) {
       setError('This sign-in page is for platform owners.');
       setBusy(false);
@@ -60,8 +61,7 @@ export default function LoginPage() {
         return false;
       }
       if (target.id !== session.activeMembershipId) {
-        const sw = await switchTenant(target.id);
-        await applyTenantSwitch(sw.accessToken, sw.activeMembershipId);
+        const sw = await switchTenant(target.id, session.accessToken);
         session = { ...session, accessToken: sw.accessToken, activeMembershipId: sw.activeMembershipId };
       }
     } else if (!session.user.isPlatformAdmin && session.memberships.length === 0) {
@@ -69,7 +69,7 @@ export default function LoginPage() {
       setBusy(false);
       return false;
     }
-    await setSession(session);
+    await replaceSessionIfCurrent(expectedSession, session);
     router.replace(landingForSession(session));
     return true;
   }
@@ -79,13 +79,15 @@ export default function LoginPage() {
     setError('');
     setBusy(true);
     try {
+      const expectedSession = getSession();
+      loginOwner.current = { session: expectedSession };
       const res = await login(email.trim(), password);
       if ('mfaRequired' in res) {
         setMfaToken(res.mfaToken);
         setBusy(false);
         return;
       }
-      await completeLogin(res);
+      await completeLogin(res, expectedSession);
     } catch {
       setError(t('login.error'));
       setBusy(false);
@@ -97,8 +99,9 @@ export default function LoginPage() {
     setError('');
     setBusy(true);
     try {
+      if (!loginOwner.current) throw new Error('login session owner unavailable');
       const session = await loginTwoFactor(mfaToken as string, code.trim());
-      await completeLogin(session);
+      await completeLogin(session, loginOwner.current.session);
     } catch {
       setError('Invalid code. Enter a fresh 6-digit code or a recovery code.');
       setBusy(false);

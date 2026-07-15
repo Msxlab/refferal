@@ -3,7 +3,7 @@
 import { FormEvent, use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
-import { landingPath, setSession, activeMembership, type Session } from '@/lib/auth';
+import { activeMembership, getSession, landingPath, replaceSessionIfCurrent, type Session } from '@/lib/auth';
 import { Brand, Loading } from '@/components/ui';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -49,6 +49,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
     setError('');
     setBusy(true);
     try {
+      const expectedSession = getSession();
       const session = await api.post<Session>('/auth/register-by-invite', {
         inviteCode: code,
         email: email.trim(),
@@ -56,7 +57,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
         fullName: fullName.trim(),
         acceptDisclaimer: true,
       });
-      await setSession(session);
+      await replaceSessionIfCurrent(expectedSession, session);
       router.replace(landingPath(activeMembership(session)?.role));
     } catch (e) {
       setError(String((e as ApiError).message));

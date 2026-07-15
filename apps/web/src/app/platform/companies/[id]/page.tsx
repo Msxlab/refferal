@@ -105,8 +105,8 @@ export default function CompanyPage() {
     }
     setEntering(true); setEnterMsg('');
     try {
-      const res = await switchTenant(membership.id);
-      await applyTenantSwitch(res.accessToken, res.activeMembershipId);
+      const res = await switchTenant(membership.id, session.accessToken);
+      await applyTenantSwitch(session, res.accessToken, res.activeMembershipId);
       router.push('/admin');
     } catch (e) {
       setEntering(false);

@@ -1,7 +1,7 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useId, useMemo, useState } from 'react';
-import { api, ApiError } from '@/lib/api';
+import { api, apiForSession, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
 import { ColumnsMenu, Confirm, Loading, Modal, Pagination, SortableTh, SortDir, TableColumn, useTablePrefs, useToast } from '@/components/ui';
 import { Card } from '@/components/ui/card';
@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Drawer } from '@/components/Drawer';
 import { PrintSheet, PrintHeader } from '@/components/PrintSheet';
-import { startImpersonation, type Session } from '@/lib/auth';
+import { getSession, startImpersonation, type Session } from '@/lib/auth';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
 
@@ -498,7 +498,9 @@ function MemberDrawer({ id, tenantName, meIsAdmin, onClose, onNavigate, onChange
   async function viewAsMember() {
     if (!d) return;
     try {
-      const res = await api.post<{ accessToken: string; member: { membershipId: string; userId: string; fullName: string; email: string; referralCode: string; role: string; tenantId: string; tenantName: string } }>(`/admin/members/${id}/impersonate`);
+      const expectedAdmin = getSession();
+      if (!expectedAdmin) throw new Error('session owner changed');
+      const res = await apiForSession(expectedAdmin).post<{ accessToken: string; member: { membershipId: string; userId: string; fullName: string; email: string; referralCode: string; role: string; tenantId: string; tenantName: string } }>(`/admin/members/${id}/impersonate`);
       const m = res.member;
       const impSession: Session = {
         accessToken: res.accessToken,
@@ -507,7 +509,7 @@ function MemberDrawer({ id, tenantName, meIsAdmin, onClose, onNavigate, onChange
         activeMembershipId: m.membershipId,
         memberships: [{ id: m.membershipId, tenantId: m.tenantId, tenantSlug: '', tenantName: m.tenantName, role: m.role, referralCode: m.referralCode, depth: 0 }],
       };
-      await startImpersonation(impSession);
+      await startImpersonation(expectedAdmin, impSession);
       window.location.href = '/app';
     } catch (e) { setErr(String((e as ApiError).message)); }
   }
