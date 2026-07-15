@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Confirm, Loading, Modal, MoneyCounter, Pagination, useToast } from '@/components/ui';
 import { Card } from '@/components/ui/card';
@@ -10,6 +10,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { dateShort, money, levelLabel, ledgerTypeLabel } from '@/lib/format';
 import { t } from '@/lib/i18n';
+import {
+  hasOpenPayoutRequest,
+  initialPayoutActionState,
+  payoutActionIsLocked,
+  payoutActionReducer,
+  payoutHistoryReconciles,
+} from './payout-reconciliation';
 
 interface LedgerItem {
   id: string;
@@ -30,6 +37,13 @@ interface PayoutReq {
   id: string; totalCents: string; status: string; period: string; paidAt: string | null;
   checkNumber: number | null; mailedAt: string | null; checkStatus: CheckStatus;
 }
+interface PayoutAcceptance {
+  id: string; status: string; period: string; requestedCents: string;
+}
+type WalletReloadResult =
+  | { status: 'success' }
+  | { status: 'failed'; message: string }
+  | { status: 'superseded'; message: string };
 
 // uye-dostu cek durumu: etiket + rozet varyanti + aciklama
 type BadgeVariant = 'default' | 'secondary' | 'success' | 'destructive';
@@ -55,6 +69,8 @@ export default function WalletPage() {
   const [toast, showToast] = useToast();
   const [busy, setBusy] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [payoutAction, dispatchPayoutAction] = useReducer(payoutActionReducer, initialPayoutActionState);
+  const loadGeneration = useRef(0);
   const [fType, setFType] = useState('');
   const [fStatus, setFStatus] = useState('');
   const [page, setPage] = useState(1);
@@ -66,24 +82,75 @@ export default function WalletPage() {
     return p.toString();
   }, [fType, fStatus, page]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (expectedPayoutId?: string): Promise<WalletReloadResult> => {
+    const generation = ++loadGeneration.current;
     try {
       const [w, h] = await Promise.all([api.get<Wallet>(`/app/wallet?${ledgerQuery}`), api.get<PayoutReq[]>('/app/payout-requests')]);
+      if (generation !== loadGeneration.current) {
+        return { status: 'superseded', message: 'A newer wallet status refresh is already in progress.' };
+      }
       setWallet(w);
       setHistory(h);
-    } catch (e) { setError(String((e as ApiError).message)); }
+      if (expectedPayoutId && !payoutHistoryReconciles(h, expectedPayoutId)) {
+        return {
+          status: 'failed',
+          message: 'The accepted payout is not visible in your latest check history yet.',
+        };
+      }
+      return { status: 'success' };
+    } catch (e) {
+      if (generation !== loadGeneration.current) {
+        return { status: 'superseded', message: 'A newer wallet status refresh is already in progress.' };
+      }
+      return { status: 'failed', message: String((e as ApiError).message) };
+    }
   }, [ledgerQuery]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load().then((result) => {
+      if (result.status === 'failed') setError(result.message);
+    });
+  }, [load]);
 
   async function requestPayout() {
     setBusy(true); setError('');
+    dispatchPayoutAction({ type: 'submit-started' });
     try {
-      await api.post('/app/payout-requests');
+      const accepted = await api.post<PayoutAcceptance>('/app/payout-requests');
       setConfirmOpen(false);
       showToast('Your payout request has been received ✓');
-      await load();
-    } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
+      dispatchPayoutAction({ type: 'submit-succeeded', payoutId: accepted.id });
+      const reload = await load(accepted.id);
+      dispatchPayoutAction(
+        reload.status === 'success'
+          ? { type: 'reload-succeeded', payoutId: accepted.id }
+          : { type: 'reload-failed', payoutId: accepted.id, message: reload.message },
+      );
+    } catch (e) {
+      dispatchPayoutAction({ type: 'submit-failed' });
+      setConfirmOpen(false);
+      setError(String((e as ApiError).message));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function retryPayoutStatus() {
+    if (payoutAction.status !== 'awaiting-reconciliation') return;
+    const payoutId = payoutAction.payoutId;
+    setBusy(true);
+    dispatchPayoutAction({ type: 'retry-started' });
+    try {
+      const reload = await load(payoutId);
+      if (reload.status === 'success') {
+        setError('');
+        dispatchPayoutAction({ type: 'reload-succeeded', payoutId });
+      } else {
+        dispatchPayoutAction({ type: 'reload-failed', payoutId, message: reload.message });
+      }
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (error && !wallet) return <div className="text-destructive text-sm my-2">{error}</div>;
@@ -95,6 +162,9 @@ export default function WalletPage() {
   const reached = payable >= min && payable > 0;
   const pct = min > 0 ? Math.min(100, (payable / min) * 100) : 100;
   const remaining = Math.max(0, min - payable);
+  const payoutActionLocked = payoutActionIsLocked(payoutAction);
+  const hasOpenPayout = hasOpenPayoutRequest(history);
+  const reconciliationActive = payoutAction.status === 'checking' || payoutAction.status === 'awaiting-reconciliation';
   const receivedCents = history.filter((p) => p.checkStatus === 'mailed' || p.checkStatus === 'paid').reduce((a, p) => a + Number(p.totalCents), 0);
   const receivedCount = history.filter((p) => p.checkStatus === 'mailed' || p.checkStatus === 'paid').length;
   const inProgress = history.filter((p) => ['pending_review', 'approved', 'printed'].includes(p.checkStatus)).length;
@@ -118,7 +188,7 @@ export default function WalletPage() {
               <b className="tnum text-foreground">{money(b.paidCents, c)}</b>
             </div>
           </div>
-          <Button variant="success" onClick={() => setConfirmOpen(true)} disabled={busy || !reached}>{t('me.requestPayout')}</Button>
+          <Button variant="success" onClick={() => setConfirmOpen(true)} disabled={busy || payoutActionLocked || hasOpenPayout || !reached}>{t('me.requestPayout')}</Button>
         </div>
 
         {/* esik ilerleme cubugu */}
@@ -130,11 +200,49 @@ export default function WalletPage() {
             />
           </div>
           <div className="mt-1.5 text-xs text-muted-foreground">
-            {reached
-              ? <span className="font-medium text-[color:var(--emerald)]">✓ Threshold reached — you can request a payout.</span>
-              : <>{money(remaining, c)} to go until the {money(min, c)} payout threshold.</>}
+            {hasOpenPayout
+              ? <span className="font-medium text-primary">A payout request is already under review. Track it under Your checks.</span>
+              : payoutActionLocked
+                ? <span className="font-medium text-primary">Your payout request is being confirmed before another action is allowed.</span>
+                : reached
+                  ? <span className="font-medium text-[color:var(--emerald)]">✓ Threshold reached — you can request a payout.</span>
+                  : <>{money(remaining, c)} to go until the {money(min, c)} payout threshold.</>}
           </div>
         </div>
+        {reconciliationActive && (
+          <div
+            className="mt-3 rounded-xl border border-primary/30 bg-primary/5 p-3 text-sm"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            aria-busy={payoutAction.status === 'checking'}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="max-w-2xl leading-relaxed">
+                {payoutAction.status === 'checking' ? (
+                  <>
+                    <strong className="text-foreground">Payout request received.</strong>{' '}
+                    Confirming your latest wallet and check history…
+                  </>
+                ) : (
+                  <>
+                    <strong className="text-foreground">Your payout request was received, but its latest status could not be confirmed.</strong>{' '}
+                    {payoutAction.message} Payout actions remain locked until both wallet and check history are confirmed.
+                  </>
+                )}
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={retryPayoutStatus}
+                disabled={payoutAction.status === 'checking'}
+              >
+                {payoutAction.status === 'checking' ? 'Checking status…' : 'Retry status check'}
+              </Button>
+            </div>
+          </div>
+        )}
         {error && <div className="mt-2.5 text-sm text-destructive">{error}</div>}
       </Card>
 
