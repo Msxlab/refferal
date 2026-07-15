@@ -83,13 +83,18 @@ BEFORE UPDATE OR DELETE ON "commission_plans"
 FOR EACH ROW EXECUTE FUNCTION forbid_commission_plan_mutation();
 
 CREATE OR REPLACE FUNCTION guard_commission_plan_level_insert() RETURNS trigger AS $$
+DECLARE
+  plan_finalized boolean;
 BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM commission_plans plan
-    WHERE plan.id = NEW.plan_id
-      AND plan.finalized = TRUE
-  ) THEN
+  -- Serialize level insertion with the false->true seal. If finalize wins, this
+  -- reads TRUE after waiting; if insert wins, finalize validates the new level set.
+  SELECT plan.finalized
+  INTO plan_finalized
+  FROM commission_plans plan
+  WHERE plan.id = NEW.plan_id
+  FOR UPDATE;
+
+  IF plan_finalized THEN
     RAISE EXCEPTION 'finalized commission plan levels are immutable; create a new plan version'
       USING ERRCODE = '55000';
   END IF;

@@ -196,6 +196,60 @@ describe('plans (entegrasyon)', () => {
     expect(await prisma.commissionPlanLevel.count({ where: { plan: { tenantId: tenant.id } } })).toBe(beforeLevels);
   });
 
+  it('finalize ile level insert yarisi plan satiri uzerinden serialize edilir', async () => {
+    const tenant = await createTenant(prisma);
+    const draft = await prisma.commissionPlan.create({
+      data: {
+        tenantId: tenant.id,
+        version: 1,
+        finalized: false,
+        name: 'Concurrent seal',
+        poolRateBps: 1000,
+        depth: 1,
+        effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+        levels: { create: [{ level: 0, rateBps: 500 }] },
+      },
+    });
+
+    let releaseFinalize!: () => void;
+    const finalizeRelease = new Promise<void>((resolve) => {
+      releaseFinalize = resolve;
+    });
+    let finalizeUpdated!: () => void;
+    const finalizeHasRowLock = new Promise<void>((resolve) => {
+      finalizeUpdated = resolve;
+    });
+
+    const finalizePromise = prisma.$transaction(async (tx) => {
+      await tx.commissionPlan.update({ where: { id: draft.id }, data: { finalized: true } });
+      finalizeUpdated();
+      await finalizeRelease;
+    });
+    await finalizeHasRowLock;
+
+    let insertSettled = false;
+    const insertPromise = prisma
+      .$transaction((tx) =>
+        tx.commissionPlanLevel.create({
+          data: { planId: draft.id, level: 1, rateBps: 100 },
+        }),
+      )
+      .finally(() => {
+        insertSettled = true;
+      });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const settledBeforeFinalizeCommit = insertSettled;
+    releaseFinalize();
+    const [finalizeResult, insertResult] = await Promise.allSettled([finalizePromise, insertPromise]);
+
+    expect(settledBeforeFinalizeCommit).toBe(false);
+    expect(finalizeResult.status).toBe('fulfilled');
+    expect(insertResult.status).toBe('rejected');
+    expect(await prisma.commissionPlanLevel.count({ where: { planId: draft.id } })).toBe(1);
+    expect((await prisma.commissionPlan.findUniqueOrThrow({ where: { id: draft.id } })).finalized).toBe(true);
+  });
+
   it('partial plan list/settings/engine tarafindan gorunmez; sale provenance ilk pinden sonra sabittir', async () => {
     const tenant = await createTenant(prisma);
     const visible = await createPlan(prisma, tenant.id, {

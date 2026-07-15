@@ -1,6 +1,5 @@
 CREATE OR REPLACE FUNCTION reconcile_sale_commission_plan_provenance() RETURNS integer AS $$
 DECLARE
-  unpinned_count integer := 0;
   pinned_count integer := 0;
 BEGIN
 
@@ -11,7 +10,6 @@ LOCK TABLE "ledger_entries" IN SHARE MODE;
 LOCK TABLE "commission_plans" IN SHARE MODE;
 LOCK TABLE "commission_plan_levels" IN SHARE MODE;
 
-CREATE TEMPORARY TABLE "provenance_candidates" ON COMMIT DROP AS
 WITH evidence AS (
   SELECT
     sale.id AS sale_id,
@@ -28,6 +26,7 @@ WITH evidence AS (
   LEFT JOIN memberships beneficiary
     ON beneficiary.id = entry.beneficiary_membership_id
   WHERE sale.status IN ('approved', 'void')
+    AND sale.commission_plan_id IS NULL
     AND sale.approved_at IS NOT NULL
   GROUP BY sale.id, sale.tenant_id, sale.sale_date, sale.amount_cents, seller.tenant_id
   HAVING COUNT(*) > 0
@@ -37,7 +36,13 @@ WITH evidence AS (
      AND BOOL_AND(beneficiary.tenant_id IS NOT DISTINCT FROM sale.tenant_id) IS TRUE
 ),
 trusted_candidates AS (
-  SELECT evidence.sale_id, evidence.tenant_id, plan.id AS plan_id
+  SELECT
+    evidence.sale_id,
+    evidence.tenant_id,
+    plan.id AS plan_id,
+    evidence.sale_date,
+    evidence.evidence_at,
+    plan.effective_from
   FROM evidence
   JOIN commission_plans plan
     ON plan.tenant_id = evidence.tenant_id
@@ -46,16 +51,7 @@ trusted_candidates AS (
    AND plan.created_at < evidence.evidence_at
    AND plan.updated_at < evidence.evidence_at
    AND plan.effective_from <= evidence.sale_date
-  WHERE NOT EXISTS (
-      SELECT 1
-      FROM commission_plans later_higher
-      WHERE later_higher.tenant_id = plan.tenant_id
-        AND later_higher.finalized = TRUE
-        AND later_higher.created_at >= evidence.evidence_at
-        AND later_higher.effective_from <= evidence.sale_date
-        AND later_higher.effective_from > plan.effective_from
-    )
-    AND (
+  WHERE (
       SELECT COUNT(*)
       FROM commission_plan_levels snapshot_level
       WHERE snapshot_level.plan_id = plan.id
@@ -96,42 +92,42 @@ trusted_candidates AS (
     )
 ),
 distinct_candidates AS (
-  SELECT DISTINCT sale_id, tenant_id, plan_id
+  SELECT DISTINCT sale_id, tenant_id, plan_id, sale_date, evidence_at, effective_from
   FROM trusted_candidates
+),
+candidate_counts AS (
+  SELECT sale_id, tenant_id, COUNT(*) AS candidate_count
+  FROM distinct_candidates
+  GROUP BY sale_id, tenant_id
+),
+unambiguous AS (
+  SELECT candidate.sale_id, candidate.tenant_id, candidate.plan_id
+  FROM distinct_candidates candidate
+  JOIN candidate_counts counts
+    ON counts.sale_id = candidate.sale_id
+   AND counts.tenant_id = candidate.tenant_id
+  WHERE counts.candidate_count = 1
+    AND NOT EXISTS (
+      SELECT 1
+      FROM commission_plans later_higher
+      WHERE later_higher.tenant_id = candidate.tenant_id
+        AND later_higher.finalized = TRUE
+        AND later_higher.created_at >= candidate.evidence_at
+        AND later_higher.effective_from <= candidate.sale_date
+        AND later_higher.effective_from > candidate.effective_from
+    )
 )
-SELECT
-  candidate.sale_id,
-  candidate.tenant_id,
-  candidate.plan_id,
-  COUNT(*) OVER (PARTITION BY candidate.sale_id, candidate.tenant_id) AS candidate_count
-FROM distinct_candidates candidate;
-
--- A timestamp winner is not identity proof under MVCC. Undo any earlier inferred pin when
--- two complete/stable plan identities explain the exact same persisted commission signature.
+-- A non-null pin may have been authoritatively written by the engine between migrations.
+-- Reconciliation is therefore strictly null->id and remains safe after the pin guard exists.
 UPDATE sales sale
-SET commission_plan_id = NULL
-FROM (
-  SELECT DISTINCT sale_id, tenant_id
-  FROM provenance_candidates
-  WHERE candidate_count > 1
-) ambiguous
-WHERE sale.id = ambiguous.sale_id
-  AND sale.tenant_id = ambiguous.tenant_id
-  AND sale.commission_plan_id IS NOT NULL;
-GET DIAGNOSTICS unpinned_count = ROW_COUNT;
-
--- Only a single exact plan identity is safe to infer. Existing explicit pins are preserved
--- unless the evidence above proved them ambiguous.
-UPDATE sales sale
-SET commission_plan_id = candidate.plan_id
-FROM provenance_candidates candidate
-WHERE candidate.candidate_count = 1
-  AND sale.id = candidate.sale_id
-  AND sale.tenant_id = candidate.tenant_id
+SET commission_plan_id = unambiguous.plan_id
+FROM unambiguous
+WHERE sale.id = unambiguous.sale_id
+  AND sale.tenant_id = unambiguous.tenant_id
   AND sale.commission_plan_id IS NULL;
 GET DIAGNOSTICS pinned_count = ROW_COUNT;
 
-RETURN unpinned_count + pinned_count;
+RETURN pinned_count;
 END;
 $$ LANGUAGE plpgsql;
 

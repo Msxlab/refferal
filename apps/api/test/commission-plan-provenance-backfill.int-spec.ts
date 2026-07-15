@@ -1,8 +1,19 @@
 import { LedgerStatus, LedgerType, SaleStatus } from '@prisma/client';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createChain, createSale, createTenant, truncateAll } from './helpers';
 
 let sequence = 0;
+const initialBackfillSql = readFileSync(
+  resolve(
+    __dirname,
+    '../prisma/migrations/20260715100200_backfill_unambiguous_sale_commission_plan_provenance/migration.sql',
+  ),
+  'utf8',
+);
+const initialBackfillLocks = initialBackfillSql.match(/LOCK TABLE[^;]+;/g) ?? [];
+const initialBackfillStatement = initialBackfillSql.slice(initialBackfillSql.indexOf('WITH evidence AS'));
 
 describe('commission plan provenance backfill (integration)', () => {
   let prisma: PrismaService;
@@ -103,6 +114,13 @@ describe('commission plan provenance backfill (integration)', () => {
     return Number(result.count);
   }
 
+  async function runInitialBackfillMigration(): Promise<number> {
+    return prisma.$transaction(async (tx) => {
+      for (const lock of initialBackfillLocks) await tx.$executeRawUnsafe(lock);
+      return tx.$executeRawUnsafe(initialBackfillStatement);
+    });
+  }
+
   it('pins only the uniquely proven historical snapshot and is idempotent', async () => {
     const planTime = new Date('2026-01-01T00:00:00.000Z');
     const saleDate = new Date('2026-06-01T12:00:00.000Z');
@@ -118,7 +136,16 @@ describe('commission plan provenance backfill (integration)', () => {
       createdAt: evidenceAt,
     });
 
-    expect(await runBackfill()).toBe(1);
+    const sameTransactionCounts = await prisma.$transaction(async (tx) => {
+      const [first] = await tx.$queryRaw<Array<{ count: number }>>`
+        SELECT reconcile_sale_commission_plan_provenance() AS count
+      `;
+      const [second] = await tx.$queryRaw<Array<{ count: number }>>`
+        SELECT reconcile_sale_commission_plan_provenance() AS count
+      `;
+      return [Number(first.count), Number(second.count)];
+    });
+    expect(sameTransactionCounts).toEqual([1, 0]);
     expect((await prisma.sale.findUniqueOrThrow({ where: { id: sale.id } })).commissionPlanId).toBe(plan.id);
     expect(await runBackfill()).toBe(0);
   });
@@ -238,7 +265,56 @@ describe('commission plan provenance backfill (integration)', () => {
       amountCents: 5_000n,
     });
 
+    expect(await runInitialBackfillMigration()).toBe(0);
+    expect((await prisma.sale.findUniqueOrThrow({ where: { id: sale.id } })).commissionPlanId).toBeNull();
+    expect(await runBackfill()).toBe(0);
+  });
+
+  it('preserves an authoritative pin created between conservative reconciliation passes', async () => {
+    const tenant = await createTenant(prisma);
+    const [seller] = await createChain(prisma, tenant.id, 1);
+    const authoritativePlan = await createTimedPlan(tenant.id, {
+      version: 1,
+      effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      rates: [500],
+    });
+    await createTimedPlan(tenant.id, {
+      version: 2,
+      effectiveFrom: new Date('2026-05-01T00:00:00.000Z'),
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+      rates: [500],
+    });
+    const sale = await createLegacySale(
+      tenant.id,
+      seller.id,
+      new Date('2026-06-01T12:00:00.000Z'),
+    );
+    await createEvidence({
+      tenantId: tenant.id,
+      saleId: sale.id,
+      beneficiaryMembershipId: seller.id,
+      createdAt: new Date('2026-06-02T12:00:00.000Z'),
+    });
+
+    // Initial conservative pass (151002 semantics): ambiguity must remain unpinned.
     expect(await runBackfill()).toBe(0);
     expect((await prisma.sale.findUniqueOrThrow({ where: { id: sale.id } })).commissionPlanId).toBeNull();
+
+    // Simulate the engine authoritatively pinning after 151002 and before 151005.
+    await prisma.sale.update({
+      where: { id: sale.id },
+      data: { commissionPlanId: authoritativePlan.id },
+    });
+
+    // 151005 and any post-151006 rerun must be idempotent and must never touch a non-null pin.
+    expect(await runBackfill()).toBe(0);
+    expect((await prisma.sale.findUniqueOrThrow({ where: { id: sale.id } })).commissionPlanId).toBe(
+      authoritativePlan.id,
+    );
+    expect(await runBackfill()).toBe(0);
+    expect((await prisma.sale.findUniqueOrThrow({ where: { id: sale.id } })).commissionPlanId).toBe(
+      authoritativePlan.id,
+    );
   });
 });
