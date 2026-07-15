@@ -48,6 +48,23 @@ eligible_plans AS (
    AND p.created_at < e.evidence_at
    AND p.effective_from <= e.sale_date
 ),
+historical_winners AS (
+  -- Select the plan the historical engine could have selected before inspecting
+  -- completeness or signature. A lower exact plan is never a safe fallback.
+  SELECT ranked.sale_id, ranked.tenant_id, ranked.plan_id
+  FROM (
+    SELECT
+      candidate.sale_id,
+      candidate.tenant_id,
+      candidate.plan_id,
+      ROW_NUMBER() OVER (
+        PARTITION BY candidate.sale_id, candidate.tenant_id
+        ORDER BY candidate.effective_from DESC, candidate.plan_id DESC
+      ) AS engine_rank
+    FROM eligible_plans candidate
+  ) ranked
+  WHERE ranked.engine_rank = 1
+),
 trusted_candidates AS (
   SELECT
     candidate.sale_id,
@@ -114,6 +131,10 @@ unambiguous AS (
   JOIN candidate_counts counts
     ON counts.sale_id = candidate.sale_id
    AND counts.tenant_id = candidate.tenant_id
+  JOIN historical_winners winner
+    ON winner.sale_id = candidate.sale_id
+   AND winner.tenant_id = candidate.tenant_id
+   AND winner.plan_id = candidate.plan_id
   WHERE counts.candidate_count = 1
     AND NOT EXISTS (
       SELECT 1

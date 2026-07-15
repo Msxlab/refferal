@@ -121,7 +121,7 @@ describe('commission plan provenance backfill (integration)', () => {
     });
   }
 
-  it('pins only the uniquely proven historical snapshot and is idempotent', async () => {
+  it('both backfill stages pin only the uniquely proven historical winner and are idempotent', async () => {
     const planTime = new Date('2026-01-01T00:00:00.000Z');
     const saleDate = new Date('2026-06-01T12:00:00.000Z');
     const evidenceAt = new Date('2026-06-02T12:00:00.000Z');
@@ -136,6 +136,17 @@ describe('commission plan provenance backfill (integration)', () => {
       createdAt: evidenceAt,
     });
 
+    expect(await runInitialBackfillMigration()).toBe(1);
+    expect((await prisma.sale.findUniqueOrThrow({ where: { id: sale.id } })).commissionPlanId).toBe(plan.id);
+
+    const reconciledSale = await createLegacySale(tenant.id, seller.id, saleDate);
+    await createEvidence({
+      tenantId: tenant.id,
+      saleId: reconciledSale.id,
+      beneficiaryMembershipId: seller.id,
+      createdAt: evidenceAt,
+    });
+
     const sameTransactionCounts = await prisma.$transaction(async (tx) => {
       const [first] = await tx.$queryRaw<Array<{ count: number }>>`
         SELECT reconcile_sale_commission_plan_provenance() AS count
@@ -146,7 +157,9 @@ describe('commission plan provenance backfill (integration)', () => {
       return [Number(first.count), Number(second.count)];
     });
     expect(sameTransactionCounts).toEqual([1, 0]);
-    expect((await prisma.sale.findUniqueOrThrow({ where: { id: sale.id } })).commissionPlanId).toBe(plan.id);
+    expect((await prisma.sale.findUniqueOrThrow({ where: { id: reconciledSale.id } })).commissionPlanId).toBe(
+      plan.id,
+    );
     expect(await runBackfill()).toBe(0);
   });
 
@@ -193,6 +206,104 @@ describe('commission plan provenance backfill (integration)', () => {
     expect(guarded.every((sale) => sale.commissionPlanId === null)).toBe(true);
   });
 
+  it('treats an incomplete post-evidence higher legacy plan as attribution uncertainty', async () => {
+    const tenant = await createTenant(prisma);
+    const [seller] = await createChain(prisma, tenant.id, 1);
+    await createTimedPlan(tenant.id, {
+      version: 1,
+      effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      rates: [500],
+    });
+    await createTimedPlan(tenant.id, {
+      version: 2,
+      effectiveFrom: new Date('2026-05-01T00:00:00.000Z'),
+      createdAt: new Date('2026-07-01T00:00:00.000Z'),
+      rates: [500],
+      depth: 2,
+    });
+    const sale = await createLegacySale(
+      tenant.id,
+      seller.id,
+      new Date('2026-06-01T12:00:00.000Z'),
+    );
+    await createEvidence({
+      tenantId: tenant.id,
+      saleId: sale.id,
+      beneficiaryMembershipId: seller.id,
+      createdAt: new Date('2026-06-02T12:00:00.000Z'),
+    });
+
+    expect(await runInitialBackfillMigration()).toBe(0);
+    expect(await runBackfill()).toBe(0);
+    expect((await prisma.sale.findUniqueOrThrow({ where: { id: sale.id } })).commissionPlanId).toBeNull();
+  });
+
+  it('does not fall back to a lower exact plan when the historical winner is incomplete', async () => {
+    const tenant = await createTenant(prisma);
+    const [seller] = await createChain(prisma, tenant.id, 1);
+    await createTimedPlan(tenant.id, {
+      version: 1,
+      effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      rates: [500],
+    });
+    await createTimedPlan(tenant.id, {
+      version: 2,
+      effectiveFrom: new Date('2026-05-01T00:00:00.000Z'),
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+      rates: [500],
+      depth: 2,
+    });
+    const sale = await createLegacySale(
+      tenant.id,
+      seller.id,
+      new Date('2026-06-01T12:00:00.000Z'),
+    );
+    await createEvidence({
+      tenantId: tenant.id,
+      saleId: sale.id,
+      beneficiaryMembershipId: seller.id,
+      createdAt: new Date('2026-06-02T12:00:00.000Z'),
+    });
+
+    expect(await runInitialBackfillMigration()).toBe(0);
+    expect(await runBackfill()).toBe(0);
+    expect((await prisma.sale.findUniqueOrThrow({ where: { id: sale.id } })).commissionPlanId).toBeNull();
+  });
+
+  it('does not fall back to a lower exact plan when the historical winner signature mismatches', async () => {
+    const tenant = await createTenant(prisma);
+    const [seller] = await createChain(prisma, tenant.id, 1);
+    await createTimedPlan(tenant.id, {
+      version: 1,
+      effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      rates: [500],
+    });
+    await createTimedPlan(tenant.id, {
+      version: 2,
+      effectiveFrom: new Date('2026-05-01T00:00:00.000Z'),
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+      rates: [600],
+    });
+    const sale = await createLegacySale(
+      tenant.id,
+      seller.id,
+      new Date('2026-06-01T12:00:00.000Z'),
+    );
+    await createEvidence({
+      tenantId: tenant.id,
+      saleId: sale.id,
+      beneficiaryMembershipId: seller.id,
+      createdAt: new Date('2026-06-02T12:00:00.000Z'),
+    });
+
+    expect(await runInitialBackfillMigration()).toBe(0);
+    expect(await runBackfill()).toBe(0);
+    expect((await prisma.sale.findUniqueOrThrow({ where: { id: sale.id } })).commissionPlanId).toBeNull();
+  });
+
   it('requires a complete immutable level snapshot and an exact ledger signature', async () => {
     const planTime = new Date('2026-01-01T00:00:00.000Z');
     const saleDate = new Date('2026-06-01T12:00:00.000Z');
@@ -236,7 +347,109 @@ describe('commission plan provenance backfill (integration)', () => {
     expect(guarded.every((sale) => sale.commissionPlanId === null)).toBe(true);
   });
 
-  it('leaves two identical eligible plan identities ambiguous instead of selecting by timestamp', async () => {
+  it('rejects untrusted evidence but accepts a void original while ignoring its reversal', async () => {
+    const planTime = new Date('2026-01-01T00:00:00.000Z');
+    const saleDate = new Date('2026-06-01T12:00:00.000Z');
+    const evidenceAt = new Date('2026-06-02T12:00:00.000Z');
+    const tenant = await createTenant(prisma);
+    const plan = await createTimedPlan(tenant.id, {
+      version: 1,
+      effectiveFrom: planTime,
+      createdAt: planTime,
+    });
+    const [seller] = await createChain(prisma, tenant.id, 1);
+    const guardedIds: string[] = [];
+
+    const synthetic = await createLegacySale(tenant.id, seller.id, saleDate);
+    guardedIds.push(synthetic.id);
+    await createEvidence({ tenantId: tenant.id, saleId: synthetic.id, beneficiaryMembershipId: seller.id, createdAt: evidenceAt });
+    await createEvidence({
+      tenantId: tenant.id,
+      saleId: synthetic.id,
+      beneficiaryMembershipId: seller.id,
+      createdAt: evidenceAt,
+      level: 1000,
+      rateBps: 100,
+      amountCents: 1_000n,
+    });
+
+    const split = await createLegacySale(tenant.id, seller.id, saleDate);
+    guardedIds.push(split.id);
+    await createEvidence({ tenantId: tenant.id, saleId: split.id, beneficiaryMembershipId: seller.id, createdAt: evidenceAt });
+    await createEvidence({
+      tenantId: tenant.id,
+      saleId: split.id,
+      beneficiaryMembershipId: seller.id,
+      createdAt: new Date(evidenceAt.getTime() + 1_000),
+      level: 1,
+    });
+
+    const foreignTenant = await createTenant(prisma);
+    const [foreignMember] = await createChain(prisma, foreignTenant.id, 1);
+    const crossTenant = await createLegacySale(tenant.id, seller.id, saleDate);
+    guardedIds.push(crossTenant.id);
+    await createEvidence({
+      tenantId: foreignTenant.id,
+      saleId: crossTenant.id,
+      beneficiaryMembershipId: foreignMember.id,
+      createdAt: evidenceAt,
+    });
+
+    const wrongAmount = await createLegacySale(tenant.id, seller.id, saleDate);
+    guardedIds.push(wrongAmount.id);
+    await createEvidence({
+      tenantId: tenant.id,
+      saleId: wrongAmount.id,
+      beneficiaryMembershipId: seller.id,
+      createdAt: evidenceAt,
+      amountCents: 4_999n,
+    });
+
+    const draft = await createSale(prisma, tenant.id, seller.id, 100_000n, { saleDate });
+    guardedIds.push(draft.id);
+    await createEvidence({ tenantId: tenant.id, saleId: draft.id, beneficiaryMembershipId: seller.id, createdAt: evidenceAt });
+
+    const missingApproval = await createSale(prisma, tenant.id, seller.id, 100_000n, {
+      saleDate,
+      status: SaleStatus.approved,
+    });
+    guardedIds.push(missingApproval.id);
+    await createEvidence({
+      tenantId: tenant.id,
+      saleId: missingApproval.id,
+      beneficiaryMembershipId: seller.id,
+      createdAt: evidenceAt,
+    });
+
+    const noLedger = await createLegacySale(tenant.id, seller.id, saleDate);
+    guardedIds.push(noLedger.id);
+
+    const voidSale = await createLegacySale(tenant.id, seller.id, saleDate);
+    await prisma.sale.update({ where: { id: voidSale.id }, data: { status: SaleStatus.void } });
+    await createEvidence({ tenantId: tenant.id, saleId: voidSale.id, beneficiaryMembershipId: seller.id, createdAt: evidenceAt });
+    await prisma.ledgerEntry.create({
+      data: {
+        tenantId: tenant.id,
+        saleId: voidSale.id,
+        beneficiaryMembershipId: seller.id,
+        level: 0,
+        rateBpsUsed: 500,
+        amountCents: -5_000n,
+        type: LedgerType.reversal,
+        status: LedgerStatus.reversed,
+        createdAt: new Date(evidenceAt.getTime() + 1_000),
+        updatedAt: new Date(evidenceAt.getTime() + 1_000),
+      },
+    });
+
+    expect(await runInitialBackfillMigration()).toBe(1);
+    expect((await prisma.sale.findUniqueOrThrow({ where: { id: voidSale.id } })).commissionPlanId).toBe(plan.id);
+    expect(await runBackfill()).toBe(0);
+    const guarded = await prisma.sale.findMany({ where: { id: { in: guardedIds } } });
+    expect(guarded.every((sale) => sale.commissionPlanId === null)).toBe(true);
+  });
+
+  it('treats distinct plausible plan identities as ambiguous even when used commission rates match', async () => {
     const tenant = await createTenant(prisma);
     const [seller] = await createChain(prisma, tenant.id, 1);
     await createTimedPlan(tenant.id, {
@@ -249,7 +462,7 @@ describe('commission plan provenance backfill (integration)', () => {
       version: 2,
       effectiveFrom: new Date('2026-05-01T00:00:00.000Z'),
       createdAt: new Date('2026-05-01T00:00:00.000Z'),
-      rates: [500],
+      rates: [500, 100],
     });
     const sale = await createLegacySale(
       tenant.id,
