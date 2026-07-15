@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { MaturationRule, Prisma } from '@prisma/client';
 import { ActorContext } from '../common/actor';
+import { PlansService } from '../plans/plans.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface UpdateSettingsInput {
@@ -20,7 +21,10 @@ export interface UpdateSettingsInput {
 
 @Injectable()
 export class SettingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly plans: PlansService,
+  ) {}
 
   async get(tenantId: string) {
     const t = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
@@ -45,23 +49,11 @@ export class SettingsService {
 
   /** Aktif komisyon planinin bonus katmanlari (MLM unilevel+). */
   async getPlanBonus(tenantId: string) {
-    const plan = await this.prisma.commissionPlan.findFirst({
-      where: { tenantId, effectiveFrom: { lte: new Date() } },
-      orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
-    });
-    if (!plan) return { planName: null, fastStartBps: 0, fastStartDays: 0, matchingBps: 0 };
-    return { planId: plan.id, planName: plan.name, fastStartBps: plan.fastStartBps, fastStartDays: plan.fastStartDays, matchingBps: plan.matchingBps };
+    return this.plans.getPlanBonus(tenantId);
   }
 
   async updatePlanBonus(actor: ActorContext, input: { fastStartBps: number; fastStartDays: number; matchingBps: number }) {
-    const plan = await this.prisma.commissionPlan.findFirst({
-      where: { tenantId: actor.tenantId, effectiveFrom: { lte: new Date() } },
-      orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
-    });
-    if (!plan) throw new Error('aktif plan yok');
-    await this.prisma.commissionPlan.update({ where: { id: plan.id }, data: { fastStartBps: input.fastStartBps, fastStartDays: input.fastStartDays, matchingBps: input.matchingBps } });
-    await this.prisma.auditLog.create({ data: { tenantId: actor.tenantId, actorUserId: actor.userId, action: 'plan.update_bonus', entity: 'tenant', entityId: plan.id, after: input } });
-    return this.getPlanBonus(actor.tenantId);
+    return this.plans.createBonusVersion(actor, input);
   }
 
   async update(actor: ActorContext, input: UpdateSettingsInput) {

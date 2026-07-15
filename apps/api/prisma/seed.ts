@@ -63,6 +63,7 @@ async function main(): Promise<void> {
   await prisma.commissionPlan.create({
     data: {
       tenantId: tenant.id,
+      version: 1,
       name: 'Standard Plan (10% pool, 5 levels)',
       poolRateBps: DEFAULT_POOL_RATE_BPS,
       depth: DEFAULT_LEVEL_RATES_BPS.length,

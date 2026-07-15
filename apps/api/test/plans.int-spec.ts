@@ -1,4 +1,4 @@
-import { BadRequestException, INestApplication } from '@nestjs/common';
+import { BadRequestException, ConflictException, INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
 import { PlansService } from '../src/plans/plans.service';
@@ -62,6 +62,7 @@ describe('plans (entegrasyon)', () => {
     const created = await plans.createVersion(actor, {
       name: 'Yeni plan', poolRateBps: 3000, depth: 2, levels: [{ level: 0, rateBps: 1500 }, { level: 1, rateBps: 1000 }],
     });
+    expect(created.version).toBe(2);
     const list = await plans.list(tenant.id);
     expect(list.activeId).toBe(created.id);
     expect(list.plans.length).toBe(2); // eski + yeni (gecmis korunur)
@@ -74,5 +75,49 @@ describe('plans (entegrasyon)', () => {
     await expect(plans.createVersion(actor, {
       name: 'Hatali', poolRateBps: 1000, depth: 2, levels: [{ level: 0, rateBps: 800 }, { level: 1, rateBps: 500 }],
     })).rejects.toThrow(BadRequestException);
+  });
+
+  it('createVersion: ayni tenant eszamanli yazimlarda monoton ve benzersiz version tahsis eder', async () => {
+    const tenant = await createTenant(prisma);
+    await createPlan(prisma, tenant.id, { effectiveFrom: new Date('2026-01-01T00:00:00.000Z') });
+    const actor: ActorContext = { userId: '00000000-0000-0000-0000-000000000001', tenantId: tenant.id };
+
+    const created = await Promise.all(
+      Array.from({ length: 4 }, (_, index) =>
+        plans.createVersion(actor, {
+          name: `Concurrent ${index}`,
+          poolRateBps: 1000,
+          depth: 1,
+          levels: [{ level: 0, rateBps: 500 }],
+        }),
+      ),
+    );
+
+    expect(created.map((plan) => plan.version).sort((a, b) => a - b)).toEqual([2, 3, 4, 5]);
+    expect(new Set(created.map((plan) => plan.effectiveFrom.toISOString())).size).toBe(4);
+  });
+
+  it('plan snapshot satirlari degistirilemez; ayni effectiveFrom yeni versiyon olarak da reddedilir', async () => {
+    const tenant = await createTenant(prisma);
+    const effectiveFrom = new Date('2026-01-01T00:00:00.000Z');
+    const plan = await createPlan(prisma, tenant.id, { effectiveFrom });
+    const level = await prisma.commissionPlanLevel.findFirstOrThrow({ where: { planId: plan.id } });
+    const actor: ActorContext = { userId: '00000000-0000-0000-0000-000000000001', tenantId: tenant.id };
+
+    await expect(
+      prisma.commissionPlan.update({ where: { id: plan.id }, data: { name: 'mutated' } }),
+    ).rejects.toThrow(/immutable/);
+    await expect(
+      prisma.commissionPlanLevel.update({ where: { id: level.id }, data: { rateBps: 1 } }),
+    ).rejects.toThrow(/immutable/);
+    await expect(
+      plans.createVersion(actor, {
+        name: 'Duplicate date',
+        poolRateBps: 1000,
+        depth: 1,
+        levels: [{ level: 0, rateBps: 500 }],
+        effectiveFrom: effectiveFrom.toISOString(),
+      }),
+    ).rejects.toThrow(ConflictException);
   });
 });

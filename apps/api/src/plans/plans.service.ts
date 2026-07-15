@@ -1,19 +1,55 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { commissionPlanSchema, computeCommissionLines, PlanLevelRate } from '@refearn/shared';
 import { ActorContext } from '../common/actor';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePlanInput, SimulatePlanInput } from './plans.types';
 
+const EFFECTIVE_FROM_UNIQUE_CONSTRAINT = 'commission_plans_tenant_id_effective_from_key';
+const EFFECTIVE_FROM_CONFLICT_MESSAGE = 'bu effectiveFrom degeri icin bir plan zaten var';
+
+interface PlanSnapshotInput {
+  name: string;
+  poolRateBps: number;
+  depth: number;
+  levels: Array<{ level: number; rateBps: number }>;
+  fastStartBps: number;
+  fastStartDays: number;
+  matchingBps: number;
+}
+
+interface PlanBonusInput {
+  fastStartBps: number;
+  fastStartDays: number;
+  matchingBps: number;
+}
+
+function isEffectiveFromUniqueConflict(error: unknown): boolean {
+  const prismaError = error as { code?: string; meta?: { target?: unknown } };
+  if (prismaError.code !== 'P2002') return false;
+  const target = prismaError.meta?.target;
+  if (target === EFFECTIVE_FROM_UNIQUE_CONSTRAINT) return true;
+  if (!Array.isArray(target)) return false;
+  const fields = new Set(target.filter((field): field is string => typeof field === 'string'));
+  return (
+    (fields.has('tenant_id') && fields.has('effective_from')) ||
+    (fields.has('tenantId') && fields.has('effectiveFrom'))
+  );
+}
+
 @Injectable()
 export class PlansService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Satis tarihinde aktif plan: effective_from <= at, en yeni (engine ile ayni secim). */
-  private activePlan(tenantId: string, at: Date = new Date()) {
-    return this.prisma.commissionPlan.findFirst({
+  private activePlan(
+    tenantId: string,
+    at: Date = new Date(),
+    db: PrismaService | Prisma.TransactionClient = this.prisma,
+  ) {
+    return db.commissionPlan.findFirst({
       where: { tenantId, effectiveFrom: { lte: at } },
-      orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [{ effectiveFrom: 'desc' }, { version: 'desc' }],
       include: { levels: { orderBy: { level: 'asc' } } },
     });
   }
@@ -55,10 +91,25 @@ export class PlansService {
         fastStartBps: p.fastStartBps,
         fastStartDays: p.fastStartDays,
         matchingBps: p.matchingBps,
+        version: p.version,
         effectiveFrom: p.effectiveFrom,
         active: p.id === active?.id,
         levels: p.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })),
       })),
+    };
+  }
+
+  /** Settings endpoint'i de aktif bonus snapshot'ini ayni plan sahipliginden okur. */
+  async getPlanBonus(tenantId: string) {
+    const plan = await this.activePlan(tenantId);
+    if (!plan) return { planName: null, fastStartBps: 0, fastStartDays: 0, matchingBps: 0 };
+    return {
+      planId: plan.id,
+      planName: plan.name,
+      version: plan.version,
+      fastStartBps: plan.fastStartBps,
+      fastStartDays: plan.fastStartDays,
+      matchingBps: plan.matchingBps,
     };
   }
 
@@ -141,32 +192,131 @@ export class PlansService {
     if (!parsed.success) {
       throw new BadRequestException(parsed.error.issues[0]?.message ?? 'gecersiz plan');
     }
-    const effectiveFrom = input.effectiveFrom ? new Date(input.effectiveFrom) : new Date();
-
-    const plan = await this.prisma.commissionPlan.create({
-      data: {
-        tenantId: actor.tenantId,
+    const plan = await this.createImmutableVersion(
+      actor,
+      input.effectiveFrom ? new Date(input.effectiveFrom) : undefined,
+      async () => ({
         name: parsed.data.name,
         poolRateBps: parsed.data.poolRateBps,
         depth: parsed.data.depth,
+        levels: parsed.data.levels,
         fastStartBps: input.fastStartBps ?? 0,
         fastStartDays: input.fastStartDays ?? 0,
         matchingBps: input.matchingBps ?? 0,
-        effectiveFrom,
-        createdBy: actor.userId,
-        levels: { create: parsed.data.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })) },
+      }),
+      'plan.create_version',
+    );
+    return { id: plan.id, version: plan.version, effectiveFrom: plan.effectiveFrom };
+  }
+
+  /** Bonus degisikligi mevcut plani mutate etmez; tum snapshot'i yeni versiyona kopyalar. */
+  async createBonusVersion(actor: ActorContext, input: PlanBonusInput) {
+    const plan = await this.createImmutableVersion(
+      actor,
+      undefined,
+      async (tx) => {
+        const active = await this.activePlan(actor.tenantId, new Date(), tx);
+        if (!active) throw new BadRequestException('aktif plan yok');
+        return {
+          name: active.name,
+          poolRateBps: active.poolRateBps,
+          depth: active.depth,
+          levels: active.levels.map((level) => ({ level: level.level, rateBps: level.rateBps })),
+          ...input,
+        };
       },
-    });
-    await this.prisma.auditLog.create({
-      data: {
-        tenantId: actor.tenantId,
-        actorUserId: actor.userId,
-        action: 'plan.create_version',
-        entity: 'commission_plan',
-        entityId: plan.id,
-        after: { name: parsed.data.name, poolRateBps: parsed.data.poolRateBps, depth: parsed.data.depth, effectiveFrom: effectiveFrom.toISOString() } as Prisma.InputJsonValue,
-      },
-    });
-    return { id: plan.id, effectiveFrom };
+      'plan.update_bonus',
+    );
+    return {
+      planId: plan.id,
+      planName: plan.name,
+      version: plan.version,
+      fastStartBps: plan.fastStartBps,
+      fastStartDays: plan.fastStartDays,
+      matchingBps: plan.matchingBps,
+    };
+  }
+
+  /**
+   * Tek tenant advisory lock'i altinda version/effective timestamp tahsis eder, snapshot + audit'i
+   * ayni transaction'da yazar. Ayni tenant seri, farkli tenant'lar bagimsiz ilerler.
+   */
+  private async createImmutableVersion(
+    actor: ActorContext,
+    requestedEffectiveFrom: Date | undefined,
+    snapshot: (tx: Prisma.TransactionClient) => Promise<PlanSnapshotInput>,
+    auditAction: 'plan.create_version' | 'plan.update_bonus',
+  ) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('commission_plan_version'), hashtext(${actor.tenantId}))`;
+
+        const aggregate = await tx.commissionPlan.aggregate({
+          where: { tenantId: actor.tenantId },
+          _max: { version: true },
+        });
+        const version = (aggregate._max.version ?? 0) + 1;
+        const effectiveFrom = requestedEffectiveFrom ?? (await this.nextImmediateEffectiveFrom(tx, actor.tenantId));
+        const data = await snapshot(tx);
+
+        const plan = await tx.commissionPlan.create({
+          data: {
+            tenantId: actor.tenantId,
+            version,
+            name: data.name,
+            poolRateBps: data.poolRateBps,
+            depth: data.depth,
+            fastStartBps: data.fastStartBps,
+            fastStartDays: data.fastStartDays,
+            matchingBps: data.matchingBps,
+            effectiveFrom,
+            createdBy: actor.userId,
+            levels: { create: data.levels.map((level) => ({ level: level.level, rateBps: level.rateBps })) },
+          },
+          include: { levels: { orderBy: { level: 'asc' } } },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            tenantId: actor.tenantId,
+            actorUserId: actor.userId,
+            action: auditAction,
+            entity: 'commission_plan',
+            entityId: plan.id,
+            after: {
+              version,
+              name: plan.name,
+              poolRateBps: plan.poolRateBps,
+              depth: plan.depth,
+              fastStartBps: plan.fastStartBps,
+              fastStartDays: plan.fastStartDays,
+              matchingBps: plan.matchingBps,
+              effectiveFrom: plan.effectiveFrom.toISOString(),
+              levels: plan.levels.map((level) => ({ level: level.level, rateBps: level.rateBps })),
+            } as Prisma.InputJsonValue,
+          },
+        });
+        return plan;
+      });
+    } catch (error) {
+      if (isEffectiveFromUniqueConflict(error)) {
+        throw new ConflictException(EFFECTIVE_FROM_CONFLICT_MESSAGE);
+      }
+      throw error;
+    }
+  }
+
+  /** Future-scheduled planlari atlamadan, "simdi"dan baslayan ilk bos milisaniyeyi bulur. */
+  private async nextImmediateEffectiveFrom(tx: Prisma.TransactionClient, tenantId: string): Promise<Date> {
+    const candidate = new Date(Date.now());
+    while (
+      await tx.commissionPlan.findFirst({
+        where: { tenantId, effectiveFrom: candidate },
+        select: { id: true },
+      })
+    ) {
+      candidate.setTime(candidate.getTime() + 1);
+    }
+    return candidate;
   }
 }

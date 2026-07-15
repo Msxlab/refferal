@@ -166,6 +166,7 @@ describe('motor — inceleme bulgu regresyonlari', () => {
     const plan = await prisma.commissionPlan.create({
       data: {
         tenantId: tenant.id,
+        version: 1,
         name: 'race',
         poolRateBps: 1000,
         depth: 8,

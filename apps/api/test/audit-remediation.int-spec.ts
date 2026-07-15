@@ -64,8 +64,7 @@ describe('audit remediation (regresyon)', () => {
   // ---- CRITICAL #1: pool-cap Model B (bonuslar havuz USTUNE, toplam tavan ALTINDA) ----
   it('pool-cap: bonuslar havuzun ustune odenir ama toplam dagitim tavani asilmaz', async () => {
     const tenant = await createTenant(prisma); // on_approval -> payable
-    const plan = await createPlan(prisma, tenant.id);
-    await prisma.commissionPlan.update({ where: { id: plan.id }, data: { fastStartBps: 1000, fastStartDays: 30, matchingBps: 1000 } });
+    await createPlan(prisma, tenant.id, { fastStartBps: 1000, fastStartDays: 30, matchingBps: 1000 });
     // rutbe override tier: minTeam/minEarnings=0 -> satici her zaman bu tier (override 500bps)
     await prisma.rankTier.create({ data: { tenantId: tenant.id, name: 'Top', sortOrder: 0, minTeam: 0, minEarningsCents: 0n, overrideBps: 500 } });
     const [, seller] = await createChain(prisma, tenant.id, 2);
