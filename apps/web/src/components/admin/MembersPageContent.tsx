@@ -507,7 +507,7 @@ function MemberDrawer({ id, tenantName, meIsAdmin, onClose, onNavigate, onChange
         activeMembershipId: m.membershipId,
         memberships: [{ id: m.membershipId, tenantId: m.tenantId, tenantSlug: '', tenantName: m.tenantName, role: m.role, referralCode: m.referralCode, depth: 0 }],
       };
-      startImpersonation(impSession);
+      await startImpersonation(impSession);
       window.location.href = '/app';
     } catch (e) { setErr(String((e as ApiError).message)); }
   }

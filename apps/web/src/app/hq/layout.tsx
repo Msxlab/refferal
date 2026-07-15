@@ -35,8 +35,8 @@ export default function HqLayout({ children }: { children: React.ReactNode }) {
 
   if (!session) return <div className="center muted">Loading…</div>;
 
-  function logout() {
-    clearSession();
+  async function logout() {
+    await clearSession();
     router.replace('/login');
   }
 

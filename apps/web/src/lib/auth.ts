@@ -22,6 +22,28 @@ export interface Session {
 }
 
 const KEY = 'refearn.session';
+const SESSION_MUTATION_LOCK = 'refearn.auth.session-mutation';
+
+interface SessionLockManager {
+  request<T>(
+    name: string,
+    options: { mode: 'exclusive' },
+    callback: () => T | PromiseLike<T>,
+  ): Promise<T>;
+}
+
+export interface LockedSessionStore {
+  read(): SessionReadResult;
+  set(session: Session): void;
+  clear(): void;
+}
+
+export class InvalidSessionError extends Error {
+  constructor() {
+    super('invalid session');
+    this.name = 'InvalidSessionError';
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -35,7 +57,7 @@ export function isSession(value: unknown): value is Session {
   if (
     !isRecord(value) ||
     !isNonEmptyString(value.accessToken) ||
-    !isNonEmptyString(value.refreshToken) ||
+    typeof value.refreshToken !== 'string' ||
     !isRecord(value.user)
   ) {
     return false;
@@ -68,64 +90,190 @@ export function isSession(value: unknown): value is Session {
 
 export type SessionReadResult =
   | { ok: true; session: Session | null }
-  | { ok: false; session: null };
+  | { ok: false; session: null; error: unknown };
 
-/** localStorage erisimini ve Session dogrulamasini tek, no-throw sinirda toplar. */
-export function readSession(): SessionReadResult {
+function rawSetSession(session: Session): void {
+  window.localStorage.setItem(KEY, JSON.stringify(session));
+}
+
+function rawClearSession(): void {
+  try {
+    window.localStorage.removeItem(KEY);
+  } finally {
+    setActiveCompanyToken(null);
+  }
+}
+
+function readStoredSession(onKnownInvalid: (raw: string) => void): SessionReadResult {
   if (typeof window === 'undefined') return { ok: true, session: null };
   let raw: string | null;
   try {
     raw = window.localStorage.getItem(KEY);
-  } catch {
+  } catch (error) {
     // Okuma basarisizsa depodaki oturumun sahibi bilinemez; yalnizca bellek durumunu kapat.
     setActiveCompanyToken(null);
-    return { ok: false, session: null };
+    return { ok: false, session: null, error };
   }
   if (raw === null) return { ok: true, session: null };
+  let candidate: unknown;
   try {
-    const candidate: unknown = JSON.parse(raw);
-    if (isSession(candidate)) return { ok: true, session: candidate };
-  } catch {
-    // Gecersiz JSON da gecersiz Session ile ayni guvenli-kapali yola iner.
+    candidate = JSON.parse(raw);
+  } catch (error) {
+    onKnownInvalid(raw);
+    return { ok: false, session: null, error };
   }
-  tryClearSession();
-  return { ok: false, session: null };
+  if (!isSession(candidate)) {
+    onKnownInvalid(raw);
+    return { ok: false, session: null, error: new InvalidSessionError() };
+  }
+  return { ok: true, session: candidate };
+}
+
+/** localStorage erisimini ve Session dogrulamasini tek, no-throw sinirda toplar. */
+export function readSession(): SessionReadResult {
+  return readStoredSession((raw) => { void tryClearInvalidSession(raw); });
 }
 
 export function getSession(): Session | null {
-  return readSession().session;
+  const result = readSession();
+  if (!result.ok) throw result.error;
+  return result.session;
 }
 
-export function setSession(s: Session): void {
-  window.localStorage.setItem(KEY, JSON.stringify(s));
+function lockedStore(): { store: LockedSessionStore; release: () => void } {
+  let active = true;
+  const assertActive = () => {
+    if (!active) throw new Error('session mutation store used outside its lock');
+  };
+  const store: LockedSessionStore = {
+    read: () => {
+      assertActive();
+      return readStoredSession(() => {
+        try { rawClearSession(); } catch { /* best effort */ }
+      });
+    },
+    set: (session) => {
+      assertActive();
+      rawSetSession(session);
+    },
+    clear: () => {
+      assertActive();
+      rawClearSession();
+    },
+  };
+  return { store, release: () => { active = false; } };
 }
 
-export function trySetSession(s: Session): boolean {
+async function invokeLocked<T>(operation: (store: LockedSessionStore) => T | PromiseLike<T>): Promise<T> {
+  const locked = lockedStore();
   try {
-    setSession(s);
+    return await operation(locked.store);
+  } finally {
+    locked.release();
+  }
+}
+
+let fallbackMutationActive = false;
+const fallbackMutationQueue: Array<() => void> = [];
+
+function runFallbackMutation<T>(operation: (store: LockedSessionStore) => T | PromiseLike<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const run = () => {
+      fallbackMutationActive = true;
+      invokeLocked(operation)
+        .then(resolve, reject)
+        .finally(() => {
+          const next = fallbackMutationQueue.shift();
+          if (next) next();
+          else fallbackMutationActive = false;
+        });
+    };
+    if (fallbackMutationActive) fallbackMutationQueue.push(run);
+    else run();
+  });
+}
+
+/** Tum uretim session mutation'lari bu tek kilit protokolunden gecer. */
+export function withSessionMutation<T>(
+  operation: (store: LockedSessionStore) => T | PromiseLike<T>,
+): Promise<T> {
+  const locks =
+    typeof navigator === 'undefined'
+      ? undefined
+      : (navigator as unknown as { locks?: SessionLockManager }).locks;
+  if (!locks || typeof locks.request !== 'function') return runFallbackMutation(operation);
+  return locks.request(SESSION_MUTATION_LOCK, { mode: 'exclusive' }, () => invokeLocked(operation));
+}
+
+export async function setSession(session: Session): Promise<void> {
+  await withSessionMutation((store) => { store.set(session); });
+}
+
+export async function trySetSession(session: Session): Promise<boolean> {
+  try {
+    await setSession(session);
     return true;
   } catch {
     return false;
   }
 }
 
-export function clearSession(): void {
+export async function clearSession(): Promise<void> {
   try {
-    window.localStorage.removeItem(KEY);
+    await withSessionMutation((store) => { store.clear(); });
   } finally {
-    // HQ drill-in act-as god token bellekte tutulur; oturum bitince onu da temizle
-    // ki request() artik /admin/* cagrilarina bayat token eklemesin.
+    // Kilit callback'i calismadan reject olsa bile bellek token'i guvenli-kapali temizlenir.
     setActiveCompanyToken(null);
   }
 }
 
-export function tryClearSession(): boolean {
+export async function tryClearSession(): Promise<boolean> {
   try {
-    clearSession();
+    await clearSession();
     return true;
   } catch {
     return false;
   }
+}
+
+async function tryClearInvalidSession(expectedRaw: string): Promise<boolean> {
+  try {
+    return await withSessionMutation((store) => {
+      let currentRaw: string | null;
+      try {
+        currentRaw = window.localStorage.getItem(KEY);
+      } catch {
+        setActiveCompanyToken(null);
+        return false;
+      }
+      if (currentRaw !== expectedRaw) return false;
+      try {
+        store.clear();
+        return true;
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return false;
+  }
+}
+
+function sessionOrThrow(result: SessionReadResult): Session | null {
+  if (!result.ok) throw result.error;
+  return result.session;
+}
+
+export function updateSession(
+  updater: (session: Session) => Session,
+): Promise<Session | null> {
+  return withSessionMutation((store) => {
+    const current = sessionOrThrow(store.read());
+    if (!current) return null;
+    const next = updater(current);
+    store.set(next);
+    return next;
+  });
 }
 
 export function activeMembership(s: Session): MembershipSummary | null {
@@ -138,10 +286,8 @@ export function membershipForTenant(s: Session, tenantId: string): MembershipSum
 }
 
 /** switch-tenant sonucunu oturuma uygula: token o tenant'a scoped, aktif uyelik guncellenir. */
-export function applyTenantSwitch(accessToken: string, activeMembershipId: string): void {
-  const s = getSession();
-  if (!s) return;
-  setSession({ ...s, accessToken, activeMembershipId });
+export async function applyTenantSwitch(accessToken: string, activeMembershipId: string): Promise<void> {
+  await updateSession((session) => ({ ...session, accessToken, activeMembershipId }));
 }
 
 const ADMIN_ROLES = new Set(['tenant_owner', 'tenant_admin', 'tenant_staff']);
@@ -164,10 +310,12 @@ interface AccessClaims {
 const IMP_KEY = 'refearn.session.impersonator';
 
 /** Mevcut (admin) oturumu yedekle, uye imp oturumuna gec. */
-export function startImpersonation(impSession: Session): void {
-  const current = getSession();
-  if (current) window.localStorage.setItem(IMP_KEY, JSON.stringify(current));
-  setSession(impSession);
+export async function startImpersonation(impSession: Session): Promise<void> {
+  await withSessionMutation((store) => {
+    const current = sessionOrThrow(store.read());
+    if (current) window.localStorage.setItem(IMP_KEY, JSON.stringify(current));
+    store.set(impSession);
+  });
 }
 
 export function isImpersonating(): boolean {
@@ -175,11 +323,20 @@ export function isImpersonating(): boolean {
 }
 
 /** Yedeklenen admin oturumunu dondur ve imp bayragini temizle (yoksa null). */
-export function stopImpersonation(): Session | null {
-  if (typeof window === 'undefined') return null;
-  const raw = window.localStorage.getItem(IMP_KEY);
-  window.localStorage.removeItem(IMP_KEY);
-  return raw ? (JSON.parse(raw) as Session) : null;
+export function stopImpersonation(): Promise<Session | null> {
+  return withSessionMutation((store) => {
+    if (typeof window === 'undefined') return null;
+    const raw = window.localStorage.getItem(IMP_KEY);
+    if (!raw) {
+      window.localStorage.removeItem(IMP_KEY);
+      return null;
+    }
+    const candidate: unknown = JSON.parse(raw);
+    if (!isSession(candidate)) throw new InvalidSessionError();
+    store.set(candidate);
+    window.localStorage.removeItem(IMP_KEY);
+    return candidate;
+  });
 }
 
 /** Ham bir access JWT govdesini cozer (imza dogrulamasi sunucuda; burada yalniz UI icin). */

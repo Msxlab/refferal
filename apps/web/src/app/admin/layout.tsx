@@ -59,8 +59,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const isStaff = active?.role === 'tenant_staff';
   const isPlatform = session.user.isPlatformAdmin === true;
 
-  function logout() {
-    clearSession();
+  async function logout() {
+    await clearSession();
     router.replace('/login');
   }
 

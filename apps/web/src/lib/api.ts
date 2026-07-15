@@ -1,5 +1,11 @@
-import { isSession, readSession, tryClearSession, trySetSession, type Session } from './auth';
-import { getActiveCompanyToken } from './active-company';
+import {
+  isSession,
+  readSession,
+  withSessionMutation,
+  type LockedSessionStore,
+  type Session,
+} from './auth';
+import { getActiveCompanyToken, setActiveCompanyToken as clearActiveCompanyToken } from './active-company';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1';
 const AUTH_REFRESH_LOCK = 'refearn.auth.refresh';
@@ -78,8 +84,41 @@ function ownsRefresh(owner: Session): boolean {
   return Boolean(current && sameRefreshOwner(owner, current));
 }
 
-function clearRefreshOwner(owner: Session): void {
-  if (ownsRefresh(owner)) tryClearSession();
+function lockedCurrentSession(store: LockedSessionStore): Session | null {
+  const result = store.read();
+  return result.ok ? result.session : null;
+}
+
+async function clearRefreshOwner(owner: Session): Promise<void> {
+  try {
+    await withSessionMutation((store) => {
+      const current = lockedCurrentSession(store);
+      if (!current || !sameRefreshOwner(owner, current)) return;
+      try { store.clear(); } catch { /* guvenli-kapali: active-company finally temizlenir */ }
+    });
+  } catch {
+    // Mutation lock/storage hatalari refresh yolundan ham hata olarak cikmaz.
+    clearActiveCompanyToken(null);
+  }
+}
+
+async function commitRefresh(owner: Session, next: Session): Promise<Session | null> {
+  try {
+    return await withSessionMutation((store) => {
+      const current = lockedCurrentSession(store);
+      if (!current || !sameRefreshOwner(owner, current)) return null;
+      try {
+        store.set(next);
+        return next;
+      } catch {
+        try { store.clear(); } catch { /* best effort */ }
+        return null;
+      }
+    });
+  } catch {
+    clearActiveCompanyToken(null);
+    return null;
+  }
 }
 
 function advancedSessionFor(captured: Session): Session | null {
@@ -109,15 +148,10 @@ async function performRefresh(owner: Session): Promise<Session | null> {
     // Ag, JSON ve localStorage hatalari ayni guvenli-kapali davranisa iner.
   }
   if (!next) {
-    clearRefreshOwner(owner);
+    await clearRefreshOwner(owner);
     return null;
   }
-  if (!ownsRefresh(owner)) return null;
-  if (!trySetSession(next)) {
-    clearRefreshOwner(owner);
-    return null;
-  }
-  return next;
+  return commitRefresh(owner, next);
 }
 
 async function refreshWithCurrentSession(owner: Session): Promise<Session | null> {
@@ -137,8 +171,8 @@ function coordinatedRefresh(owner: Session): Promise<Session | null> {
   if (!locks || typeof locks.request !== 'function') return performRefresh(owner);
   return locks
     .request(AUTH_REFRESH_LOCK, { mode: 'exclusive' }, () => refreshWithCurrentSession(owner))
-    .catch(() => {
-      clearRefreshOwner(owner);
+    .catch(async () => {
+      await clearRefreshOwner(owner);
       return null;
     });
 }

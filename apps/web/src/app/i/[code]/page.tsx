@@ -56,7 +56,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
         fullName: fullName.trim(),
         acceptDisclaimer: true,
       });
-      setSession(session);
+      await setSession(session);
       router.replace(landingPath(activeMembership(session)?.role));
     } catch (e) {
       setError(String((e as ApiError).message));

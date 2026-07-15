@@ -61,7 +61,7 @@ export default function LoginPage() {
       }
       if (target.id !== session.activeMembershipId) {
         const sw = await switchTenant(target.id);
-        applyTenantSwitch(sw.accessToken, sw.activeMembershipId);
+        await applyTenantSwitch(sw.accessToken, sw.activeMembershipId);
         session = { ...session, accessToken: sw.accessToken, activeMembershipId: sw.activeMembershipId };
       }
     } else if (!session.user.isPlatformAdmin && session.memberships.length === 0) {
@@ -69,7 +69,7 @@ export default function LoginPage() {
       setBusy(false);
       return false;
     }
-    setSession(session);
+    await setSession(session);
     router.replace(landingForSession(session));
     return true;
   }

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { activeMembership, clearSession, getSession, isImpersonating, setSession, stopImpersonation, type Session } from '@/lib/auth';
+import { activeMembership, clearSession, getSession, isImpersonating, stopImpersonation, type Session } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { Brand, ThemeToggle } from '@/components/ui';
 import { Button } from '@/components/ui/button';
@@ -46,16 +46,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (!session) return <div className="center muted">{t('common.loading')}</div>;
   const active = activeMembership(session);
 
-  function logout() {
-    clearSession();
+  async function logout() {
+    await clearSession();
     router.replace('/login');
   }
 
   async function exitImpersonation() {
     const mid = getSession()?.activeMembershipId;
-    const admin = stopImpersonation();
+    const admin = await stopImpersonation();
     if (!admin) { router.replace('/login'); return; }
-    setSession(admin);
     if (mid) { try { await api.post(`/admin/members/${mid}/impersonate/end`); } catch { /* yok say */ } }
     window.location.href = '/admin';
   }
