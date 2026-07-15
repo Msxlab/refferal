@@ -2,6 +2,7 @@ import { clearSession, getSession, setSession, type Session } from './auth';
 import { getActiveCompanyToken } from './active-company';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1';
+const AUTH_REFRESH_LOCK = 'refearn.auth.refresh';
 
 /** SSE/EventSource gibi fetch disi tuketiciler icin API kok adresi. */
 export const API_BASE = BASE;
@@ -20,6 +21,49 @@ export class ApiError extends Error {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isSession(value: unknown): value is Session {
+  if (
+    !isRecord(value) ||
+    !isNonEmptyString(value.accessToken) ||
+    !isNonEmptyString(value.refreshToken) ||
+    !isRecord(value.user)
+  ) {
+    return false;
+  }
+  const user = value.user;
+  if (
+    !isNonEmptyString(user.id) ||
+    !isNonEmptyString(user.email) ||
+    !isNonEmptyString(user.fullName) ||
+    !isNonEmptyString(user.locale) ||
+    typeof user.emailVerified !== 'boolean' ||
+    (user.isPlatformAdmin !== undefined && typeof user.isPlatformAdmin !== 'boolean') ||
+    (value.activeMembershipId !== null && !isNonEmptyString(value.activeMembershipId)) ||
+    !Array.isArray(value.memberships)
+  ) {
+    return false;
+  }
+  return value.memberships.every(
+    (membership) =>
+      isRecord(membership) &&
+      isNonEmptyString(membership.id) &&
+      isNonEmptyString(membership.tenantId) &&
+      isNonEmptyString(membership.tenantSlug) &&
+      isNonEmptyString(membership.tenantName) &&
+      isNonEmptyString(membership.role) &&
+      isNonEmptyString(membership.referralCode) &&
+      Number.isInteger(membership.depth),
+  );
+}
+
 async function rawFetch(path: string, init: RequestInit, token?: string): Promise<Response> {
   const headers = new Headers(init.headers);
   if (token) headers.set('Authorization', `Bearer ${token}`);
@@ -30,32 +74,137 @@ async function rawFetch(path: string, init: RequestInit, token?: string): Promis
 /** access token suresi dolmussa bir kez refresh dener; basarisizsa oturum kapatir.
  *  Tek-ucus (single-flight): es zamanli 401'ler ayni refresh token'i AYNI ANDA gondermesin —
  *  aksi halde sunucu rotasyonlu refresh'i reuse-detection ile TUM oturumu iptal eder (ani cikis). */
-let refreshInFlight: Promise<Session | null> | null = null;
-function refresh(session: Session): Promise<Session | null> {
-  if (refreshInFlight) return refreshInFlight;
-  refreshInFlight = (async () => {
-    try {
-      const current = getSession() ?? session;
-      const res = await rawFetch('/auth/refresh', {
-        method: 'POST',
-        body: JSON.stringify({ refreshToken: current.refreshToken }),
-      });
-      if (!res.ok) {
-        clearSession();
-        return null;
-      }
-      const next = (await res.json()) as Session;
-      setSession(next);
-      return next;
-    } finally {
-      refreshInFlight = null;
-    }
-  })();
-  return refreshInFlight;
+interface RefreshFlight {
+  owner: Session;
+  promise: Promise<Session | null>;
 }
 
-async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
-  const session = getSession();
+interface RefreshLockManager {
+  request<T>(name: string, options: { mode: 'exclusive' }, callback: () => Promise<T>): Promise<T>;
+}
+
+let refreshInFlight: RefreshFlight | null = null;
+
+function sameSessionIdentity(captured: Session, current: Session): boolean {
+  if (captured.user.id !== current.user.id || captured.activeMembershipId !== current.activeMembershipId) return false;
+  if (captured.activeMembershipId === null) return true;
+  const capturedMembership = captured.memberships.find((membership) => membership.id === captured.activeMembershipId);
+  const currentMembership = current.memberships.find((membership) => membership.id === current.activeMembershipId);
+  return Boolean(capturedMembership && currentMembership && capturedMembership.tenantId === currentMembership.tenantId);
+}
+
+function sameRefreshOwner(captured: Session, current: Session): boolean {
+  return (
+    captured.accessToken === current.accessToken &&
+    captured.refreshToken === current.refreshToken &&
+    sameSessionIdentity(captured, current)
+  );
+}
+
+function currentSession(): Session | null {
+  const current = getSession();
+  return current && isSession(current) ? current : null;
+}
+
+function ownsRefresh(owner: Session): boolean {
+  const current = currentSession();
+  return Boolean(current && sameRefreshOwner(owner, current));
+}
+
+function clearRefreshOwner(owner: Session): void {
+  if (ownsRefresh(owner)) clearSession();
+}
+
+function advancedSessionFor(captured: Session): Session | null {
+  const current = currentSession();
+  if (
+    !current ||
+    current.accessToken === captured.accessToken ||
+    !sameSessionIdentity(captured, current)
+  ) {
+    return null;
+  }
+  return current;
+}
+
+async function performRefresh(owner: Session): Promise<Session | null> {
+  let next: Session | null = null;
+  try {
+    const res = await rawFetch('/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ refreshToken: owner.refreshToken }),
+    });
+    if (res.ok) {
+      const candidate: unknown = await res.json();
+      if (isSession(candidate) && sameSessionIdentity(owner, candidate)) next = candidate;
+    }
+  } catch {
+    // Ag, JSON ve localStorage hatalari ayni guvenli-kapali davranisa iner.
+  }
+  if (!next) {
+    clearRefreshOwner(owner);
+    return null;
+  }
+  if (!ownsRefresh(owner)) return null;
+  try {
+    setSession(next);
+    return next;
+  } catch {
+    clearRefreshOwner(owner);
+    return null;
+  }
+}
+
+async function refreshWithCurrentSession(owner: Session): Promise<Session | null> {
+  const current = currentSession();
+  if (!current || !sameSessionIdentity(owner, current)) return null;
+  if (current.accessToken !== owner.accessToken) return current;
+  if (current.refreshToken !== owner.refreshToken) return null;
+  if (!ownsRefresh(owner)) return null;
+  return performRefresh(owner);
+}
+
+function coordinatedRefresh(owner: Session): Promise<Session | null> {
+  const locks =
+    typeof navigator === 'undefined'
+      ? undefined
+      : (navigator as unknown as { locks?: RefreshLockManager }).locks;
+  if (!locks || typeof locks.request !== 'function') return performRefresh(owner);
+  return locks
+    .request(AUTH_REFRESH_LOCK, { mode: 'exclusive' }, () => refreshWithCurrentSession(owner))
+    .catch(() => {
+      clearRefreshOwner(owner);
+      return null;
+    });
+}
+
+function refresh(owner: Session): Promise<Session | null> {
+  if (!ownsRefresh(owner)) return Promise.resolve(null);
+  if (refreshInFlight) {
+    return sameRefreshOwner(refreshInFlight.owner, owner) ? refreshInFlight.promise : Promise.resolve(null);
+  }
+  let flight: RefreshFlight;
+  const promise = coordinatedRefresh(owner).finally(() => {
+    if (refreshInFlight === flight) refreshInFlight = null;
+  });
+  flight = { owner, promise };
+  refreshInFlight = flight;
+  return promise;
+}
+
+function retrySessionFor(captured: Session, candidate: Session | null): Session | null {
+  return candidate && sameSessionIdentity(captured, candidate) && ownsRefresh(candidate) ? candidate : null;
+}
+
+async function sessionForRetry(captured: Session): Promise<Session | null> {
+  const advanced = retrySessionFor(captured, advancedSessionFor(captured));
+  if (advanced) return advanced;
+  const refreshed = retrySessionFor(captured, await refresh(captured));
+  if (refreshed) return refreshed;
+  return retrySessionFor(captured, advancedSessionFor(captured));
+}
+
+async function request<T>(path: string, init: RequestInit = {}, retry = true, session = getSession()): Promise<T> {
   const activeCompanyToken = getActiveCompanyToken();
   const overrideForAdmin = activeCompanyToken && path.startsWith('/admin') ? activeCompanyToken : null;
   const token = overrideForAdmin ?? session?.accessToken;
@@ -64,8 +213,8 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   // Drill-in override token kisa omurlu ve refresh edilemez (yeniden act-as ile basilir);
   // bu yuzden 401-refresh yolu yalnizca normal oturum token'i kullanildiginda calisir.
   if (res.status === 401 && !overrideForAdmin && session && retry) {
-    const refreshed = await refresh(session);
-    if (refreshed) return request<T>(path, init, false);
+    const retrySession = await sessionForRetry(session);
+    if (retrySession) return request<T>(path, init, false, retrySession);
     // refresh basarisiz -> oturum temizlendi; bayat ekranda kalmak yerine login'e dondur
     if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
       window.location.href = '/login';
@@ -150,9 +299,9 @@ export async function postBlob(path: string, body?: unknown): Promise<Blob> {
   const init: RequestInit = { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined };
   let res = await rawFetch(path, init, session?.accessToken);
   if (res.status === 401 && session) {
-    const refreshed = await refresh(session);
-    if (!refreshed) throw new ApiError(401, { message: 'oturum suresi doldu' });
-    res = await rawFetch(path, init, refreshed.accessToken);
+    const retrySession = await sessionForRetry(session);
+    if (!retrySession) throw new ApiError(401, { message: 'oturum suresi doldu' });
+    res = await rawFetch(path, init, retrySession.accessToken);
   }
   if (!res.ok) {
     let body2: unknown = null;
@@ -167,9 +316,9 @@ export async function getCsv(path: string): Promise<string> {
   const session = getSession();
   let res = await rawFetch(path, {}, session?.accessToken);
   if (res.status === 401 && session) {
-    const refreshed = await refresh(session);
-    if (!refreshed) throw new ApiError(401, { message: 'oturum suresi doldu' });
-    res = await rawFetch(path, {}, refreshed.accessToken);
+    const retrySession = await sessionForRetry(session);
+    if (!retrySession) throw new ApiError(401, { message: 'oturum suresi doldu' });
+    res = await rawFetch(path, {}, retrySession.accessToken);
   }
   if (!res.ok) throw new ApiError(res.status, { message: 'CSV indirilemedi' });
   return res.text();
