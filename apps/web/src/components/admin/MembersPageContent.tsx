@@ -500,7 +500,8 @@ function MemberDrawer({ id, tenantName, meIsAdmin, onClose, onNavigate, onChange
     try {
       const expectedAdmin = getSession();
       if (!expectedAdmin) throw new Error('session owner changed');
-      const res = await apiForSession(expectedAdmin).post<{ accessToken: string; member: { membershipId: string; userId: string; fullName: string; email: string; referralCode: string; role: string; tenantId: string; tenantName: string } }>(`/admin/members/${id}/impersonate`);
+      const ownerApi = apiForSession(expectedAdmin);
+      const res = await ownerApi.post<{ accessToken: string; member: { membershipId: string; userId: string; fullName: string; email: string; referralCode: string; role: string; tenantId: string; tenantName: string } }>(`/admin/members/${id}/impersonate`);
       const m = res.member;
       const impSession: Session = {
         accessToken: res.accessToken,
@@ -509,7 +510,7 @@ function MemberDrawer({ id, tenantName, meIsAdmin, onClose, onNavigate, onChange
         activeMembershipId: m.membershipId,
         memberships: [{ id: m.membershipId, tenantId: m.tenantId, tenantSlug: '', tenantName: m.tenantName, role: m.role, referralCode: m.referralCode, depth: 0 }],
       };
-      await startImpersonation(expectedAdmin, impSession);
+      await startImpersonation(ownerApi.session(), impSession);
       window.location.href = '/app';
     } catch (e) { setErr(String((e as ApiError).message)); }
   }

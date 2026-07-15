@@ -168,8 +168,9 @@ export default function AccountPage() {
     try {
       const expectedSession = getSession();
       if (!expectedSession) throw new Error('session owner changed');
-      const a = await apiForSession(expectedSession).patch<Account>('/account/profile', { fullName: fullName.trim() });
-      await updateSession(expectedSession, (session) => ({
+      const ownerApi = apiForSession(expectedSession);
+      const a = await ownerApi.patch<Account>('/account/profile', { fullName: fullName.trim() });
+      await updateSession(ownerApi.session(), (session) => ({
         ...session,
         user: { ...session.user, fullName: a.fullName, locale: a.locale },
       }));

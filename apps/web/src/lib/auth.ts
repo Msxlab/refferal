@@ -165,6 +165,18 @@ export function getSession(): Session | null {
   return result.session;
 }
 
+/** Diger sekmedeki her session degisiminde shell state'ini ve act-as token'ini gecersiz kil. */
+export function subscribeToSessionStorageChanges(onChange: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== KEY) return;
+    setActiveCompanyToken(null);
+    onChange();
+  };
+  window.addEventListener('storage', onStorage);
+  return () => window.removeEventListener('storage', onStorage);
+}
+
 function lockedStore(): { store: LockedSessionStore; release: () => void } {
   let active = true;
   const assertActive = () => {

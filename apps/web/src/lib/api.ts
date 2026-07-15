@@ -49,6 +49,7 @@ async function rawFetch(path: string, init: RequestInit, token?: string): Promis
  *  aksi halde sunucu rotasyonlu refresh'i reuse-detection ile TUM oturumu iptal eder (ani cikis). */
 interface RefreshFlight {
   owner: Session;
+  allowUnprovenAdvance: boolean;
   promise: Promise<Session | null>;
 }
 
@@ -94,6 +95,29 @@ function lockedCurrentSession(store: LockedSessionStore): Session | null {
   return result.ok ? result.session : null;
 }
 
+function concurrentLocalValue<T>(beforeRefresh: T, current: T, server: T): T {
+  return Object.is(beforeRefresh, current) ? server : current;
+}
+
+function reconcileRefreshedUser(owner: Session, current: Session, next: Session): Session['user'] {
+  return {
+    ...next.user,
+    email: concurrentLocalValue(owner.user.email, current.user.email, next.user.email),
+    fullName: concurrentLocalValue(owner.user.fullName, current.user.fullName, next.user.fullName),
+    locale: concurrentLocalValue(owner.user.locale, current.user.locale, next.user.locale),
+    emailVerified: concurrentLocalValue(
+      owner.user.emailVerified,
+      current.user.emailVerified,
+      next.user.emailVerified,
+    ),
+    isPlatformAdmin: concurrentLocalValue(
+      owner.user.isPlatformAdmin,
+      current.user.isPlatformAdmin,
+      next.user.isPlatformAdmin,
+    ),
+  };
+}
+
 async function clearRefreshOwner(owner: Session): Promise<void> {
   try {
     await withSessionMutation((store) => {
@@ -114,9 +138,8 @@ async function commitRefresh(owner: Session, next: Session): Promise<Session | n
       if (!current || !sameRefreshOwner(owner, current)) return null;
       try {
         const committed = {
-          ...current,
-          accessToken: next.accessToken,
-          refreshToken: next.refreshToken,
+          ...next,
+          user: reconcileRefreshedUser(owner, current, next),
         };
         store.set(committed);
         return committed;
@@ -174,39 +197,53 @@ async function performRefresh(owner: Session): Promise<Session | null> {
   return commitRefresh(owner, next);
 }
 
-async function refreshWithCurrentSession(owner: Session): Promise<Session | null> {
+async function refreshWithCurrentSession(owner: Session, allowUnprovenAdvance: boolean): Promise<Session | null> {
   const current = currentSession();
   if (!current || !sameSessionIdentity(owner, current)) return null;
-  if (current.accessToken !== owner.accessToken) return current;
+  if (current.accessToken !== owner.accessToken) return allowUnprovenAdvance ? current : null;
   if (current.refreshToken !== owner.refreshToken) return null;
   if (!ownsRefresh(owner)) return null;
   return performRefresh(owner);
 }
 
-function coordinatedRefresh(owner: Session): Promise<Session | null> {
+function coordinatedRefresh(owner: Session, allowUnprovenAdvance: boolean): Promise<Session | null> {
   const locks =
     typeof navigator === 'undefined'
       ? undefined
       : (navigator as unknown as { locks?: RefreshLockManager }).locks;
   if (!locks || typeof locks.request !== 'function') return performRefresh(owner);
   return locks
-    .request(AUTH_REFRESH_LOCK, { mode: 'exclusive' }, () => refreshWithCurrentSession(owner))
+    .request(
+      AUTH_REFRESH_LOCK,
+      { mode: 'exclusive' },
+      () => refreshWithCurrentSession(owner, allowUnprovenAdvance),
+    )
     .catch(async () => {
       await clearRefreshOwner(owner);
       return null;
     });
 }
 
-function refresh(owner: Session): Promise<Session | null> {
+function refresh(owner: Session, allowUnprovenAdvance = true): Promise<Session | null> {
   if (!ownsRefresh(owner)) return Promise.resolve(null);
   if (refreshInFlight) {
-    return sameRefreshOwner(refreshInFlight.owner, owner) ? refreshInFlight.promise : Promise.resolve(null);
+    const activeFlight = refreshInFlight;
+    if (
+      sameRefreshOwner(activeFlight.owner, owner) &&
+      (allowUnprovenAdvance || !activeFlight.allowUnprovenAdvance)
+    ) {
+      return activeFlight.promise;
+    }
+    return activeFlight.promise.then(
+      () => refresh(owner, allowUnprovenAdvance),
+      () => refresh(owner, allowUnprovenAdvance),
+    );
   }
   let flight: RefreshFlight;
-  const promise = coordinatedRefresh(owner).finally(() => {
+  const promise = coordinatedRefresh(owner, allowUnprovenAdvance).finally(() => {
     if (refreshInFlight === flight) refreshInFlight = null;
   });
-  flight = { owner, promise };
+  flight = { owner, allowUnprovenAdvance, promise };
   refreshInFlight = flight;
   return promise;
 }
@@ -215,15 +252,24 @@ function retrySessionFor(captured: Session, candidate: Session | null): Session 
   return candidate && sameSessionIdentity(captured, candidate) && ownsRefresh(candidate) ? candidate : null;
 }
 
-async function sessionForRetry(captured: Session): Promise<Session | null> {
-  const advanced = retrySessionFor(captured, advancedSessionFor(captured));
-  if (advanced) return advanced;
-  const refreshed = retrySessionFor(captured, await refresh(captured));
+async function sessionForRetry(captured: Session, allowUnprovenAdvance = true): Promise<Session | null> {
+  if (allowUnprovenAdvance) {
+    const advanced = retrySessionFor(captured, advancedSessionFor(captured));
+    if (advanced) return advanced;
+  }
+  const refreshed = retrySessionFor(captured, await refresh(captured, allowUnprovenAdvance));
   if (refreshed) return refreshed;
-  return retrySessionFor(captured, advancedSessionFor(captured));
+  return allowUnprovenAdvance ? retrySessionFor(captured, advancedSessionFor(captured)) : null;
 }
 
-async function request<T>(path: string, init: RequestInit = {}, retry = true, session?: Session | null): Promise<T> {
+async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  retry = true,
+  session?: Session | null,
+  onRetrySession?: (session: Session) => void,
+  allowUnprovenAdvance = true,
+): Promise<T> {
   if (session === undefined) session = sessionForRequest();
   const activeCompanyToken = getActiveCompanyToken();
   const overrideForAdmin = activeCompanyToken && path.startsWith('/admin') ? activeCompanyToken : null;
@@ -233,8 +279,12 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true, se
   // Drill-in override token kisa omurlu ve refresh edilemez (yeniden act-as ile basilir);
   // bu yuzden 401-refresh yolu yalnizca normal oturum token'i kullanildiginda calisir.
   if (res.status === 401 && !overrideForAdmin && session && retry) {
-    const retrySession = await sessionForRetry(session);
-    if (retrySession) return request<T>(path, init, false, retrySession);
+    const retrySession = await sessionForRetry(session, allowUnprovenAdvance);
+    if (retrySession) {
+      const result = await request<T>(path, init, false, retrySession);
+      onRetrySession?.(retrySession);
+      return result;
+    }
     // refresh basarisiz -> oturum temizlendi; bayat ekranda kalmak yerine login'e dondur
     if (
       failedOwnerStillRequiresLogin(session) &&
@@ -274,16 +324,20 @@ export const api = {
 
 /** Bir async sonucunu yakalanan exact session sahibiyle ayni Bearer'a baglar. */
 export function apiForSession(session: Session) {
+  let owner = session;
+  const ownerRequest = <T>(path: string, init: RequestInit = {}) =>
+    request<T>(path, init, true, owner, (refreshed) => { owner = refreshed; }, false);
   return {
-    get: <T>(path: string) => request<T>(path, {}, true, session),
+    session: () => owner,
+    get: <T>(path: string) => ownerRequest<T>(path),
     post: <T>(path: string, body?: unknown) =>
-      request<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }, true, session),
+      ownerRequest<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }),
     patch: <T>(path: string, body?: unknown) =>
-      request<T>(path, { method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined }, true, session),
+      ownerRequest<T>(path, { method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined }),
     put: <T>(path: string, body?: unknown) =>
-      request<T>(path, { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined }, true, session),
+      ownerRequest<T>(path, { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined }),
     del: <T>(path: string, body?: unknown) =>
-      request<T>(path, { method: 'DELETE', body: body !== undefined ? JSON.stringify(body) : undefined }, true, session),
+      ownerRequest<T>(path, { method: 'DELETE', body: body !== undefined ? JSON.stringify(body) : undefined }),
   };
 }
 

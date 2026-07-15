@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { activeMembership, clearSession, getSession, isAdminRole, type Session } from '@/lib/auth';
+import { activeMembership, clearSession, getSession, isAdminRole, subscribeToSessionStorageChanges, type Session } from '@/lib/auth';
 import { ThemeToggle } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -45,14 +45,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     setSessionState(s);
   }, [router]);
 
-  // sekmeler-arasi senkron: baska sekmede cikis yapilirsa (refearn.session silinir) burada da login'e don
+  // Sekmeler-arasi owner senkronu: set/remove fark etmeksizin stale shell'i kapat.
   useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === 'refearn.session' && !e.newValue) router.replace('/login');
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, [router]);
+    return subscribeToSessionStorageChanges(() => {
+      setSessionState(null);
+      window.location.reload();
+    });
+  }, []);
 
   if (!session) return <div className="center muted">{t('common.loading')}</div>;
   const active = activeMembership(session);

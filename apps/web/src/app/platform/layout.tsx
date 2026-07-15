@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { clearSession, getSession, type Session } from '@/lib/auth';
+import { clearSession, getSession, subscribeToSessionStorageChanges, type Session } from '@/lib/auth';
 import { ThemeToggle } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -28,6 +28,13 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
     }
     setSession(s);
   }, [router]);
+
+  useEffect(() => {
+    return subscribeToSessionStorageChanges(() => {
+      setSession(null);
+      window.location.reload();
+    });
+  }, []);
 
   if (!session) return <div className="center muted">Loading…</div>;
 
