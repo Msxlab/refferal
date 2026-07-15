@@ -60,7 +60,7 @@ const en = {
   'anav.home': 'Overview',
   'anav.wallet': 'Wallet',
   'anav.sales': 'My sales',
-  'anav.team': 'Team',
+  'anav.team': 'Network',
   'anav.invite': 'Invite',
   'me.title': 'Your earnings',
   'me.sub': 'How this month’s commissions from your network are doing.',
