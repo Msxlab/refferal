@@ -26,7 +26,7 @@ const IMP_KEY = 'refearn.session.impersonator';
 const SESSION_MUTATION_LOCK = 'refearn.auth.session-mutation';
 
 export type SessionChangeOrigin = 'local' | 'storage';
-export type SessionChangeReason = 'mutation' | 'transition' | 'external';
+export type SessionChangeReason = 'mutation' | 'transition' | 'operation-failed' | 'external';
 export type SessionChangeAction = 'update' | 'reload' | 'defer-to-caller';
 type LocalSessionChangeReason = Exclude<SessionChangeReason, 'external'> | 'storage-cleanup';
 type PublishedSessionChangeReason = SessionChangeReason | 'storage-cleanup';
@@ -133,19 +133,26 @@ function publishLocalSessionChange(
   }
 }
 
-function rawSetSession(session: Session, reason: LocalSessionChangeReason = 'mutation'): void {
+function rawSetSession(
+  session: Session,
+  reason: LocalSessionChangeReason = 'mutation',
+  publish: LocalSessionChangeListener = publishLocalSessionChange,
+): void {
   if (!isSession(session)) throw new InvalidSessionError();
   const oldValue = currentRawMainSession();
   const newValue = JSON.stringify(session);
   window.localStorage.setItem(KEY, newValue);
-  publishLocalSessionChange(oldValue, newValue, reason);
+  publish(oldValue, newValue, reason);
 }
 
-function rawClearMainSession(reason: LocalSessionChangeReason = 'mutation'): void {
+function rawClearMainSession(
+  reason: LocalSessionChangeReason = 'mutation',
+  publish: LocalSessionChangeListener = publishLocalSessionChange,
+): void {
   const oldValue = currentRawMainSession();
   try {
     window.localStorage.removeItem(KEY);
-    publishLocalSessionChange(oldValue, null, reason);
+    publish(oldValue, null, reason);
   } finally {
     setActiveCompanyToken(null);
   }
@@ -159,9 +166,12 @@ function rawClearImpersonator(): void {
   if (rawImpersonator() !== null) window.localStorage.removeItem(IMP_KEY);
 }
 
-function rawClearSessionState(reason: LocalSessionChangeReason = 'mutation'): void {
+function rawClearSessionState(
+  reason: LocalSessionChangeReason = 'mutation',
+  publish: LocalSessionChangeListener = publishLocalSessionChange,
+): void {
   const errors: unknown[] = [];
-  try { rawClearMainSession(reason); } catch (error) { errors.push(error); }
+  try { rawClearMainSession(reason, publish); } catch (error) { errors.push(error); }
   try { rawClearImpersonator(); } catch (error) { errors.push(error); }
   if (errors.length === 1) throw errors[0];
   if (errors.length > 1) throw new AggregateError(errors, 'session and impersonator cleanup failed');
@@ -249,6 +259,11 @@ export function subscribeToSessionStorageChanges(
     origin: SessionChangeOrigin = 'local',
   ) => {
     if (reason === 'storage-cleanup') return;
+    if (origin === 'local' && reason === 'operation-failed') {
+      setActiveCompanyToken(null);
+      deliver({ action: 'reload', session: null, reload: true, origin, reason });
+      return;
+    }
     if (origin === 'local' && reason === 'transition') {
       setActiveCompanyToken(null);
       deliver({
@@ -278,6 +293,7 @@ export function subscribeToSessionStorageChanges(
   const onStorage = (event: StorageEvent) => {
     if (event.key !== KEY) return;
     if (event.newValue !== null && !sessionFromStorageValue(event.newValue)) {
+      setActiveCompanyToken(null);
       void tryClearInvalidSession(event.newValue, 'storage-cleanup').then(handleStorageChange, handleStorageChange);
       return;
     }
@@ -299,28 +315,55 @@ export function subscribeToSessionStorageChanges(
   };
 }
 
-function lockedStore(): { store: LockedSessionStore; release: () => void } {
+function lockedStore(): {
+  store: LockedSessionStore;
+  commit: () => void;
+  fail: () => void;
+  release: () => void;
+} {
   let active = true;
+  // Transition payloads are intentionally not retained; only a synchronous operation-local change bit is coalesced.
+  let pendingChange = false;
   const assertActive = () => {
     if (!active) throw new Error('session mutation store used outside its lock');
+  };
+  const publishOperationChange: LocalSessionChangeListener = (oldValue, newValue, reason) => {
+    if (reason === 'transition') {
+      pendingChange = true;
+      return;
+    }
+    publishLocalSessionChange(oldValue, newValue, reason);
+  };
+  const publishPendingChange = (reason: 'transition' | 'operation-failed') => {
+    if (!pendingChange) return;
+    pendingChange = false;
+    publishLocalSessionChange(null, null, reason);
   };
   const store: LockedSessionStore = {
     read: () => {
       assertActive();
       return readStoredSession(() => {
-        try { rawClearSessionState(); } catch { /* best effort */ }
+        try { rawClearSessionState('mutation', publishOperationChange); } catch { /* best effort */ }
       });
     },
     set: (session, reason) => {
       assertActive();
-      rawSetSession(session, reason);
+      rawSetSession(session, reason, publishOperationChange);
     },
     clear: (reason) => {
       assertActive();
-      rawClearSessionState(reason);
+      rawClearSessionState(reason, publishOperationChange);
     },
   };
-  return { store, release: () => { active = false; } };
+  return {
+    store,
+    commit: () => { publishPendingChange('transition'); },
+    fail: () => { publishPendingChange('operation-failed'); },
+    release: () => {
+      active = false;
+      pendingChange = false;
+    },
+  };
 }
 
 function isThenable(value: unknown): value is PromiseLike<unknown> {
@@ -334,7 +377,11 @@ function invokeLocked<T>(operation: (store: LockedSessionStore) => T): T {
   try {
     const result = operation(locked.store);
     if (isThenable(result)) throw new Error('session mutation callback must be synchronous');
+    locked.commit();
     return result;
+  } catch (error) {
+    locked.fail();
+    throw error;
   } finally {
     locked.release();
   }

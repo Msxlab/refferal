@@ -2806,6 +2806,239 @@ test('failed same-document main-session writes and removals publish nothing', as
   }
 });
 
+test('setSession secondary-key cleanup failure publishes one fail-closed local reload', async () => {
+  const cleanupError = new Error('login backup cleanup failed');
+  const browser = installBrowser({
+    removeItem: (key: string, _call: number) => key === IMPERSONATOR_KEY ? cleanupError : undefined,
+  });
+  const owner = makeWorkspaceSession(
+    makeFamilyAccessToken('secondary-set-owner', 'owner'),
+    'secondary-set-owner-refresh',
+    'user-1',
+    'membership-a',
+    'tenant-a',
+  );
+  const replacement = makeWorkspaceSession(
+    makeFamilyAccessToken('secondary-set-replacement', 'replacement', 'user-2'),
+    'secondary-set-replacement-refresh',
+    'user-2',
+    'membership-b',
+    'tenant-b',
+  );
+  await setSession(owner);
+  browser.storage.set(IMPERSONATOR_KEY, JSON.stringify(owner));
+  const observed: SessionStorageChange[] = [];
+  const observedAfterRejection: boolean[] = [];
+  let rejected = false;
+  const unsubscribe = subscribeToSessionStorageChanges((change) => {
+    observed.push(change);
+    observedAfterRejection.push(rejected);
+  });
+
+  try {
+    await assert.rejects(setSession(replacement), (error: unknown) => error === cleanupError);
+    rejected = true;
+    await nextTask();
+
+    assert.equal(browser.storage.get(SESSION_KEY), JSON.stringify(replacement));
+    assert.equal(browser.storage.get(IMPERSONATOR_KEY), JSON.stringify(owner));
+    assert.deepEqual(observed, [{
+      action: 'reload',
+      session: null,
+      reload: true,
+      origin: 'local',
+      reason: 'operation-failed',
+    }]);
+    assert.deepEqual(observedAfterRejection, [true]);
+  } finally {
+    unsubscribe();
+    browser.restore();
+  }
+});
+
+test('replaceSessionIfCurrent secondary-key cleanup failure publishes one fail-closed local reload', async () => {
+  const cleanupError = new Error('login CAS backup cleanup failed');
+  const browser = installBrowser({
+    removeItem: (key: string, _call: number) => key === IMPERSONATOR_KEY ? cleanupError : undefined,
+  });
+  const owner = makeWorkspaceSession(
+    makeFamilyAccessToken('secondary-cas-owner', 'owner'),
+    'secondary-cas-owner-refresh',
+    'user-1',
+    'membership-a',
+    'tenant-a',
+  );
+  const replacement = makeWorkspaceSession(
+    makeFamilyAccessToken('secondary-cas-replacement', 'replacement', 'user-2'),
+    'secondary-cas-replacement-refresh',
+    'user-2',
+    'membership-b',
+    'tenant-b',
+  );
+  await setSession(owner);
+  browser.storage.set(IMPERSONATOR_KEY, JSON.stringify(owner));
+  const observed: SessionStorageChange[] = [];
+  const unsubscribe = subscribeToSessionStorageChanges((change) => { observed.push(change); });
+
+  try {
+    await assert.rejects(
+      replaceSessionIfCurrent(owner, replacement),
+      (error: unknown) => error === cleanupError,
+    );
+    await nextTask();
+
+    assert.equal(browser.storage.get(SESSION_KEY), JSON.stringify(replacement));
+    assert.equal(browser.storage.get(IMPERSONATOR_KEY), JSON.stringify(owner));
+    assert.deepEqual(observed, [{
+      action: 'reload',
+      session: null,
+      reload: true,
+      origin: 'local',
+      reason: 'operation-failed',
+    }]);
+  } finally {
+    unsubscribe();
+    browser.restore();
+  }
+});
+
+test('successful login replacement publishes one defer only after backup cleanup completes', async () => {
+  let backupCleanupCompleted = false;
+  const browser = installBrowser({
+    removeItem: (key: string, _call: number) => {
+      if (key === IMPERSONATOR_KEY) backupCleanupCompleted = true;
+      return undefined;
+    },
+  });
+  const owner = makeWorkspaceSession(
+    makeFamilyAccessToken('secondary-success-owner', 'owner'),
+    'secondary-success-owner-refresh',
+    'user-1',
+    'membership-a',
+    'tenant-a',
+  );
+  const replacement = makeWorkspaceSession(
+    makeFamilyAccessToken('secondary-success-replacement', 'replacement', 'user-2'),
+    'secondary-success-replacement-refresh',
+    'user-2',
+    'membership-b',
+    'tenant-b',
+  );
+  await setSession(owner);
+  browser.storage.set(IMPERSONATOR_KEY, JSON.stringify(owner));
+  const observed: SessionStorageChange[] = [];
+  const cleanupCompleteAtPublication: boolean[] = [];
+  const unsubscribe = subscribeToSessionStorageChanges((change) => {
+    observed.push(change);
+    cleanupCompleteAtPublication.push(backupCleanupCompleted);
+  });
+
+  try {
+    assert.deepEqual(await replaceSessionIfCurrent(owner, replacement), replacement);
+
+    assert.equal(browser.storage.get(IMPERSONATOR_KEY), undefined);
+    assert.deepEqual(observed, [{
+      action: 'defer-to-caller',
+      session: null,
+      reload: false,
+      origin: 'local',
+      reason: 'transition',
+    }]);
+    assert.deepEqual(cleanupCompleteAtPublication, [true]);
+  } finally {
+    unsubscribe();
+    browser.restore();
+  }
+});
+
+test('logout secondary-key cleanup failure publishes one fail-closed local reload', async () => {
+  const cleanupError = new Error('logout backup cleanup failed');
+  const browser = installBrowser({
+    removeItem: (key: string, _call: number) => key === IMPERSONATOR_KEY ? cleanupError : undefined,
+  });
+  const owner = makeWorkspaceSession(
+    makeFamilyAccessToken('secondary-logout-owner', 'owner'),
+    'secondary-logout-owner-refresh',
+    'user-1',
+    'membership-a',
+    'tenant-a',
+  );
+  await setSession(owner);
+  browser.storage.set(IMPERSONATOR_KEY, JSON.stringify(owner));
+  const observed: SessionStorageChange[] = [];
+  const observedAfterRejection: boolean[] = [];
+  let rejected = false;
+  const unsubscribe = subscribeToSessionStorageChanges((change) => {
+    observed.push(change);
+    observedAfterRejection.push(rejected);
+  });
+
+  try {
+    await assert.rejects(clearSession(), (error: unknown) => error === cleanupError);
+    rejected = true;
+    await nextTask();
+
+    assert.equal(browser.storage.has(SESSION_KEY), false);
+    assert.equal(browser.storage.get(IMPERSONATOR_KEY), JSON.stringify(owner));
+    assert.deepEqual(observed, [{
+      action: 'reload',
+      session: null,
+      reload: true,
+      origin: 'local',
+      reason: 'operation-failed',
+    }]);
+    assert.deepEqual(observedAfterRejection, [true]);
+    assert.equal(getActiveCompanyToken(), null);
+  } finally {
+    unsubscribe();
+    browser.restore();
+  }
+});
+
+test('stopImpersonation secondary-key cleanup failure publishes one fail-closed local reload', async () => {
+  const cleanupError = new Error('restore backup cleanup failed');
+  const browser = installBrowser({
+    removeItem: (key: string, _call: number) => key === IMPERSONATOR_KEY ? cleanupError : undefined,
+  });
+  const admin = makeWorkspaceSession(
+    makeFamilyAccessToken('secondary-stop-admin', 'admin', 'admin-user'),
+    'secondary-stop-admin-refresh',
+    'admin-user',
+    'admin-membership',
+    'tenant-a',
+  );
+  const impersonated = makeProductionImpersonationSession(admin.user.id);
+  browser.storage.set(SESSION_KEY, JSON.stringify(impersonated));
+  browser.storage.set(IMPERSONATOR_KEY, JSON.stringify(admin));
+  const observed: SessionStorageChange[] = [];
+  const observedAfterRejection: boolean[] = [];
+  let rejected = false;
+  const unsubscribe = subscribeToSessionStorageChanges((change) => {
+    observed.push(change);
+    observedAfterRejection.push(rejected);
+  });
+
+  try {
+    await assert.rejects(stopImpersonation(), (error: unknown) => error === cleanupError);
+    rejected = true;
+    await nextTask();
+
+    assert.equal(browser.storage.get(SESSION_KEY), JSON.stringify(admin));
+    assert.equal(browser.storage.get(IMPERSONATOR_KEY), JSON.stringify(admin));
+    assert.deepEqual(observed, [{
+      action: 'reload',
+      session: null,
+      reload: true,
+      origin: 'local',
+      reason: 'operation-failed',
+    }]);
+    assert.deepEqual(observedAfterRejection, [true]);
+  } finally {
+    unsubscribe();
+    browser.restore();
+  }
+});
+
 test('a throwing same-document subscriber cannot fail the mutation or block the next subscriber', async () => {
   const browser = installBrowser();
   const owner = makeWorkspaceSession(
@@ -3168,8 +3401,10 @@ test('native malformed cleanup preserves a replacement installed before its expe
   });
 
   try {
+    setActiveCompanyToken('held-cleanup-token');
     browser.storage.set(SESSION_KEY, '{malformed');
     browser.dispatchStorage(SESSION_KEY, JSON.stringify(owner), '{malformed');
+    assert.equal(getActiveCompanyToken(), null);
     await nextTask();
     assert.equal(locks.requestCount('refearn.auth.session-mutation'), 1);
     await cleanupGate.requested;
@@ -3189,7 +3424,50 @@ test('native malformed cleanup preserves a replacement installed before its expe
   } finally {
     cleanupGate.release();
     unsubscribe();
+    setActiveCompanyToken(null);
     locks.restore();
+    browser.restore();
+  }
+});
+
+test('native malformed cleanup clears act-as memory before a rejected mutation lock settles', async () => {
+  const lockError = new Error('malformed cleanup lock rejected');
+  const browser = installBrowser();
+  const restoreLock = installRejectedMutationLock(lockError);
+  const owner = makeWorkspaceSession(
+    makeFamilyAccessToken('malformed-lock-family', 'owner'),
+    'malformed-lock-refresh',
+    'user-1',
+    'membership-a',
+    'tenant-a',
+  );
+  const observed: SessionStorageChange[] = [];
+  const delivered = deferred();
+  const unsubscribe = subscribeToSessionStorageChanges((change) => {
+    observed.push(change);
+    delivered.resolve();
+  });
+
+  try {
+    setActiveCompanyToken('rejected-cleanup-token');
+    browser.storage.set(SESSION_KEY, '{malformed');
+    browser.dispatchStorage(SESSION_KEY, JSON.stringify(owner), '{malformed');
+    assert.equal(getActiveCompanyToken(), null);
+    await delivered.promise;
+
+    assert.equal(browser.storage.get(SESSION_KEY), '{malformed');
+    assert.equal(browser.removeCalls(), 0);
+    assert.deepEqual(observed, [{
+      action: 'reload',
+      session: null,
+      reload: true,
+      origin: 'storage',
+      reason: 'external',
+    }]);
+  } finally {
+    unsubscribe();
+    setActiveCompanyToken(null);
+    restoreLock();
     browser.restore();
   }
 });
@@ -3563,6 +3841,18 @@ test('the main-session storage boundary publishes local changes through the shar
   );
   assert.match(authSource, /action === 'reload' && change\.origin === 'local'[\s\S]*?setTimeout/);
   assert.match(authSource, /reason === 'storage-cleanup'[\s\S]*?return/);
+  assert.match(
+    authSource,
+    /function lockedStore[\s\S]*?pendingChange[\s\S]*?commit[\s\S]*?operation-failed/,
+  );
+  assert.match(
+    authSource,
+    /function invokeLocked[\s\S]*?locked\.commit\(\)[\s\S]*?catch[\s\S]*?locked\.fail\(\)/,
+  );
+  assert.match(
+    authSource,
+    /event\.newValue !== null && !sessionFromStorageValue\(event\.newValue\)[\s\S]*?setActiveCompanyToken\(null\)[\s\S]*?tryClearInvalidSession/,
+  );
   assert.match(authSource, /export async function setSession[\s\S]*?store\.set\(session, 'transition'\)/);
   assert.match(authSource, /export function applyTenantSwitch[\s\S]*?'transition'/);
 });
