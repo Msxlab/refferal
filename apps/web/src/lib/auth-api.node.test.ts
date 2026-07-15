@@ -8,7 +8,7 @@ import {
   postBlob,
   setActiveCompanyToken,
 } from './api';
-import { getSession, setSession, type Session } from './auth';
+import { clearSession, getSession, setSession, type Session } from './auth';
 
 const SESSION_KEY = 'refearn.session';
 
@@ -73,12 +73,14 @@ interface StorageFailures {
 
 function installBrowser(failures: StorageFailures = {}): {
   storage: Map<string, string>;
+  setCalls: () => number;
   removeCalls: () => number;
   location: { pathname: string; href: string };
   restore: () => void;
 } {
   const storage = new Map<string, string>();
   const location = { pathname: '/app', href: '/app' };
+  let writes = 0;
   let removals = 0;
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
   const localStorage = {
@@ -87,6 +89,7 @@ function installBrowser(failures: StorageFailures = {}): {
       return storage.get(key) ?? null;
     },
     setItem(key: string, value: string): void {
+      writes += 1;
       if (Object.hasOwn(failures, 'setItem')) throw failures.setItem;
       storage.set(key, value);
     },
@@ -104,6 +107,7 @@ function installBrowser(failures: StorageFailures = {}): {
 
   return {
     storage,
+    setCalls: () => writes,
     removeCalls: () => removals,
     location,
     restore: () => {
@@ -626,10 +630,11 @@ test('an HQ override 401 never consumes the user refresh token', async () => {
   }
 });
 
-test('session getItem failures are normalized across JSON, CSV, and blob entry points', async () => {
+test('session getItem failures fail closed without mutating unread storage', async () => {
   const failures: StorageFailures = { getItem: new Error('storage read denied') };
   const browser = installBrowser(failures);
-  browser.storage.set(SESSION_KEY, JSON.stringify(makeSession('stored-access', 'stored-refresh')));
+  const storedRaw = JSON.stringify(makeSession('stored-access', 'stored-refresh'));
+  browser.storage.set(SESSION_KEY, storedRaw);
   setActiveCompanyToken('active-company-token');
   let fetchCalls = 0;
   const restoreFetch = installFetch(async () => {
@@ -646,12 +651,89 @@ test('session getItem failures are normalized across JSON, CSV, and blob entry p
 
     results.forEach(assertExpired);
     assert.equal(fetchCalls, 0);
-    assert.equal(browser.storage.has(SESSION_KEY), false);
-    assert.ok(browser.removeCalls() >= 1);
+    assert.equal(browser.storage.get(SESSION_KEY), storedRaw);
+    assert.equal(browser.setCalls(), 0);
+    assert.equal(browser.removeCalls(), 0);
     assert.equal(getActiveCompanyToken(), null);
   } finally {
     setActiveCompanyToken(null);
     restoreFetch();
+    browser.restore();
+  }
+});
+
+test('a getItem failure preserves an independent replacement for a later successful read', async () => {
+  const failures: StorageFailures = { getItem: new Error('transient storage read failure') };
+  const browser = installBrowser(failures);
+  const replacement = makeWorkspaceSession(
+    'replacement-access',
+    'replacement-refresh',
+    'replacement',
+    'membership-b',
+    'tenant-b',
+  );
+  const replacementRaw = JSON.stringify(replacement);
+  browser.storage.set(SESSION_KEY, replacementRaw);
+  setActiveCompanyToken('replacement-company-token');
+  let fetchCalls = 0;
+  const restoreFetch = installFetch(async () => {
+    fetchCalls += 1;
+    return Response.json({ unexpected: true });
+  });
+
+  try {
+    const [result] = await Promise.allSettled([api.get('/protected')]);
+
+    assertExpired(result);
+    assert.equal(fetchCalls, 0);
+    assert.equal(browser.storage.get(SESSION_KEY), replacementRaw);
+    assert.equal(browser.setCalls(), 0);
+    assert.equal(browser.removeCalls(), 0);
+    assert.equal(getActiveCompanyToken(), null);
+
+    delete failures.getItem;
+    assert.deepEqual(getSession(), replacement);
+  } finally {
+    delete failures.getItem;
+    setActiveCompanyToken(null);
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('public setSession rethrows persistence failures', () => {
+  const writeError = new Error('storage write denied');
+  const failures: StorageFailures = { setItem: writeError };
+  const browser = installBrowser(failures);
+
+  try {
+    assert.throws(
+      () => setSession(makeSession('new-access', 'new-refresh')),
+      (error: unknown) => error === writeError,
+    );
+    assert.equal(browser.setCalls(), 1);
+    assert.equal(browser.storage.has(SESSION_KEY), false);
+  } finally {
+    delete failures.setItem;
+    browser.restore();
+  }
+});
+
+test('public clearSession rethrows removal failures after clearing active-company state', () => {
+  const removalError = new Error('storage removal denied');
+  const failures: StorageFailures = { removeItem: removalError };
+  const browser = installBrowser(failures);
+  browser.storage.set(SESSION_KEY, JSON.stringify(makeSession('stored-access', 'stored-refresh')));
+  setActiveCompanyToken('active-company-token');
+
+  try {
+    assert.throws(() => clearSession(), (error: unknown) => error === removalError);
+    assert.equal(browser.removeCalls(), 1);
+    assert.equal(browser.storage.has(SESSION_KEY), true);
+    assert.equal(getActiveCompanyToken(), null);
+  } finally {
+    delete failures.removeItem;
+    setActiveCompanyToken(null);
     browser.restore();
   }
 });
@@ -784,7 +866,7 @@ test('a malformed refresh Session normalizes to 401 and is never persisted or re
   }
 });
 
-test('a refresh setItem failure is normalized to 401 and clears the owning session', async () => {
+test('refresh uses no-throw cleanup when setItem fails and normalizes to 401', async () => {
   const failures: StorageFailures = {};
   const browser = installBrowser(failures);
   const owner = makeSession('expired-access', 'refresh-owner');
@@ -813,7 +895,7 @@ test('a refresh setItem failure is normalized to 401 and clears the owning sessi
   }
 });
 
-test('a refresh removeItem failure never escapes raw and still clears active-company state', async () => {
+test('refresh uses no-throw cleanup when removeItem fails and normalizes to 401', async () => {
   const failures: StorageFailures = {};
   const browser = installBrowser(failures);
   setSession(makeSession('expired-access', 'refresh-owner'));

@@ -77,7 +77,8 @@ export function readSession(): SessionReadResult {
   try {
     raw = window.localStorage.getItem(KEY);
   } catch {
-    clearSession();
+    // Okuma basarisizsa depodaki oturumun sahibi bilinemez; yalnizca bellek durumunu kapat.
+    setActiveCompanyToken(null);
     return { ok: false, session: null };
   }
   if (raw === null) return { ok: true, session: null };
@@ -87,7 +88,7 @@ export function readSession(): SessionReadResult {
   } catch {
     // Gecersiz JSON da gecersiz Session ile ayni guvenli-kapali yola iner.
   }
-  clearSession();
+  tryClearSession();
   return { ok: false, session: null };
 }
 
@@ -95,29 +96,36 @@ export function getSession(): Session | null {
   return readSession().session;
 }
 
-export function setSession(s: Session): boolean {
-  if (typeof window === 'undefined') return false;
+export function setSession(s: Session): void {
+  window.localStorage.setItem(KEY, JSON.stringify(s));
+}
+
+export function trySetSession(s: Session): boolean {
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(s));
+    setSession(s);
     return true;
   } catch {
     return false;
   }
 }
 
-export function clearSession(): boolean {
-  let removed = true;
-  if (typeof window !== 'undefined') {
-    try {
-      window.localStorage.removeItem(KEY);
-    } catch {
-      removed = false;
-    }
+export function clearSession(): void {
+  try {
+    window.localStorage.removeItem(KEY);
+  } finally {
+    // HQ drill-in act-as god token bellekte tutulur; oturum bitince onu da temizle
+    // ki request() artik /admin/* cagrilarina bayat token eklemesin.
+    setActiveCompanyToken(null);
   }
-  // HQ drill-in act-as god token bellekte tutulur; oturum bitince onu da temizle
-  // ki request() artik /admin/* cagrilarina bayat token eklemesin.
-  setActiveCompanyToken(null);
-  return removed;
+}
+
+export function tryClearSession(): boolean {
+  try {
+    clearSession();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function activeMembership(s: Session): MembershipSummary | null {

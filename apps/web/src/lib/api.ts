@@ -1,4 +1,4 @@
-import { clearSession, isSession, readSession, setSession, type Session } from './auth';
+import { isSession, readSession, tryClearSession, trySetSession, type Session } from './auth';
 import { getActiveCompanyToken } from './active-company';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1';
@@ -79,7 +79,7 @@ function ownsRefresh(owner: Session): boolean {
 }
 
 function clearRefreshOwner(owner: Session): void {
-  if (ownsRefresh(owner)) clearSession();
+  if (ownsRefresh(owner)) tryClearSession();
 }
 
 function advancedSessionFor(captured: Session): Session | null {
@@ -113,7 +113,7 @@ async function performRefresh(owner: Session): Promise<Session | null> {
     return null;
   }
   if (!ownsRefresh(owner)) return null;
-  if (!setSession(next)) {
+  if (!trySetSession(next)) {
     clearRefreshOwner(owner);
     return null;
   }
