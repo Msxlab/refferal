@@ -1,4 +1,4 @@
-import { clearSession, getSession, setSession, type Session } from './auth';
+import { clearSession, isSession, readSession, setSession, type Session } from './auth';
 import { getActiveCompanyToken } from './active-company';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1';
@@ -21,47 +21,14 @@ export class ApiError extends Error {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+function expiredSessionError(): ApiError {
+  return new ApiError(401, { message: 'oturum suresi doldu' });
 }
 
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0;
-}
-
-function isSession(value: unknown): value is Session {
-  if (
-    !isRecord(value) ||
-    !isNonEmptyString(value.accessToken) ||
-    !isNonEmptyString(value.refreshToken) ||
-    !isRecord(value.user)
-  ) {
-    return false;
-  }
-  const user = value.user;
-  if (
-    !isNonEmptyString(user.id) ||
-    !isNonEmptyString(user.email) ||
-    !isNonEmptyString(user.fullName) ||
-    !isNonEmptyString(user.locale) ||
-    typeof user.emailVerified !== 'boolean' ||
-    (user.isPlatformAdmin !== undefined && typeof user.isPlatformAdmin !== 'boolean') ||
-    (value.activeMembershipId !== null && !isNonEmptyString(value.activeMembershipId)) ||
-    !Array.isArray(value.memberships)
-  ) {
-    return false;
-  }
-  return value.memberships.every(
-    (membership) =>
-      isRecord(membership) &&
-      isNonEmptyString(membership.id) &&
-      isNonEmptyString(membership.tenantId) &&
-      isNonEmptyString(membership.tenantSlug) &&
-      isNonEmptyString(membership.tenantName) &&
-      isNonEmptyString(membership.role) &&
-      isNonEmptyString(membership.referralCode) &&
-      Number.isInteger(membership.depth),
-  );
+function sessionForRequest(): Session | null {
+  const result = readSession();
+  if (!result.ok) throw expiredSessionError();
+  return result.session;
 }
 
 async function rawFetch(path: string, init: RequestInit, token?: string): Promise<Response> {
@@ -102,8 +69,8 @@ function sameRefreshOwner(captured: Session, current: Session): boolean {
 }
 
 function currentSession(): Session | null {
-  const current = getSession();
-  return current && isSession(current) ? current : null;
+  const result = readSession();
+  return result.ok ? result.session : null;
 }
 
 function ownsRefresh(owner: Session): boolean {
@@ -146,13 +113,11 @@ async function performRefresh(owner: Session): Promise<Session | null> {
     return null;
   }
   if (!ownsRefresh(owner)) return null;
-  try {
-    setSession(next);
-    return next;
-  } catch {
+  if (!setSession(next)) {
     clearRefreshOwner(owner);
     return null;
   }
+  return next;
 }
 
 async function refreshWithCurrentSession(owner: Session): Promise<Session | null> {
@@ -204,7 +169,8 @@ async function sessionForRetry(captured: Session): Promise<Session | null> {
   return retrySessionFor(captured, advancedSessionFor(captured));
 }
 
-async function request<T>(path: string, init: RequestInit = {}, retry = true, session = getSession()): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, retry = true, session?: Session | null): Promise<T> {
+  if (session === undefined) session = sessionForRequest();
   const activeCompanyToken = getActiveCompanyToken();
   const overrideForAdmin = activeCompanyToken && path.startsWith('/admin') ? activeCompanyToken : null;
   const token = overrideForAdmin ?? session?.accessToken;
@@ -219,7 +185,7 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true, se
     if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
       window.location.href = '/login';
     }
-    throw new ApiError(401, { message: 'oturum suresi doldu' });
+    throw expiredSessionError();
   }
 
   if (!res.ok) {
@@ -295,12 +261,12 @@ export function getTenantBrand(slug: string): Promise<TenantBrand> {
 
 /** Binary (PDF) indirme: POST + Bearer -> Blob. 401'de bir kez refresh dener. */
 export async function postBlob(path: string, body?: unknown): Promise<Blob> {
-  const session = getSession();
+  const session = sessionForRequest();
   const init: RequestInit = { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined };
   let res = await rawFetch(path, init, session?.accessToken);
   if (res.status === 401 && session) {
     const retrySession = await sessionForRetry(session);
-    if (!retrySession) throw new ApiError(401, { message: 'oturum suresi doldu' });
+    if (!retrySession) throw expiredSessionError();
     res = await rawFetch(path, init, retrySession.accessToken);
   }
   if (!res.ok) {
@@ -313,11 +279,11 @@ export async function postBlob(path: string, body?: unknown): Promise<Blob> {
 
 /** CSV indirme: metin doner, Bearer ekler. */
 export async function getCsv(path: string): Promise<string> {
-  const session = getSession();
+  const session = sessionForRequest();
   let res = await rawFetch(path, {}, session?.accessToken);
   if (res.status === 401 && session) {
     const retrySession = await sessionForRetry(session);
-    if (!retrySession) throw new ApiError(401, { message: 'oturum suresi doldu' });
+    if (!retrySession) throw expiredSessionError();
     res = await rawFetch(path, {}, retrySession.accessToken);
   }
   if (!res.ok) throw new ApiError(res.status, { message: 'CSV indirilemedi' });

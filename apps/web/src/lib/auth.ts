@@ -23,21 +23,101 @@ export interface Session {
 
 const KEY = 'refearn.session';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+export function isSession(value: unknown): value is Session {
+  if (
+    !isRecord(value) ||
+    !isNonEmptyString(value.accessToken) ||
+    !isNonEmptyString(value.refreshToken) ||
+    !isRecord(value.user)
+  ) {
+    return false;
+  }
+  const user = value.user;
+  if (
+    !isNonEmptyString(user.id) ||
+    !isNonEmptyString(user.email) ||
+    !isNonEmptyString(user.fullName) ||
+    !isNonEmptyString(user.locale) ||
+    typeof user.emailVerified !== 'boolean' ||
+    (user.isPlatformAdmin !== undefined && typeof user.isPlatformAdmin !== 'boolean') ||
+    (value.activeMembershipId !== null && !isNonEmptyString(value.activeMembershipId)) ||
+    !Array.isArray(value.memberships)
+  ) {
+    return false;
+  }
+  return value.memberships.every(
+    (membership) =>
+      isRecord(membership) &&
+      isNonEmptyString(membership.id) &&
+      isNonEmptyString(membership.tenantId) &&
+      isNonEmptyString(membership.tenantSlug) &&
+      isNonEmptyString(membership.tenantName) &&
+      isNonEmptyString(membership.role) &&
+      isNonEmptyString(membership.referralCode) &&
+      Number.isInteger(membership.depth),
+  );
+}
+
+export type SessionReadResult =
+  | { ok: true; session: Session | null }
+  | { ok: false; session: null };
+
+/** localStorage erisimini ve Session dogrulamasini tek, no-throw sinirda toplar. */
+export function readSession(): SessionReadResult {
+  if (typeof window === 'undefined') return { ok: true, session: null };
+  let raw: string | null;
+  try {
+    raw = window.localStorage.getItem(KEY);
+  } catch {
+    clearSession();
+    return { ok: false, session: null };
+  }
+  if (raw === null) return { ok: true, session: null };
+  try {
+    const candidate: unknown = JSON.parse(raw);
+    if (isSession(candidate)) return { ok: true, session: candidate };
+  } catch {
+    // Gecersiz JSON da gecersiz Session ile ayni guvenli-kapali yola iner.
+  }
+  clearSession();
+  return { ok: false, session: null };
+}
+
 export function getSession(): Session | null {
-  if (typeof window === 'undefined') return null;
-  const raw = window.localStorage.getItem(KEY);
-  return raw ? (JSON.parse(raw) as Session) : null;
+  return readSession().session;
 }
 
-export function setSession(s: Session): void {
-  window.localStorage.setItem(KEY, JSON.stringify(s));
+export function setSession(s: Session): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    window.localStorage.setItem(KEY, JSON.stringify(s));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-export function clearSession(): void {
-  window.localStorage.removeItem(KEY);
+export function clearSession(): boolean {
+  let removed = true;
+  if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.removeItem(KEY);
+    } catch {
+      removed = false;
+    }
+  }
   // HQ drill-in act-as god token bellekte tutulur; oturum bitince onu da temizle
   // ki request() artik /admin/* cagrilarina bayat token eklemesin.
   setActiveCompanyToken(null);
+  return removed;
 }
 
 export function activeMembership(s: Session): MembershipSummary | null {

@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { api, ApiError, getCsv, postBlob, setActiveCompanyToken } from './api';
+import {
+  api,
+  ApiError,
+  getActiveCompanyToken,
+  getCsv,
+  postBlob,
+  setActiveCompanyToken,
+} from './api';
 import { getSession, setSession, type Session } from './auth';
 
 const SESSION_KEY = 'refearn.session';
@@ -58,7 +65,13 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
-function installBrowser(): {
+interface StorageFailures {
+  getItem?: unknown;
+  setItem?: unknown;
+  removeItem?: unknown;
+}
+
+function installBrowser(failures: StorageFailures = {}): {
   storage: Map<string, string>;
   removeCalls: () => number;
   location: { pathname: string; href: string };
@@ -70,13 +83,16 @@ function installBrowser(): {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
   const localStorage = {
     getItem(key: string): string | null {
+      if (Object.hasOwn(failures, 'getItem')) throw failures.getItem;
       return storage.get(key) ?? null;
     },
     setItem(key: string, value: string): void {
+      if (Object.hasOwn(failures, 'setItem')) throw failures.setItem;
       storage.set(key, value);
     },
     removeItem(key: string): void {
       removals += 1;
+      if (Object.hasOwn(failures, 'removeItem')) throw failures.removeItem;
       storage.delete(key);
     },
   };
@@ -225,9 +241,10 @@ test('concurrent JSON, CSV, and blob requests share one rotating refresh token r
   }
 });
 
-test('refresh network failure clears the owning session once and rejects as unauthorized', async () => {
+test('refresh network failure clears the owning session and active-company state once', async () => {
   const browser = installBrowser();
   setSession(makeSession('expired-access', 'refresh-owner'));
+  setActiveCompanyToken('active-company-token');
   const restoreFetch = installFetch(async (input, init) => {
     const path = String(input);
     if (path.endsWith('/auth/refresh')) throw new Error('network unavailable');
@@ -241,8 +258,10 @@ test('refresh network failure clears the owning session once and rejects as unau
     assertExpired(result);
     assert.equal(browser.removeCalls(), 1);
     assert.equal(getSession(), null);
+    assert.equal(getActiveCompanyToken(), null);
     assert.equal(browser.location.href, '/login');
   } finally {
+    setActiveCompanyToken(null);
     restoreFetch();
     browser.restore();
   }
@@ -601,6 +620,380 @@ test('an HQ override 401 never consumes the user refresh token', async () => {
     assert.equal(refreshCalls, 0);
     assert.equal(getSession()?.accessToken, 'user-access');
   } finally {
+    setActiveCompanyToken(null);
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('session getItem failures are normalized across JSON, CSV, and blob entry points', async () => {
+  const failures: StorageFailures = { getItem: new Error('storage read denied') };
+  const browser = installBrowser(failures);
+  browser.storage.set(SESSION_KEY, JSON.stringify(makeSession('stored-access', 'stored-refresh')));
+  setActiveCompanyToken('active-company-token');
+  let fetchCalls = 0;
+  const restoreFetch = installFetch(async () => {
+    fetchCalls += 1;
+    return Response.json({ unexpected: true });
+  });
+
+  try {
+    const results = await Promise.allSettled([
+      api.get('/protected-json'),
+      getCsv('/protected.csv'),
+      postBlob('/protected.pdf'),
+    ]);
+
+    results.forEach(assertExpired);
+    assert.equal(fetchCalls, 0);
+    assert.equal(browser.storage.has(SESSION_KEY), false);
+    assert.ok(browser.removeCalls() >= 1);
+    assert.equal(getActiveCompanyToken(), null);
+  } finally {
+    setActiveCompanyToken(null);
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('invalid stored JSON is cleared and normalized to unauthorized before fetch', async () => {
+  const browser = installBrowser();
+  browser.storage.set(SESSION_KEY, '{not-json');
+  setActiveCompanyToken('active-company-token');
+  let fetchCalls = 0;
+  const restoreFetch = installFetch(async () => {
+    fetchCalls += 1;
+    return Response.json({ unexpected: true });
+  });
+
+  try {
+    const [result] = await Promise.allSettled([api.get('/protected')]);
+
+    assertExpired(result);
+    assert.equal(fetchCalls, 0);
+    assert.equal(browser.storage.has(SESSION_KEY), false);
+    assert.equal(browser.removeCalls(), 1);
+    assert.equal(getActiveCompanyToken(), null);
+  } finally {
+    setActiveCompanyToken(null);
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('a malformed stored Session is rejected and cleared before fetch', async () => {
+  const browser = installBrowser();
+  browser.storage.set(
+    SESSION_KEY,
+    JSON.stringify({ accessToken: 'unsafe-access', refreshToken: 'unsafe-refresh', user: null }),
+  );
+  let fetchCalls = 0;
+  const restoreFetch = installFetch(async () => {
+    fetchCalls += 1;
+    return Response.json({ unexpected: true });
+  });
+
+  try {
+    const [result] = await Promise.allSettled([api.get('/protected')]);
+
+    assertExpired(result);
+    assert.equal(fetchCalls, 0);
+    assert.equal(browser.storage.has(SESSION_KEY), false);
+    assert.equal(browser.removeCalls(), 1);
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('an HTTP refresh failure normalizes to 401 and clears the owner and active-company token', async () => {
+  const browser = installBrowser();
+  setSession(makeSession('expired-access', 'refresh-owner'));
+  setActiveCompanyToken('active-company-token');
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    if (path.endsWith('/auth/refresh')) {
+      return Response.json({ message: 'refresh unavailable' }, { status: 503 });
+    }
+    if (authorization(init) === 'Bearer expired-access') return new Response(null, { status: 401 });
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const [result] = await Promise.allSettled([api.get('/protected')]);
+
+    assertExpired(result);
+    assert.equal(browser.storage.has(SESSION_KEY), false);
+    assert.equal(browser.removeCalls(), 1);
+    assert.equal(getActiveCompanyToken(), null);
+  } finally {
+    setActiveCompanyToken(null);
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('invalid JSON from refresh normalizes to 401 and clears the owner', async () => {
+  const browser = installBrowser();
+  setSession(makeSession('expired-access', 'refresh-owner'));
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    if (path.endsWith('/auth/refresh')) {
+      return new Response('{not-json', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (authorization(init) === 'Bearer expired-access') return new Response(null, { status: 401 });
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const [result] = await Promise.allSettled([api.get('/protected')]);
+
+    assertExpired(result);
+    assert.equal(browser.storage.has(SESSION_KEY), false);
+    assert.equal(browser.removeCalls(), 1);
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('a malformed refresh Session normalizes to 401 and is never persisted or replayed', async () => {
+  const browser = installBrowser();
+  setSession(makeSession('expired-access', 'refresh-owner'));
+  const replayTokens: Array<string | null> = [];
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const bearer = authorization(init);
+    if (path.endsWith('/auth/refresh')) {
+      return Response.json({ accessToken: 'malformed-access', refreshToken: 'malformed-refresh' });
+    }
+    if (bearer === 'Bearer expired-access') return new Response(null, { status: 401 });
+    replayTokens.push(bearer);
+    return Response.json({ unexpected: true });
+  });
+
+  try {
+    const [result] = await Promise.allSettled([api.get('/protected')]);
+
+    assertExpired(result);
+    assert.deepEqual(replayTokens, []);
+    assert.equal(browser.storage.has(SESSION_KEY), false);
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('a refresh setItem failure is normalized to 401 and clears the owning session', async () => {
+  const failures: StorageFailures = {};
+  const browser = installBrowser(failures);
+  const owner = makeSession('expired-access', 'refresh-owner');
+  const fresh = makeSession('fresh-access', 'fresh-refresh');
+  setSession(owner);
+  setActiveCompanyToken('active-company-token');
+  failures.setItem = new Error('storage write denied');
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    if (path.endsWith('/auth/refresh')) return Response.json(fresh);
+    if (authorization(init) === 'Bearer expired-access') return new Response(null, { status: 401 });
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const [result] = await Promise.allSettled([api.get('/protected')]);
+
+    assertExpired(result);
+    assert.equal(browser.storage.has(SESSION_KEY), false);
+    assert.equal(browser.removeCalls(), 1);
+    assert.equal(getActiveCompanyToken(), null);
+  } finally {
+    setActiveCompanyToken(null);
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('a refresh removeItem failure never escapes raw and still clears active-company state', async () => {
+  const failures: StorageFailures = {};
+  const browser = installBrowser(failures);
+  setSession(makeSession('expired-access', 'refresh-owner'));
+  setActiveCompanyToken('active-company-token');
+  failures.removeItem = new Error('storage removal denied');
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    if (path.endsWith('/auth/refresh')) {
+      return Response.json({ message: 'refresh unavailable' }, { status: 503 });
+    }
+    if (authorization(init) === 'Bearer expired-access') return new Response(null, { status: 401 });
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const [result] = await Promise.allSettled([api.get('/protected')]);
+
+    assertExpired(result);
+    assert.equal(browser.storage.has(SESSION_KEY), true);
+    assert.equal(browser.removeCalls(), 1);
+    assert.equal(getActiveCompanyToken(), null);
+  } finally {
+    delete failures.removeItem;
+    setActiveCompanyToken(null);
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('a same-user refresh response for a different membership and tenant is rejected', async () => {
+  const browser = installBrowser();
+  const owner = makeWorkspaceSession('expired-access', 'refresh-owner', 'same-user', 'membership-a', 'tenant-a');
+  const wrongWorkspace = makeWorkspaceSession('wrong-access', 'wrong-refresh', 'same-user', 'membership-b', 'tenant-b');
+  setSession(owner);
+  const replayTokens: Array<string | null> = [];
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const bearer = authorization(init);
+    if (path.endsWith('/auth/refresh')) return Response.json(wrongWorkspace);
+    if (bearer === 'Bearer expired-access') return new Response(null, { status: 401 });
+    replayTokens.push(bearer);
+    return Response.json({ unexpected: true });
+  });
+
+  try {
+    const [result] = await Promise.allSettled([api.get('/protected')]);
+
+    assertExpired(result);
+    assert.deepEqual(replayTokens, []);
+    assert.equal(browser.storage.has(SESSION_KEY), false);
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('a workspace replacement while waiting on the Web Lock is preserved without refresh', async () => {
+  const browser = installBrowser();
+  const locks = installRefreshLockQueue();
+  const owner = makeWorkspaceSession('expired-access', 'owner-refresh', 'owner', 'membership-a', 'tenant-a');
+  const replacement = makeWorkspaceSession(
+    'replacement-access',
+    'replacement-refresh',
+    'replacement',
+    'membership-b',
+    'tenant-b',
+  );
+  setSession(owner);
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      return Response.json({ ...owner, accessToken: 'unexpected-refresh' });
+    }
+    if (authorization(init) === 'Bearer expired-access') return new Response(null, { status: 401 });
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const pending = Promise.allSettled([api.get('/protected')]);
+    await locks.requested;
+    setSession(replacement);
+    setActiveCompanyToken('replacement-company-token');
+    assert.equal(locks.releaseNext(), true);
+    const [result] = await pending;
+
+    assertExpired(result);
+    assert.equal(refreshCalls, 0);
+    assert.equal(browser.removeCalls(), 0);
+    assert.equal(getSession()?.accessToken, 'replacement-access');
+    assert.equal(getActiveCompanyToken(), 'replacement-company-token');
+  } finally {
+    locks.releaseNext();
+    setActiveCompanyToken(null);
+    restoreFetch();
+    locks.restore();
+    browser.restore();
+  }
+});
+
+test('a rejected Web Lock preserves a replacement session and its active-company token', async () => {
+  const browser = installBrowser();
+  const locks = installRefreshLockQueue();
+  const owner = makeWorkspaceSession('expired-access', 'owner-refresh', 'owner', 'membership-a', 'tenant-a');
+  const replacement = makeWorkspaceSession(
+    'replacement-access',
+    'replacement-refresh',
+    'replacement',
+    'membership-b',
+    'tenant-b',
+  );
+  setSession(owner);
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    if (path.endsWith('/auth/refresh')) throw new Error('refresh must not run');
+    if (authorization(init) === 'Bearer expired-access') return new Response(null, { status: 401 });
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const pending = Promise.allSettled([api.get('/protected')]);
+    await locks.requested;
+    setSession(replacement);
+    setActiveCompanyToken('replacement-company-token');
+    assert.equal(locks.rejectNext(new Error('lock manager unavailable')), true);
+    const [result] = await pending;
+
+    assertExpired(result);
+    assert.equal(browser.removeCalls(), 0);
+    assert.equal(getSession()?.accessToken, 'replacement-access');
+    assert.equal(getActiveCompanyToken(), 'replacement-company-token');
+  } finally {
+    locks.rejectNext(new Error('test cleanup'));
+    setActiveCompanyToken(null);
+    restoreFetch();
+    locks.restore();
+    browser.restore();
+  }
+});
+
+test('a mismatched refresh response preserves an independently installed replacement session', async () => {
+  const browser = installBrowser();
+  const owner = makeWorkspaceSession('expired-access', 'owner-refresh', 'owner', 'membership-a', 'tenant-a');
+  const mismatched = makeWorkspaceSession('wrong-access', 'wrong-refresh', 'other', 'membership-c', 'tenant-c');
+  const replacement = makeWorkspaceSession(
+    'replacement-access',
+    'replacement-refresh',
+    'replacement',
+    'membership-b',
+    'tenant-b',
+  );
+  setSession(owner);
+  const refreshStarted = deferred();
+  const releaseRefresh = deferred();
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    if (path.endsWith('/auth/refresh')) {
+      refreshStarted.resolve();
+      await releaseRefresh.promise;
+      return Response.json(mismatched);
+    }
+    if (authorization(init) === 'Bearer expired-access') return new Response(null, { status: 401 });
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  try {
+    const pending = Promise.allSettled([api.get('/protected')]);
+    await refreshStarted.promise;
+    setSession(replacement);
+    setActiveCompanyToken('replacement-company-token');
+    releaseRefresh.resolve();
+    const [result] = await pending;
+
+    assertExpired(result);
+    assert.equal(browser.removeCalls(), 0);
+    assert.equal(getSession()?.accessToken, 'replacement-access');
+    assert.equal(getActiveCompanyToken(), 'replacement-company-token');
+  } finally {
+    releaseRefresh.resolve();
     setActiveCompanyToken(null);
     restoreFetch();
     browser.restore();
