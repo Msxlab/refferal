@@ -484,6 +484,10 @@ export class EngineService {
 
     const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: sale.tenantId } });
     const plan = await this.resolvePlan(tx, sale.tenantId, sale.saleDate, sale.commissionPlanId);
+    if (!sale.commissionPlanId) {
+      await tx.sale.update({ where: { id: sale.id }, data: { commissionPlanId: plan.id } });
+      sale.commissionPlanId = plan.id;
+    }
     const rawChain = await this.uplineChain(tx, sale.sellerMembershipId, plan.depth);
     // base unilevel: tenant ayarlarina gore etkin zincir (compression / inactive-earn)
     const chain = this.effectiveBaseChain(rawChain, tenant);
@@ -495,16 +499,9 @@ export class EngineService {
     // degeri kullanir (tenant.timezone sonradan degisse bile tutarli bucket).
     const month = sale.summaryMonth ?? monthKey(sale.saleDate, tenant.timezone);
     await this.assertPeriodsOpen(tx, sale.tenantId, [month]); // kilitli aya komisyon yazilamaz
-    if (!sale.summaryMonth || !sale.commissionPlanId) {
-      await tx.sale.update({
-        where: { id: sale.id },
-        data: {
-          ...(!sale.summaryMonth ? { summaryMonth: month } : {}),
-          ...(!sale.commissionPlanId ? { commissionPlanId: plan.id } : {}),
-        },
-      });
-      sale.summaryMonth ??= month;
-      sale.commissionPlanId ??= plan.id;
+    if (!sale.summaryMonth) {
+      await tx.sale.update({ where: { id: sale.id }, data: { summaryMonth: month } });
+      sale.summaryMonth = month;
     }
 
     for (const line of lines) {
@@ -671,11 +668,11 @@ export class EngineService {
   ): Promise<{ id: string; depth: number; levels: PlanLevelRate[]; poolRateBps: number; fastStartBps: number; fastStartDays: number; matchingBps: number }> {
     const plan = commissionPlanId
       ? await tx.commissionPlan.findFirst({
-          where: { tenantId, id: commissionPlanId },
+          where: { tenantId, id: commissionPlanId, finalized: true },
           include: { levels: { orderBy: { level: 'asc' } } },
         })
       : await tx.commissionPlan.findFirst({
-          where: { tenantId, effectiveFrom: { lte: saleDate } },
+          where: { tenantId, finalized: true, effectiveFrom: { lte: saleDate } },
           orderBy: [{ effectiveFrom: 'desc' }, { version: 'desc' }],
           include: { levels: { orderBy: { level: 'asc' } } },
         });

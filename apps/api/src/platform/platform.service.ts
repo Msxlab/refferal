@@ -145,7 +145,7 @@ export class PlatformService {
         _count: { _all: true },
       }),
       this.prisma.commissionPlan.findFirst({
-        where: { tenantId: id, effectiveFrom: { lte: new Date() } },
+        where: { tenantId: id, finalized: true, effectiveFrom: { lte: new Date() } },
         orderBy: { effectiveFrom: 'desc' },
         select: { name: true, poolRateBps: true, depth: true },
       }),
@@ -241,10 +241,11 @@ export class PlatformService {
       });
 
       // Varsayilan plan (%10 havuz, 5 kademe) — sirket plansiz kalmasin
-      await tx.commissionPlan.create({
+      const plan = await tx.commissionPlan.create({
         data: {
           tenantId: tenant.id,
           version: 1,
+          finalized: false,
           name: 'Standard Plan (10% pool, 5 levels)',
           poolRateBps: DEFAULT_POOL_RATE_BPS,
           depth: DEFAULT_LEVEL_RATES_BPS.length,
@@ -253,6 +254,7 @@ export class PlatformService {
           levels: { create: DEFAULT_LEVEL_RATES_BPS.map((rateBps, level) => ({ level, rateBps })) },
         },
       });
+      await tx.commissionPlan.update({ where: { id: plan.id }, data: { finalized: true } });
 
       // Owner kullanicisi: varsa kullan (mevcut hesap), yoksa gecici sifreyle olustur
       const existingUser = await tx.user.findUnique({ where: { email } });

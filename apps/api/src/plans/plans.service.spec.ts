@@ -47,6 +47,10 @@ describe('PlansService version creation', () => {
             levels: input.levels,
           };
         }),
+        update: jest.fn(async () => {
+          calls.push('finalize');
+          return {};
+        }),
       },
       auditLog: {
         create: jest.fn(async () => {
@@ -65,12 +69,16 @@ describe('PlansService version creation', () => {
       effectiveFrom: Date;
     };
 
-    expect(calls).toEqual(['lock', 'aggregate', 'effective-check', 'create', 'audit']);
+    expect(calls).toEqual(['lock', 'aggregate', 'effective-check', 'create', 'finalize', 'audit']);
     expect(tx.commissionPlan.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ tenantId: actor.tenantId, version: 8 }),
+        data: expect.objectContaining({ tenantId: actor.tenantId, version: 8, finalized: false }),
       }),
     );
+    expect(tx.commissionPlan.update).toHaveBeenCalledWith({
+      where: { id: '30000000-0000-0000-0000-000000000001' },
+      data: { finalized: true },
+    });
     expect(result.version).toBe(8);
     expect(result.effectiveFrom).toBeInstanceOf(Date);
   });
@@ -87,6 +95,7 @@ describe('PlansService version creation', () => {
         create: jest.fn(async () => {
           throw duplicate;
         }),
+        update: jest.fn(),
       },
       auditLog: { create: jest.fn() },
     };

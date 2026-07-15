@@ -231,7 +231,7 @@ export class WalletService {
     }
 
     const plan = await this.prisma.commissionPlan.findFirst({
-      where: { tenantId, effectiveFrom: { lte: new Date() } },
+      where: { tenantId, finalized: true, effectiveFrom: { lte: new Date() } },
       orderBy: { effectiveFrom: 'desc' },
       select: { depth: true },
     });

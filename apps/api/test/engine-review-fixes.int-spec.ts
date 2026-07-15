@@ -160,19 +160,23 @@ describe('motor — inceleme bulgu regresyonlari', () => {
     expect(after.status).toBe(LedgerStatus.paid);
   });
 
-  it('B4 (plan trigger): es zamanli iki level commit`i SUM>pool olusturamaz', async () => {
+  it('B4 (plan snapshot): finalize sonrasi es zamanli level INSERT`leri reddedilir', async () => {
     const tenant = await createTenant(prisma);
     // pool 1000, mevcut tek level 800 → her biri tek basina +200 ile 1000 (gecer)
-    const plan = await prisma.commissionPlan.create({
-      data: {
-        tenantId: tenant.id,
-        version: 1,
-        name: 'race',
-        poolRateBps: 1000,
-        depth: 8,
-        effectiveFrom: new Date('2026-01-01T00:00:00Z'),
-        levels: { create: [{ level: 0, rateBps: 800 }] },
-      },
+    const plan = await prisma.$transaction(async (tx) => {
+      const created = await tx.commissionPlan.create({
+        data: {
+          tenantId: tenant.id,
+          version: 1,
+          finalized: false,
+          name: 'sealed',
+          poolRateBps: 1000,
+          depth: 1,
+          effectiveFrom: new Date('2026-01-01T00:00:00Z'),
+          levels: { create: [{ level: 0, rateBps: 800 }] },
+        },
+      });
+      return tx.commissionPlan.update({ where: { id: created.id }, data: { finalized: true } });
     });
 
     const insertLevel = (level: number) =>
@@ -180,10 +184,10 @@ describe('motor — inceleme bulgu regresyonlari', () => {
         await tx.commissionPlanLevel.create({ data: { planId: plan.id, level, rateBps: 200 } });
       });
 
-    // ikisi de gecerse SUM=1200>1000 olurdu; trigger FOR UPDATE ile en az birini reddetmeli
+    // Snapshot seal edildikten sonra yeni level eklemek, oranlar gecerli olsa bile yasaktir.
     const results = await Promise.allSettled([insertLevel(6), insertLevel(7)]);
     const ok = results.filter((r) => r.status === 'fulfilled').length;
-    expect(ok).toBeLessThanOrEqual(1);
+    expect(ok).toBe(0);
 
     const total = await prisma.commissionPlanLevel.aggregate({
       where: { planId: plan.id },

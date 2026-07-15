@@ -60,18 +60,22 @@ async function main(): Promise<void> {
     },
   });
 
-  await prisma.commissionPlan.create({
-    data: {
-      tenantId: tenant.id,
-      version: 1,
-      name: 'Standard Plan (10% pool, 5 levels)',
-      poolRateBps: DEFAULT_POOL_RATE_BPS,
-      depth: DEFAULT_LEVEL_RATES_BPS.length,
-      effectiveFrom: new Date('2026-01-01T00:00:00Z'),
-      levels: {
-        create: DEFAULT_LEVEL_RATES_BPS.map((rateBps, level) => ({ level, rateBps })),
+  await prisma.$transaction(async (tx) => {
+    const plan = await tx.commissionPlan.create({
+      data: {
+        tenantId: tenant.id,
+        version: 1,
+        finalized: false,
+        name: 'Standard Plan (10% pool, 5 levels)',
+        poolRateBps: DEFAULT_POOL_RATE_BPS,
+        depth: DEFAULT_LEVEL_RATES_BPS.length,
+        effectiveFrom: new Date('2026-01-01T00:00:00Z'),
+        levels: {
+          create: DEFAULT_LEVEL_RATES_BPS.map((rateBps, level) => ({ level, rateBps })),
+        },
       },
-    },
+    });
+    await tx.commissionPlan.update({ where: { id: plan.id }, data: { finalized: true } });
   });
 
   const password = await hash('Refearn-Demo-2026!', {

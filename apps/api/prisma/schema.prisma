@@ -454,6 +454,7 @@ model CommissionPlan {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
   version       Int
+  finalized     Boolean  @default(false)
   name          String
   poolRateBps   Int      @map("pool_rate_bps")
   depth         Int

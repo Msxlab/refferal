@@ -1,13 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { LedgerStatus, LedgerType, SaleStatus } from '@prisma/client';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createChain, createSale, createTenant, truncateAll } from './helpers';
-
-const migrationPath = join(
-  __dirname,
-  '../prisma/migrations/20260715100200_backfill_unambiguous_sale_commission_plan_provenance/migration.sql',
-);
 
 let sequence = 0;
 
@@ -34,25 +27,34 @@ describe('commission plan provenance backfill (integration)', () => {
   ) {
     const rates = options.rates ?? [500];
     const updatedAt = options.updatedAt ?? options.createdAt;
-    return prisma.commissionPlan.create({
-      data: {
-        tenantId,
-        version: options.version,
-        name: `Backfill plan ${++sequence}`,
-        poolRateBps: rates.reduce((sum, rate) => sum + rate, 0),
-        depth: options.depth ?? rates.length,
-        effectiveFrom: options.effectiveFrom,
-        createdAt: options.createdAt,
-        updatedAt,
-        levels: {
-          create: rates.map((rateBps, level) => ({
-            level,
-            rateBps,
-            createdAt: options.createdAt,
-            updatedAt,
-          })),
+    return prisma.$transaction(async (tx) => {
+      const depth = options.depth ?? rates.length;
+      const plan = await tx.commissionPlan.create({
+        data: {
+          tenantId,
+          version: options.version,
+          finalized: false,
+          name: `Backfill plan ${++sequence}`,
+          poolRateBps: rates.reduce((sum, rate) => sum + rate, 0),
+          depth,
+          effectiveFrom: options.effectiveFrom,
+          createdAt: options.createdAt,
+          updatedAt,
+          levels: {
+            create: rates.map((rateBps, level) => ({
+              level,
+              rateBps,
+              createdAt: options.createdAt,
+              updatedAt,
+            })),
+          },
         },
-      },
+      });
+      if (rates.length !== depth) return plan;
+      return tx.commissionPlan.update({
+        where: { id: plan.id },
+        data: { finalized: true, updatedAt },
+      });
     });
   }
 
@@ -94,8 +96,11 @@ describe('commission plan provenance backfill (integration)', () => {
     });
   }
 
-  function runBackfill(): Promise<number> {
-    return prisma.$executeRawUnsafe(readFileSync(migrationPath, 'utf8'));
+  async function runBackfill(): Promise<number> {
+    const [result] = await prisma.$queryRaw<Array<{ count: number }>>`
+      SELECT reconcile_sale_commission_plan_provenance() AS count
+    `;
+    return Number(result.count);
   }
 
   it('pins only the uniquely proven historical snapshot and is idempotent', async () => {
@@ -202,5 +207,38 @@ describe('commission plan provenance backfill (integration)', () => {
     expect(await runBackfill()).toBe(0);
     const guarded = await prisma.sale.findMany({ where: { id: { in: guardedIds } } });
     expect(guarded.every((sale) => sale.commissionPlanId === null)).toBe(true);
+  });
+
+  it('leaves two identical eligible plan identities ambiguous instead of selecting by timestamp', async () => {
+    const tenant = await createTenant(prisma);
+    const [seller] = await createChain(prisma, tenant.id, 1);
+    await createTimedPlan(tenant.id, {
+      version: 1,
+      effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      rates: [500],
+    });
+    await createTimedPlan(tenant.id, {
+      version: 2,
+      effectiveFrom: new Date('2026-05-01T00:00:00.000Z'),
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+      rates: [500],
+    });
+    const sale = await createLegacySale(
+      tenant.id,
+      seller.id,
+      new Date('2026-06-01T12:00:00.000Z'),
+    );
+    await createEvidence({
+      tenantId: tenant.id,
+      saleId: sale.id,
+      beneficiaryMembershipId: seller.id,
+      createdAt: new Date('2026-06-02T12:00:00.000Z'),
+      rateBps: 500,
+      amountCents: 5_000n,
+    });
+
+    expect(await runBackfill()).toBe(0);
+    expect((await prisma.sale.findUniqueOrThrow({ where: { id: sale.id } })).commissionPlanId).toBeNull();
   });
 });

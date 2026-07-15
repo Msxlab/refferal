@@ -73,19 +73,23 @@ export async function createPlan(
     where: { tenantId },
     _max: { version: true },
   });
-  return prisma.commissionPlan.create({
-    data: {
-      tenantId,
-      version: opts.version ?? (latest._max.version ?? 0) + 1,
-      name: opts.name ?? `Plan ${next()}`,
-      poolRateBps: opts.poolRateBps ?? DEFAULT_POOL_RATE_BPS,
-      depth: rates.length,
-      fastStartBps: opts.fastStartBps ?? 0,
-      fastStartDays: opts.fastStartDays ?? 0,
-      matchingBps: opts.matchingBps ?? 0,
-      effectiveFrom: opts.effectiveFrom ?? new Date('2026-01-01T00:00:00Z'),
-      levels: { create: rates.map((rateBps, level) => ({ level, rateBps })) },
-    },
+  return prisma.$transaction(async (tx) => {
+    const plan = await tx.commissionPlan.create({
+      data: {
+        tenantId,
+        version: opts.version ?? (latest._max.version ?? 0) + 1,
+        finalized: false,
+        name: opts.name ?? `Plan ${next()}`,
+        poolRateBps: opts.poolRateBps ?? DEFAULT_POOL_RATE_BPS,
+        depth: rates.length,
+        fastStartBps: opts.fastStartBps ?? 0,
+        fastStartDays: opts.fastStartDays ?? 0,
+        matchingBps: opts.matchingBps ?? 0,
+        effectiveFrom: opts.effectiveFrom ?? new Date('2026-01-01T00:00:00Z'),
+        levels: { create: rates.map((rateBps, level) => ({ level, rateBps })) },
+      },
+    });
+    return tx.commissionPlan.update({ where: { id: plan.id }, data: { finalized: true } });
   });
 }
 

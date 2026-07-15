@@ -48,7 +48,7 @@ export class PlansService {
     db: PrismaService | Prisma.TransactionClient = this.prisma,
   ) {
     return db.commissionPlan.findFirst({
-      where: { tenantId, effectiveFrom: { lte: at } },
+      where: { tenantId, finalized: true, effectiveFrom: { lte: at } },
       orderBy: [{ effectiveFrom: 'desc' }, { version: 'desc' }],
       include: { levels: { orderBy: { level: 'asc' } } },
     });
@@ -75,7 +75,7 @@ export class PlansService {
   async list(tenantId: string) {
     const [plans, active] = await Promise.all([
       this.prisma.commissionPlan.findMany({
-        where: { tenantId },
+        where: { tenantId, finalized: true },
         orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
         include: { levels: { orderBy: { level: 'asc' } } },
       }),
@@ -263,6 +263,7 @@ export class PlansService {
           data: {
             tenantId: actor.tenantId,
             version,
+            finalized: false,
             name: data.name,
             poolRateBps: data.poolRateBps,
             depth: data.depth,
@@ -274,6 +275,11 @@ export class PlansService {
             levels: { create: data.levels.map((level) => ({ level: level.level, rateBps: level.rateBps })) },
           },
           include: { levels: { orderBy: { level: 'asc' } } },
+        });
+
+        await tx.commissionPlan.update({
+          where: { id: plan.id },
+          data: { finalized: true },
         });
 
         await tx.auditLog.create({

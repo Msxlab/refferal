@@ -1,16 +1,21 @@
 import { BadRequestException, ConflictException, INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { SaleStatus } from '@prisma/client';
 import { AppModule } from '../src/app.module';
+import { EngineService } from '../src/engine/engine.service';
 import { PlansService } from '../src/plans/plans.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { SettingsService } from '../src/settings/settings.service';
 import { ActorContext } from '../src/common/actor';
-import { createChain, createPlan, createTenant, truncateAll } from './helpers';
+import { createChain, createPlan, createSale, createTenant, truncateAll } from './helpers';
 
 /** Dalga 2.3+2.4 — komisyon plani simulatoru + versiyonlama. */
 describe('plans (entegrasyon)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let plans: PlansService;
+  let engine: EngineService;
+  let settings: SettingsService;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -18,6 +23,8 @@ describe('plans (entegrasyon)', () => {
     await app.init();
     prisma = moduleRef.get(PrismaService);
     plans = moduleRef.get(PlansService);
+    engine = moduleRef.get(EngineService);
+    settings = moduleRef.get(SettingsService);
   });
   afterAll(async () => { await app.close(); });
   beforeEach(async () => { await truncateAll(prisma); });
@@ -111,6 +118,9 @@ describe('plans (entegrasyon)', () => {
       prisma.commissionPlanLevel.update({ where: { id: level.id }, data: { rateBps: 1 } }),
     ).rejects.toThrow(/immutable/);
     await expect(
+      prisma.commissionPlanLevel.create({ data: { planId: plan.id, level: 7, rateBps: 1 } }),
+    ).rejects.toThrow(/immutable/);
+    await expect(
       plans.createVersion(actor, {
         name: 'Duplicate date',
         poolRateBps: 1000,
@@ -119,5 +129,116 @@ describe('plans (entegrasyon)', () => {
         effectiveFrom: effectiveFrom.toISOString(),
       }),
     ).rejects.toThrow(ConflictException);
+  });
+
+  it('yalniz complete false->true seal gecisine izin verir; rollback parent ve levellari birakmaz', async () => {
+    const tenant = await createTenant(prisma);
+    const partial = await prisma.commissionPlan.create({
+      data: {
+        tenantId: tenant.id,
+        version: 1,
+        finalized: false,
+        name: 'Partial',
+        poolRateBps: 1000,
+        depth: 2,
+        effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+        levels: { create: [{ level: 0, rateBps: 400 }] },
+      },
+    });
+
+    await expect(
+      prisma.commissionPlan.update({ where: { id: partial.id }, data: { finalized: true } }),
+    ).rejects.toThrow(/complete/);
+    await expect(
+      prisma.commissionPlan.update({ where: { id: partial.id }, data: { finalized: true, name: 'Bypass' } }),
+    ).rejects.toThrow(/immutable/);
+    await prisma.commissionPlanLevel.create({ data: { planId: partial.id, level: 1, rateBps: 300 } });
+    await prisma.commissionPlan.update({ where: { id: partial.id }, data: { finalized: true } });
+    await expect(
+      prisma.commissionPlan.update({ where: { id: partial.id }, data: { finalized: false } }),
+    ).rejects.toThrow(/immutable/);
+    await expect(
+      prisma.commissionPlan.create({
+        data: {
+          tenantId: tenant.id,
+          version: 2,
+          finalized: true,
+          name: 'Insert bypass',
+          poolRateBps: 500,
+          depth: 1,
+          effectiveFrom: new Date('2026-02-01T00:00:00.000Z'),
+          levels: { create: [{ level: 0, rateBps: 500 }] },
+        },
+      }),
+    ).rejects.toThrow(/unfinalized/);
+
+    const beforePlans = await prisma.commissionPlan.count({ where: { tenantId: tenant.id } });
+    const beforeLevels = await prisma.commissionPlanLevel.count({ where: { plan: { tenantId: tenant.id } } });
+    await expect(
+      prisma.$transaction(async (tx) => {
+        const created = await tx.commissionPlan.create({
+          data: {
+            tenantId: tenant.id,
+            version: 2,
+            finalized: false,
+            name: 'Rollback',
+            poolRateBps: 500,
+            depth: 1,
+            effectiveFrom: new Date('2026-03-01T00:00:00.000Z'),
+            levels: { create: [{ level: 0, rateBps: 500 }] },
+          },
+        });
+        await tx.commissionPlan.update({ where: { id: created.id }, data: { finalized: true } });
+        throw new Error('force rollback');
+      }),
+    ).rejects.toThrow('force rollback');
+    expect(await prisma.commissionPlan.count({ where: { tenantId: tenant.id } })).toBe(beforePlans);
+    expect(await prisma.commissionPlanLevel.count({ where: { plan: { tenantId: tenant.id } } })).toBe(beforeLevels);
+  });
+
+  it('partial plan list/settings/engine tarafindan gorunmez; sale provenance ilk pinden sonra sabittir', async () => {
+    const tenant = await createTenant(prisma);
+    const visible = await createPlan(prisma, tenant.id, {
+      effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+      rates: [500],
+    });
+    const partial = await prisma.commissionPlan.create({
+      data: {
+        tenantId: tenant.id,
+        version: 2,
+        finalized: false,
+        name: 'Hidden partial',
+        poolRateBps: 900,
+        depth: 1,
+        effectiveFrom: new Date('2026-05-01T00:00:00.000Z'),
+        levels: { create: [{ level: 0, rateBps: 900 }] },
+      },
+    });
+    const [seller] = await createChain(prisma, tenant.id, 1);
+    const sale = await createSale(prisma, tenant.id, seller.id, 100_000n, {
+      saleDate: new Date('2026-06-01T00:00:00.000Z'),
+    });
+
+    expect((await plans.list(tenant.id)).plans.map((plan) => plan.id)).toEqual([visible.id]);
+    await expect(settings.getPlanBonus(tenant.id)).resolves.toMatchObject({ planId: visible.id });
+    await engine.approveSale(sale.id);
+    expect((await prisma.sale.findUniqueOrThrow({ where: { id: sale.id } })).commissionPlanId).toBe(visible.id);
+
+    const alternative = await createPlan(prisma, tenant.id, {
+      version: 3,
+      effectiveFrom: new Date('2026-07-01T00:00:00.000Z'),
+      rates: [600],
+    });
+    await prisma.sale.update({
+      where: { id: sale.id },
+      data: { commissionPlanId: visible.id, status: SaleStatus.approved },
+    });
+    await expect(
+      prisma.sale.update({ where: { id: sale.id }, data: { commissionPlanId: alternative.id } }),
+    ).rejects.toThrow(/immutable/);
+    await expect(
+      prisma.sale.update({ where: { id: sale.id }, data: { commissionPlanId: null } }),
+    ).rejects.toThrow(/immutable/);
+    expect(partial.finalized).toBe(false);
   });
 });
