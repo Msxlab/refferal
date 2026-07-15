@@ -410,6 +410,7 @@ interface AccessClaims {
   perms?: string[];
   tid?: string;
   mid?: string;
+  sid?: string;
   imp?: string;
 }
 

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import {
   api,
@@ -30,6 +32,23 @@ const IMPERSONATOR_KEY = 'refearn.session.impersonator';
 
 function makeAccessToken(claims: Record<string, unknown>): string {
   return `e30.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.signature`;
+}
+
+function makeFamilyAccessToken(
+  sid: string,
+  version: string,
+  userId = 'user-1',
+  membershipId = 'membership-a',
+  tenantId = 'tenant-a',
+): string {
+  return makeAccessToken({
+    sub: userId,
+    mid: membershipId,
+    tid: tenantId,
+    role: 'member',
+    sid,
+    version,
+  });
 }
 
 function makeSession(accessToken = 'access-token', refreshToken = 'refresh-token'): Session {
@@ -2327,13 +2346,15 @@ test('owner-bound impersonation uses the refreshed admin snapshot as its privile
 
 test('an owner-bound result never authorizes a same-workspace new login installed after the request', async () => {
   const browser = installBrowser();
-  const owner = makeWorkspaceSession('captured-access', 'captured-refresh', 'user-1', 'membership-a', 'tenant-a');
-  const newLogin = { ...owner, accessToken: 'new-login-access', refreshToken: 'new-login-refresh' };
+  const ownerAccess = makeFamilyAccessToken('captured-family', 'expired');
+  const newLoginAccess = makeFamilyAccessToken('new-login-family', 'fresh');
+  const owner = makeWorkspaceSession(ownerAccess, 'captured-refresh', 'user-1', 'membership-a', 'tenant-a');
+  const newLogin = { ...owner, accessToken: newLoginAccess, refreshToken: 'new-login-refresh' };
   await setSession(owner);
   const restoreFetch = installFetch(async (input, init) => {
     const path = String(input);
     if (!path.endsWith('/owner-bound-profile')) throw new Error(`unexpected request: ${path}`);
-    assert.equal(authorization(init), 'Bearer captured-access');
+    assert.equal(authorization(init), `Bearer ${ownerAccess}`);
     return Response.json({ fullName: 'Stale Network Result' });
   });
 
@@ -2570,5 +2591,224 @@ test('persisted platform tenant switching refreshes its owner and CASes from the
   } finally {
     restoreFetch();
     browser.restore();
+  }
+});
+
+test('an owner-bound 401 joins a generic same-owner flight when its result is a proven server refresh', async () => {
+  const browser = installBrowser();
+  const ownerAccess = makeFamilyAccessToken('mixed-proven-family', 'expired');
+  const freshAccess = makeFamilyAccessToken('mixed-proven-family', 'fresh');
+  const owner = makeWorkspaceSession(ownerAccess, 'mixed-proven-refresh', 'user-1', 'membership-a', 'tenant-a');
+  const refreshed = { ...owner, accessToken: freshAccess, refreshToken: 'mixed-proven-next' };
+  await setSession(owner);
+  const refreshStarted = deferred();
+  const releaseRefresh = deferred();
+  const boundUnauthorized = deferred();
+  const genericAuthorizations: Array<string | null> = [];
+  const boundAuthorizations: Array<string | null> = [];
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const bearer = authorization(init);
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      refreshStarted.resolve();
+      await releaseRefresh.promise;
+      return Response.json(refreshed);
+    }
+    if (path.endsWith('/mixed-generic')) {
+      genericAuthorizations.push(bearer);
+      if (bearer === `Bearer ${ownerAccess}`) return new Response(null, { status: 401 });
+      if (bearer === `Bearer ${freshAccess}`) return Response.json({ generic: true });
+    }
+    if (path.endsWith('/mixed-bound-profile')) {
+      boundAuthorizations.push(bearer);
+      if (bearer === `Bearer ${ownerAccess}`) {
+        boundUnauthorized.resolve();
+        return new Response(null, { status: 401 });
+      }
+      if (bearer === `Bearer ${freshAccess}`) {
+        return Response.json({ fullName: 'Mixed Profile', locale: 'en' });
+      }
+    }
+    throw new Error(`unexpected request: ${path} (${bearer})`);
+  });
+
+  try {
+    const genericPending = api.get<{ generic: boolean }>('/mixed-generic');
+    await refreshStarted.promise;
+    const ownerApi = apiForSession(owner);
+    const boundPending = Promise.allSettled([
+      ownerApi.patch<{ fullName: string; locale: string }>('/mixed-bound-profile', { fullName: 'Mixed Profile' }),
+    ]);
+    await boundUnauthorized.promise;
+    releaseRefresh.resolve();
+    const [generic, [bound]] = await Promise.all([genericPending, boundPending]);
+
+    assert.deepEqual(generic, { generic: true });
+    assert.equal(bound.status, 'fulfilled');
+    assert.equal(refreshCalls, 1);
+    assert.deepEqual(genericAuthorizations, [`Bearer ${ownerAccess}`, `Bearer ${freshAccess}`]);
+    assert.deepEqual(boundAuthorizations, [`Bearer ${ownerAccess}`, `Bearer ${freshAccess}`]);
+    assert.deepEqual(ownerApi.session(), refreshed);
+    if (bound.status === 'fulfilled') {
+      const committed = await updateSession(ownerApi.session(), (session) => ({
+        ...session,
+        user: { ...session.user, fullName: bound.value.fullName, locale: bound.value.locale },
+      }));
+      assert.equal(committed.user.fullName, 'Mixed Profile');
+    }
+  } finally {
+    releaseRefresh.resolve();
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('an owner-bound 401 rejects an unproven advance from a generic same-owner Web Lock flight', async () => {
+  const browser = installBrowser();
+  const locks = installRefreshLockQueue();
+  const ownerAccess = makeFamilyAccessToken('mixed-unproven-family', 'expired');
+  const newLoginAccess = makeFamilyAccessToken('mixed-new-login-family', 'fresh');
+  const owner = makeWorkspaceSession(ownerAccess, 'mixed-unproven-refresh', 'user-1', 'membership-a', 'tenant-a');
+  const newLogin = { ...owner, accessToken: newLoginAccess, refreshToken: 'mixed-new-login-refresh' };
+  await setSession(owner);
+  const boundUnauthorized = deferred();
+  const genericAuthorizations: Array<string | null> = [];
+  const boundAuthorizations: Array<string | null> = [];
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const bearer = authorization(init);
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      return Response.json({ ...owner, accessToken: makeFamilyAccessToken('mixed-unproven-family', 'unexpected') });
+    }
+    if (path.endsWith('/mixed-unproven-generic')) {
+      genericAuthorizations.push(bearer);
+      if (bearer === `Bearer ${ownerAccess}`) return new Response(null, { status: 401 });
+      if (bearer === `Bearer ${newLoginAccess}`) return Response.json({ generic: 'new-login' });
+    }
+    if (path.endsWith('/mixed-unproven-bound')) {
+      boundAuthorizations.push(bearer);
+      if (bearer === `Bearer ${ownerAccess}`) {
+        boundUnauthorized.resolve();
+        return new Response(null, { status: 401 });
+      }
+      if (bearer === `Bearer ${newLoginAccess}`) return Response.json({ unsafeReplay: true });
+    }
+    throw new Error(`unexpected request: ${path} (${bearer})`);
+  });
+
+  try {
+    const genericPending = api.get<{ generic: string }>('/mixed-unproven-generic');
+    await locks.requested;
+    const ownerApi = apiForSession(owner);
+    const boundPending = Promise.allSettled([ownerApi.get('/mixed-unproven-bound')]);
+    await boundUnauthorized.promise;
+    await setSession(newLogin);
+    assert.equal(locks.releaseNext(), true);
+    const [generic, [bound]] = await Promise.all([genericPending, boundPending]);
+
+    assert.deepEqual(generic, { generic: 'new-login' });
+    assertExpired(bound);
+    assert.equal(refreshCalls, 0);
+    assert.deepEqual(genericAuthorizations, [`Bearer ${ownerAccess}`, `Bearer ${newLoginAccess}`]);
+    assert.deepEqual(boundAuthorizations, [`Bearer ${ownerAccess}`]);
+    assert.deepEqual(ownerApi.session(), owner);
+    assert.deepEqual(getSession(), newLogin);
+    assert.equal(browser.location.href, '/app');
+  } finally {
+    locks.releaseNext();
+    restoreFetch();
+    locks.restore();
+    browser.restore();
+  }
+});
+
+test('an owner-bound 200 response follows a concurrent proven refresh in the same JWT family', async () => {
+  const browser = installBrowser();
+  const ownerAccess = makeFamilyAccessToken('bound-200-family', 'expired');
+  const freshAccess = makeFamilyAccessToken('bound-200-family', 'fresh');
+  const owner = makeWorkspaceSession(ownerAccess, 'bound-200-refresh', 'user-1', 'membership-a', 'tenant-a');
+  const refreshed = { ...owner, accessToken: freshAccess, refreshToken: 'bound-200-next' };
+  await setSession(owner);
+  const boundStarted = deferred();
+  const releaseBound = deferred();
+  const boundAuthorizations: Array<string | null> = [];
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const bearer = authorization(init);
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      return Response.json(refreshed);
+    }
+    if (path.endsWith('/bound-200-profile')) {
+      boundAuthorizations.push(bearer);
+      boundStarted.resolve();
+      await releaseBound.promise;
+      return Response.json({ fullName: 'Bound 200 Profile', locale: 'en' });
+    }
+    if (path.endsWith('/bound-200-generic') && bearer === `Bearer ${ownerAccess}`) {
+      return new Response(null, { status: 401 });
+    }
+    if (path.endsWith('/bound-200-generic') && bearer === `Bearer ${freshAccess}`) {
+      return Response.json({ generic: true });
+    }
+    throw new Error(`unexpected request: ${path} (${bearer})`);
+  });
+
+  try {
+    const ownerApi = apiForSession(owner);
+    const boundPending = ownerApi.patch<{ fullName: string; locale: string }>(
+      '/bound-200-profile',
+      { fullName: 'Bound 200 Profile' },
+    );
+    await boundStarted.promise;
+    assert.deepEqual(await api.get('/bound-200-generic'), { generic: true });
+    assert.deepEqual(getSession(), refreshed);
+    releaseBound.resolve();
+    const profile = await boundPending;
+    const committed = await updateSession(ownerApi.session(), (session) => ({
+      ...session,
+      user: { ...session.user, fullName: profile.fullName, locale: profile.locale },
+    }));
+
+    assert.equal(refreshCalls, 1);
+    assert.deepEqual(boundAuthorizations, [`Bearer ${ownerAccess}`]);
+    assert.equal(ownerApi.session().accessToken, freshAccess);
+    assert.equal(committed.user.fullName, 'Bound 200 Profile');
+    assert.equal(committed.refreshToken, 'bound-200-next');
+  } finally {
+    releaseBound.resolve();
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('authenticated shells and owner-bound mutation callers retain their ownership wiring', () => {
+  const source = (relativePath: string) => readFileSync(join(__dirname, relativePath), 'utf8');
+  const shellPaths = [
+    '../app/admin/layout.tsx',
+    '../app/app/layout.tsx',
+    '../app/hq/layout.tsx',
+    '../app/platform/layout.tsx',
+  ];
+  for (const shellPath of shellPaths) {
+    const shell = source(shellPath);
+    assert.match(shell, /subscribeToSessionStorageChanges/);
+    assert.match(shell, /window\.location\.reload\(\)/);
+  }
+
+  const callerPaths = [
+    '../app/account/page.tsx',
+    '../app/platform/companies/[id]/page.tsx',
+    '../components/admin/MembersPageContent.tsx',
+  ];
+  for (const callerPath of callerPaths) {
+    const caller = source(callerPath);
+    assert.match(caller, /const ownerApi = apiForSession\(/);
+    assert.match(caller, /ownerApi\.session\(\)/);
   }
 });

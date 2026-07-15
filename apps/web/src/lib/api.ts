@@ -1,4 +1,5 @@
 import {
+  accessClaims,
   isSession,
   readSession,
   withSessionMutation,
@@ -49,8 +50,12 @@ async function rawFetch(path: string, init: RequestInit, token?: string): Promis
  *  aksi halde sunucu rotasyonlu refresh'i reuse-detection ile TUM oturumu iptal eder (ani cikis). */
 interface RefreshFlight {
   owner: Session;
-  allowUnprovenAdvance: boolean;
-  promise: Promise<Session | null>;
+  promise: Promise<RefreshResult>;
+}
+
+interface RefreshResult {
+  session: Session | null;
+  proven: boolean;
 }
 
 interface RefreshLockManager {
@@ -58,6 +63,16 @@ interface RefreshLockManager {
 }
 
 let refreshInFlight: RefreshFlight | null = null;
+const provenRefreshes = new Map<string, Session>();
+
+function emptyRefreshResult(): RefreshResult {
+  return { session: null, proven: false };
+}
+
+function refreshFamily(session: Session): string | null {
+  const sid = accessClaims(session).sid;
+  return typeof sid === 'string' && sid.length > 0 ? sid : null;
+}
 
 function sameSessionIdentity(captured: Session, current: Session): boolean {
   if (captured.user.id !== current.user.id || captured.activeMembershipId !== current.activeMembershipId) return false;
@@ -93,6 +108,27 @@ function failedOwnerStillRequiresLogin(owner: Session): boolean {
 function lockedCurrentSession(store: LockedSessionStore): Session | null {
   const result = store.read();
   return result.ok ? result.session : null;
+}
+
+function rememberProvenRefresh(session: Session): void {
+  const family = refreshFamily(session);
+  if (family) provenRefreshes.set(family, session);
+}
+
+function provenRefreshAdvance(captured: Session): Session | null {
+  const family = refreshFamily(captured);
+  if (!family) return null;
+  const proven = provenRefreshes.get(family);
+  const current = currentSession();
+  if (
+    !proven ||
+    !current ||
+    !sameSessionIdentity(captured, current) ||
+    !sameRefreshOwner(proven, current)
+  ) {
+    return null;
+  }
+  return current;
 }
 
 function concurrentLocalValue<T>(beforeRefresh: T, current: T, server: T): T {
@@ -166,10 +202,10 @@ function advancedSessionFor(captured: Session): Session | null {
   return current;
 }
 
-async function performRefresh(owner: Session): Promise<Session | null> {
+async function performRefresh(owner: Session): Promise<RefreshResult> {
   if (owner.refreshToken.length === 0) {
     await clearRefreshOwner(owner);
-    return null;
+    return emptyRefreshResult();
   }
   let next: Session | null = null;
   try {
@@ -192,21 +228,24 @@ async function performRefresh(owner: Session): Promise<Session | null> {
   }
   if (!next) {
     await clearRefreshOwner(owner);
-    return null;
+    return emptyRefreshResult();
   }
-  return commitRefresh(owner, next);
+  const committed = await commitRefresh(owner, next);
+  if (!committed) return emptyRefreshResult();
+  rememberProvenRefresh(committed);
+  return { session: committed, proven: true };
 }
 
-async function refreshWithCurrentSession(owner: Session, allowUnprovenAdvance: boolean): Promise<Session | null> {
+async function refreshWithCurrentSession(owner: Session): Promise<RefreshResult> {
   const current = currentSession();
-  if (!current || !sameSessionIdentity(owner, current)) return null;
-  if (current.accessToken !== owner.accessToken) return allowUnprovenAdvance ? current : null;
-  if (current.refreshToken !== owner.refreshToken) return null;
-  if (!ownsRefresh(owner)) return null;
+  if (!current || !sameSessionIdentity(owner, current)) return emptyRefreshResult();
+  if (current.accessToken !== owner.accessToken) return { session: current, proven: false };
+  if (current.refreshToken !== owner.refreshToken) return emptyRefreshResult();
+  if (!ownsRefresh(owner)) return emptyRefreshResult();
   return performRefresh(owner);
 }
 
-function coordinatedRefresh(owner: Session, allowUnprovenAdvance: boolean): Promise<Session | null> {
+function coordinatedRefresh(owner: Session): Promise<RefreshResult> {
   const locks =
     typeof navigator === 'undefined'
       ? undefined
@@ -216,34 +255,29 @@ function coordinatedRefresh(owner: Session, allowUnprovenAdvance: boolean): Prom
     .request(
       AUTH_REFRESH_LOCK,
       { mode: 'exclusive' },
-      () => refreshWithCurrentSession(owner, allowUnprovenAdvance),
+      () => refreshWithCurrentSession(owner),
     )
     .catch(async () => {
       await clearRefreshOwner(owner);
-      return null;
+      return emptyRefreshResult();
     });
 }
 
-function refresh(owner: Session, allowUnprovenAdvance = true): Promise<Session | null> {
-  if (!ownsRefresh(owner)) return Promise.resolve(null);
+function refresh(owner: Session): Promise<RefreshResult> {
+  if (!ownsRefresh(owner)) return Promise.resolve(emptyRefreshResult());
   if (refreshInFlight) {
     const activeFlight = refreshInFlight;
-    if (
-      sameRefreshOwner(activeFlight.owner, owner) &&
-      (allowUnprovenAdvance || !activeFlight.allowUnprovenAdvance)
-    ) {
-      return activeFlight.promise;
-    }
+    if (sameRefreshOwner(activeFlight.owner, owner)) return activeFlight.promise;
     return activeFlight.promise.then(
-      () => refresh(owner, allowUnprovenAdvance),
-      () => refresh(owner, allowUnprovenAdvance),
+      () => refresh(owner),
+      () => refresh(owner),
     );
   }
   let flight: RefreshFlight;
-  const promise = coordinatedRefresh(owner, allowUnprovenAdvance).finally(() => {
+  const promise = coordinatedRefresh(owner).finally(() => {
     if (refreshInFlight === flight) refreshInFlight = null;
   });
-  flight = { owner, allowUnprovenAdvance, promise };
+  flight = { owner, promise };
   refreshInFlight = flight;
   return promise;
 }
@@ -257,7 +291,11 @@ async function sessionForRetry(captured: Session, allowUnprovenAdvance = true): 
     const advanced = retrySessionFor(captured, advancedSessionFor(captured));
     if (advanced) return advanced;
   }
-  const refreshed = retrySessionFor(captured, await refresh(captured, allowUnprovenAdvance));
+  const result = await refresh(captured);
+  const refreshed = retrySessionFor(
+    captured,
+    result.proven || allowUnprovenAdvance ? result.session : null,
+  );
   if (refreshed) return refreshed;
   return allowUnprovenAdvance ? retrySessionFor(captured, advancedSessionFor(captured)) : null;
 }
@@ -325,8 +363,11 @@ export const api = {
 /** Bir async sonucunu yakalanan exact session sahibiyle ayni Bearer'a baglar. */
 export function apiForSession(session: Session) {
   let owner = session;
-  const ownerRequest = <T>(path: string, init: RequestInit = {}) =>
-    request<T>(path, init, true, owner, (refreshed) => { owner = refreshed; }, false);
+  const ownerRequest = async <T>(path: string, init: RequestInit = {}) => {
+    const result = await request<T>(path, init, true, owner, (refreshed) => { owner = refreshed; }, false);
+    owner = provenRefreshAdvance(owner) ?? owner;
+    return result;
+  };
   return {
     session: () => owner,
     get: <T>(path: string) => ownerRequest<T>(path),
