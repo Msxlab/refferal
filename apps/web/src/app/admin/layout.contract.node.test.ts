@@ -77,3 +77,21 @@ test('premium ledger rail is responsive, calm and motion-safe', () => {
   assert.match(globalStyles, /@media \(prefers-reduced-motion:\s*reduce\)/);
   assert.doesNotMatch(globalStyles, /transition\s*:\s*all(?:\s|;)/);
 });
+
+test('admin chrome keeps readable utility text and complete interactive targets', () => {
+  assert.match(globalStyles, /\.admin-home-link\s*\{[^}]*min-width:\s*44px;[^}]*min-height:\s*44px;/s);
+  assert.match(globalStyles, /\.admin-identity-link\s*\{[^}]*min-height:\s*40px;/s);
+  assert.match(globalStyles, /\.admin-identity-link span\s*\{[^}]*font-size:\s*12px;/s);
+
+  for (const selector of [
+    'admin-rail-brand > span',
+    'admin-nav-section-label',
+    'admin-commandbar-context span',
+    'admin-mobile-kicker',
+  ]) {
+    const escapedSelector = selector.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    assert.match(globalStyles, new RegExp(`\\.${escapedSelector}\\s*\\{[^}]*font-size:\\s*11px;`, 's'));
+  }
+
+  assert.doesNotMatch(globalStyles, /\.admin-[^{]+\{[^}]*font-size:\s*10px;/s);
+});
