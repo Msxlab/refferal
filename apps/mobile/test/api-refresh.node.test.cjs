@@ -51,9 +51,9 @@ function makeSession({
   };
 }
 
-function makeAccessToken(sid, label) {
+function makeAccessToken(sid, iat, label) {
   const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
-  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({ sid, label })}.test-signature`;
+  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({ sid, iat, label })}.test-signature`;
 }
 
 function loadApi(initialSession) {
@@ -784,68 +784,86 @@ test('multi-hop token lineage upgrades every known ancestor while an unknown pai
   assert.deepEqual((await auth.loadSessionSnapshot()).session, unknownD);
   assert.deepEqual(storage.storedSession(), unknownD);
 
-  const boundedStorage = createControlledAsyncStorage();
-  const boundedAuth = loadActualAuth(boundedStorage);
-  let current = makeSession({
-    accessToken: makeAccessToken('bounded-family', 'token-0'),
-    refreshToken: 'bounded-token-0-refresh',
-  });
-  const oldestAncestor = current;
-  let recentAncestor = current;
-  await boundedAuth.saveSession(current);
-  for (let index = 1; index <= 80; index += 1) {
-    if (index === 60) recentAncestor = current;
-    const captured = await boundedAuth.loadSessionSnapshot();
-    const next = {
-      ...current,
-      accessToken: makeAccessToken('bounded-family', `token-${index}`),
-      refreshToken: `bounded-token-${index}-refresh`,
-    };
-    assert.notEqual(await boundedAuth.saveSessionIfCurrent(captured, next), null);
-    current = next;
+  async function buildBoundedLineage(label, rotations) {
+    const storage = createControlledAsyncStorage();
+    const auth = loadActualAuth(storage);
+    const familyId = `bounded-family-${label}`;
+    const initialIssuedAt = 10_000;
+    let latest = makeSession({
+      accessToken: makeAccessToken(familyId, initialIssuedAt, 'token-0'),
+      refreshToken: `${label}-token-0-refresh`,
+    });
+    const oldest = latest;
+    let recent = latest;
+    await auth.saveSession(latest);
+    for (let index = 1; index <= rotations; index += 1) {
+      if (index === rotations - 20) recent = latest;
+      const captured = await auth.loadSessionSnapshot();
+      const next = {
+        ...latest,
+        accessToken: makeAccessToken(familyId, initialIssuedAt + index, `token-${index}`),
+        refreshToken: `${label}-token-${index}-refresh`,
+      };
+      assert.notEqual(await auth.saveSessionIfCurrent(captured, next), null);
+      latest = next;
+    }
+    return { auth, familyId, initialIssuedAt, latest, oldest, recent, storage };
   }
-  assert.deepEqual(boundedAuth.__tokenLineageDiagnosticsForTests(), {
+
+  const bounded = await buildBoundedLineage('long', 80);
+  assert.deepEqual(bounded.auth.__tokenLineageDiagnosticsForTests(), {
     ancestorCount: 32,
     ancestorCap: 32,
-    fingerprintBitSize: 8192,
   });
   const recentMetadata = {
-    ...recentAncestor,
-    user: { ...recentAncestor.user, fullName: 'Recent in-flight metadata' },
+    ...bounded.recent,
+    user: { ...bounded.recent.user, fullName: 'Recent in-flight metadata' },
   };
-  await boundedAuth.saveSession(recentMetadata);
+  await bounded.auth.saveSession(recentMetadata);
   const expectedBounded = {
     ...recentMetadata,
-    accessToken: current.accessToken,
-    refreshToken: current.refreshToken,
+    accessToken: bounded.latest.accessToken,
+    refreshToken: bounded.latest.refreshToken,
   };
-  assert.deepEqual((await boundedAuth.loadSessionSnapshot()).session, expectedBounded);
-  assert.deepEqual(boundedStorage.storedSession(), expectedBounded);
-  assert.equal(boundedAuth.__tokenLineageDiagnosticsForTests().ancestorCount, 32);
+  assert.deepEqual((await bounded.auth.loadSessionSnapshot()).session, expectedBounded);
+  assert.deepEqual(bounded.storage.storedSession(), expectedBounded);
+  assert.equal(bounded.auth.__tokenLineageDiagnosticsForTests().ancestorCount, 32);
 
   const prunedMetadata = {
-    ...oldestAncestor,
-    user: { ...oldestAncestor.user, fullName: 'Pruned in-flight metadata' },
+    ...bounded.oldest,
+    user: { ...bounded.oldest.user, fullName: 'Pruned in-flight metadata' },
   };
-  await boundedAuth.saveSession(prunedMetadata);
+  await bounded.auth.saveSession(prunedMetadata);
   const expectedPruned = {
     ...prunedMetadata,
-    accessToken: current.accessToken,
-    refreshToken: current.refreshToken,
+    accessToken: bounded.latest.accessToken,
+    refreshToken: bounded.latest.refreshToken,
   };
-  assert.deepEqual((await boundedAuth.loadSessionSnapshot()).session, expectedPruned);
-  assert.deepEqual(boundedStorage.storedSession(), expectedPruned);
+  assert.deepEqual((await bounded.auth.loadSessionSnapshot()).session, expectedPruned);
+  assert.deepEqual(bounded.storage.storedSession(), expectedPruned);
 
-  const differentFamily = {
-    ...expectedPruned,
-    accessToken: makeAccessToken('authoritative-new-family', 'new-login'),
-    refreshToken: 'authoritative-new-family-refresh',
-    user: { ...expectedPruned.user, fullName: 'Authoritative new login' },
-  };
-  await boundedAuth.saveSession(differentFamily);
-  assert.deepEqual((await boundedAuth.loadSessionSnapshot()).session, differentFamily);
-  assert.deepEqual(boundedStorage.storedSession(), differentFamily);
-  assert.equal(boundedAuth.__tokenLineageDiagnosticsForTests().ancestorCount, 0);
+  for (const authority of ['same-sid-newer', 'same-sid-equal', 'different-sid', 'malformed']) {
+    const state = await buildBoundedLineage(authority, 34);
+    const latestIssuedAt = state.initialIssuedAt + 34;
+    const accessToken =
+      authority === 'malformed'
+        ? 'malformed-authoritative-access-token'
+        : makeAccessToken(
+            authority === 'different-sid' ? 'authoritative-new-family' : state.familyId,
+            authority === 'same-sid-newer' ? latestIssuedAt + 1 : latestIssuedAt,
+            `${authority}-authoritative`,
+          );
+    const authoritative = {
+      ...state.latest,
+      accessToken,
+      refreshToken: `${authority}-authoritative-refresh`,
+      user: { ...state.latest.user, fullName: `${authority} authoritative login` },
+    };
+    await state.auth.saveSession(authoritative);
+    assert.deepEqual((await state.auth.loadSessionSnapshot()).session, authoritative);
+    assert.deepEqual(state.storage.storedSession(), authoritative);
+    assert.equal(state.auth.__tokenLineageDiagnosticsForTests().ancestorCount, 0);
+  }
 });
 
 test('session boundaries invalidate lineage and malformed or empty credentials fail closed', async () => {

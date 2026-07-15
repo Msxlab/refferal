@@ -77,16 +77,13 @@ let sessionQueue: Promise<void> = Promise.resolve();
 type SessionTokenPair = Pick<Session, 'accessToken' | 'refreshToken'>;
 
 const TOKEN_LINEAGE_ANCESTOR_CAP = 32;
-const PRUNED_TOKEN_FINGERPRINT_BIT_SIZE = 8192;
-const PRUNED_TOKEN_FINGERPRINT_WORDS = PRUNED_TOKEN_FINGERPRINT_BIT_SIZE / 32;
-const TOKEN_FINGERPRINT_SEEDS = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b] as const;
 
 interface TokenAdvancement {
   owner: Session;
   ancestors: SessionTokenPair[];
   latestTokens: SessionTokenPair;
   familyId: string | null;
-  prunedTokenBits: Uint32Array;
+  latestIssuedAt: number | null;
 }
 
 let tokenAdvancement: TokenAdvancement | null = null;
@@ -168,59 +165,39 @@ function decodeBase64Url(value: string): string {
   return output;
 }
 
-function accessTokenFamilyId(accessToken: string): string | null {
+interface AccessTokenLineage {
+  familyId: string;
+  issuedAt: number;
+}
+
+function accessTokenLineage(accessToken: string): AccessTokenLineage | null {
   const payload = accessToken.split('.')[1];
   if (!payload) return null;
   try {
     const claims: unknown = JSON.parse(decodeBase64Url(payload));
-    if (!isRecord(claims) || !isNonEmptyString(claims.sid)) return null;
-    return claims.sid;
+    if (
+      !isRecord(claims) ||
+      !isNonEmptyString(claims.sid) ||
+      typeof claims.iat !== 'number' ||
+      !Number.isInteger(claims.iat)
+    ) {
+      return null;
+    }
+    return { familyId: claims.sid, issuedAt: claims.iat };
   } catch {
     return null;
   }
 }
 
-function sharedTokenFamily(left: SessionTokenPair, right: SessionTokenPair): string | null {
-  const leftFamily = accessTokenFamilyId(left.accessToken);
-  const rightFamily = accessTokenFamilyId(right.accessToken);
-  return leftFamily && leftFamily === rightFamily ? leftFamily : null;
-}
-
-function tokenFingerprint(tokens: SessionTokenPair, seed: number): number {
-  let hash = seed >>> 0;
-  const value = `${tokens.accessToken}\u0000${tokens.refreshToken}`;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  hash ^= hash >>> 16;
-  return hash >>> 0;
-}
-
-function addPrunedTokenFingerprint(bits: Uint32Array, tokens: SessionTokenPair): void {
-  for (const seed of TOKEN_FINGERPRINT_SEEDS) {
-    const index = tokenFingerprint(tokens, seed) % PRUNED_TOKEN_FINGERPRINT_BIT_SIZE;
-    bits[index >>> 5] |= 1 << (index & 31);
-  }
-}
-
-function mayBePrunedTokenPair(bits: Uint32Array, tokens: SessionTokenPair): boolean {
-  return TOKEN_FINGERPRINT_SEEDS.every((seed) => {
-    const index = tokenFingerprint(tokens, seed) % PRUNED_TOKEN_FINGERPRINT_BIT_SIZE;
-    return (bits[index >>> 5] & (1 << (index & 31))) !== 0;
-  });
-}
-
-function retainBoundedAncestors(
-  ancestors: SessionTokenPair[],
-  prunedTokenBits: Uint32Array,
-): { ancestors: SessionTokenPair[]; prunedTokenBits: Uint32Array } {
-  const firstRetained = Math.max(0, ancestors.length - TOKEN_LINEAGE_ANCESTOR_CAP);
-  const nextBits = prunedTokenBits.slice();
-  for (const tokens of ancestors.slice(0, firstRetained)) {
-    addPrunedTokenFingerprint(nextBits, tokens);
-  }
-  return { ancestors: ancestors.slice(firstRetained), prunedTokenBits: nextBits };
+function sharedTokenLineage(
+  left: SessionTokenPair,
+  right: SessionTokenPair,
+): AccessTokenLineage | null {
+  const leftLineage = accessTokenLineage(left.accessToken);
+  const rightLineage = accessTokenLineage(right.accessToken);
+  return leftLineage && rightLineage && leftLineage.familyId === rightLineage.familyId
+    ? rightLineage
+    : null;
 }
 
 function isKnownTokenPair(advancement: TokenAdvancement, tokens: SessionTokenPair): boolean {
@@ -244,7 +221,9 @@ function registerTokenAdvancement(owner: Session | null, refreshed: Session): vo
     tokenAdvancement = null;
     return;
   }
-  const familyId = sharedTokenFamily(owner, refreshed);
+  const lineage = sharedTokenLineage(owner, refreshed);
+  const familyId = lineage?.familyId ?? null;
+  const latestIssuedAt = lineage?.issuedAt ?? null;
   if (hasTokenPair(refreshed, owner)) {
     const current = tokenAdvancement;
     if (
@@ -268,16 +247,14 @@ function registerTokenAdvancement(owner: Session | null, refreshed: Session): vo
     let ancestors = appendUniqueTokenPair(current.ancestors, current.latestTokens);
     ancestors = appendUniqueTokenPair(ancestors, owner);
     const latestTokens = tokenPairOf(refreshed);
-    const retained = retainBoundedAncestors(
-      ancestors.filter((ancestor) => !hasTokenPair(ancestor, latestTokens)),
-      current.prunedTokenBits,
-    );
     tokenAdvancement = {
       owner: current.owner,
-      ancestors: retained.ancestors,
+      ancestors: ancestors
+        .filter((ancestor) => !hasTokenPair(ancestor, latestTokens))
+        .slice(-TOKEN_LINEAGE_ANCESTOR_CAP),
       latestTokens,
       familyId,
-      prunedTokenBits: retained.prunedTokenBits,
+      latestIssuedAt,
     };
     return;
   }
@@ -286,7 +263,7 @@ function registerTokenAdvancement(owner: Session | null, refreshed: Session): vo
     ancestors: [tokenPairOf(owner)],
     latestTokens: tokenPairOf(refreshed),
     familyId,
-    prunedTokenBits: new Uint32Array(PRUNED_TOKEN_FINGERPRINT_WORDS),
+    latestIssuedAt,
   };
 }
 
@@ -309,13 +286,18 @@ function resolveQueuedSessionSave(session: Session): {
   }
   if (
     advancement.familyId !== null &&
-    accessTokenFamilyId(session.accessToken) === advancement.familyId &&
-    mayBePrunedTokenPair(advancement.prunedTokenBits, session)
+    advancement.latestIssuedAt !== null
   ) {
-    return {
-      session: { ...session, ...advancement.latestTokens },
-      advancement,
-    };
+    const incomingLineage = accessTokenLineage(session.accessToken);
+    if (
+      incomingLineage?.familyId === advancement.familyId &&
+      incomingLineage.issuedAt < advancement.latestIssuedAt
+    ) {
+      return {
+        session: { ...session, ...advancement.latestTokens },
+        advancement,
+      };
+    }
   }
   return { session, advancement: null };
 }
@@ -554,12 +536,10 @@ export function mergeSessionTokensIfSameIdentity(
 export function __tokenLineageDiagnosticsForTests(): {
   ancestorCount: number;
   ancestorCap: number;
-  fingerprintBitSize: number;
 } {
   return {
     ancestorCount: tokenAdvancement?.ancestors.length ?? 0,
     ancestorCap: TOKEN_LINEAGE_ANCESTOR_CAP,
-    fingerprintBitSize: PRUNED_TOKEN_FINGERPRINT_BIT_SIZE,
   };
 }
 
