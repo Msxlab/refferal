@@ -45,12 +45,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     setSessionState(s);
   }, [router]);
 
-  // Sekmeler-arasi owner senkronu: set/remove fark etmeksizin stale shell'i kapat.
+  // Ayni owner/workspace refresh'ini state'e tasi; owner veya guard degisiminde shell'i kapat.
   useEffect(() => {
-    return subscribeToSessionStorageChanges(() => {
-      setSessionState(null);
-      window.location.reload();
-    });
+    return subscribeToSessionStorageChanges(
+      (change) => {
+        if (change.reload || !change.session) {
+          setSessionState(null);
+          window.location.reload();
+          return;
+        }
+        setSessionState(change.session);
+      },
+      (next) => isAdminRole(activeMembership(next)?.role),
+    );
   }, []);
 
   if (!session) return <div className="center muted">{t('common.loading')}</div>;

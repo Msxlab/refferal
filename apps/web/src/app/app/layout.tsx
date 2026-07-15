@@ -34,13 +34,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     setImp(isImpersonating());
   }, [router]);
 
-  // Sekmeler-arasi owner senkronu: set/remove fark etmeksizin stale shell'i kapat.
+  // Ayni owner/workspace refresh'ini state'e tasi; owner veya guard degisiminde shell'i kapat.
   useEffect(() => {
-    return subscribeToSessionStorageChanges(() => {
-      setSessionState(null);
-      setImp(false);
-      window.location.reload();
-    });
+    return subscribeToSessionStorageChanges(
+      (change) => {
+        if (change.reload || !change.session) {
+          setSessionState(null);
+          setImp(false);
+          window.location.reload();
+          return;
+        }
+        setSessionState(change.session);
+        setImp(isImpersonating());
+      },
+      (next) => Boolean(activeMembership(next)),
+    );
   }, []);
 
   if (!session) return <div className="center muted">{t('common.loading')}</div>;

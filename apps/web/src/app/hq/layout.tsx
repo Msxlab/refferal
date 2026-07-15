@@ -34,10 +34,17 @@ export default function HqLayout({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   useEffect(() => {
-    return subscribeToSessionStorageChanges(() => {
-      setSession(null);
-      window.location.reload();
-    });
+    return subscribeToSessionStorageChanges(
+      (change) => {
+        if (change.reload || !change.session) {
+          setSession(null);
+          window.location.reload();
+          return;
+        }
+        setSession(change.session);
+      },
+      (next) => next.user.isPlatformAdmin === true,
+    );
   }, []);
 
   if (!session) return <div className="center muted">Loading…</div>;

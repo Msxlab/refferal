@@ -13,6 +13,7 @@ import {
   switchTenant,
 } from './api';
 import {
+  activeMembership,
   applyTenantSwitch,
   clearSession,
   getSession,
@@ -25,6 +26,7 @@ import {
   updateSession,
   withSessionMutation,
   type Session,
+  type SessionStorageChange,
 } from './auth';
 
 const SESSION_KEY = 'refearn.session';
@@ -280,6 +282,51 @@ function installRefreshLockQueue(): {
       next.reject(reason);
       return true;
     },
+    restore: () => {
+      if (previous) Object.defineProperty(globalThis, 'navigator', previous);
+      else Reflect.deleteProperty(globalThis, 'navigator');
+    },
+  };
+}
+
+function installRefreshCommitGate(): {
+  committed: Promise<void>;
+  release: () => void;
+  restore: () => void;
+} {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const committed = deferred();
+  const released = deferred();
+  let heldCommit = false;
+  const locks = {
+    request<T>(
+      name: string,
+      _options: { mode?: string },
+      callback: () => T | PromiseLike<T>,
+    ): Promise<T> {
+      let result: T | PromiseLike<T>;
+      try {
+        result = callback();
+      } catch (error) {
+        return Promise.reject(error);
+      }
+      if (name === 'refearn.auth.session-mutation' && !heldCommit) {
+        heldCommit = true;
+        committed.resolve();
+        return released.promise.then(() => result);
+      }
+      return Promise.resolve(result);
+    },
+  };
+
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { locks },
+  });
+
+  return {
+    committed: committed.promise,
+    release: released.resolve,
     restore: () => {
       if (previous) Object.defineProperty(globalThis, 'navigator', previous);
       else Reflect.deleteProperty(globalThis, 'navigator');
@@ -2421,8 +2468,10 @@ test('an owner-bound late 401 never adopts a same-workspace new login as a token
 test('an owner-bound Web Lock waiter never adopts a same-workspace new login as a token rotation', async () => {
   const browser = installBrowser();
   const locks = installRefreshLockQueue();
-  const owner = makeWorkspaceSession('captured-expired', 'captured-refresh', 'user-1', 'membership-a', 'tenant-a');
-  const newLogin = { ...owner, accessToken: 'new-login-access', refreshToken: 'new-login-refresh' };
+  const ownerAccess = makeFamilyAccessToken('captured-family', 'expired');
+  const newLoginAccess = makeFamilyAccessToken('new-login-family', 'fresh');
+  const owner = makeWorkspaceSession(ownerAccess, 'captured-refresh', 'user-1', 'membership-a', 'tenant-a');
+  const newLogin = { ...owner, accessToken: newLoginAccess, refreshToken: 'new-login-refresh' };
   await setSession(owner);
   const requestAuthorizations: Array<string | null> = [];
   let refreshCalls = 0;
@@ -2435,8 +2484,8 @@ test('an owner-bound Web Lock waiter never adopts a same-workspace new login as 
     }
     if (!path.endsWith('/bound-web-lock-resource')) throw new Error(`unexpected request: ${path}`);
     requestAuthorizations.push(bearer);
-    if (bearer === 'Bearer captured-expired') return new Response(null, { status: 401 });
-    if (bearer === 'Bearer new-login-access') return Response.json({ unsafeReplay: true });
+    if (bearer === `Bearer ${ownerAccess}`) return new Response(null, { status: 401 });
+    if (bearer === `Bearer ${newLoginAccess}`) return Response.json({ unsafeReplay: true });
     throw new Error(`unexpected bearer: ${bearer}`);
   });
 
@@ -2449,10 +2498,59 @@ test('an owner-bound Web Lock waiter never adopts a same-workspace new login as 
     const [result] = await pending;
 
     assertExpired(result);
-    assert.deepEqual(requestAuthorizations, ['Bearer captured-expired']);
+    assert.deepEqual(requestAuthorizations, [`Bearer ${ownerAccess}`]);
     assert.equal(refreshCalls, 0);
     assert.deepEqual(getSession(), newLogin);
     assert.equal(browser.location.href, '/app');
+  } finally {
+    locks.releaseNext();
+    restoreFetch();
+    locks.restore();
+    browser.restore();
+  }
+});
+
+test('an owner-bound Web Lock waiter follows a cross-tab rotation in the same JWT family', async () => {
+  const browser = installBrowser();
+  const locks = installRefreshLockQueue();
+  const ownerAccess = makeFamilyAccessToken('cross-tab-bound-family', 'expired');
+  const freshAccess = makeFamilyAccessToken('cross-tab-bound-family', 'fresh');
+  const owner = makeWorkspaceSession(ownerAccess, 'cross-tab-bound-refresh', 'user-1', 'membership-a', 'tenant-a');
+  const refreshed = { ...owner, accessToken: freshAccess, refreshToken: 'cross-tab-bound-next' };
+  await setSession(owner);
+  const requestAuthorizations: Array<string | null> = [];
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const bearer = authorization(init);
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      return Response.json({ ...owner, accessToken: makeFamilyAccessToken('cross-tab-bound-family', 'unexpected') });
+    }
+    if (!path.endsWith('/bound-same-family-resource')) throw new Error(`unexpected request: ${path}`);
+    requestAuthorizations.push(bearer);
+    if (bearer === `Bearer ${ownerAccess}`) return new Response(null, { status: 401 });
+    if (bearer === `Bearer ${freshAccess}`) return Response.json({ fullName: 'Cross-tab Profile' });
+    throw new Error(`unexpected bearer: ${bearer}`);
+  });
+
+  try {
+    const ownerApi = apiForSession(owner);
+    const pending = ownerApi.get<{ fullName: string }>('/bound-same-family-resource');
+    await locks.requested;
+    await setSession(refreshed);
+    assert.equal(locks.releaseNext(), true);
+    const result = await pending;
+    const committed = await updateSession(ownerApi.session(), (session) => ({
+      ...session,
+      user: { ...session.user, fullName: result.fullName },
+    }));
+
+    assert.equal(refreshCalls, 0);
+    assert.deepEqual(requestAuthorizations, [`Bearer ${ownerAccess}`, `Bearer ${freshAccess}`]);
+    assert.deepEqual(ownerApi.session(), refreshed);
+    assert.equal(committed.user.fullName, 'Cross-tab Profile');
+    assert.equal(committed.refreshToken, 'cross-tab-bound-next');
   } finally {
     locks.releaseNext();
     restoreFetch();
@@ -2517,32 +2615,138 @@ test('a different exact owner waits for the active refresh flight before startin
   }
 });
 
-test('session storage set and remove events clear active-company memory before shell resync', () => {
+test('a same-family storage update delivers the validated session without reload or act-as cleanup', () => {
   const browser = installBrowser();
-  const observedTokens: Array<string | null> = [];
-  const unsubscribe = subscribeToSessionStorageChanges(() => {
-    observedTokens.push(getActiveCompanyToken());
-  });
+  const ownerAccess = makeFamilyAccessToken('storage-family', 'old');
+  const nextAccess = makeFamilyAccessToken('storage-family', 'new');
+  const owner = makeWorkspaceSession(ownerAccess, 'storage-refresh', 'user-1', 'membership-a', 'tenant-a');
+  const next = {
+    ...owner,
+    accessToken: nextAccess,
+    refreshToken: 'storage-next',
+    user: { ...owner.user, fullName: 'Updated in another tab' },
+  };
+  const observed: Array<{ change: SessionStorageChange; activeCompanyToken: string | null }> = [];
+  const unsubscribe = subscribeToSessionStorageChanges((change?: SessionStorageChange) => {
+    observed.push({
+      change: change ?? { session: null, reload: true },
+      activeCompanyToken: getActiveCompanyToken(),
+    });
+  }, (candidate) => activeMembership(candidate)?.role === 'member');
 
   try {
     setActiveCompanyToken('unrelated-token');
     browser.dispatchStorage('unrelated.key', null, 'value');
-    assert.deepEqual(observedTokens, []);
+    assert.deepEqual(observed, []);
     assert.equal(getActiveCompanyToken(), 'unrelated-token');
 
-    setActiveCompanyToken('company-token-a');
-    browser.dispatchStorage(SESSION_KEY, JSON.stringify(makeSession('old', 'old')), JSON.stringify(makeSession('new', 'new')));
-    setActiveCompanyToken('company-token-b');
-    browser.dispatchStorage(SESSION_KEY, JSON.stringify(makeSession('new', 'new')), null);
+    setActiveCompanyToken('company-token');
+    browser.storage.set(SESSION_KEY, JSON.stringify(next));
+    browser.dispatchStorage(SESSION_KEY, JSON.stringify(owner), JSON.stringify(next));
 
-    assert.deepEqual(observedTokens, [null, null]);
-    assert.equal(getActiveCompanyToken(), null);
+    assert.deepEqual(observed, [{
+      change: { session: next, reload: false },
+      activeCompanyToken: 'company-token',
+    }]);
+    assert.equal(getActiveCompanyToken(), 'company-token');
 
     unsubscribe();
     setActiveCompanyToken('after-unsubscribe');
-    browser.dispatchStorage(SESSION_KEY, null, JSON.stringify(makeSession('later', 'later')));
-    assert.deepEqual(observedTokens, [null, null]);
+    browser.dispatchStorage(SESSION_KEY, JSON.stringify(next), JSON.stringify(owner));
+    assert.equal(observed.length, 1);
     assert.equal(getActiveCompanyToken(), 'after-unsubscribe');
+  } finally {
+    unsubscribe();
+    setActiveCompanyToken(null);
+    browser.restore();
+  }
+});
+
+test('different session lineage or a rejected shell guard requests reload and clears act-as memory', () => {
+  const browser = installBrowser();
+  const family = 'storage-owner-family';
+  const owner = makeWorkspaceSession(
+    makeFamilyAccessToken(family, 'old'),
+    'storage-owner-refresh',
+    'user-1',
+    'membership-a',
+    'tenant-a',
+  );
+  const sameFamily = {
+    ...owner,
+    accessToken: makeFamilyAccessToken(family, 'new'),
+    refreshToken: 'storage-owner-next',
+  };
+  const differentFamily = {
+    ...owner,
+    accessToken: makeFamilyAccessToken('different-storage-family', 'new'),
+    refreshToken: 'different-storage-refresh',
+  };
+  const differentUser = makeWorkspaceSession(
+    makeFamilyAccessToken(family, 'other-user', 'user-2'),
+    'other-user-refresh',
+    'user-2',
+    'membership-a',
+    'tenant-a',
+  );
+  const differentWorkspace = makeWorkspaceSession(
+    makeFamilyAccessToken(family, 'other-workspace', 'user-1', 'membership-b', 'tenant-b'),
+    'other-workspace-refresh',
+    'user-1',
+    'membership-b',
+    'tenant-b',
+  );
+  let guardAllows = true;
+  const observed: SessionStorageChange[] = [];
+  const unsubscribe = subscribeToSessionStorageChanges((change?: SessionStorageChange) => {
+    observed.push(change ?? { session: null, reload: true });
+  }, () => guardAllows);
+
+  try {
+    const cases = [differentFamily, differentUser, differentWorkspace, sameFamily];
+    for (const [index, next] of cases.entries()) {
+      guardAllows = index < cases.length - 1;
+      setActiveCompanyToken(`company-token-${index}`);
+      browser.storage.set(SESSION_KEY, JSON.stringify(next));
+      browser.dispatchStorage(SESSION_KEY, JSON.stringify(owner), JSON.stringify(next));
+      assert.deepEqual(observed.at(-1), { session: null, reload: true });
+      assert.equal(getActiveCompanyToken(), null);
+    }
+    assert.equal(observed.length, cases.length);
+  } finally {
+    unsubscribe();
+    setActiveCompanyToken(null);
+    browser.restore();
+  }
+});
+
+test('removed or malformed storage sessions fail closed with reload intent', () => {
+  const browser = installBrowser();
+  const owner = makeWorkspaceSession(
+    makeFamilyAccessToken('invalid-storage-family', 'old'),
+    'invalid-storage-refresh',
+    'user-1',
+    'membership-a',
+    'tenant-a',
+  );
+  const observed: SessionStorageChange[] = [];
+  const unsubscribe = subscribeToSessionStorageChanges((change?: SessionStorageChange) => {
+    observed.push(change ?? { session: null, reload: true });
+  }, () => true);
+
+  try {
+    const events: Array<[string | null, string | null]> = [
+      [JSON.stringify(owner), null],
+      [JSON.stringify(owner), '{malformed'],
+      ['{malformed', JSON.stringify(owner)],
+    ];
+    for (const [oldValue, newValue] of events) {
+      setActiveCompanyToken('company-token');
+      browser.dispatchStorage(SESSION_KEY, oldValue, newValue);
+      assert.deepEqual(observed.at(-1), { session: null, reload: true });
+      assert.equal(getActiveCompanyToken(), null);
+    }
+    assert.equal(observed.length, events.length);
   } finally {
     unsubscribe();
     setActiveCompanyToken(null);
@@ -2661,6 +2865,77 @@ test('an owner-bound 401 joins a generic same-owner flight when its result is a 
   } finally {
     releaseRefresh.resolve();
     restoreFetch();
+    browser.restore();
+  }
+});
+
+test('an owner-bound 401 joins its exact flight after that flight commits storage but before it settles', async () => {
+  const browser = installBrowser();
+  const ownerAccess = makeFamilyAccessToken('post-commit-flight-family', 'expired');
+  const freshAccess = makeFamilyAccessToken('post-commit-flight-family', 'fresh');
+  const owner = makeWorkspaceSession(ownerAccess, 'post-commit-flight-refresh', 'user-1', 'membership-a', 'tenant-a');
+  const refreshed = { ...owner, accessToken: freshAccess, refreshToken: 'post-commit-flight-next' };
+  await setSession(owner);
+  const commitGate = installRefreshCommitGate();
+  const releaseBoundUnauthorized = deferred();
+  const genericAuthorizations: Array<string | null> = [];
+  const boundAuthorizations: Array<string | null> = [];
+  let refreshCalls = 0;
+  const restoreFetch = installFetch(async (input, init) => {
+    const path = String(input);
+    const bearer = authorization(init);
+    if (path.endsWith('/auth/refresh')) {
+      refreshCalls += 1;
+      return Response.json(refreshed);
+    }
+    if (path.endsWith('/post-commit-generic')) {
+      genericAuthorizations.push(bearer);
+      if (bearer === `Bearer ${ownerAccess}`) return new Response(null, { status: 401 });
+      if (bearer === `Bearer ${freshAccess}`) return Response.json({ generic: true });
+    }
+    if (path.endsWith('/post-commit-bound')) {
+      boundAuthorizations.push(bearer);
+      if (bearer === `Bearer ${ownerAccess}`) {
+        await releaseBoundUnauthorized.promise;
+        return new Response(null, { status: 401 });
+      }
+      if (bearer === `Bearer ${freshAccess}`) return Response.json({ fullName: 'Post-commit Profile' });
+    }
+    throw new Error(`unexpected request: ${path} (${bearer})`);
+  });
+
+  try {
+    const ownerApi = apiForSession(owner);
+    const genericPending = api.get<{ generic: boolean }>('/post-commit-generic');
+    const boundPending = Promise.allSettled([
+      ownerApi.patch<{ fullName: string }>('/post-commit-bound', { fullName: 'Post-commit Profile' }),
+    ]);
+    await commitGate.committed;
+    assert.deepEqual(getSession(), refreshed);
+    releaseBoundUnauthorized.resolve();
+    await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+    commitGate.release();
+    const [generic, [bound]] = await Promise.all([genericPending, boundPending]);
+
+    assert.deepEqual(generic, { generic: true });
+    assert.equal(bound.status, 'fulfilled');
+    assert.equal(refreshCalls, 1);
+    assert.deepEqual(genericAuthorizations, [`Bearer ${ownerAccess}`, `Bearer ${freshAccess}`]);
+    assert.deepEqual(boundAuthorizations, [`Bearer ${ownerAccess}`, `Bearer ${freshAccess}`]);
+    assert.deepEqual(ownerApi.session(), refreshed);
+    if (bound.status === 'fulfilled') {
+      const committed = await updateSession(ownerApi.session(), (session) => ({
+        ...session,
+        user: { ...session.user, fullName: bound.value.fullName },
+      }));
+      assert.equal(committed.user.fullName, 'Post-commit Profile');
+      assert.equal(committed.refreshToken, 'post-commit-flight-next');
+    }
+  } finally {
+    releaseBoundUnauthorized.resolve();
+    commitGate.release();
+    restoreFetch();
+    commitGate.restore();
     browser.restore();
   }
 });
@@ -2787,17 +3062,28 @@ test('an owner-bound 200 response follows a concurrent proven refresh in the sam
   }
 });
 
+test('refresh provenance retains no module-level Session or refresh-token registry', () => {
+  const apiSource = readFileSync(join(__dirname, 'api.ts'), 'utf8');
+
+  assert.doesNotMatch(apiSource, /provenRefreshes|rememberProvenRefresh/);
+  assert.doesNotMatch(apiSource, /new Map<\s*string\s*,\s*Session\s*>/);
+  assert.doesNotMatch(apiSource, /export\s+(?:const|let|var)\s+\w*[Pp]roven\w*/);
+});
+
 test('authenticated shells and owner-bound mutation callers retain their ownership wiring', () => {
   const source = (relativePath: string) => readFileSync(join(__dirname, relativePath), 'utf8');
-  const shellPaths = [
-    '../app/admin/layout.tsx',
-    '../app/app/layout.tsx',
-    '../app/hq/layout.tsx',
-    '../app/platform/layout.tsx',
+  const shellContracts: Array<[string, RegExp]> = [
+    ['../app/admin/layout.tsx', /isAdminRole\(activeMembership\(next\)\?\.role\)/],
+    ['../app/app/layout.tsx', /Boolean\(activeMembership\(next\)\)/],
+    ['../app/hq/layout.tsx', /next\.user\.isPlatformAdmin === true/],
+    ['../app/platform/layout.tsx', /next\.user\.isPlatformAdmin === true/],
   ];
-  for (const shellPath of shellPaths) {
+  for (const [shellPath, guardPattern] of shellContracts) {
     const shell = source(shellPath);
     assert.match(shell, /subscribeToSessionStorageChanges/);
+    assert.match(shell, /change\.reload/);
+    assert.match(shell, /change\.session/);
+    assert.match(shell, guardPattern);
     assert.match(shell, /window\.location\.reload\(\)/);
   }
 

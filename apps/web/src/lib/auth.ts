@@ -95,6 +95,11 @@ export type SessionReadResult =
   | { ok: true; session: Session | null }
   | { ok: false; session: null; error: unknown };
 
+export interface SessionStorageChange {
+  session: Session | null;
+  reload: boolean;
+}
+
 function rawSetSession(session: Session): void {
   if (!isSession(session)) throw new InvalidSessionError();
   window.localStorage.setItem(KEY, JSON.stringify(session));
@@ -165,13 +170,39 @@ export function getSession(): Session | null {
   return result.session;
 }
 
-/** Diger sekmedeki her session degisiminde shell state'ini ve act-as token'ini gecersiz kil. */
-export function subscribeToSessionStorageChanges(onChange: () => void): () => void {
+function sessionFromStorageValue(raw: string | null): Session | null {
+  if (raw === null) return null;
+  try {
+    const candidate: unknown = JSON.parse(raw);
+    return isSession(candidate) ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Diger sekmedeki session degisimini owner/workspace sinirinda shell state'ine tasir. */
+export function subscribeToSessionStorageChanges(
+  onChange: (change: SessionStorageChange) => void,
+  acceptsSession: (session: Session) => boolean = () => true,
+): () => void {
   if (typeof window === 'undefined') return () => {};
   const onStorage = (event: StorageEvent) => {
     if (event.key !== KEY) return;
+    const previous = sessionFromStorageValue(event.oldValue);
+    const next = sessionFromStorageValue(event.newValue);
+    let compatible = false;
+    try {
+      compatible = Boolean(previous && next && sameSessionFamily(previous, next) && acceptsSession(next));
+    } catch {
+      compatible = false;
+    }
+    if (compatible && next) {
+      onChange({ session: next, reload: false });
+      return;
+    }
     setActiveCompanyToken(null);
-    onChange();
+    if (event.newValue !== null && !next) void tryClearInvalidSession(event.newValue);
+    onChange({ session: null, reload: true });
   };
   window.addEventListener('storage', onStorage);
   return () => window.removeEventListener('storage', onStorage);
@@ -495,6 +526,25 @@ function decodeClaims(token: string | undefined): AccessClaims {
 /** Access JWT govdesini cozer (imza dogrulamasi sunucuda; burada yalniz UI gosterimi icin). */
 export function accessClaims(s: Session | null): AccessClaims {
   return decodeClaims(s?.accessToken);
+}
+
+/** Non-empty refresh-family claim plus the same user and active workspace. */
+export function sameSessionFamily(previous: Session, next: Session): boolean {
+  const previousFamily = accessClaims(previous).sid;
+  const nextFamily = accessClaims(next).sid;
+  if (
+    typeof previousFamily !== 'string' ||
+    previousFamily.length === 0 ||
+    previousFamily !== nextFamily ||
+    previous.user.id !== next.user.id ||
+    previous.activeMembershipId !== next.activeMembershipId
+  ) {
+    return false;
+  }
+  if (previous.activeMembershipId === null) return true;
+  const previousMembership = previous.memberships.find(({ id }) => id === previous.activeMembershipId);
+  const nextMembership = next.memberships.find(({ id }) => id === next.activeMembershipId);
+  return Boolean(previousMembership && nextMembership && previousMembership.tenantId === nextMembership.tenantId);
 }
 
 /** Ince yetki kontrolu (UI). owner/platform her zaman gecer; backend ayrica zorlar.
