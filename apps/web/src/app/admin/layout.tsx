@@ -49,7 +49,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   useEffect(() => {
     return subscribeToSessionStorageChanges(
       (change) => {
-        if (change.reload || !change.session) {
+        if (change.action === 'defer-to-caller') return;
+        if (change.action === 'reload' || !change.session) {
           setSessionState(null);
           window.location.reload();
           return;

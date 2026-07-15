@@ -2665,7 +2665,13 @@ test('a same-document refresh commit publishes one compatible authoritative sess
     const current = getSession();
 
     assert.equal(refreshCalls, 1);
-    assert.deepEqual(observed, [{ session: current, reload: false, origin: 'local', reason: 'mutation' }]);
+    assert.deepEqual(observed, [{
+      action: 'update',
+      session: current,
+      reload: false,
+      origin: 'local',
+      reason: 'mutation',
+    }]);
     assert.equal(current?.user.fullName, 'Server Authoritative Name');
     assert.equal(activeMembership(current!)?.role, 'tenant_admin');
     assert.equal(getActiveCompanyToken(), 'company-token');
@@ -2719,7 +2725,13 @@ test('same-document guard rejection, owner replacement, and removal each publish
     await updateSession(owner, () => sameFamily);
     mutationResolved = true;
     await nextTask();
-    assert.deepEqual(observed, [{ session: null, reload: true, origin: 'local', reason: 'mutation' }]);
+    assert.deepEqual(observed, [{
+      action: 'reload',
+      session: null,
+      reload: true,
+      origin: 'local',
+      reason: 'mutation',
+    }]);
     assert.deepEqual(observedAfterResolution, [true]);
     assert.equal(getActiveCompanyToken(), null);
 
@@ -2729,8 +2741,14 @@ test('same-document guard rejection, owner replacement, and removal each publish
     await setSession(differentOwner);
     mutationResolved = true;
     await nextTask();
-    assert.deepEqual(observed.at(-1), { session: null, reload: true, origin: 'local', reason: 'transition' });
-    assert.equal(observedAfterResolution.at(-1), true);
+    assert.deepEqual(observed.at(-1), {
+      action: 'defer-to-caller',
+      session: null,
+      reload: false,
+      origin: 'local',
+      reason: 'transition',
+    });
+    assert.equal(observedAfterResolution.at(-1), false);
     assert.equal(getActiveCompanyToken(), null);
 
     mutationResolved = false;
@@ -2738,8 +2756,14 @@ test('same-document guard rejection, owner replacement, and removal each publish
     await clearSession();
     mutationResolved = true;
     await nextTask();
-    assert.deepEqual(observed.at(-1), { session: null, reload: true, origin: 'local', reason: 'transition' });
-    assert.equal(observedAfterResolution.at(-1), true);
+    assert.deepEqual(observed.at(-1), {
+      action: 'defer-to-caller',
+      session: null,
+      reload: false,
+      origin: 'local',
+      reason: 'transition',
+    });
+    assert.equal(observedAfterResolution.at(-1), false);
     assert.equal(observed.length, 3);
     assert.equal(getActiveCompanyToken(), null);
   } finally {
@@ -2805,6 +2829,7 @@ test('a throwing same-document subscriber cannot fail the mutation or block the 
 
     assert.equal(updated.user.fullName, 'Listener-safe update');
     assert.deepEqual(observed, [{
+      action: 'update',
       session: updated,
       reload: false,
       origin: 'local',
@@ -2863,11 +2888,73 @@ test('tenant switch, impersonation, restoration, login, and logout each publish 
 
     assert.equal(observed.length, 5);
     assert.deepEqual(observed, Array.from({ length: 5 }, () => ({
+      action: 'defer-to-caller',
       session: null,
-      reload: true,
+      reload: false,
       origin: 'local',
       reason: 'transition',
     })));
+  } finally {
+    unsubscribe();
+    browser.restore();
+  }
+});
+
+test('a local transition defers exclusively to its caller while the native equivalent reloads', async () => {
+  const browser = installBrowser();
+  const owner = makeWorkspaceSession(
+    makeFamilyAccessToken('caller-owned-family', 'owner'),
+    'caller-owned-refresh',
+    'user-1',
+    'membership-a',
+    'tenant-a',
+  );
+  const replacement = makeWorkspaceSession(
+    makeFamilyAccessToken('caller-owned-replacement-family', 'replacement', 'user-2'),
+    'caller-owned-replacement-refresh',
+    'user-2',
+    'membership-a',
+    'tenant-a',
+  );
+  await setSession(owner);
+  const observed: SessionStorageChange[] = [];
+  let shellSession: Session | null = owner;
+  let reloads = 0;
+  const unsubscribe = subscribeToSessionStorageChanges((change) => {
+    observed.push(change);
+    if (change.action === 'defer-to-caller') return;
+    if (change.action === 'reload') {
+      shellSession = null;
+      reloads += 1;
+      return;
+    }
+    shellSession = change.session;
+  });
+
+  try {
+    await setSession(replacement);
+    await nextTask();
+    assert.deepEqual(observed, [{
+      action: 'defer-to-caller',
+      session: null,
+      reload: false,
+      origin: 'local',
+      reason: 'transition',
+    }]);
+    assert.equal(shellSession, owner);
+    assert.equal(reloads, 0);
+
+    browser.dispatchStorage(SESSION_KEY, JSON.stringify(owner), JSON.stringify(replacement));
+    assert.deepEqual(observed.at(-1), {
+      action: 'reload',
+      session: null,
+      reload: true,
+      origin: 'storage',
+      reason: 'external',
+    });
+    assert.equal(observed.length, 2);
+    assert.equal(shellSession, null);
+    assert.equal(reloads, 1);
   } finally {
     unsubscribe();
     browser.restore();
@@ -2888,7 +2975,13 @@ test('a same-family storage update delivers the validated session without reload
   const observed: Array<{ change: SessionStorageChange; activeCompanyToken: string | null }> = [];
   const unsubscribe = subscribeToSessionStorageChanges((change?: SessionStorageChange) => {
     observed.push({
-      change: change ?? { session: null, reload: true, origin: 'storage', reason: 'external' },
+      change: change ?? {
+        action: 'reload',
+        session: null,
+        reload: true,
+        origin: 'storage',
+        reason: 'external',
+      },
       activeCompanyToken: getActiveCompanyToken(),
     });
   }, (candidate) => activeMembership(candidate)?.role === 'member');
@@ -2904,7 +2997,13 @@ test('a same-family storage update delivers the validated session without reload
     browser.dispatchStorage(SESSION_KEY, JSON.stringify(owner), JSON.stringify(next));
 
     assert.deepEqual(observed, [{
-      change: { session: next, reload: false, origin: 'storage', reason: 'external' },
+      change: {
+        action: 'update',
+        session: next,
+        reload: false,
+        origin: 'storage',
+        reason: 'external',
+      },
       activeCompanyToken: 'company-token',
     }]);
     assert.equal(getActiveCompanyToken(), 'company-token');
@@ -2958,7 +3057,13 @@ test('different session lineage or a rejected shell guard requests reload and cl
   let guardAllows = true;
   const observed: SessionStorageChange[] = [];
   const unsubscribe = subscribeToSessionStorageChanges((change?: SessionStorageChange) => {
-    observed.push(change ?? { session: null, reload: true, origin: 'storage', reason: 'external' });
+    observed.push(change ?? {
+      action: 'reload',
+      session: null,
+      reload: true,
+      origin: 'storage',
+      reason: 'external',
+    });
   }, () => guardAllows);
 
   try {
@@ -2968,7 +3073,13 @@ test('different session lineage or a rejected shell guard requests reload and cl
       setActiveCompanyToken(`company-token-${index}`);
       browser.storage.set(SESSION_KEY, JSON.stringify(next));
       browser.dispatchStorage(SESSION_KEY, JSON.stringify(owner), JSON.stringify(next));
-      assert.deepEqual(observed.at(-1), { session: null, reload: true, origin: 'storage', reason: 'external' });
+      assert.deepEqual(observed.at(-1), {
+        action: 'reload',
+        session: null,
+        reload: true,
+        origin: 'storage',
+        reason: 'external',
+      });
       assert.equal(getActiveCompanyToken(), null);
     }
     assert.equal(observed.length, cases.length);
@@ -2979,7 +3090,7 @@ test('different session lineage or a rejected shell guard requests reload and cl
   }
 });
 
-test('removed or malformed storage sessions fail closed with reload intent', () => {
+test('removed or malformed storage sessions fail closed once and clean current malformed bytes', async () => {
   const browser = installBrowser();
   const owner = makeWorkspaceSession(
     makeFamilyAccessToken('invalid-storage-family', 'old'),
@@ -2990,7 +3101,13 @@ test('removed or malformed storage sessions fail closed with reload intent', () 
   );
   const observed: SessionStorageChange[] = [];
   const unsubscribe = subscribeToSessionStorageChanges((change?: SessionStorageChange) => {
-    observed.push(change ?? { session: null, reload: true, origin: 'storage', reason: 'external' });
+    observed.push(change ?? {
+      action: 'reload',
+      session: null,
+      reload: true,
+      origin: 'storage',
+      reason: 'external',
+    });
   }, () => true);
 
   try {
@@ -3004,14 +3121,113 @@ test('removed or malformed storage sessions fail closed with reload intent', () 
       if (newValue === null) browser.storage.delete(SESSION_KEY);
       else browser.storage.set(SESSION_KEY, newValue);
       browser.dispatchStorage(SESSION_KEY, oldValue, newValue);
-      assert.deepEqual(observed.at(-1), { session: null, reload: true, origin: 'storage', reason: 'external' });
+      await nextTask();
+      assert.deepEqual(observed.at(-1), {
+        action: 'reload',
+        session: null,
+        reload: true,
+        origin: 'storage',
+        reason: 'external',
+      });
       assert.equal(observed.length, index + 1);
       assert.equal(getActiveCompanyToken(), null);
+      if (newValue === '{malformed') assert.equal(browser.storage.has(SESSION_KEY), false);
     }
     assert.equal(observed.length, events.length);
+    assert.equal(browser.removeCalls(), 1);
   } finally {
     unsubscribe();
     setActiveCompanyToken(null);
+    browser.restore();
+  }
+});
+
+test('native malformed cleanup preserves a replacement installed before its expected-raw CAS', async () => {
+  const browser = installBrowser();
+  const locks = installCoordinatedLockManager();
+  const cleanupGate = locks.holdNext('refearn.auth.session-mutation');
+  const owner = makeWorkspaceSession(
+    makeFamilyAccessToken('malformed-race-family', 'owner'),
+    'malformed-race-refresh',
+    'user-1',
+    'membership-a',
+    'tenant-a',
+  );
+  const replacement = makeWorkspaceSession(
+    makeFamilyAccessToken('malformed-race-replacement', 'replacement', 'user-2'),
+    'malformed-race-replacement-refresh',
+    'user-2',
+    'membership-b',
+    'tenant-b',
+  );
+  const observed: SessionStorageChange[] = [];
+  const delivered = deferred();
+  const unsubscribe = subscribeToSessionStorageChanges((change) => {
+    observed.push(change);
+    delivered.resolve();
+  });
+
+  try {
+    browser.storage.set(SESSION_KEY, '{malformed');
+    browser.dispatchStorage(SESSION_KEY, JSON.stringify(owner), '{malformed');
+    await nextTask();
+    assert.equal(locks.requestCount('refearn.auth.session-mutation'), 1);
+    await cleanupGate.requested;
+    browser.storage.set(SESSION_KEY, JSON.stringify(replacement));
+    cleanupGate.release();
+    await delivered.promise;
+
+    assert.equal(browser.storage.get(SESSION_KEY), JSON.stringify(replacement));
+    assert.equal(browser.removeCalls(), 0);
+    assert.deepEqual(observed, [{
+      action: 'reload',
+      session: null,
+      reload: true,
+      origin: 'storage',
+      reason: 'external',
+    }]);
+  } finally {
+    cleanupGate.release();
+    unsubscribe();
+    locks.restore();
+    browser.restore();
+  }
+});
+
+test('native malformed cleanup removal failure still emits one fail-closed reload without throwing', async () => {
+  const removalError = new Error('malformed cleanup removal failed');
+  const browser = installBrowser({ removeItem: removalError });
+  const owner = makeWorkspaceSession(
+    makeFamilyAccessToken('malformed-removal-family', 'owner'),
+    'malformed-removal-refresh',
+    'user-1',
+    'membership-a',
+    'tenant-a',
+  );
+  const observed: SessionStorageChange[] = [];
+  const delivered = deferred();
+  const unsubscribe = subscribeToSessionStorageChanges((change) => {
+    observed.push(change);
+    delivered.resolve();
+  });
+
+  try {
+    browser.storage.set(SESSION_KEY, '{malformed');
+    assert.doesNotThrow(() => {
+      browser.dispatchStorage(SESSION_KEY, JSON.stringify(owner), '{malformed');
+    });
+    await delivered.promise;
+
+    assert.equal(browser.storage.get(SESSION_KEY), '{malformed');
+    assert.deepEqual(observed, [{
+      action: 'reload',
+      session: null,
+      reload: true,
+      origin: 'storage',
+      reason: 'external',
+    }]);
+  } finally {
+    unsubscribe();
     browser.restore();
   }
 });
@@ -3339,9 +3555,14 @@ test('the main-session storage boundary publishes local changes through the shar
   assert.match(authSource, /localSessionChangeListeners\.add\(handleSessionChange\)/);
   assert.match(
     authSource,
-    /const onStorage[\s\S]*?handleSessionChange\(event\.oldValue, event\.newValue, 'external', 'storage'\)/,
+    /const onStorage[\s\S]*?tryClearInvalidSession\(event\.newValue, 'storage-cleanup'\)[\s\S]*?handleSessionChange\(event\.oldValue, event\.newValue, 'external', 'storage'\)/,
   );
-  assert.match(authSource, /origin === 'local' && reload[\s\S]*?setTimeout/);
+  assert.match(
+    authSource,
+    /origin === 'local' && reason === 'transition'[\s\S]*?action: 'defer-to-caller'/,
+  );
+  assert.match(authSource, /action === 'reload' && change\.origin === 'local'[\s\S]*?setTimeout/);
+  assert.match(authSource, /reason === 'storage-cleanup'[\s\S]*?return/);
   assert.match(authSource, /export async function setSession[\s\S]*?store\.set\(session, 'transition'\)/);
   assert.match(authSource, /export function applyTenantSwitch[\s\S]*?'transition'/);
 });
@@ -3365,11 +3586,20 @@ test('authenticated shells and owner-bound mutation callers retain their ownersh
   for (const [shellPath, guardPattern] of shellContracts) {
     const shell = source(shellPath);
     assert.match(shell, /subscribeToSessionStorageChanges/);
-    assert.match(shell, /change\.reload/);
+    assert.match(shell, /\(change\) => \{\s*if \(change\.action === 'defer-to-caller'\) return;/);
+    assert.match(shell, /change\.action === 'reload'/);
     assert.match(shell, /change\.session/);
     assert.match(shell, guardPattern);
     assert.match(shell, /window\.location\.reload\(\)/);
+    assert.match(shell, /await clearSession\(\);\s*router\.replace\('\/login'\)/);
   }
+
+  const tenantSwitch = source('../app/platform/companies/[id]/page.tsx');
+  assert.match(tenantSwitch, /await applyTenantSwitch\([\s\S]*?router\.push\('\/admin'\)/);
+  const impersonation = source('../components/admin/MembersPageContent.tsx');
+  assert.match(impersonation, /await startImpersonation\([\s\S]*?window\.location\.href = '\/app'/);
+  const memberShell = source('../app/app/layout.tsx');
+  assert.match(memberShell, /await stopImpersonation\(\)[\s\S]*?window\.location\.href = '\/admin'/);
 
   const callerPaths = [
     '../app/account/page.tsx',

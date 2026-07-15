@@ -27,7 +27,9 @@ const SESSION_MUTATION_LOCK = 'refearn.auth.session-mutation';
 
 export type SessionChangeOrigin = 'local' | 'storage';
 export type SessionChangeReason = 'mutation' | 'transition' | 'external';
-type LocalSessionChangeReason = Exclude<SessionChangeReason, 'external'>;
+export type SessionChangeAction = 'update' | 'reload' | 'defer-to-caller';
+type LocalSessionChangeReason = Exclude<SessionChangeReason, 'external'> | 'storage-cleanup';
+type PublishedSessionChangeReason = SessionChangeReason | 'storage-cleanup';
 type LocalSessionChangeListener = (
   oldValue: string | null,
   newValue: string | null,
@@ -106,6 +108,7 @@ export type SessionReadResult =
   | { ok: false; session: null; error: unknown };
 
 export interface SessionStorageChange {
+  action: SessionChangeAction;
   session: Session | null;
   reload: boolean;
   origin: SessionChangeOrigin;
@@ -228,8 +231,7 @@ export function subscribeToSessionStorageChanges(
       if (!active) return;
       try { onChange(change); } catch { /* subscriber isolation */ }
     };
-    const { origin, reload } = change;
-    if (origin === 'local' && reload) {
+    if (change.action === 'reload' && change.origin === 'local') {
       let timer: ReturnType<typeof setTimeout>;
       timer = setTimeout(() => {
         pendingDeliveries.delete(timer);
@@ -243,9 +245,21 @@ export function subscribeToSessionStorageChanges(
   const handleSessionChange = (
     oldValue: string | null,
     newValue: string | null,
-    reason: SessionChangeReason = 'mutation',
+    reason: PublishedSessionChangeReason = 'mutation',
     origin: SessionChangeOrigin = 'local',
   ) => {
+    if (reason === 'storage-cleanup') return;
+    if (origin === 'local' && reason === 'transition') {
+      setActiveCompanyToken(null);
+      deliver({
+        action: 'defer-to-caller',
+        session: null,
+        reload: false,
+        origin,
+        reason,
+      });
+      return;
+    }
     const previous = sessionFromStorageValue(oldValue);
     const next = sessionFromStorageValue(newValue);
     let compatible = false;
@@ -255,15 +269,24 @@ export function subscribeToSessionStorageChanges(
       compatible = false;
     }
     if (compatible && next) {
-      deliver({ session: next, reload: false, origin, reason });
+      deliver({ action: 'update', session: next, reload: false, origin, reason });
       return;
     }
     setActiveCompanyToken(null);
-    deliver({ session: null, reload: true, origin, reason });
+    deliver({ action: 'reload', session: null, reload: true, origin, reason });
   };
   const onStorage = (event: StorageEvent) => {
     if (event.key !== KEY) return;
-    handleSessionChange(event.oldValue, event.newValue, 'external', 'storage');
+    if (event.newValue !== null && !sessionFromStorageValue(event.newValue)) {
+      void tryClearInvalidSession(event.newValue, 'storage-cleanup').then(handleStorageChange, handleStorageChange);
+      return;
+    }
+    handleStorageChange();
+
+    function handleStorageChange(): void {
+      if (!active) return;
+      handleSessionChange(event.oldValue, event.newValue, 'external', 'storage');
+    }
   };
   localSessionChangeListeners.add(handleSessionChange);
   window.addEventListener('storage', onStorage);
@@ -413,7 +436,10 @@ export async function tryClearSession(): Promise<boolean> {
   }
 }
 
-async function tryClearInvalidSession(expectedRaw: string): Promise<boolean> {
+async function tryClearInvalidSession(
+  expectedRaw: string,
+  reason: LocalSessionChangeReason = 'mutation',
+): Promise<boolean> {
   try {
     return await withSessionMutation((store) => {
       let currentRaw: string | null;
@@ -425,7 +451,7 @@ async function tryClearInvalidSession(expectedRaw: string): Promise<boolean> {
       }
       if (currentRaw !== expectedRaw) return false;
       try {
-        store.clear();
+        store.clear(reason);
         return true;
       } catch {
         return false;

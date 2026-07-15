@@ -32,7 +32,8 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
   useEffect(() => {
     return subscribeToSessionStorageChanges(
       (change) => {
-        if (change.reload || !change.session) {
+        if (change.action === 'defer-to-caller') return;
+        if (change.action === 'reload' || !change.session) {
           setSession(null);
           window.location.reload();
           return;
