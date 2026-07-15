@@ -51,6 +51,11 @@ function makeSession({
   };
 }
 
+function makeAccessToken(sid, label) {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({ sid, label })}.test-signature`;
+}
+
 function loadApi(initialSession) {
   let session = initialSession;
   let generation = 0;
@@ -449,6 +454,21 @@ test('a pending delayed replacement invalidates stale CAS immediately through ge
   const current = await auth.loadSessionSnapshot();
   assert.deepEqual(current.session, replacement);
   assert.deepEqual(storage.storedSession(), replacement);
+
+  const abaStorage = createControlledAsyncStorage();
+  const abaAuth = loadActualAuth(abaStorage);
+  await abaAuth.saveSession(owner);
+  const abaCaptured = await abaAuth.loadSessionSnapshot();
+  const abaWrite = abaStorage.delayNextSet();
+  const abaStaleSave = abaAuth.saveSessionIfCurrent(abaCaptured, staleRefresh);
+  await abaWrite.started;
+  const saveB = abaAuth.saveSession(replacement);
+  const saveAAgain = abaAuth.saveSession(owner);
+  abaWrite.release();
+  assert.equal(await abaStaleSave, null);
+  await Promise.all([saveB, saveAAgain]);
+  assert.deepEqual((await abaAuth.loadSessionSnapshot()).session, owner);
+  assert.deepEqual(abaStorage.storedSession(), owner);
 });
 
 test('a session snapshot retries after a replacement save starts during its delayed storage read', async () => {
@@ -763,6 +783,69 @@ test('multi-hop token lineage upgrades every known ancestor while an unknown pai
   await auth.saveSession(unknownD);
   assert.deepEqual((await auth.loadSessionSnapshot()).session, unknownD);
   assert.deepEqual(storage.storedSession(), unknownD);
+
+  const boundedStorage = createControlledAsyncStorage();
+  const boundedAuth = loadActualAuth(boundedStorage);
+  let current = makeSession({
+    accessToken: makeAccessToken('bounded-family', 'token-0'),
+    refreshToken: 'bounded-token-0-refresh',
+  });
+  const oldestAncestor = current;
+  let recentAncestor = current;
+  await boundedAuth.saveSession(current);
+  for (let index = 1; index <= 80; index += 1) {
+    if (index === 60) recentAncestor = current;
+    const captured = await boundedAuth.loadSessionSnapshot();
+    const next = {
+      ...current,
+      accessToken: makeAccessToken('bounded-family', `token-${index}`),
+      refreshToken: `bounded-token-${index}-refresh`,
+    };
+    assert.notEqual(await boundedAuth.saveSessionIfCurrent(captured, next), null);
+    current = next;
+  }
+  assert.deepEqual(boundedAuth.__tokenLineageDiagnosticsForTests(), {
+    ancestorCount: 32,
+    ancestorCap: 32,
+    fingerprintBitSize: 8192,
+  });
+  const recentMetadata = {
+    ...recentAncestor,
+    user: { ...recentAncestor.user, fullName: 'Recent in-flight metadata' },
+  };
+  await boundedAuth.saveSession(recentMetadata);
+  const expectedBounded = {
+    ...recentMetadata,
+    accessToken: current.accessToken,
+    refreshToken: current.refreshToken,
+  };
+  assert.deepEqual((await boundedAuth.loadSessionSnapshot()).session, expectedBounded);
+  assert.deepEqual(boundedStorage.storedSession(), expectedBounded);
+  assert.equal(boundedAuth.__tokenLineageDiagnosticsForTests().ancestorCount, 32);
+
+  const prunedMetadata = {
+    ...oldestAncestor,
+    user: { ...oldestAncestor.user, fullName: 'Pruned in-flight metadata' },
+  };
+  await boundedAuth.saveSession(prunedMetadata);
+  const expectedPruned = {
+    ...prunedMetadata,
+    accessToken: current.accessToken,
+    refreshToken: current.refreshToken,
+  };
+  assert.deepEqual((await boundedAuth.loadSessionSnapshot()).session, expectedPruned);
+  assert.deepEqual(boundedStorage.storedSession(), expectedPruned);
+
+  const differentFamily = {
+    ...expectedPruned,
+    accessToken: makeAccessToken('authoritative-new-family', 'new-login'),
+    refreshToken: 'authoritative-new-family-refresh',
+    user: { ...expectedPruned.user, fullName: 'Authoritative new login' },
+  };
+  await boundedAuth.saveSession(differentFamily);
+  assert.deepEqual((await boundedAuth.loadSessionSnapshot()).session, differentFamily);
+  assert.deepEqual(boundedStorage.storedSession(), differentFamily);
+  assert.equal(boundedAuth.__tokenLineageDiagnosticsForTests().ancestorCount, 0);
 });
 
 test('session boundaries invalidate lineage and malformed or empty credentials fail closed', async () => {
@@ -814,6 +897,7 @@ test('session boundaries invalidate lineage and malformed or empty credentials f
   failedReadStorage.failNextGet();
   const failedReadAuth = loadActualAuth(failedReadStorage);
   assert.equal(await failedReadAuth.loadSession(), null);
+  assert.deepEqual(await failedReadAuth.loadSession(), owner);
 
   const invalidSaveStorage = createControlledAsyncStorage();
   const invalidSaveAuth = loadActualAuth(invalidSaveStorage);
@@ -1640,88 +1724,97 @@ test('refresh failure cannot clear a same-token authorization snapshot replaceme
   }
 });
 
-test('a changed authorization snapshot operation never joins an older same-token refresh flight', async () => {
-  const owner = makeSession();
-  const replacement = {
-    ...owner,
-    memberships: owner.memberships.map((membership) => ({ ...membership, role: 'tenant_admin' })),
-  };
-  const staleRefresh = makeSession({
-    accessToken: 'old-flight-fresh-access-token',
-    refreshToken: 'old-flight-rotated-refresh-token',
+test('a current replacement waits for an older flight then refreshes independently', async () => {
+  const ownerA = makeSession();
+  const freshA = makeSession({
+    accessToken: 'owner-a-stale-fresh-access',
+    refreshToken: 'owner-a-stale-rotated-refresh',
   });
-  const merged = {
-    ...replacement,
-    accessToken: staleRefresh.accessToken,
-    refreshToken: staleRefresh.refreshToken,
-  };
-  const loaded = loadApi(owner);
-  const refreshStarted = deferred();
-  const changedUnauthorized = deferred();
-  const releaseRefresh = deferred();
-  const replayAuthorizations = [];
-  let changedSettled = false;
-  let refreshCalls = 0;
+  const ownerB = makeSession({
+    accessToken: 'owner-b-expired-access',
+    refreshToken: 'owner-b-captured-refresh',
+    userId: 'owner-b',
+    membershipId: 'owner-b-membership',
+    tenantId: 'owner-b-tenant',
+  });
+  const freshB = makeSession({
+    accessToken: 'owner-b-fresh-access',
+    refreshToken: 'owner-b-rotated-refresh',
+    userId: 'owner-b',
+    membershipId: 'owner-b-membership',
+    tenantId: 'owner-b-tenant',
+  });
+  const loaded = loadApi(ownerA);
+  const aRefreshStarted = deferred();
+  const releaseARefresh = deferred();
+  const refreshBodies = [];
+  const requestTokens = new Map();
   const previousFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = String(input);
     const token = authorization(init);
     if (url.endsWith('/auth/refresh')) {
-      refreshCalls += 1;
-      refreshStarted.resolve();
-      await releaseRefresh.promise;
-      return Response.json(staleRefresh);
+      const body = JSON.parse(String(init?.body));
+      refreshBodies.push(body);
+      if (body.refreshToken === ownerA.refreshToken) {
+        aRefreshStarted.resolve();
+        await releaseARefresh.promise;
+        return Response.json(freshA);
+      }
+      assert.equal(body.refreshToken, ownerB.refreshToken);
+      return Response.json(freshB);
     }
-    if (url.endsWith('/old-role-flight') && token === `Bearer ${owner.accessToken}`) {
+    const tokens = requestTokens.get(url) ?? [];
+    tokens.push(token);
+    requestTokens.set(url, tokens);
+    if (url.endsWith('/owner-a-resource') && token === `Bearer ${ownerA.accessToken}`) {
       return new Response(null, { status: 401 });
     }
-    if (url.endsWith('/changed-role-operation') && token === `Bearer ${replacement.accessToken}`) {
-      changedUnauthorized.resolve();
+    if (url.endsWith('/owner-b-resource') && token === `Bearer ${ownerB.accessToken}`) {
       return new Response(null, { status: 401 });
     }
-    replayAuthorizations.push(token);
-    return Response.json({ replayed: true });
+    if (url.endsWith('/owner-b-resource') && token === `Bearer ${freshB.accessToken}`) {
+      return Response.json({ owner: 'b', refreshed: true });
+    }
+    throw new Error(`unexpected authorization for ${url}: ${token}`);
   };
 
   try {
-    const oldPending = loaded.api.get('/old-role-flight');
-    await refreshStarted.promise;
-    loaded.persistence.replace(replacement);
-    const changedPending = loaded.api.get('/changed-role-operation');
-    void changedPending.then(
-      () => {
-        changedSettled = true;
-      },
-      () => {
-        changedSettled = true;
-      },
-    );
-    await changedUnauthorized.promise;
+    const pendingA = loaded.api.get('/owner-a-resource');
+    await aRefreshStarted.promise;
+    loaded.persistence.replace(ownerB);
+    const pendingB = loaded.api.get('/owner-b-resource');
     await new Promise((resolve) => setImmediate(resolve));
-    const settledBeforeOldFlight = changedSettled;
+    assert.deepEqual(refreshBodies, [{ refreshToken: ownerA.refreshToken }]);
 
-    releaseRefresh.resolve();
-    const [oldResult, changedResult] = await Promise.all([
-      Promise.allSettled([oldPending]).then(([result]) => result),
-      Promise.allSettled([changedPending]).then(([result]) => result),
-    ]);
+    releaseARefresh.resolve();
+    const [resultA, resultB] = await Promise.allSettled([pendingA, pendingB]);
 
-    assert.equal(settledBeforeOldFlight, true);
-    assert.equal(refreshCalls, 1);
-    for (const result of [oldResult, changedResult]) {
-      assert.equal(result.status, 'rejected');
-      if (result.status === 'rejected') {
-        assert.ok(result.reason instanceof loaded.ApiError);
-        assert.equal(result.reason.status, 401);
-        assert.equal(result.reason.message, 'session expired');
-      }
+    assert.equal(resultA.status, 'rejected');
+    if (resultA.status === 'rejected') {
+      assert.ok(resultA.reason instanceof loaded.ApiError);
+      assert.equal(resultA.reason.status, 401);
+      assert.equal(resultA.reason.message, 'session expired');
     }
-    assert.deepEqual(loaded.persistence.saves, [merged]);
+    assert.equal(resultB.status, 'fulfilled');
+    if (resultB.status === 'fulfilled') {
+      assert.deepEqual(resultB.value, { owner: 'b', refreshed: true });
+    }
+    assert.deepEqual(refreshBodies, [
+      { refreshToken: ownerA.refreshToken },
+      { refreshToken: ownerB.refreshToken },
+    ]);
+    assert.deepEqual(requestTokens.get(`${apiBase}/owner-a-resource`), [
+      `Bearer ${ownerA.accessToken}`,
+    ]);
+    assert.deepEqual(requestTokens.get(`${apiBase}/owner-b-resource`), [
+      `Bearer ${ownerB.accessToken}`,
+      `Bearer ${freshB.accessToken}`,
+    ]);
     assert.equal(loaded.persistence.clearCalls(), 0);
-    assert.deepEqual(replayAuthorizations, []);
-    assert.deepEqual(loaded.persistence.current(), merged);
+    assert.deepEqual(loaded.persistence.current(), freshB);
   } finally {
-    releaseRefresh.resolve();
+    releaseARefresh.resolve();
     globalThis.fetch = previousFetch;
   }
 });

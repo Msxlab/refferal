@@ -76,10 +76,17 @@ let sessionQueue: Promise<void> = Promise.resolve();
 
 type SessionTokenPair = Pick<Session, 'accessToken' | 'refreshToken'>;
 
+const TOKEN_LINEAGE_ANCESTOR_CAP = 32;
+const PRUNED_TOKEN_FINGERPRINT_BIT_SIZE = 8192;
+const PRUNED_TOKEN_FINGERPRINT_WORDS = PRUNED_TOKEN_FINGERPRINT_BIT_SIZE / 32;
+const TOKEN_FINGERPRINT_SEEDS = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b] as const;
+
 interface TokenAdvancement {
   owner: Session;
   ancestors: SessionTokenPair[];
   latestTokens: SessionTokenPair;
+  familyId: string | null;
+  prunedTokenBits: Uint32Array;
 }
 
 let tokenAdvancement: TokenAdvancement | null = null;
@@ -139,6 +146,83 @@ function tokenPairOf(session: SessionTokenPair): SessionTokenPair {
   return { accessToken: session.accessToken, refreshToken: session.refreshToken };
 }
 
+function decodeBase64Url(value: string): string {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  if (typeof globalThis.atob === 'function') return globalThis.atob(padded);
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let output = '';
+  let buffer = 0;
+  let bits = 0;
+  for (const character of padded) {
+    if (character === '=') break;
+    const digit = alphabet.indexOf(character);
+    if (digit < 0) throw new Error('invalid base64url');
+    buffer = (buffer << 6) | digit;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      output += String.fromCharCode((buffer >> bits) & 0xff);
+    }
+  }
+  return output;
+}
+
+function accessTokenFamilyId(accessToken: string): string | null {
+  const payload = accessToken.split('.')[1];
+  if (!payload) return null;
+  try {
+    const claims: unknown = JSON.parse(decodeBase64Url(payload));
+    if (!isRecord(claims) || !isNonEmptyString(claims.sid)) return null;
+    return claims.sid;
+  } catch {
+    return null;
+  }
+}
+
+function sharedTokenFamily(left: SessionTokenPair, right: SessionTokenPair): string | null {
+  const leftFamily = accessTokenFamilyId(left.accessToken);
+  const rightFamily = accessTokenFamilyId(right.accessToken);
+  return leftFamily && leftFamily === rightFamily ? leftFamily : null;
+}
+
+function tokenFingerprint(tokens: SessionTokenPair, seed: number): number {
+  let hash = seed >>> 0;
+  const value = `${tokens.accessToken}\u0000${tokens.refreshToken}`;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  hash ^= hash >>> 16;
+  return hash >>> 0;
+}
+
+function addPrunedTokenFingerprint(bits: Uint32Array, tokens: SessionTokenPair): void {
+  for (const seed of TOKEN_FINGERPRINT_SEEDS) {
+    const index = tokenFingerprint(tokens, seed) % PRUNED_TOKEN_FINGERPRINT_BIT_SIZE;
+    bits[index >>> 5] |= 1 << (index & 31);
+  }
+}
+
+function mayBePrunedTokenPair(bits: Uint32Array, tokens: SessionTokenPair): boolean {
+  return TOKEN_FINGERPRINT_SEEDS.every((seed) => {
+    const index = tokenFingerprint(tokens, seed) % PRUNED_TOKEN_FINGERPRINT_BIT_SIZE;
+    return (bits[index >>> 5] & (1 << (index & 31))) !== 0;
+  });
+}
+
+function retainBoundedAncestors(
+  ancestors: SessionTokenPair[],
+  prunedTokenBits: Uint32Array,
+): { ancestors: SessionTokenPair[]; prunedTokenBits: Uint32Array } {
+  const firstRetained = Math.max(0, ancestors.length - TOKEN_LINEAGE_ANCESTOR_CAP);
+  const nextBits = prunedTokenBits.slice();
+  for (const tokens of ancestors.slice(0, firstRetained)) {
+    addPrunedTokenFingerprint(nextBits, tokens);
+  }
+  return { ancestors: ancestors.slice(firstRetained), prunedTokenBits: nextBits };
+}
+
 function isKnownTokenPair(advancement: TokenAdvancement, tokens: SessionTokenPair): boolean {
   return (
     hasTokenPair(tokens, advancement.latestTokens) ||
@@ -160,10 +244,12 @@ function registerTokenAdvancement(owner: Session | null, refreshed: Session): vo
     tokenAdvancement = null;
     return;
   }
+  const familyId = sharedTokenFamily(owner, refreshed);
   if (hasTokenPair(refreshed, owner)) {
     const current = tokenAdvancement;
     if (
       current &&
+      current.familyId === familyId &&
       sameSessionIdentity(current.owner, refreshed) &&
       isKnownTokenPair(current, refreshed)
     ) {
@@ -175,16 +261,23 @@ function registerTokenAdvancement(owner: Session | null, refreshed: Session): vo
   const current = tokenAdvancement;
   if (
     current &&
+    current.familyId === familyId &&
     sameSessionIdentity(current.owner, refreshed) &&
     isKnownTokenPair(current, owner)
   ) {
     let ancestors = appendUniqueTokenPair(current.ancestors, current.latestTokens);
     ancestors = appendUniqueTokenPair(ancestors, owner);
     const latestTokens = tokenPairOf(refreshed);
+    const retained = retainBoundedAncestors(
+      ancestors.filter((ancestor) => !hasTokenPair(ancestor, latestTokens)),
+      current.prunedTokenBits,
+    );
     tokenAdvancement = {
       owner: current.owner,
-      ancestors: ancestors.filter((ancestor) => !hasTokenPair(ancestor, latestTokens)),
+      ancestors: retained.ancestors,
       latestTokens,
+      familyId,
+      prunedTokenBits: retained.prunedTokenBits,
     };
     return;
   }
@@ -192,6 +285,8 @@ function registerTokenAdvancement(owner: Session | null, refreshed: Session): vo
     owner,
     ancestors: [tokenPairOf(owner)],
     latestTokens: tokenPairOf(refreshed),
+    familyId,
+    prunedTokenBits: new Uint32Array(PRUNED_TOKEN_FINGERPRINT_WORDS),
   };
 }
 
@@ -207,6 +302,16 @@ function resolveQueuedSessionSave(session: Session): {
     return { session, advancement };
   }
   if (advancement.ancestors.some((ancestor) => hasTokenPair(session, ancestor))) {
+    return {
+      session: { ...session, ...advancement.latestTokens },
+      advancement,
+    };
+  }
+  if (
+    advancement.familyId !== null &&
+    accessTokenFamilyId(session.accessToken) === advancement.familyId &&
+    mayBePrunedTokenPair(advancement.prunedTokenBits, session)
+  ) {
     return {
       session: { ...session, ...advancement.latestTokens },
       advancement,
@@ -231,7 +336,7 @@ async function loadSessionWithinQueue(): Promise<Session | null> {
     raw = await AsyncStorage.getItem(KEY);
   } catch {
     cached = null;
-    cacheInitialized = true;
+    cacheInitialized = false;
     tokenAdvancement = null;
     return null;
   }
@@ -444,6 +549,18 @@ export function mergeSessionTokensIfSameIdentity(
     return Promise.resolve(false);
   }
   return mergeSessionTokensAttempt(owner, tokens);
+}
+
+export function __tokenLineageDiagnosticsForTests(): {
+  ancestorCount: number;
+  ancestorCap: number;
+  fingerprintBitSize: number;
+} {
+  return {
+    ancestorCount: tokenAdvancement?.ancestors.length ?? 0,
+    ancestorCap: TOKEN_LINEAGE_ANCESTOR_CAP,
+    fingerprintBitSize: PRUNED_TOKEN_FINGERPRINT_BIT_SIZE,
+  };
 }
 
 export function activeMembership(s: Session): MembershipSummary | null {

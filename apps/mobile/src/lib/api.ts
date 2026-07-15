@@ -224,9 +224,12 @@ async function performRefresh(
 
 function refresh(owner: AuthenticatedSessionSnapshot): Promise<AuthenticatedSessionSnapshot | null> {
   if (refreshInFlight) {
-    return sameAuthenticatedSnapshot(refreshInFlight.owner, owner)
-      ? refreshInFlight.promise
-      : Promise.resolve(null);
+    if (sameAuthenticatedSnapshot(refreshInFlight.owner, owner)) return refreshInFlight.promise;
+    const active = refreshInFlight;
+    return active.promise.then(
+      async () => ((await refreshOwnerIsCurrent(owner)) ? refresh(owner) : null),
+      async () => ((await refreshOwnerIsCurrent(owner)) ? refresh(owner) : null),
+    );
   }
   let flight: RefreshFlight;
   const current = performRefresh(owner)
