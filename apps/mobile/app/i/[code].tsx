@@ -12,7 +12,6 @@ interface InviteResolve {
   code: string;
   valid: boolean;
   tenantName: string;
-  inviterName: string;
   emailLocked: boolean;
 }
 
@@ -64,7 +63,7 @@ export default function InviteRegisterScreen() {
     >
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: space.s6 }}>
         <Card glow>
-          <Title eyebrow={t('reg.title')} title={invite ? `${invite.inviterName} sizi davet etti` : ' '} />
+          <Title eyebrow={t('reg.title')} title={invite ? `You're invited to join ${invite.tenantName}` : ' '} />
 
           {loadError || (invite && !invite.valid) ? (
             <ErrorText>{t('reg.invalid')}</ErrorText>

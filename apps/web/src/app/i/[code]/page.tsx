@@ -16,8 +16,6 @@ interface InviteResolve {
   code: string;
   valid: boolean;
   tenantName: string;
-  inviterName: string;
-  inviterMessage: string | null;
   emailLocked: boolean;
 }
 
@@ -82,14 +80,8 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
           ) : (
             <>
               <h1 className="h1" style={{ marginBottom: 14 }}>
-                <span className="gradient-text">{invite.inviterName}</span> invited you
+                You're invited to join <span className="gradient-text">{invite.tenantName}</span>
               </h1>
-              {invite.inviterMessage && (
-                <Card style={{ background: 'var(--panel-2)', padding: 14, marginBottom: 14, fontStyle: 'italic', fontSize: 13.5 }}>
-                  “{invite.inviterMessage}”
-                  <div className="faint" style={{ fontStyle: 'normal', fontSize: 11, marginTop: 6 }}>— {invite.inviterName}</div>
-                </Card>
-              )}
               <Card style={{ background: 'rgba(124,139,255,.08)', padding: 14, marginBottom: 14 }}>
                 <div className="spread">
                   <div>

@@ -55,7 +55,7 @@ export default function InvitePage() {
 
   async function saveMessage() {
     setSavingMsg(true);
-    try { await api.post('/app/invites/message', { message: message.trim() || null }); showToast('Welcome message saved ✓'); }
+    try { await api.post('/app/invites/message', { message: message.trim() || null }); showToast('Invite note saved ✓'); }
     catch (e) { setError(String((e as ApiError).message)); } finally { setSavingMsg(false); }
   }
 
@@ -90,14 +90,17 @@ export default function InvitePage() {
       <p className="fade-in mb-5 text-sm text-muted-foreground">Share your invite link; everyone who joins becomes part of your tree.</p>
 
       <Card className="fade-in mb-4 p-5">
-        <Label htmlFor={`${uid}-msg`} className="block">Personal welcome message (shown on your invite page)</Label>
+        <Label htmlFor={`${uid}-msg`} className="block">Personal invite note</Label>
+        <p className="mb-2 mt-1 text-xs text-muted-foreground">
+          Saved in your authenticated invite workspace; it is not displayed on the public signup page.
+        </p>
         <textarea
           id={`${uid}-msg`}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           maxLength={280}
           rows={2}
-          placeholder="e.g. Hey! Join my team and let's grow together."
+          placeholder="Add a private note for your invite workspace."
           className="mt-1.5 resize-y"
         />
         <div className="mt-2 flex items-center justify-between">

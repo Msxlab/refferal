@@ -125,9 +125,13 @@ export class InvitesService {
   async resolve(code: string) {
     const invite = await this.prisma.invite.findUnique({
       where: { code },
-      include: {
+      select: {
+        code: true,
+        status: true,
+        expiresAt: true,
+        email: true,
         tenant: { select: { name: true, slug: true, status: true } },
-        inviter: { include: { user: { select: { fullName: true } } } },
+        inviter: { select: { status: true } },
       },
     });
     if (!invite) {
@@ -143,8 +147,6 @@ export class InvitesService {
       valid,
       tenantName: invite.tenant.name,
       tenantSlug: invite.tenant.slug,
-      inviterName: invite.inviter.user.fullName,
-      inviterMessage: invite.inviter.inviteMessage ?? null,
       expiresAt: invite.expiresAt,
       emailLocked: invite.email !== null,
     };

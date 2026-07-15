@@ -60,13 +60,19 @@ describe('auth + davet akisi (entegrasyon)', () => {
   }
 
   it('public davet cozumleme: /v1/invites/:code', async () => {
-    const { tenant, invite } = await setupTenantWithInvite();
+    const { tenant, root, invite } = await setupTenantWithInvite();
+    await prisma.membership.update({
+      where: { id: root.id },
+      data: { inviteMessage: 'This note belongs to the authenticated editor.' },
+    });
 
     const res = await request(app.getHttpServer()).get(`/v1/invites/${invite.code}`).expect(200);
-    expect(res.body).toMatchObject({
+    expect(res.body).toEqual({
       code: invite.code,
       valid: true,
       tenantName: tenant.name,
+      tenantSlug: tenant.slug,
+      expiresAt: invite.expiresAt.toISOString(),
       emailLocked: false,
     });
 
