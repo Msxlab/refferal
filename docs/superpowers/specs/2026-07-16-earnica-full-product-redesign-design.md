@@ -2,7 +2,7 @@
 
 **Tarih:** 2026-07-16
 
-**Durum:** Görsel yön onaylandı; yazılı spesifikasyon kullanıcı onayı bekliyor
+**Durum:** Görsel yön ve yazılı spesifikasyon kullanıcı tarafından onaylandı
 
 **Ürün adı:** Earnica
 
