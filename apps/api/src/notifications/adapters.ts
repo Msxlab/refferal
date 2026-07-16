@@ -28,7 +28,7 @@ export interface PushAdapter {
 }
 
 /**
- * SMTP yoksa (dev) console'a yazar; outbox yine drenaj olur ve akis test edilebilir.
+ * SMTP yoksa (dev) hassas icerik icermeyen sabit bir tanilama yazar; outbox yine drenaj olur.
  * SMTP_HOST tanimliysa gercek nodemailer transport kullanir (SPEC 5).
  */
 export class SmtpEmailAdapter implements EmailAdapter {
@@ -52,7 +52,7 @@ export class SmtpEmailAdapter implements EmailAdapter {
 
   async send(msg: EmailMessage): Promise<void> {
     if (!this.transport) {
-      this.logger.log(`[DEV e-posta] → ${msg.to} | ${msg.subject}\n${msg.text}`);
+      this.logger.log('[DEV e-posta] SMTP yapilandirilmadi; bildirim gonderilmedi');
       return;
     }
     await this.transport.sendMail({
@@ -83,7 +83,7 @@ export class ResendEmailAdapter implements EmailAdapter {
 
   async send(msg: EmailMessage): Promise<void> {
     if (!this.apiKey) {
-      this.logger.warn(`[DEV e-posta/provider key yok] → ${msg.to} | ${msg.subject}`);
+      this.logger.warn('[DEV e-posta] provider key yok; bildirim gonderilmedi');
       return;
     }
     const res = await fetch(this.endpoint, {
@@ -98,8 +98,7 @@ export class ResendEmailAdapter implements EmailAdapter {
       }),
     });
     if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      throw new Error(`mail provider ${res.status}: ${detail.slice(0, 200)}`);
+      throw new Error(`mail provider ${res.status}`);
     }
   }
 }

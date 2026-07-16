@@ -88,9 +88,9 @@ export class NotificationRelayService {
           where: { id: n.id },
           data: { status: NotificationStatus.sent, sentAt: new Date(), attempts: { increment: 1 } },
         });
-      } catch (err) {
+      } catch {
         const attempts = n.attempts + 1;
-        const message = err instanceof Error ? err.message : String(err);
+        const message = 'notification delivery failed';
         await this.prisma.notification.update({
           where: { id: n.id },
           data: {
@@ -107,7 +107,8 @@ export class NotificationRelayService {
   }
 
   private async dispatch(n: {
-    recipientMembershipId: string;
+    recipientMembershipId: string | null;
+    recipientUserId: string | null;
     channel: NotificationChannel;
     template: string;
     payload: unknown;
@@ -115,23 +116,33 @@ export class NotificationRelayService {
     const payload = (n.payload ?? {}) as Record<string, unknown>;
     const { subject, body } = render(n.template, payload);
 
-    const membership = await this.prisma.membership.findUnique({
-      where: { id: n.recipientMembershipId },
-      include: { user: { include: { devices: true } } },
-    });
-    if (!membership) {
-      // alici yoksa kalici hata (yeniden denemeye gerek yok)
-      throw new Error(`alici uyelik bulunamadi: ${n.recipientMembershipId}`);
-    }
+    const recipient = n.recipientMembershipId
+      ? (
+          await this.prisma.membership.findUnique({
+            where: { id: n.recipientMembershipId },
+            select: {
+              user: {
+                select: { email: true, devices: { select: { expoPushToken: true } } },
+              },
+            },
+          })
+        )?.user ?? null
+      : n.recipientUserId
+        ? await this.prisma.user.findUnique({
+            where: { id: n.recipientUserId },
+            select: { email: true, devices: { select: { expoPushToken: true } } },
+          })
+        : null;
+    if (!recipient) throw new Error('notification recipient unavailable');
 
     if (n.channel === NotificationChannel.in_app) {
       // gelen kutusu kanali: satir zaten DB'de; "sent" = kullaniciya teslim (okunma readAt ile izlenir)
       return;
     }
     if (n.channel === NotificationChannel.email) {
-      await this.email.send({ to: membership.user.email, subject, text: body, html: toHtml(subject, body) });
+      await this.email.send({ to: recipient.email, subject, text: body, html: toHtml(subject, body) });
     } else {
-      const tokens = membership.user.devices.map((d) => d.expoPushToken);
+      const tokens = recipient.devices.map((d) => d.expoPushToken);
       await this.push.send({ tokens, title: subject, body, data: { template: n.template } });
     }
   }

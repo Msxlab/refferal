@@ -45,6 +45,7 @@ export const DISCLAIMER_VERSION = 'v1';
 // 2FA: TOTP saat kaymasi toleransi (+-1 adim) + login 2. adim challenge token omru (5 dk)
 authenticator.options = { window: 1 };
 const MFA_CHALLENGE_TTL_SECONDS = 300;
+const PASSWORD_RESET_RESPONSE_FLOOR_MS = 250;
 
 /** Login 2FA istiyorsa donen yanit (tam oturum YERINE). */
 export interface MfaChallenge {
@@ -433,49 +434,46 @@ export class AuthService {
 
   /** Kullanici var/yok bilgisi sizdirilmaz: her durumda ayni cevap. */
   async requestPasswordReset(email: string): Promise<{ ok: true }> {
-    const user = await this.prisma.user.findUnique({
-      where: { email },
-      include: { memberships: { where: { status: MembershipStatus.active }, take: 1 } },
-    });
-    if (user) {
-      const raw = randomToken(32);
-      const recipient = user.lastMembershipId ?? user.memberships[0]?.id;
-      // Bildirim hangi uyelige gidiyorsa o uyeligin tenant'ina ait olmali. lastMembershipId
-      // include edilen (aktif, take:1) listede olmayabilir; tenantId'yi dogrudan cozeriz.
-      const recipientTenantId = recipient
-        ? (
-            await this.prisma.membership.findUnique({
-              where: { id: recipient },
-              select: { tenantId: true },
-            })
-          )?.tenantId ?? null
-        : null;
-      await this.prisma.$transaction(async (tx) => {
-        await tx.userToken.updateMany({
-          where: { userId: user.id, purpose: UserTokenPurpose.password_reset, usedAt: null },
-          data: { usedAt: new Date() }, // onceki istekler gecersizlesir
-        });
-        await tx.userToken.create({
-          data: {
-            userId: user.id,
-            purpose: UserTokenPurpose.password_reset,
-            tokenHash: sha256(raw),
-            expiresAt: new Date(Date.now() + authConfig.passwordResetTtlMs),
-          },
-        });
-        if (recipient) {
+    const startedAt = Date.now();
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { email },
+        select: { id: true },
+      });
+      if (user) {
+        const raw = randomToken(32);
+        await this.prisma.$transaction(async (tx) => {
+          await tx.userToken.updateMany({
+            where: { userId: user.id, purpose: UserTokenPurpose.password_reset, usedAt: null },
+            data: { usedAt: new Date() }, // onceki istekler gecersizlesir
+          });
+          await tx.userToken.create({
+            data: {
+              userId: user.id,
+              purpose: UserTokenPurpose.password_reset,
+              tokenHash: sha256(raw),
+              expiresAt: new Date(Date.now() + authConfig.passwordResetTtlMs),
+            },
+          });
           await tx.notification.create({
             data: {
-              tenantId: recipientTenantId,
-              recipientMembershipId: recipient,
+              tenantId: null,
+              recipientMembershipId: null,
+              recipientUserId: user.id,
               channel: NotificationChannel.email,
               template: 'password_reset',
               payload: { token: raw },
             },
           });
-        }
-      });
+        });
+      }
+    } catch {
+      // Public endpoint daima ayni cevabi verir; e-posta, token ve altyapi hatasi log'a tasinmaz.
+      this.logger.error('password reset request processing failed');
     }
+
+    const remainingMs = PASSWORD_RESET_RESPONSE_FLOOR_MS - (Date.now() - startedAt);
+    if (remainingMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, remainingMs));
     return { ok: true };
   }
 

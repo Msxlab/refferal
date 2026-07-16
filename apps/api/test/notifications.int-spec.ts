@@ -2,7 +2,7 @@ import { NotificationChannel, NotificationStatus } from '@prisma/client';
 import { EmailAdapter, EmailMessage, PushAdapter, PushMessage } from '../src/notifications/adapters';
 import { NotificationRelayService } from '../src/notifications/notification-relay.service';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { createChain, createTenant, truncateAll } from './helpers';
+import { createChain, createPlatformAdmin, createTenant, truncateAll } from './helpers';
 
 /** Outbox relay: pending bildirimleri drenaj eder, sent/failed/retry isaretler (SPEC 5). */
 describe('bildirim relay (entegrasyon)', () => {
@@ -68,6 +68,57 @@ describe('bildirim relay (entegrasyon)', () => {
     expect(sentPush[0].tokens).toHaveLength(0);
   });
 
+  it('uyeligi olmayan dogrudan kullanici e-posta outbox kaydini kullaniciya gonderir', async () => {
+    const user = await createPlatformAdmin(prisma, 'Platform-Sifre-42!', 'direct-notification@test.refearn.local');
+    const notification = await prisma.notification.create({
+      data: {
+        tenantId: null,
+        recipientMembershipId: null,
+        recipientUserId: user.id,
+        channel: NotificationChannel.email,
+        template: 'password_reset',
+        payload: { token: 'direct-user-token' },
+      },
+    });
+
+    await expect(relay.drainOnce()).resolves.toBe(1);
+
+    expect(sentEmails).toHaveLength(1);
+    expect(sentEmails[0]).toEqual(expect.objectContaining({ to: user.email }));
+    const persisted = await prisma.notification.findUniqueOrThrow({ where: { id: notification.id } });
+    expect(persisted.status).toBe(NotificationStatus.sent);
+  });
+
+  it('veritabani tam olarak bir membership veya user recipient zorunlu kilar', async () => {
+    const r = await recipient();
+
+    await expect(
+      prisma.notification.create({
+        data: {
+          tenantId: null,
+          recipientMembershipId: null,
+          recipientUserId: null,
+          channel: NotificationChannel.email,
+          template: 'password_reset',
+          payload: {},
+        },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      prisma.notification.create({
+        data: {
+          tenantId: r.tenantId,
+          recipientMembershipId: r.membershipId,
+          recipientUserId: r.userId,
+          channel: NotificationChannel.email,
+          template: 'password_reset',
+          payload: {},
+        },
+      }),
+    ).rejects.toThrow();
+  });
+
   it('push: kayitli cihaz token`i varsa gonderim listesine girer', async () => {
     const r = await recipient();
     await prisma.device.create({
@@ -95,7 +146,7 @@ describe('bildirim relay (entegrasyon)', () => {
     const after = await prisma.notification.findUniqueOrThrow({ where: { id: n.id } });
     expect(after.attempts).toBe(5);
     expect(after.status).toBe(NotificationStatus.failed);
-    expect(after.lastError).toContain('SMTP down');
+    expect(after.lastError).toBe('notification delivery failed');
 
     // cap'e ulasan satir artik islenmez
     const processed = await relay.drainOnce();

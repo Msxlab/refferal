@@ -1,4 +1,4 @@
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { InviteStatus, MembershipStatus } from '@prisma/client';
 import { authenticator } from 'otplib';
@@ -7,7 +7,7 @@ import { AppModule } from '../src/app.module';
 import { authConfig } from '../src/auth/auth.config';
 import { encryptSecret } from '../src/common/crypto';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { createChain, createPlan, createTenant, truncateAll } from './helpers';
+import { createChain, createPlan, createPlatformAdmin, createTenant, truncateAll } from './helpers';
 
 /**
  * Auth + davet akisi (SPEC 4 / 13-4) — HTTP seviyesinde, gercek Postgres'e karsi.
@@ -462,5 +462,82 @@ describe('auth + davet akisi (entegrasyon)', () => {
       .post('/v1/auth/login')
       .send({ email: 'yeni@uye.test', password: newPassword })
       .expect(200);
+  });
+
+  it('uyeliksiz platform admin sifre sifirlama direct-user outbox ile tamamlanir ve cevap sabit kalir', async () => {
+    const platform = await createPlatformAdmin(prisma, PASSWORD, 'reset-platform@test.refearn.local');
+
+    const unknownStartedAt = Date.now();
+    const unknown = await request(app.getHttpServer())
+      .post('/v1/auth/password-reset/request')
+      .send({ email: 'unknown-platform@test.refearn.local' })
+      .expect(200);
+    const unknownElapsedMs = Date.now() - unknownStartedAt;
+
+    const knownStartedAt = Date.now();
+    const known = await request(app.getHttpServer())
+      .post('/v1/auth/password-reset/request')
+      .send({ email: platform.email })
+      .expect(200);
+    const knownElapsedMs = Date.now() - knownStartedAt;
+
+    expect(unknown.body).toEqual({ ok: true });
+    expect(known.body).toEqual(unknown.body);
+    expect(unknownElapsedMs).toBeGreaterThanOrEqual(225);
+    expect(knownElapsedMs).toBeGreaterThanOrEqual(225);
+
+    const notification = await prisma.notification.findFirstOrThrow({
+      where: { template: 'password_reset' },
+    });
+    expect(notification).toEqual(
+      expect.objectContaining({
+        tenantId: null,
+        recipientMembershipId: null,
+        recipientUserId: platform.id,
+      }),
+    );
+    const token = (notification.payload as { token: string }).token;
+    const newPassword = 'Platform-Yeni-Sifre-2026!';
+
+    await request(app.getHttpServer())
+      .post('/v1/auth/password-reset/confirm')
+      .send({ token, newPassword })
+      .expect(200, { ok: true });
+    await request(app.getHttpServer())
+      .post('/v1/auth/login')
+      .send({ email: platform.email, password: PASSWORD })
+      .expect(401);
+    await request(app.getHttpServer())
+      .post('/v1/auth/login')
+      .send({ email: platform.email, password: newPassword })
+      .expect(200);
+  });
+
+  it('bilinen kullanici transaction hatasini sizdirmadan ayni sabit cevapla kapatir', async () => {
+    const email = 'reset-write-failure@test.refearn.local';
+    await createPlatformAdmin(prisma, PASSWORD, email);
+    const transactionSpy = jest.spyOn(prisma, '$transaction').mockRejectedValueOnce(
+      new Error(`database rejected token for ${email}: raw-secret-token`),
+    );
+    const loggerSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+    try {
+      const startedAt = Date.now();
+      const response = await request(app.getHttpServer())
+        .post('/v1/auth/password-reset/request')
+        .send({ email })
+        .expect(200);
+
+      expect(response.body).toEqual({ ok: true });
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(225);
+      expect(loggerSpy).toHaveBeenCalledWith('password reset request processing failed');
+      expect(JSON.stringify(loggerSpy.mock.calls)).not.toContain(email);
+      expect(JSON.stringify(loggerSpy.mock.calls)).not.toContain('raw-secret-token');
+      await expect(prisma.userToken.count()).resolves.toBe(0);
+      await expect(prisma.notification.count()).resolves.toBe(0);
+    } finally {
+      transactionSpy.mockRestore();
+      loggerSpy.mockRestore();
+    }
   });
 });

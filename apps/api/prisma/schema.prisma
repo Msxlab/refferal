@@ -296,6 +296,7 @@ model User {
   devices       Device[]
   refreshTokens RefreshToken[]
   userTokens    UserToken[]
+  directNotifications Notification[] @relation("DirectUserNotifications")
 
   @@map("users")
 }
@@ -656,7 +657,8 @@ model Device {
 model Notification {
   id                    String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId              String?             @map("tenant_id") @db.Uuid
-  recipientMembershipId String              @map("recipient_membership_id") @db.Uuid
+  recipientMembershipId String?             @map("recipient_membership_id") @db.Uuid
+  recipientUserId       String?             @map("recipient_user_id") @db.Uuid
   channel               NotificationChannel
   template              String
   payload               Json                @default("{}")
@@ -670,10 +672,12 @@ model Notification {
   updatedAt             DateTime            @updatedAt @map("updated_at")
 
   // Cascade: uyelik silinince bildirimleri de gider (orphan satir kalmaz).
-  membership Membership @relation(fields: [recipientMembershipId], references: [id], onDelete: Cascade)
+  membership    Membership? @relation(fields: [recipientMembershipId], references: [id], onDelete: Cascade)
+  recipientUser User?       @relation("DirectUserNotifications", fields: [recipientUserId], references: [id], onDelete: Cascade)
 
   @@index([status, createdAt])
   @@index([recipientMembershipId, channel, readAt])
+  @@index([recipientUserId, channel, readAt])
   @@map("notifications")
 }
 
