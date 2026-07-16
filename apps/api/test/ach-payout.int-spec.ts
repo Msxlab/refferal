@@ -35,11 +35,14 @@ describe('self-hosted ACH payout (entegrasyon)', () => {
     jwt = moduleRef.get(JwtService);
   });
   afterAll(async () => {
-    await app.close();
-    if (originalEncryptionKey === undefined) delete process.env.REFEARN_ENC_KEY;
-    else process.env.REFEARN_ENC_KEY = originalEncryptionKey;
-    if (originalWriteVersion === undefined) delete process.env.REFEARN_SECRET_WRITE_VERSION;
-    else process.env.REFEARN_SECRET_WRITE_VERSION = originalWriteVersion;
+    try {
+      if (app) await app.close();
+    } finally {
+      if (originalEncryptionKey === undefined) delete process.env.REFEARN_ENC_KEY;
+      else process.env.REFEARN_ENC_KEY = originalEncryptionKey;
+      if (originalWriteVersion === undefined) delete process.env.REFEARN_SECRET_WRITE_VERSION;
+      else process.env.REFEARN_SECRET_WRITE_VERSION = originalWriteVersion;
+    }
   });
   beforeEach(async () => { await truncateAll(prisma); });
 
