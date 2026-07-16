@@ -1,0 +1,208 @@
+[
+  {
+    "key": "bulk_scope",
+    "sourceFiles": [
+      "apps/api/src/sales/sales.controller.ts",
+      "apps/api/src/sales/sales.types.ts",
+      "apps/api/src/sales/sales.service.ts",
+      "apps/api/test/sales-wallet.int-spec.ts"
+    ],
+    "endpoints": [
+      "POST /v1/admin/sales/bulk"
+    ],
+    "authority": "partial",
+    "safeFallback": "Submit only explicitly selected sale IDs, capped by the server contract; never turn a client filter, page, or select-all label into a wider bulk scope.",
+    "testCommand": "pnpm.cmd --filter @refearn/api exec jest --selectProjects integration --runInBand --runTestsByPath test/sales-wallet.int-spec.ts"
+  },
+  {
+    "key": "invite_acceptance",
+    "sourceFiles": [
+      "apps/api/src/invites/invites.controller.ts",
+      "apps/api/src/invites/invites.service.ts",
+      "apps/api/src/auth/auth.service.ts",
+      "apps/api/test/auth.int-spec.ts"
+    ],
+    "endpoints": [
+      "GET /v1/invites/:code",
+      "POST /v1/auth/register-by-invite",
+      "POST /v1/auth/login/2fa"
+    ],
+    "authority": "implemented",
+    "safeFallback": "Let the server resolve, validate, lock, and consume the invite; keep an existing MFA user's acceptance pending until the server challenge succeeds.",
+    "testCommand": "pnpm.cmd --filter @refearn/api exec jest --selectProjects integration --runInBand --runTestsByPath test/auth.int-spec.ts"
+  },
+  {
+    "key": "mfa_assurance",
+    "sourceFiles": [
+      "apps/api/src/auth/auth.guard.ts",
+      "apps/api/src/auth/auth.service.ts",
+      "apps/api/src/auth/auth.types.ts",
+      "apps/api/test/auth.int-spec.ts"
+    ],
+    "endpoints": [
+      "POST /v1/auth/login",
+      "POST /v1/auth/login/2fa",
+      "POST /v1/auth/refresh",
+      "POST /v1/me/switch-tenant"
+    ],
+    "authority": "implemented",
+    "safeFallback": "Treat server denial as authoritative and require a fresh MFA challenge; never equate enrollment, a legacy boolean claim, or a tenant switch with current session assurance.",
+    "testCommand": "pnpm.cmd --filter @refearn/api exec jest --selectProjects integration --runInBand --runTestsByPath test/auth.int-spec.ts"
+  },
+  {
+    "key": "mfa_recovery",
+    "sourceFiles": [
+      "apps/api/src/auth/auth.controller.ts",
+      "apps/api/src/auth/auth.service.ts",
+      "apps/api/src/auth/mfa.ts",
+      "apps/api/test/auth.int-spec.ts"
+    ],
+    "endpoints": [
+      "GET /v1/auth/2fa/status",
+      "POST /v1/auth/2fa/enable",
+      "POST /v1/auth/login/2fa",
+      "POST /v1/auth/2fa/disable"
+    ],
+    "authority": "partial",
+    "safeFallback": "Show recovery codes only in the one-time enable response, accept them only through existing code inputs, and hide regeneration or stored-code reveal because no such endpoint exists.",
+    "testCommand": "pnpm.cmd --filter @refearn/api exec jest --selectProjects integration --runInBand --runTestsByPath test/auth.int-spec.ts"
+  },
+  {
+    "key": "payout_readiness",
+    "sourceFiles": [
+      "apps/api/src/wallet/wallet.controller.ts",
+      "apps/api/src/wallet/wallet.service.ts",
+      "apps/api/src/payouts/payouts.controller.ts",
+      "apps/api/test/payouts.int-spec.ts"
+    ],
+    "endpoints": [
+      "GET /v1/app/wallet",
+      "POST /v1/app/payout-requests",
+      "GET /v1/admin/payouts/payable"
+    ],
+    "authority": "implemented",
+    "safeFallback": "Use the server's requestable flag and reason verbatim, keep payout actions disabled when it is false, and never recalculate readiness from displayed balances on the client.",
+    "testCommand": "pnpm.cmd --filter @refearn/api exec jest --selectProjects integration --runInBand --runTestsByPath test/payouts.int-spec.ts"
+  },
+  {
+    "key": "payment_lifecycle",
+    "sourceFiles": [
+      "apps/api/src/payouts/payouts.controller.ts",
+      "apps/api/src/payouts/payouts.types.ts",
+      "apps/api/src/payouts/payouts.service.ts",
+      "apps/api/prisma/schema.prisma",
+      "apps/api/test/payouts.int-spec.ts"
+    ],
+    "endpoints": [
+      "POST /v1/admin/payouts/batches",
+      "POST /v1/admin/payouts/batches/:id/settle",
+      "POST /v1/admin/payouts/batches/:id/fail",
+      "POST /v1/admin/payouts/:id/approve",
+      "POST /v1/admin/payouts/:id/reject"
+    ],
+    "authority": "partial",
+    "safeFallback": "Render only requested, processing, paid, rejected, and failed payout states plus processing, settled, and failed batch states; do not invent provider-specific states or mark money paid without settlement evidence.",
+    "testCommand": "pnpm.cmd --filter @refearn/api exec jest --selectProjects integration --runInBand --runTestsByPath test/payouts.int-spec.ts"
+  },
+  {
+    "key": "capability_tenancy",
+    "sourceFiles": [
+      "apps/api/src/auth/auth.guard.ts",
+      "apps/api/src/memberships/me.controller.ts",
+      "apps/api/src/rbac/rbac.controller.ts",
+      "apps/api/src/common/permissions.ts",
+      "apps/api/test/auth.int-spec.ts",
+      "apps/api/test/rbac.int-spec.ts"
+    ],
+    "endpoints": [
+      "GET /v1/me",
+      "GET /v1/me/memberships",
+      "POST /v1/me/switch-tenant",
+      "GET /v1/admin/permissions"
+    ],
+    "authority": "partial",
+    "safeFallback": "Keep the active membership and tenant server-selected, let the guard enforce live permissions, and treat capabilities not explicitly available for the active context as unavailable rather than inferring them locally.",
+    "testCommand": "pnpm.cmd --filter @refearn/api exec jest --selectProjects integration --runInBand --runTestsByPath test/auth.int-spec.ts test/rbac.int-spec.ts"
+  },
+  {
+    "key": "sensitive_reveal",
+    "sourceFiles": [
+      "apps/api/src/reports/reports.service.ts",
+      "apps/api/src/notifications/notification-relay.service.ts",
+      "apps/api/src/memberships/me.controller.ts",
+      "apps/api/test/admin.int-spec.ts",
+      "apps/api/test/notifications.int-spec.ts"
+    ],
+    "endpoints": [
+      "GET /v1/admin/audit",
+      "GET /v1/me/notifications"
+    ],
+    "authority": "absent",
+    "safeFallback": "Keep sensitive values redacted or withheld and omit reveal controls; no client-side decoding, cached secret, or generic reveal flow is authorized.",
+    "testCommand": "pnpm.cmd --filter @refearn/api exec jest --selectProjects integration --runInBand --runTestsByPath test/admin.int-spec.ts test/notifications.int-spec.ts"
+  },
+  {
+    "key": "multi_currency",
+    "sourceFiles": [
+      "apps/api/src/sales/sales.service.ts",
+      "apps/api/src/wallet/wallet.service.ts",
+      "apps/api/prisma/schema.prisma",
+      "apps/api/test/sales-wallet.int-spec.ts"
+    ],
+    "endpoints": [
+      "POST /v1/admin/sales",
+      "GET /v1/app/wallet",
+      "GET /v1/app/dashboard"
+    ],
+    "authority": "partial",
+    "safeFallback": "Display the currency returned for the active tenant and its server-created records; do not offer per-sale currency choice, conversion, or cross-currency totals.",
+    "testCommand": "pnpm.cmd --filter @refearn/api exec jest --selectProjects integration --runInBand --runTestsByPath test/sales-wallet.int-spec.ts"
+  },
+  {
+    "key": "member_sale_entry",
+    "sourceFiles": [
+      "apps/api/src/sales/sales.controller.ts",
+      "apps/api/src/sales/sales.types.ts",
+      "apps/api/test/sales-wallet.int-spec.ts"
+    ],
+    "endpoints": [
+      "POST /v1/admin/sales"
+    ],
+    "authority": "absent",
+    "safeFallback": "Hide member sale-entry actions and never proxy them through an admin route or fabricate a local pending sale; members may only consume their existing wallet and dashboard views.",
+    "testCommand": "pnpm.cmd --filter @refearn/api exec jest --selectProjects integration --runInBand --runTestsByPath test/sales-wallet.int-spec.ts"
+  },
+  {
+    "key": "nps_eligibility",
+    "sourceFiles": [
+      "apps/api/src/recommendations/recommendations.controller.ts",
+      "apps/api/src/recommendations/recommendations.service.ts",
+      "apps/api/src/recommendations/recommendations.types.ts",
+      "apps/api/test/recommendations.int-spec.ts"
+    ],
+    "endpoints": [
+      "GET /v1/app/recommendations"
+    ],
+    "authority": "absent",
+    "safeFallback": "Do not show, schedule, or locally infer an NPS prompt; keep NPS eligibility disabled until a server-owned policy and endpoint are approved.",
+    "testCommand": "pnpm.cmd --filter @refearn/api exec jest --selectProjects integration --runInBand --runTestsByPath test/recommendations.int-spec.ts"
+  },
+  {
+    "key": "telemetry",
+    "sourceFiles": [
+      "apps/api/src/health/metrics.controller.ts",
+      "apps/api/src/reports/reports.controller.ts",
+      "apps/api/src/reports/reports.service.ts",
+      "apps/api/test/health.int-spec.ts",
+      "apps/api/test/admin.int-spec.ts"
+    ],
+    "endpoints": [
+      "GET /metrics",
+      "GET /v1/admin/analytics",
+      "GET /v1/admin/audit"
+    ],
+    "authority": "absent",
+    "safeFallback": "Keep KPIs unmeasured and new analytics approval-required; do not reinterpret operational metrics, aggregate reports, or audit logs as event telemetry.",
+    "testCommand": "pnpm.cmd --filter @refearn/api exec jest --selectProjects unit --runInBand --runTestsByPath src/common/p0-authority.contract.spec.ts"
+  }
+]
