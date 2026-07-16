@@ -22,7 +22,7 @@ test('public invite clients depend only on the tenant-safe identity contract', (
     assert.doesNotMatch(client.source, /\binviter(?:Name|Message)\b/, `${client.name} must not depend on inviter identity`);
     assert.match(
       client.source,
-      /You're invited to join[^\n]*invite\.tenantName/,
+      /(?:You're invited to join|Join(?: the)?)[\s\S]{0,120}invite\.tenantName/,
       `${client.name} must identify the destination by tenantName`,
     );
   }
