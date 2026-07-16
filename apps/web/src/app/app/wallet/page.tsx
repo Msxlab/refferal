@@ -479,7 +479,7 @@ function ProfileForm({ existing, onClose, onSaved }: { existing: PayoutProfile |
           <Label htmlFor={`${uid}-accnum`} className="mb-1.5 block">Account number{existing ? ' — re-enter to update' : ''}</Label>
           <Input id={`${uid}-accnum`} value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} inputMode="numeric" placeholder="account number" required />
         </div>
-        <div className="mt-2 text-[11px] text-muted-foreground">We store only the last 4 digits. Changing these details restarts verification and a short security hold.</div>
+        <div className="mt-2 text-sm leading-relaxed text-muted-foreground">Your full tax ID is not stored; only its last 4 digits are retained. Your bank account number is encrypted at rest for ACH. Changing these details restarts verification and a short security hold.</div>
         {err && <div className="mt-2 text-sm text-destructive">{err}</div>}
         <div className="mt-3.5 flex justify-end gap-2.5">
           <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>

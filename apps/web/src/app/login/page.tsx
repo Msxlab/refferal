@@ -196,15 +196,16 @@ export default function LoginPage() {
                 </form>
               </>
             )}
-            <button
+            <Button
               type="button"
-              className="faint"
+              variant="link"
+              size="sm"
+              className="mt-3 w-full text-xs"
               onClick={returnToSignIn}
               disabled={recoveryBusy}
-              style={{ background: 'none', border: 'none', cursor: recoveryBusy ? 'not-allowed' : 'pointer', fontSize: 12, marginTop: 12, width: '100%' }}
             >
               ← Back to sign in
-            </button>
+            </Button>
           </div>
         ) : !mfaToken ? (
           <form className="card card-glow" onSubmit={onSubmit}>
@@ -212,24 +213,26 @@ export default function LoginPage() {
             <h1 className="h1" style={{ marginBottom: 18 }}>{t('login.welcome')}</h1>
             <div className="field">
               <Label htmlFor="login-email" className="mb-1.5 block">{t('login.email')}</Label>
-              <Input id="login-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus placeholder="name@company.com" />
+              <Input id="login-email" name="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus placeholder="name@company.com" />
             </div>
             <div className="field">
               <div className="mb-1.5 flex items-center justify-between gap-3">
                 <Label htmlFor="login-password" className="mb-0">{t('login.password')}</Label>
-                <button
+                <Button
                   ref={forgotPasswordRef}
                   type="button"
+                  variant="link"
+                  size="sm"
+                  className="px-2 text-xs"
                   onClick={openRecovery}
                   disabled={busy}
-                  style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: busy ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 650, padding: 0 }}
                 >
                   Forgot password?
-                </button>
+                </Button>
               </div>
               <div style={{ position: 'relative' }}>
-                <Input id="login-password" type={showPw ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" style={{ paddingRight: 64 }} />
-                <button type="button" aria-label={showPw ? 'Hide password' : 'Show password'} onClick={() => setShowPw((v) => !v)} className="faint" style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>{showPw ? 'Hide' : 'Show'}</button>
+                <Input id="login-password" name="password" type={showPw ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" style={{ paddingRight: 64 }} />
+                <Button type="button" variant="link" size="sm" aria-label={showPw ? 'Hide password' : 'Show password'} onClick={() => setShowPw((v) => !v)} className="absolute right-0 top-0 px-3 text-xs">{showPw ? 'Hide' : 'Show'}</Button>
               </div>
             </div>
             {error && <div className="error">{error}</div>}
@@ -251,8 +254,7 @@ export default function LoginPage() {
             <Button type="submit" className="mt-1.5 w-full" disabled={busy || code.trim().length < 6}>
               {busy ? t('common.loading') : 'Verify'} {!busy && <span>→</span>}
             </Button>
-            <button type="button" className="faint" onClick={() => { setMfaToken(null); setCode(''); setError(''); }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, marginTop: 12, width: '100%' }}>← Back to sign in</button>
+            <Button type="button" variant="link" size="sm" className="mt-3 w-full text-xs" onClick={() => { setMfaToken(null); setCode(''); setError(''); }}>← Back to sign in</Button>
           </form>
         )}
       </div>

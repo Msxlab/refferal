@@ -49,6 +49,14 @@ const STATUSES = ['', 'draft', 'approved', 'void'] as const;
 type BadgeVariant = 'default' | 'secondary' | 'success' | 'destructive';
 const STATUS_VARIANT: Record<SaleItem['status'], BadgeVariant> = { draft: 'secondary', approved: 'success', void: 'destructive' };
 
+function printAfterDropdownCloses(remainingFrames = 15): void {
+  if (document.querySelector('[role="menu"]') && remainingFrames > 0) {
+    requestAnimationFrame(() => printAfterDropdownCloses(remainingFrames - 1));
+    return;
+  }
+  window.print();
+}
+
 // Kayitli gorunum (API): config = filtreler + siralama. shared=ekip gorur.
 interface ViewConfig extends Filters { sort?: string; dir?: SortDir }
 interface SavedView { id: string; name: string; shared: boolean; config: ViewConfig; mine: boolean; ownerName: string | null }
@@ -281,7 +289,7 @@ export function SalesPageContent({ tenantName }: { tenantName: string }) {
             <DropdownMenuContent align="end">
               <DropdownMenuItem onSelect={() => setShowImport(true)}>⇪ Import</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => { void exportCsv(); }}>⇩ Export CSV</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => window.print()}>🖶 Print</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => printAfterDropdownCloses()}>🖶 Print</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
