@@ -3,7 +3,8 @@ import { hash, verify } from '@node-rs/argon2';
 import { Prisma } from '@prisma/client';
 import { authenticator } from 'otplib';
 import { ARGON2_OPTS } from '../auth/auth.service';
-import { decryptSecret, encryptSecret, randomCode, sha256 } from '../common/crypto';
+import { randomCode, sha256 } from '../common/crypto';
+import { SecretCipher } from '../common/secret-cipher';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ChangePasswordInput,
@@ -47,7 +48,10 @@ function deviceLabel(ua: string | null): string {
  */
 @Injectable()
 export class AccountService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly secretCipher: SecretCipher,
+  ) {}
 
   async me(userId: string) {
     const u = await this.prisma.user.findUnique({
@@ -115,7 +119,12 @@ export class AccountService {
       throw new BadRequestException('2fa zaten etkin');
     }
     const secret = authenticator.generateSecret();
-    await this.prisma.user.update({ where: { id: userId }, data: { totpSecret: encryptSecret(secret), totpEnabledAt: null } });
+    const totpSecret = await this.secretCipher.encrypt(secret, {
+      purpose: 'user-totp',
+      tenantId: null,
+      recordId: userId,
+    });
+    await this.prisma.user.update({ where: { id: userId }, data: { totpSecret, totpEnabledAt: null } });
     return { otpauthUrl: authenticator.keyuri(u.email, 'Refearn', secret), secret };
   }
 
@@ -131,7 +140,11 @@ export class AccountService {
     if (u.totpEnabledAt) {
       throw new BadRequestException('2fa zaten etkin');
     }
-    const secret = decryptSecret(u.totpSecret);
+    const secret = await this.secretCipher.decrypt(u.totpSecret, {
+      purpose: 'user-totp',
+      tenantId: null,
+      recordId: userId,
+    });
     if (!authenticator.verify({ token: input.code.replace(/\s/g, ''), secret })) {
       throw new BadRequestException('dogrulama kodu hatali');
     }

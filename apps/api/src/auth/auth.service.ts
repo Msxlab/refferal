@@ -22,7 +22,8 @@ import {
   User,
   UserTokenPurpose,
 } from '@prisma/client';
-import { decryptSecret, randomToken, sha256 } from '../common/crypto';
+import { randomToken, sha256 } from '../common/crypto';
+import { SecretCipher } from '../common/secret-cipher';
 import { defaultPermissionsForTier } from '../common/permissions';
 import { MembershipsService } from '../memberships/memberships.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -101,6 +102,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly memberships: MembershipsService,
+    private readonly secretCipher: SecretCipher,
   ) {}
 
   /** Markali subdomain girisinden ONCE (kimliksiz) marka bilgisi (Alt-proje B).
@@ -308,7 +310,11 @@ export class AuthService {
   ): Promise<boolean> {
     const clean = code.replace(/\s/g, '');
     if (/^\d{6}$/.test(clean) && user.totpSecret) {
-      const secret = decryptSecret(user.totpSecret);
+      const secret = await this.secretCipher.decrypt(user.totpSecret, {
+        purpose: 'user-totp',
+        tenantId: null,
+        recordId: user.id,
+      });
       if (authenticator.verify({ token: clean, secret })) return true;
     }
     // kurtarma kodu: dash/uppercase normalize edilip sha256 — enable2fa ile AYNI kalip

@@ -1,9 +1,11 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { InviteStatus, MembershipStatus } from '@prisma/client';
+import { authenticator } from 'otplib';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { authConfig } from '../src/auth/auth.config';
+import { encryptSecret } from '../src/common/crypto';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createChain, createPlan, createTenant, truncateAll } from './helpers';
 
@@ -13,10 +15,12 @@ import { createChain, createPlan, createTenant, truncateAll } from './helpers';
 describe('auth + davet akisi (entegrasyon)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  const originalSecretWriteVersion = process.env.REFEARN_SECRET_WRITE_VERSION;
 
   const PASSWORD = 'Cok-Gizli-Sifre-42!';
 
   beforeAll(async () => {
+    process.env.REFEARN_SECRET_WRITE_VERSION = 'v1';
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
     app.setGlobalPrefix('v1');
@@ -26,6 +30,8 @@ describe('auth + davet akisi (entegrasyon)', () => {
 
   afterAll(async () => {
     await app.close();
+    if (originalSecretWriteVersion === undefined) delete process.env.REFEARN_SECRET_WRITE_VERSION;
+    else process.env.REFEARN_SECRET_WRITE_VERSION = originalSecretWriteVersion;
   });
 
   beforeEach(async () => {
@@ -180,6 +186,70 @@ describe('auth + davet akisi (entegrasyon)', () => {
       .post('/v1/auth/login')
       .send({ email: 'olmayan@kisi.test', password: PASSWORD })
       .expect(401);
+  });
+
+  it('2FA setup v1 secret yazar; enable ve MFA login ayni user context ile tamamlanir', async () => {
+    const { invite } = await setupTenantWithInvite();
+    const registration = await request(app.getHttpServer())
+      .post('/v1/auth/register-by-invite')
+      .send(registerBody(invite))
+      .expect(201);
+    const auth = { Authorization: `Bearer ${registration.body.accessToken}` };
+
+    const setup = await request(app.getHttpServer()).post('/v1/account/2fa/setup').set(auth).expect(200);
+    const userAfterSetup = await prisma.user.findUniqueOrThrow({ where: { email: 'yeni@uye.test' } });
+    expect(userAfterSetup.totpSecret).toMatch(/^v1\./);
+
+    const enableCode = authenticator.generate(setup.body.secret);
+    const enabled = await request(app.getHttpServer())
+      .post('/v1/account/2fa/enable')
+      .set(auth)
+      .send({ code: enableCode })
+      .expect(200);
+    expect(enabled.body.enabled).toBe(true);
+
+    const login = await request(app.getHttpServer())
+      .post('/v1/auth/login')
+      .send({ email: 'yeni@uye.test', password: PASSWORD })
+      .expect(200);
+    expect(login.body).toEqual(expect.objectContaining({ mfaRequired: true, mfaToken: expect.any(String) }));
+    expect(login.body.accessToken).toBeUndefined();
+
+    const completed = await request(app.getHttpServer())
+      .post('/v1/auth/login/2fa')
+      .send({ mfaToken: login.body.mfaToken, code: authenticator.generate(setup.body.secret) })
+      .expect(200);
+    expect(completed.body.accessToken).toEqual(expect.any(String));
+    expect(completed.body.activeMembershipId).toBe(registration.body.activeMembershipId);
+  });
+
+  it('MFA login mevcut uc-parcali legacy TOTP secret kaydini okumaya devam eder', async () => {
+    const { invite } = await setupTenantWithInvite();
+    const registration = await request(app.getHttpServer())
+      .post('/v1/auth/register-by-invite')
+      .send(registerBody(invite))
+      .expect(201);
+    const secret = authenticator.generateSecret();
+    const legacySecret = encryptSecret(secret);
+    expect(legacySecret).not.toMatch(/^v1\./);
+
+    await prisma.user.update({
+      where: { email: 'yeni@uye.test' },
+      data: { totpSecret: legacySecret, totpEnabledAt: new Date() },
+    });
+
+    const login = await request(app.getHttpServer())
+      .post('/v1/auth/login')
+      .send({ email: 'yeni@uye.test', password: PASSWORD })
+      .expect(200);
+    expect(login.body.mfaRequired).toBe(true);
+
+    const completed = await request(app.getHttpServer())
+      .post('/v1/auth/login/2fa')
+      .send({ mfaToken: login.body.mfaToken, code: authenticator.generate(secret) })
+      .expect(200);
+    expect(completed.body.accessToken).toEqual(expect.any(String));
+    expect(completed.body.activeMembershipId).toBe(registration.body.activeMembershipId);
   });
 
   it('korumali rotalar tokensiz 401; davet olustur/listele calisir', async () => {
