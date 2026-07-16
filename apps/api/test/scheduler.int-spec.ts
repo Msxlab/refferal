@@ -10,6 +10,7 @@ import { PayoutsService } from '../src/payouts/payouts.service';
 import { EventsService } from '../src/events/events.service';
 import { SanctionsService } from '../src/sanctions/sanctions.service';
 import { AlertsService } from '../src/observability/alerts.service';
+import { EnvAesGcmSecretCryptoProvider, VersionedSecretCipher } from '../src/common/secret-cipher';
 import { SchedulerService } from '../src/scheduler/scheduler.service';
 import { createChain, createPlan, createSale, createTenant, summaryTotals, truncateAll } from './helpers';
 
@@ -29,7 +30,15 @@ describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
     prisma = new PrismaService();
     await prisma.$connect();
     engine = new EngineService(prisma, new RanksService(prisma));
-    payouts = new PayoutsService(prisma, engine, new WebhooksService(prisma), new EventsService(), new SanctionsService(prisma));
+    const secretCipher = new VersionedSecretCipher([new EnvAesGcmSecretCryptoProvider()]);
+    payouts = new PayoutsService(
+      prisma,
+      engine,
+      new WebhooksService(prisma),
+      new EventsService(),
+      new SanctionsService(prisma),
+      secretCipher,
+    );
     scheduler = new SchedulerService(engine, new ReportsService(prisma), new FraudService(prisma), new WebhooksService(prisma), new CampaignsService(prisma, engine), prisma, payouts, new AlertsService(), new RanksService(prisma));
   });
 

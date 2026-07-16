@@ -1,7 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PayoutProfileStatus, Prisma } from '@prisma/client';
 import { ActorContext } from '../common/actor';
-import { encryptSecret } from '../common/crypto';
+import { SecretCipher } from '../common/secret-cipher';
 import { PrismaService } from '../prisma/prisma.service';
 import { SanctionsService } from '../sanctions/sanctions.service';
 import { UpsertProfileInput } from './kyc.types';
@@ -11,6 +11,7 @@ export class KycService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sanctions: SanctionsService,
+    private readonly secretCipher: SecretCipher,
   ) {}
 
   /** Uye kendi profili (maskeli). Yoksa null. */
@@ -20,7 +21,8 @@ export class KycService {
   }
 
   /**
-   * Profil olustur/guncelle (uye). TAM TIN/hesap no SAKLANMAZ — yalniz son-4.
+   * Profil olustur/guncelle (uye). Tam vergi kimligi saklanmaz; yalniz son-4 tutulur.
+   * Tam hesap no, self-hosted ACH icin yalniz encrypted-at-rest olarak saklanir.
    * Her degisiklik durumu pending_review'a alir, lastChangedAt'i tazeler (soguma sayaci).
    */
   async upsert(actor: ActorContext, membershipId: string, input: UpsertProfileInput) {
@@ -37,7 +39,11 @@ export class KycService {
       routingNumber: input.routingNumber,
       accountType: input.accountType,
       accountLast4,
-      accountEnc: encryptSecret(input.accountNumber), // self-hosted ACH dosyasi icin sifreli tam no
+      accountEnc: await this.secretCipher.encrypt(input.accountNumber, {
+        purpose: 'payout-account',
+        tenantId: actor.tenantId,
+        recordId: membershipId,
+      }),
       status: PayoutProfileStatus.pending_review,
       rejectionReason: null,
       reviewedByUserId: null,

@@ -7,6 +7,7 @@ import { WebhooksService } from '../src/webhooks/webhooks.service';
 import { EventsService } from '../src/events/events.service';
 import { SanctionsService } from '../src/sanctions/sanctions.service';
 import { ActorContext } from '../src/common/actor';
+import { EnvAesGcmSecretCryptoProvider, VersionedSecretCipher } from '../src/common/secret-cipher';
 import { createChain, createTenant, truncateAll } from './helpers';
 
 /** Dalga 3 — banka mutabakati: ekstre satirlari odenmis payout'larla tutara gore eslenir, 'cleared' isaretlenir. */
@@ -18,7 +19,15 @@ describe('payout reconciliation (entegrasyon)', () => {
     prisma = new PrismaService();
     await prisma.$connect();
     const engine = new EngineService(prisma, new RanksService(prisma));
-    payouts = new PayoutsService(prisma, engine, new WebhooksService(prisma), new EventsService(), new SanctionsService(prisma));
+    const secretCipher = new VersionedSecretCipher([new EnvAesGcmSecretCryptoProvider()]);
+    payouts = new PayoutsService(
+      prisma,
+      engine,
+      new WebhooksService(prisma),
+      new EventsService(),
+      new SanctionsService(prisma),
+      secretCipher,
+    );
   });
   afterAll(async () => { await prisma.$disconnect(); });
   beforeEach(async () => { await truncateAll(prisma); });
