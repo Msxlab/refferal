@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Drawer } from '@/components/Drawer';
 import { Popover } from '@/components/Popover';
 import { ImportWizard } from '@/components/ImportWizard';
@@ -272,10 +273,17 @@ export function SalesPageContent({ tenantName }: { tenantName: string }) {
           <h1 className="h1 fade-in">Sales Management</h1>
         </div>
         <div className="row fade-in no-print" style={{ gap: 8 }}>
-          <Button variant="ghost" onClick={exportCsv}>⇩ Export CSV</Button>
-          <Button variant="ghost" onClick={() => window.print()}>🖶 Print</Button>
-          <Button variant="ghost" onClick={() => setShowImport(true)}>⇪ Import</Button>
           <Button onClick={() => { setError(''); setCode(''); setSellerOpts([]); setSellerPicked(false); setNewDate(new Date().toLocaleDateString('en-CA')); setShowNew(true); }}>＋ New sale</Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" aria-label="More sales actions">More actions <span aria-hidden="true">▾</span></Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => setShowImport(true)}>⇪ Import</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => { void exportCsv(); }}>⇩ Export CSV</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => window.print()}>🖶 Print</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 

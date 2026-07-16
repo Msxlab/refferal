@@ -300,7 +300,13 @@ export default function WalletPage() {
                   <td className="tnum text-right font-semibold" style={Number(e.amountCents) < 0 ? { color: 'var(--rose)' } : undefined}>{money(e.amountCents, c)}</td>
                 </tr>
               ))}
-              {wallet.ledger.items.length === 0 && <tr><td colSpan={5} className="text-muted-foreground">{t('me.noData')}</td></tr>}
+              {wallet.ledger.items.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="text-muted-foreground">
+                    {fType || fStatus ? 'No ledger entries match these filters.' : 'Your first approved-sale activity will appear here.'}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -337,7 +343,7 @@ export default function WalletPage() {
                   </tr>
                 );
               })}
-              {history.length === 0 && <tr><td colSpan={5} className="text-muted-foreground">{t('me.noData')}</td></tr>}
+              {history.length === 0 && <tr><td colSpan={5} className="text-muted-foreground">No checks have been issued yet.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -386,8 +392,8 @@ function PayoutProfileCard() {
     <Card className="fade-in delay-2 mt-4 p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <strong>Payout profile</strong>
-          <div className="mt-0.5 text-xs text-muted-foreground">Verified bank details are required to get paid (when your company enables it).</div>
+          <strong>Payout verification &amp; bank profile</strong>
+          <div className="mt-0.5 text-xs text-muted-foreground">Complete this when your company requires payout verification or uses ACH. Check payouts are mailed to your account address.</div>
         </div>
         <Badge variant={PROFILE_BADGE[status]}>{STATUS_LABEL[status]}</Badge>
       </div>

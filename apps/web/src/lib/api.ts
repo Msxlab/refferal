@@ -400,6 +400,14 @@ export async function login(email: string, password: string): Promise<Session | 
   return (await readOrThrow(res)) as Session | MfaChallenge;
 }
 
+export async function requestPasswordReset(email: string): Promise<{ ok: true }> {
+  const res = await rawFetch(
+    '/auth/password-reset/request',
+    { method: 'POST', body: JSON.stringify({ email }) },
+  );
+  return (await readOrThrow(res)) as { ok: true };
+}
+
 /** Login 2. adim: challenge token + TOTP/kurtarma kodu -> tam oturum. */
 export async function loginTwoFactor(mfaToken: string, code: string): Promise<Session> {
   const res = await rawFetch('/auth/login/2fa', { method: 'POST', body: JSON.stringify({ mfaToken, code }) });

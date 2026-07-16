@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getTenantBrand, login, loginTwoFactor, switchTenant, type TenantBrand } from '@/lib/api';
+import { getTenantBrand, login, loginTwoFactor, requestPasswordReset, switchTenant, type TenantBrand } from '@/lib/api';
 import { getSession, landingForSession, replaceSessionIfCurrent, type Session } from '@/lib/auth';
 import { currentSlug, isHqHost, ROOT_DOMAIN } from '@/lib/subdomain';
 import { Brand } from '@/components/ui';
@@ -11,6 +11,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { t } from '@/lib/i18n';
 
+const RECOVERY_MESSAGE = "If an account exists for this email, we'll send a password reset link.";
+const RECOVERY_ERROR = "We couldn't send the request. Check your connection and try again.";
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
@@ -18,6 +21,11 @@ export default function LoginPage() {
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [recoveryMode, setRecoveryMode] = useState(false);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [recoverySent, setRecoverySent] = useState(false);
+  const [recoveryError, setRecoveryError] = useState('');
+  const forgotPasswordRef = useRef<HTMLButtonElement>(null);
   // 2FA 2. adim
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [code, setCode] = useState('');
@@ -108,6 +116,34 @@ export default function LoginPage() {
     }
   }
 
+  function openRecovery() {
+    setError('');
+    setRecoveryError('');
+    setRecoverySent(false);
+    setRecoveryMode(true);
+  }
+
+  function returnToSignIn() {
+    setRecoveryMode(false);
+    setRecoveryError('');
+    setRecoverySent(false);
+    requestAnimationFrame(() => forgotPasswordRef.current?.focus());
+  }
+
+  async function onSubmitRecovery(e: FormEvent) {
+    e.preventDefault();
+    setRecoveryError('');
+    setRecoveryBusy(true);
+    try {
+      await requestPasswordReset(email.trim());
+      setRecoverySent(true);
+    } catch {
+      setRecoveryError(RECOVERY_ERROR);
+    } finally {
+      setRecoveryBusy(false);
+    }
+  }
+
   return (
     <div className="center">
       <div className="fade-in" style={{ width: '100%', maxWidth: 392 }}>
@@ -126,6 +162,50 @@ export default function LoginPage() {
           </div>
         ) : slug && brandLoading ? (
           <div className="card card-glow muted" style={{ textAlign: 'center', padding: 24 }}>{t('common.loading')}</div>
+        ) : recoveryMode ? (
+          <div className="card card-glow" aria-busy={recoveryBusy}>
+            <div className="eyebrow" style={{ marginBottom: 4 }}>Account recovery</div>
+            <h1 className="h1" style={{ marginBottom: 8 }}>Reset your password</h1>
+            {recoverySent ? (
+              <div role="status" className="sub" style={{ marginBottom: 18 }}>
+                {RECOVERY_MESSAGE}
+              </div>
+            ) : (
+              <>
+                <p className="sub" style={{ marginBottom: 18 }}>{RECOVERY_MESSAGE}</p>
+                <form onSubmit={onSubmitRecovery}>
+                  <div className="field">
+                    <Label htmlFor="recovery-email" className="mb-1.5 block">Email</Label>
+                    <Input
+                      id="recovery-email"
+                      name="email"
+                      type="email"
+                      autoComplete="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      autoFocus
+                      disabled={recoveryBusy}
+                      placeholder="name@company.com"
+                    />
+                  </div>
+                  {recoveryError && <div className="error" role="alert">{recoveryError}</div>}
+                  <Button type="submit" className="mt-1.5 w-full" disabled={recoveryBusy}>
+                    {recoveryBusy ? 'Sending…' : 'Send reset link'}
+                  </Button>
+                </form>
+              </>
+            )}
+            <button
+              type="button"
+              className="faint"
+              onClick={returnToSignIn}
+              disabled={recoveryBusy}
+              style={{ background: 'none', border: 'none', cursor: recoveryBusy ? 'not-allowed' : 'pointer', fontSize: 12, marginTop: 12, width: '100%' }}
+            >
+              ← Back to sign in
+            </button>
+          </div>
         ) : !mfaToken ? (
           <form className="card card-glow" onSubmit={onSubmit}>
             <div className="eyebrow" style={{ marginBottom: 4 }}>{t('login.title')}</div>
@@ -135,7 +215,18 @@ export default function LoginPage() {
               <Input id="login-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus placeholder="name@company.com" />
             </div>
             <div className="field">
-              <Label htmlFor="login-password" className="mb-1.5 block">{t('login.password')}</Label>
+              <div className="mb-1.5 flex items-center justify-between gap-3">
+                <Label htmlFor="login-password" className="mb-0">{t('login.password')}</Label>
+                <button
+                  ref={forgotPasswordRef}
+                  type="button"
+                  onClick={openRecovery}
+                  disabled={busy}
+                  style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: busy ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 650, padding: 0 }}
+                >
+                  Forgot password?
+                </button>
+              </div>
               <div style={{ position: 'relative' }}>
                 <Input id="login-password" type={showPw ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" style={{ paddingRight: 64 }} />
                 <button type="button" aria-label={showPw ? 'Hide password' : 'Show password'} onClick={() => setShowPw((v) => !v)} className="faint" style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>{showPw ? 'Hide' : 'Show'}</button>

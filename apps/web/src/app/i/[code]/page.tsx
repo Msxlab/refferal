@@ -80,7 +80,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
           ) : (
             <>
               <h1 className="h1" style={{ marginBottom: 14 }}>
-                You're invited to join <span className="gradient-text">{invite.tenantName}</span>
+                Join the <span className="gradient-text">{invite.tenantName}</span> referral program
               </h1>
               <Card style={{ background: 'rgba(124,139,255,.08)', padding: 14, marginBottom: 14 }}>
                 <div className="spread">
@@ -92,11 +92,11 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
                 </div>
               </Card>
 
-              {/* show the opportunity before the form — people join for a reward, not an account */}
+              {/* Explain eligibility and payout steps before registration. */}
               <Card style={{ background: 'color-mix(in srgb, var(--gold-500) 8%, transparent)', borderColor: 'color-mix(in srgb, var(--gold-500) 28%, transparent)', padding: 14, marginBottom: 18 }}>
-                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>💸 What you’ll earn</div>
+                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>How commissions work</div>
                 <div className="faint" style={{ fontSize: 12.5, lineHeight: 1.55 }}>
-                  Earn a commission on every sale you make — and a share of the sales made by the people you bring in. Record a sale, your company verifies it, and your commission is tracked and paid out automatically.
+                  Commissions may be earned on eligible product sales after company approval. Any commission due under the company plan appears in your wallet. Once your payable balance reaches the payout threshold, an approved payout is mailed by check to your account address.
                 </div>
               </Card>
 
@@ -135,7 +135,7 @@ export default function InviteRegisterPage({ params }: { params: Promise<{ code:
                 </label>
                 {error && <div className="error">{error}</div>}
                 <Button type="submit" className="mt-1.5 w-full" disabled={busy || !accept}>
-                  {busy ? t('common.loading') : t('reg.submit')} {!busy && <span>→</span>}
+                  {busy ? t('common.loading') : `Join ${invite.tenantName}`} {!busy && <span>→</span>}
                 </Button>
               </form>
             </>

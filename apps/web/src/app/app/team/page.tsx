@@ -92,8 +92,8 @@ export default function TeamPage() {
             <Bars data={team.levels.map((l) => ({ label: `Level ${l.level}`, value: l.memberCount }))} />
           ) : (
             <div className="muted" style={{ textAlign: 'center', padding: '18px 0' }}>
-              Your team is empty.<br />
-              <span className="faint" style={{ fontSize: 12.5 }}>Invite people and you&apos;ll earn a share of their sales, too.</span>
+              Invite your first teammate.<br />
+              <span className="faint" style={{ fontSize: 12.5 }}>Eligible commissions may be credited only after approved sales and according to your company&apos;s plan.</span>
             </div>
           )}
           <div className="row" style={{ gap: 16, marginTop: 'auto', paddingTop: 16, fontSize: 12 }}>

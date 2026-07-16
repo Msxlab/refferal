@@ -16,7 +16,7 @@ const en = {
   'nav.menu': 'Menu',
   'login.title': 'Business sign-in',
   'login.welcome': 'Welcome back',
-  'login.tagline': 'Grow your referral network, distribute commissions automatically.',
+  'login.tagline': 'Turn approved referral sales into clear, traceable commissions.',
   'login.email': 'Email',
   'login.password': 'Password',
   'login.submit': 'Sign in',

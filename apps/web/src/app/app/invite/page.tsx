@@ -153,7 +153,7 @@ export default function InvitePage() {
                     </td>
                   </tr>
                 ))}
-                {invites.length === 0 && <tr><td colSpan={5} className="text-muted-foreground">{t('me.noData')}</td></tr>}
+                {invites.length === 0 && <tr><td colSpan={5} className="text-muted-foreground">No invites yet — create your first link above.</td></tr>}
               </tbody>
             </table>
           </div>

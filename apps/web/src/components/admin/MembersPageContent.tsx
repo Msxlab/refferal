@@ -304,7 +304,7 @@ export function MembersPageContent({ tenantName, meIsAdmin }: { tenantName: stri
                   </td>
                 </tr>
               ))}
-              {list.items.length === 0 && <tr><td colSpan={colCount} className="muted">No members found.</td></tr>}
+              {list.items.length === 0 && <tr><td colSpan={colCount} className="muted">{search.trim() || status ? 'No members match these filters.' : 'No members yet — invite or add the first member.'}</td></tr>}
             </tbody>
           </table>
         )}

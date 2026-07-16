@@ -9,6 +9,7 @@ import {
   getActiveCompanyToken,
   getCsv,
   postBlob,
+  requestPasswordReset,
   setActiveCompanyToken,
   switchTenant,
 } from './api';
@@ -449,6 +450,28 @@ function assertExpired(result: PromiseSettledResult<unknown>): void {
     assert.equal(result.reason.message, 'oturum suresi doldu');
   }
 }
+
+test('password reset requests use the exact unauthenticated JSON endpoint', async () => {
+  const calls: Array<{ input: string; init?: RequestInit }> = [];
+  const restoreFetch = installFetch(async (input, init) => {
+    calls.push({ input: String(input), init });
+    return Response.json({ ok: true });
+  });
+
+  try {
+    const result = await requestPasswordReset('member@example.test');
+
+    assert.deepEqual(result, { ok: true });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].input, 'http://localhost:3001/v1/auth/password-reset/request');
+    assert.equal(calls[0].init?.method, 'POST');
+    assert.equal(new Headers(calls[0].init?.headers).get('Content-Type'), 'application/json');
+    assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { email: 'member@example.test' });
+    assert.equal(authorization(calls[0].init), null);
+  } finally {
+    restoreFetch();
+  }
+});
 
 test('concurrent JSON, CSV, and blob requests share one rotating refresh token request', async () => {
   const browser = installBrowser();
