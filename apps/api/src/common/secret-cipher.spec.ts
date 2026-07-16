@@ -71,6 +71,21 @@ describe('VersionedSecretCipher', () => {
     await expect(cipher.decrypt(envelope, TOTP_CONTEXT)).resolves.toBe('TOTP-SECRET');
   });
 
+  it.each(['vI', 'v1 ', 'v2', ''])('fails fast for the invalid write version %j', (writeVersion) => {
+    const provider = new EnvAesGcmSecretCryptoProvider();
+
+    expect(() => new VersionedSecretCipher([provider], writeVersion)).toThrow('invalid secret write version');
+  });
+
+  it('does not echo a sensitive invalid write version in the failure', () => {
+    const provider = new EnvAesGcmSecretCryptoProvider();
+    const sensitiveInvalidVersion = 'v1 SENSITIVE-WRITE-GATE';
+
+    expect(() => new VersionedSecretCipher([provider], sensitiveInvalidVersion)).toThrow(
+      new Error('invalid secret write version'),
+    );
+  });
+
   it.each([
     ['purpose', { ...TOTP_CONTEXT, purpose: 'payout-account' as const }],
     ['tenant', { ...TOTP_CONTEXT, tenantId: '20000000-0000-0000-0000-000000000001' }],

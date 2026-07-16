@@ -78,6 +78,7 @@ export class VersionedSecretCipher extends SecretCipher {
 
   constructor(providerList: readonly SecretCryptoProvider[], private readonly writeVersion = 'legacy') {
     super();
+    if (writeVersion !== 'legacy' && writeVersion !== VERSION) throw new Error('invalid secret write version');
     if (providerList.length === 0) throw new Error('at least one secret crypto provider is required');
     this.providers = new Map(providerList.map((provider) => [provider.providerId, provider]));
     if (this.providers.size !== providerList.length) throw new Error('duplicate secret crypto provider id');
