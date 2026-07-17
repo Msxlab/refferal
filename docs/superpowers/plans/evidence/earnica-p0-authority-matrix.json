@@ -27,8 +27,8 @@
       "POST /v1/auth/register-by-invite",
       "POST /v1/auth/login/2fa"
     ],
-    "authority": "implemented",
-    "safeFallback": "Let the server resolve, validate, lock, and consume the invite; keep an existing MFA user's acceptance pending until the server challenge succeeds.",
+    "authority": "partial",
+    "safeFallback": "Treat the current lock, consume, and MFA flow as partial; do not present invite acceptance as persisted consent or retry-safe completion until versioned consent and request-replay authority exist.",
     "testCommand": "pnpm.cmd --filter @refearn/api exec jest --selectProjects integration --runInBand --runTestsByPath test/auth.int-spec.ts"
   },
   {
@@ -45,8 +45,8 @@
       "POST /v1/auth/refresh",
       "POST /v1/me/switch-tenant"
     ],
-    "authority": "implemented",
-    "safeFallback": "Treat server denial as authoritative and require a fresh MFA challenge; never equate enrollment, a legacy boolean claim, or a tenant switch with current session assurance.",
+    "authority": "partial",
+    "safeFallback": "Treat enrollment-epoch assurance as partial; keep freshness-gated reveal and destructive actions unsupported until the server enforces a five-minute mfaAt age or equivalent fresh step-up authority.",
     "testCommand": "pnpm.cmd --filter @refearn/api exec jest --selectProjects integration --runInBand --runTestsByPath test/auth.int-spec.ts"
   },
   {
@@ -80,8 +80,8 @@
       "POST /v1/app/payout-requests",
       "GET /v1/admin/payouts/payable"
     ],
-    "authority": "implemented",
-    "safeFallback": "Use the server's requestable flag and reason verbatim, keep payout actions disabled when it is false, and never recalculate readiness from displayed balances on the client.",
+    "authority": "partial",
+    "safeFallback": "Treat the current requestable result as legacy financial eligibility only; show address, KYC, fraud, sanctions, and payment-method dimensions as unknown/not-configured, and never claim full payout readiness.",
     "testCommand": "pnpm.cmd --filter @refearn/api exec jest --selectProjects integration --runInBand --runTestsByPath test/payouts.int-spec.ts"
   },
   {
