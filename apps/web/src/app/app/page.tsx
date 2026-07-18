@@ -1,166 +1,328 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertCircle } from 'lucide-react';
+import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
-import { Loading } from '@/components/ui';
-import { NextActions } from '@/components/NextActions';
-import { money } from '@/lib/format';
+import { Bars, Donut, Loading, MoneyCounter } from '@/components/ui';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { dateShort, money, levelLabel } from '@/lib/format';
 import { t } from '@/lib/i18n';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface LevelRow {
   level: number;
   pendingCents: string;
   payableCents: string;
-  processingCents: string;
   paidCents: string;
 }
 interface Dashboard {
   month: string;
   currency: string;
-  totals: { pendingCents: string; payableCents: string; processingCents: string; paidCents: string };
+  soldThisMonthCents: string;
+  salesThisMonth: number;
+  soldLifetimeCents: string;
+  earnedThisMonthCents: string;
+  effectiveRateBps: number;
+  totals: { pendingCents: string; payableCents: string; paidCents: string };
   levels: LevelRow[];
+}
+interface EarningsPoint { month: string; totalCents: string }
+interface Earnings { months: number; currency: string; series: EarningsPoint[] }
+interface CampaignStanding { rank: number; membershipId: string; name: string; code: string; score: number; bonusCents: number }
+interface MyCampaign {
+  id: string; name: string; metric: string; endsAt: string;
+  myRank: number | null; myScore: number; prizes: { rank: number; bonusCents: number }[]; leaderboard: CampaignStanding[];
+}
+
+function monthLabel(ym: string): string {
+  const [y, m] = ym.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' });
 }
 
 export default function MemberDashboard() {
   const [data, setData] = useState<Dashboard | null>(null);
+  const [earnings, setEarnings] = useState<Earnings | null>(null);
+  const [campaigns, setCampaigns] = useState<MyCampaign[]>([]);
+  const [rankInfo, setRankInfo] = useState<{ rank: number | null; total: number; topPercent: number | null } | null>(null);
+  const [onboarding, setOnboarding] = useState<{ steps: { key: string; label: string; done: boolean }[]; percent: number } | null>(null);
+  const [rank, setRank] = useState<{ current: string | null; next: string | null; overallPct: number; overrideBps?: number; badges: { key: string; label: string; earned: boolean }[] } | null>(null);
+  const [announcements, setAnnouncements] = useState<{ id: string; title: string; body: string; createdAt: string; read: boolean }[]>([]);
+  const [npsPrompt, setNpsPrompt] = useState(false);
+  const [npsScore, setNpsScore] = useState<number | null>(null);
+  const [npsComment, setNpsComment] = useState('');
+  const [npsDone, setNpsDone] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     api.get<Dashboard>('/app/dashboard').then(setData).catch((e) => setError(String((e as ApiError).message)));
+    api.get<Earnings>('/app/earnings?months=6').then(setEarnings).catch(() => { /* grafik opsiyonel */ });
+    api.get<MyCampaign[]>('/app/campaigns').then(setCampaigns).catch(() => { /* opsiyonel */ });
+    api.get<{ rank: number | null; total: number; topPercent: number | null }>('/app/leaderboard').then(setRankInfo).catch(() => { /* opsiyonel */ });
+    api.get<{ shouldPrompt: boolean }>('/app/survey').then((s) => setNpsPrompt(s.shouldPrompt)).catch(() => { /* opsiyonel */ });
+    api.get<{ steps: { key: string; label: string; done: boolean }[]; percent: number }>('/app/onboarding').then(setOnboarding).catch(() => { /* opsiyonel */ });
+    api.get<{ current: string | null; next: string | null; overallPct: number; overrideBps?: number; badges: { key: string; label: string; earned: boolean }[] }>('/app/rank').then(setRank).catch(() => { /* opsiyonel */ });
+    api.get<{ id: string; title: string; body: string; createdAt: string; read: boolean }[]>('/app/announcements').then(setAnnouncements).catch(() => { /* opsiyonel */ });
   }, []);
 
-  if (error) {
-    return (
-      <Alert variant="destructive" className="fade-in">
-        <AlertCircle />
-        <AlertDescription>{error}</AlertDescription>
-      </Alert>
-    );
+  async function dismissAnnouncement(id: string) {
+    try { await api.post(`/app/announcements/${id}/read`); setAnnouncements((a) => a.map((x) => x.id === id ? { ...x, read: true } : x)); } catch { /* sessiz */ }
   }
+
+  async function submitNps() {
+    if (npsScore == null) return;
+    try { await api.post('/app/survey', { score: npsScore, ...(npsComment.trim() ? { comment: npsComment.trim() } : {}) }); setNpsDone(true); }
+    catch { /* sessiz */ }
+  }
+
+  if (error) return <div className="my-2 text-sm text-destructive">{error}</div>;
   if (!data) return <Loading />;
 
   const c = data.currency;
-  const { pendingCents, payableCents, processingCents, paidCents } = data.totals;
-  const totalCents = sumCents([pendingCents, payableCents, processingCents, paidCents]);
+  const pending = Number(data.totals.pendingCents);
+  const payable = Number(data.totals.payableCents);
+  const paid = Number(data.totals.paidCents);
+  const total = pending + payable + paid;
+
+  const segs = [
+    { label: t('me.pending'), value: Math.max(0, pending), color: 'var(--amber)' },
+    { label: t('me.payable'), value: Math.max(0, payable), color: 'var(--sky)' },
+    { label: t('me.paid'), value: Math.max(0, paid), color: 'var(--emerald)' },
+  ];
+
+  const levelBars = data.levels.map((l) => ({
+    label: levelLabel(l.level),
+    value: Number(l.payableCents) + Number(l.pendingCents) + Number(l.paidCents),
+    color: 'var(--grad-primary)',
+  }));
 
   return (
     <div>
-      <div className="eyebrow fade-in">{t('anav.home')} - {data.month}</div>
+      <div className="eyebrow fade-in">{t('anav.home')} · {data.month}</div>
       <h1 className="h1 fade-in">{t('me.title')}</h1>
       <p className="sub fade-in">{t('me.sub')}</p>
-      <NextActions endpoint="/app/recommendations" />
 
-      <div className="grid gap-4 fade-in delay-1 lg:grid-cols-[minmax(0,1.3fr)_minmax(280px,1fr)]">
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle>This month</CardTitle>
-            <CardDescription>Pending, payable, processing and paid commissions in one view.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-5">
-            <div>
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('me.monthTotal')}</div>
-              <div className="mt-1 font-[var(--font-display)] text-3xl font-semibold tracking-normal">
-                {money(totalCents, c)}
+      {announcements.filter((a) => !a.read).length > 0 && (
+        <div className="grid fade-in" style={{ gap: 10, marginBottom: 16 }}>
+          {announcements.filter((a) => !a.read).map((a) => (
+            <Card key={a.id} className="p-5" style={{ borderColor: 'color-mix(in srgb, var(--gold-500) 35%, transparent)' }}>
+              <div className="spread" style={{ marginBottom: 4 }}>
+                <strong style={{ fontSize: 14 }}>📣 {a.title}</strong>
+                <button className="text-xs text-muted-foreground hover:text-foreground" onClick={() => dismissAnnouncement(a.id)}>Mark read ✕</button>
               </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <Chip color="var(--amber)" label={t('me.pending')} value={money(pendingCents, c)} />
-              <Chip color="var(--sky)" label={t('me.payable')} value={money(payableCents, c)} />
-              <Chip color="var(--primary)" label="Processing" value={money(processingCents, c)} />
-              <Chip color="var(--emerald)" label={t('me.paid')} value={money(paidCents, c)} />
-            </div>
-          </CardContent>
-        </Card>
+              <div className="muted" style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{a.body}</div>
+            </Card>
+          ))}
+        </div>
+      )}
 
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle>Transfer status</CardTitle>
-            <CardDescription>Processing funds have been reserved for a payout and are not withdrawable again.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid min-h-[220px] content-center gap-2">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Funds in processing</div>
-            <div className="font-[var(--font-display)] text-3xl font-semibold tracking-normal">{money(processingCents, c)}</div>
-            <p className="m-0 text-sm text-muted-foreground">
-              {hasPositiveCents(processingCents)
-                ? 'Your payout is waiting for settlement evidence from the business.'
-                : 'No funds are currently reserved for payout processing.'}
-            </p>
-          </CardContent>
+      {onboarding && onboarding.percent < 100 && (
+        <Card className="fade-in p-5" style={{ marginBottom: 16 }}>
+          <div className="spread" style={{ marginBottom: 10 }}>
+            <strong style={{ fontSize: 14 }}>Get started</strong>
+            <span className="faint" style={{ fontSize: 12 }}>{onboarding.percent}% complete</span>
+          </div>
+          <div className="mb-3 h-2 overflow-hidden rounded-md bg-muted">
+            <div style={{ height: '100%', width: `${onboarding.percent}%`, borderRadius: 6, background: 'var(--grad-primary)', transition: 'width .7s' }} />
+          </div>
+          <div className="grid" style={{ gap: 6 }}>
+            {onboarding.steps.map((s) => (
+              <div key={s.key} className="row" style={{ gap: 8, fontSize: 13 }}>
+                <span style={{ width: 18, height: 18, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 11, background: s.done ? 'var(--grad-emerald, var(--emerald))' : 'var(--panel-2)', color: s.done ? '#03130d' : 'var(--faint)' }}>{s.done ? '✓' : ''}</span>
+                <span style={{ color: s.done ? 'var(--muted)' : 'var(--text)', textDecoration: s.done ? 'line-through' : undefined }}>{s.label}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {npsPrompt && !npsDone && (
+        <Card className="fade-in p-5" style={{ marginBottom: 16, borderColor: 'color-mix(in srgb, var(--sky) 30%, transparent)' }}>
+          <div className="spread" style={{ marginBottom: 10 }}>
+            <strong style={{ fontSize: 14 }}>How likely are you to recommend us? (0–10)</strong>
+            <button className="text-sm text-muted-foreground hover:text-foreground" onClick={() => setNpsPrompt(false)}>✕</button>
+          </div>
+          <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
+            {Array.from({ length: 11 }).map((_, n) => (
+              <Button key={n} size="sm" variant={npsScore === n ? 'default' : 'ghost'} onClick={() => setNpsScore(n)} className="min-w-[34px] px-0">{n}</Button>
+            ))}
+          </div>
+          <Input value={npsComment} onChange={(e) => setNpsComment(e.target.value)} placeholder="Any feedback? (optional)" className="mt-2.5" />
+          <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
+            <Button disabled={npsScore == null} onClick={submitNps}>Submit</Button>
+          </div>
+        </Card>
+      )}
+      {npsDone && <Card className="fade-in p-5" style={{ marginBottom: 16 }}><span className="muted">Thanks for your feedback! 🙏</span></Card>}
+
+      {/* sold vs earned (this month) — the product's core promise */}
+      <div className="stat-grid fade-in delay-1" style={{ marginBottom: 16 }}>
+        <Card className="stat p-5">
+          <div className="spread"><span className="k">You sold (this month)</span><span className="icon">◇</span></div>
+          <div className="v"><MoneyCounter cents={Number(data.soldThisMonthCents)} currency={c} /></div>
+          <div className="hint">{data.salesThisMonth} sales · {money(data.soldLifetimeCents, c)} lifetime</div>
+        </Card>
+        <Card className="stat p-5">
+          <div className="spread"><span className="k">You earned (this month)</span><span className="icon" style={{ background: 'var(--foil)' }}>◆</span></div>
+          <div className="v" style={{ color: 'var(--gold-500)' }}><MoneyCounter cents={Number(data.earnedThisMonthCents)} currency={c} /></div>
+          <div className="hint">commission (pending + payable + paid)</div>
+        </Card>
+        <Card className="stat p-5">
+          <div className="spread"><span className="k">Effective rate</span><span className="icon">%</span></div>
+          <div className="v">{data.effectiveRateBps > 0 ? `${(data.effectiveRateBps / 100).toFixed(1)}%` : '—'}</div>
+          <div className="hint">earned / sold</div>
         </Card>
       </div>
 
-      <Card className="mt-4 fade-in delay-2">
-        <CardHeader>
-          <CardTitle>{t('me.levelBreakdown')}</CardTitle>
-          <div className="text-xs text-muted-foreground">{t('me.levelHint')}</div>
-        </CardHeader>
-        <CardContent>
-          {data.levels.length > 0 ? <LevelBreakdown levels={data.levels} currency={c} /> : <div className="text-sm text-muted-foreground">{t('me.noData')}</div>}
-        </CardContent>
+      {/* hero + donut */}
+      <div className="grid fade-in delay-1 stack-sm" style={{ gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', alignItems: 'stretch' }}>
+        <Card className="hero p-5">
+          <div className="faint" style={{ fontSize: 12 }}>{t('me.monthTotal')}</div>
+          <div className="bignum gradient-text" style={{ marginTop: 6 }}>
+            <MoneyCounter cents={total} currency={c} />
+          </div>
+          <div className="row spread" style={{ marginTop: 20, gap: 18 }}>
+            <div className="row" style={{ gap: 18 }}>
+              <Chip color="var(--amber)" label={t('me.pending')} value={money(pending, c)} />
+              <Chip color="var(--sky)" label={t('me.payable')} value={money(payable, c)} />
+              <Chip color="var(--emerald)" label={t('me.paid')} value={money(paid, c)} />
+            </div>
+            {payable > 0 && (
+              <Button asChild variant="success" size="sm">
+                <Link href="/app/wallet">{t('me.requestPayout')} →</Link>
+              </Button>
+            )}
+          </div>
+          {rankInfo?.rank && (
+            <div className="row" style={{ marginTop: 14, gap: 8 }}>
+              <span className="badge active" style={{ fontSize: 11, background: 'var(--foil)', color: 'var(--on-gold)' }}>🏆 Rank #{rankInfo.rank} of {rankInfo.total}</span>
+              {rankInfo.topPercent != null && <span className="faint" style={{ fontSize: 11 }}>top {rankInfo.topPercent}% this month</span>}
+            </div>
+          )}
+        </Card>
+
+        <Card className="grid place-items-center p-5">
+          <Donut
+            segments={segs}
+            center={
+              <div>
+                <div className="faint" style={{ fontSize: 11 }}>{t('me.balance')}</div>
+                <div style={{ fontWeight: 800, fontSize: 18 }}>{money(payable, c)}</div>
+                <div className="faint" style={{ fontSize: 10 }}>{t('me.payable')}</div>
+              </div>
+            }
+          />
+        </Card>
+      </div>
+
+      {/* kariyer rutbesi + rozetler */}
+      {rank && (rank.current || rank.badges.some((b) => b.earned)) && (
+        <Card className="fade-in delay-2 p-5" style={{ marginTop: 16 }}>
+          <div className="spread" style={{ marginBottom: 10 }}>
+            <strong style={{ fontSize: 14 }}>🏅 {rank.current ?? 'Unranked'}{rank.next && <span className="faint" style={{ fontWeight: 400 }}> → {rank.next}</span>}{rank.overrideBps ? <span className="badge active" style={{ fontSize: 10, marginLeft: 8 }}>+{(rank.overrideBps / 100).toFixed(rank.overrideBps % 100 ? 1 : 0)}% on your sales</span> : null}</strong>
+            {rank.next && <span className="faint" style={{ fontSize: 12 }}>{rank.overallPct}% to {rank.next}</span>}
+          </div>
+          {rank.next && (
+            <div className="mb-3 h-2 overflow-hidden rounded-md bg-muted">
+              <div style={{ height: '100%', width: `${rank.overallPct}%`, borderRadius: 6, background: 'var(--foil)', transition: 'width .7s' }} />
+            </div>
+          )}
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            {rank.badges.map((b) => (
+              <Badge key={b.key} variant={b.earned ? 'success' : 'secondary'} style={{ opacity: b.earned ? 1 : 0.5 }}>{b.earned ? '✓ ' : ''}{b.label}</Badge>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* aktif kampanyalar — kendi siram */}
+      {campaigns.length > 0 && (
+        <div className="grid fade-in delay-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginTop: 16 }}>
+          {campaigns.map((cp) => {
+            const topPrize = cp.prizes.reduce((a, p) => Math.max(a, p.bonusCents), 0);
+            return (
+              <Card key={cp.id} className="p-5" style={{ borderColor: 'color-mix(in srgb, var(--gold-500) 35%, transparent)' }}>
+                <div className="spread">
+                  <strong style={{ fontSize: 14 }}>⚑ {cp.name}</strong>
+                  <span className="faint" style={{ fontSize: 11 }}>ends {dateShort(cp.endsAt)}</span>
+                </div>
+                <div className="row" style={{ gap: 16, margin: '12px 0' }}>
+                  <div>
+                    <div className="faint" style={{ fontSize: 11 }}>Your rank</div>
+                    <div className="tnum" style={{ fontWeight: 800, fontSize: 22, color: cp.myRank === 1 ? 'var(--gold-500)' : undefined }}>
+                      {cp.myRank ? `#${cp.myRank}` : '—'}
+                    </div>
+                  </div>
+                  {topPrize > 0 && (
+                    <div>
+                      <div className="faint" style={{ fontSize: 11 }}>Top prize</div>
+                      <div className="tnum" style={{ fontWeight: 700, fontSize: 15, marginTop: 4 }}>{money(topPrize)}</div>
+                    </div>
+                  )}
+                </div>
+                {cp.leaderboard.length > 0 && (
+                  <div className="grid" style={{ gap: 4 }}>
+                    {cp.leaderboard.slice(0, 3).map((s) => (
+                      <div key={s.membershipId} className="spread" style={{ fontSize: 12 }}>
+                        <span className="row" style={{ gap: 6 }}>
+                          <span style={{ width: 18, height: 18, borderRadius: 5, display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 800, background: s.rank === 1 ? 'var(--foil)' : 'var(--panel-2)', color: s.rank === 1 ? 'var(--on-gold)' : 'var(--muted)' }}>{s.rank}</span>
+                          {s.name}
+                        </span>
+                        <span className="tnum faint">{cp.metric === 'revenue' ? money(s.score) : s.score.toLocaleString('en-US')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* son 6 ay kazanc trendi */}
+      {earnings && earnings.series.some((p) => Number(p.totalCents) > 0) && (
+        <Card className="fade-in delay-2 p-5" style={{ marginTop: 16 }}>
+          <div className="spread" style={{ marginBottom: 14 }}>
+            <strong>Last 6 months</strong>
+            <span className="faint" style={{ fontSize: 12 }}>Your total commission per month</span>
+          </div>
+          <Bars
+            data={earnings.series.map((p) => ({ label: monthLabel(p.month), value: Number(p.totalCents), color: 'var(--grad-primary)' }))}
+            format={(v) => money(v, c)}
+          />
+        </Card>
+      )}
+
+      {/* seviye dokumu */}
+      <Card className="fade-in delay-2 p-5" style={{ marginTop: 16 }}>
+        <div className="spread" style={{ marginBottom: 14 }}>
+          <strong>{t('me.levelBreakdown')}</strong>
+          <span className="faint" style={{ fontSize: 12 }}>{t('me.levelHint')}</span>
+        </div>
+        {levelBars.length > 0 ? (
+          <Bars data={levelBars} format={(v) => money(v, c)} />
+        ) : (
+          <div className="muted" style={{ textAlign: 'center', padding: '18px 0' }}>
+            No commissions yet.<br />
+            <span className="faint" style={{ fontSize: 12.5 }}>Record a sale or invite your team — your earnings by level will show up here.</span>
+          </div>
+        )}
       </Card>
 
-      <div className="mt-4 text-[11px] leading-normal text-muted-foreground fade-in">{t('me.incomeNote')}</div>
+      <div className="faint fade-in" style={{ fontSize: 11, marginTop: 16, lineHeight: 1.5 }}>{t('me.incomeNote')}</div>
     </div>
   );
 }
 
 function Chip({ color, label, value }: { color: string; label: string; value: string }) {
   return (
-    <div className="rounded-xl border bg-muted/30 p-3">
-      <div className="inline-flex items-center gap-2">
-        <span className="size-2.5 rounded-sm" style={{ background: color }} />
-        <span className="text-[11px] text-muted-foreground">{label}</span>
+    <div>
+      <div className="row" style={{ gap: 7 }}>
+        <span style={{ width: 9, height: 9, borderRadius: 3, background: color }} />
+        <span className="faint" style={{ fontSize: 11 }}>{label}</span>
       </div>
-      <div className="mt-1 font-semibold tabular-nums">{value}</div>
+      <div className="tnum" style={{ fontWeight: 700, marginTop: 3 }}>{value}</div>
     </div>
   );
-}
-
-function LevelBreakdown({ levels, currency }: { levels: LevelRow[]; currency: string }) {
-  const rows = levels.map((level) => ({
-    label: `Level ${level.level}`,
-    totalCents: sumCents([level.pendingCents, level.payableCents, level.processingCents, level.paidCents]),
-  }));
-  const largest = rows.reduce((max, row) => (cents(row.totalCents) > max ? cents(row.totalCents) : max), 0n);
-
-  return (
-    <div className="grid gap-3">
-      {rows.map((row) => (
-        <div key={row.label}>
-          <div className="mb-1.5 flex items-center justify-between gap-3">
-            <span className="text-sm text-muted-foreground">{row.label}</span>
-            <span className="text-sm font-semibold tabular-nums">{money(row.totalCents, currency)}</span>
-          </div>
-          <div className="h-2.5 overflow-hidden rounded-md bg-muted">
-            <div className="h-full rounded-md bg-primary" style={{ width: percentOf(row.totalCents, largest) }} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function sumCents(values: readonly string[]): string {
-  return values.reduce((total, value) => total + cents(value), 0n).toString();
-}
-
-function cents(value: string): bigint {
-  try {
-    return BigInt(value);
-  } catch {
-    return 0n;
-  }
-}
-
-function hasPositiveCents(value: string): boolean {
-  return cents(value) > 0n;
-}
-
-function percentOf(value: string, maximum: bigint): string {
-  if (maximum <= 0n || cents(value) <= 0n) return '0%';
-  const hundredths = (cents(value) * 10_000n) / maximum;
-  return `${hundredths / 100n}.${(hundredths % 100n).toString().padStart(2, '0')}%`;
 }

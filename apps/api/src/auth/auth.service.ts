@@ -1,11 +1,13 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { JwtService } from '@nestjs/jwt';
 import { hash, verify } from '@node-rs/argon2';
 import {
@@ -51,7 +53,20 @@ import {
 } from './mfa';
 
 // argon2id parameters (OWASP recommendation).
-const ARGON2_OPTS = { memoryCost: 19_456, timeCost: 2, parallelism: 1 };
+export const ARGON2_OPTS = { memoryCost: 19_456, timeCost: 2, parallelism: 1 };
+
+// Kayit disclaimer'inin surumu — FE'deki metin degisirse artir; hangi metnin kabul edildigini izler.
+export const DISCLAIMER_VERSION = 'v1';
+
+const PASSWORD_RESET_RESPONSE_FLOOR_MS = 250;
+
+/** tenantBrand() icin allowlist edilmis alanlar (bkz. Tenant.branding, Brand.tsx ayarlari). */
+export interface PublicTenantBranding {
+  logoText?: string;
+  tagline?: string;
+  primaryColor?: string;
+  accentColor?: string;
+}
 
 // Password verification still runs when the user is missing to keep timing comparable.
 let dummyHashPromise: Promise<string> | null = null;
@@ -111,6 +126,28 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly memberships: MembershipsService,
   ) {}
+
+  async tenantBrand(slug: string): Promise<{ name: string; branding: PublicTenantBranding }> {
+    const tenant = await this.prisma.tenant.findFirst({
+      where: { slug, status: TenantStatus.active },
+      select: { name: true, branding: true },
+    });
+    if (!tenant) throw new NotFoundException('tenant not found');
+    const branding = (tenant.branding && typeof tenant.branding === 'object'
+      ? tenant.branding
+      : {}) as Record<string, unknown>;
+    const text = (key: string): string | undefined =>
+      typeof branding[key] === 'string' ? (branding[key] as string) : undefined;
+    return {
+      name: tenant.name,
+      branding: {
+        logoText: text('logoText'),
+        tagline: text('tagline'),
+        primaryColor: text('primaryColor'),
+        accentColor: text('accentColor'),
+      },
+    };
+  }
 
   /** Member registration is invite-only (SPEC 4.3). Tenant and sponsor are resolved from the invite code. */
   async registerByInvite(input: RegisterByInviteInput, meta: RequestMeta = {}): Promise<LoginResult> {
@@ -244,6 +281,15 @@ export class AuthService {
         sponsor: invite.inviter,
         inviteId: invite.id,
         consent,
+      });
+      // sybil sinyali (#16): kayit IP'si + Faz A1 disclaimer onayi (zod true zorunlu kildi).
+      await tx.membership.update({
+        where: { id: membership.id },
+        data: {
+          ...(meta.ip ? { signupIp: meta.ip } : {}),
+          disclaimerAcceptedAt: new Date(),
+          disclaimerVersion: DISCLAIMER_VERSION,
+        },
       });
 
       const consumed = await tx.invite.updateMany({
@@ -448,7 +494,6 @@ export class AuthService {
       return { enabled: false };
     });
   }
-  /** Rotating refresh: revoke the old token and issue a new one. Reuse revokes all sessions. */
   async refresh(refreshTokenRaw: string, meta: RequestMeta = {}): Promise<AuthSession> {
     const tokenHash = sha256(refreshTokenRaw);
     const outcome = await this.prisma.$transaction(async (tx) => {
@@ -473,11 +518,14 @@ export class AuthService {
       }
       if (token.expiresAt < new Date()) return { kind: 'expired' as const };
 
+// Refresh rotation keeps the existing transaction and session family.
+    const familyId = token.familyId ?? randomUUID(); // ayni oturum (cihaz) — eski token'da yoksa (migration oncesi) yeni ata
       const newRaw = randomToken();
       const newToken = await tx.refreshToken.create({
         data: {
           userId: token.userId,
           tokenHash: sha256(newRaw),
+          familyId,
           expiresAt: new Date(Date.now() + authConfig.refreshTtlMs),
           mfaVerifiedAt: token.mfaVerifiedAt,
           authGeneration: user.authGeneration,
@@ -492,7 +540,7 @@ export class AuthService {
       if (rotated.count === 0) {
         throw new UnauthorizedException('refresh token has already been used');
       }
-      return { kind: 'session' as const, session: await this.buildSession(tx, token.userId, newRaw, token.mfaVerifiedAt) };
+      return { kind: 'session' as const, session: await this.buildSession(tx, token.userId, newRaw, token.mfaVerifiedAt, familyId) };
     });
 
     if (outcome.kind === 'session') return outcome.session;
@@ -582,6 +630,17 @@ export class AuthService {
     });
   }
 
+  /** Platform admin "act-as": bir sirket icin tenant-scoped owner token uretir (plat:true korunur). */
+  async actAsTenant(userId: string, tenantId: string): Promise<{ accessToken: string }> {
+    const user = await this.prisma.user.findFirst({ where: { id: userId, isPlatformAdmin: true }, select: { id: true, isPlatformAdmin: true } });
+    if (!user) throw new ForbiddenException('platform yetkisi gerekli');
+    const tenant = await this.prisma.tenant.findFirst({ where: { id: tenantId, status: TenantStatus.active }, select: { id: true } });
+    if (!tenant) throw new NotFoundException('sirket bulunamadi veya aktif degil');
+    const payload: AccessTokenPayload = { sub: user.id, mid: null, tid: tenant.id, role: Role.tenant_owner, plat: true };
+    const accessToken = await this.jwt.signAsync(payload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
+    return { accessToken };
+  }
+
   async verifyEmail(tokenRaw: string): Promise<{ ok: true }> {
     await this.prisma.$transaction(async (tx) => {
       const token = await this.consumeUserTokenInTransaction(
@@ -596,39 +655,47 @@ export class AuthService {
   }
   /** Do not reveal whether the user exists; always return the same response. */
   async requestPasswordReset(email: string): Promise<{ ok: true }> {
-    const user = await this.prisma.user.findUnique({
-      where: { email },
-      include: { memberships: { where: { status: MembershipStatus.active }, take: 1 } },
-    });
-    if (user) {
-      const raw = randomToken(32);
-      const recipient = user.lastMembershipId ?? user.memberships[0]?.id;
-      await this.prisma.$transaction(async (tx) => {
-        await this.lockUserForAuth(tx, user.id);
-        await tx.userToken.updateMany({
-          where: { userId: user.id, purpose: UserTokenPurpose.password_reset, usedAt: null },
-          data: { usedAt: new Date() }, // onceki istekler gecersizlesir
-        });
-        await tx.userToken.create({
-          data: {
-            userId: user.id,
-            purpose: UserTokenPurpose.password_reset,
-            tokenHash: sha256(raw),
-            expiresAt: new Date(Date.now() + authConfig.passwordResetTtlMs),
-          },
-        });
-        if (recipient) {
+    const startedAt = Date.now();
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { email },
+        select: { id: true },
+      });
+      if (user) {
+        const raw = randomToken(32);
+        await this.prisma.$transaction(async (tx) => {
+          await this.lockUserForAuth(tx, user.id);
+          await tx.userToken.updateMany({
+            where: { userId: user.id, purpose: UserTokenPurpose.password_reset, usedAt: null },
+            data: { usedAt: new Date() }, // onceki istekler gecersizlesir
+          });
+          await tx.userToken.create({
+            data: {
+              userId: user.id,
+              purpose: UserTokenPurpose.password_reset,
+              tokenHash: sha256(raw),
+              expiresAt: new Date(Date.now() + authConfig.passwordResetTtlMs),
+            },
+          });
           await tx.notification.create({
             data: {
-              recipientMembershipId: recipient,
+              tenantId: null,
+              recipientMembershipId: null,
+              recipientUserId: user.id,
               channel: NotificationChannel.email,
               template: 'password_reset',
               payload: { tokenCiphertext: encryptSecret(raw, authConfig.accessSecret()) },
             },
           });
-        }
-      });
+        });
+      }
+    } catch {
+      // Public endpoint daima ayni cevabi verir; e-posta, token ve altyapi hatasi log'a tasinmaz.
+      this.logger.error('password reset request processing failed');
     }
+
+    const remainingMs = PASSWORD_RESET_RESPONSE_FLOOR_MS - (Date.now() - startedAt);
+    if (remainingMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, remainingMs));
     return { ok: true };
   }
 
@@ -898,10 +965,12 @@ export class AuthService {
       throw new UnauthorizedException('2FA verification is required for this session');
     }
     const raw = randomToken();
+    const familyId = randomUUID();
     await tx.refreshToken.create({
       data: {
         userId,
         tokenHash: sha256(raw),
+        familyId,
         expiresAt: new Date(Date.now() + authConfig.refreshTtlMs),
         mfaVerifiedAt,
         authGeneration: user.authGeneration,
@@ -909,7 +978,7 @@ export class AuthService {
         userAgent: meta.userAgent,
       },
     });
-    return this.buildSession(tx, userId, raw, mfaVerifiedAt);
+    return this.buildSession(tx, userId, raw, mfaVerifiedAt, familyId);
   }
 
   private async buildSession(
@@ -917,6 +986,7 @@ export class AuthService {
     userId: string,
     refreshTokenRaw: string,
     mfaVerifiedAt: Date | null,
+    familyId?: string,
   ): Promise<AuthSession> {
     const user = await tx.user.findUniqueOrThrow({
       where: { id: userId },
@@ -939,7 +1009,7 @@ export class AuthService {
       await tx.user.update({ where: { id: user.id }, data: { lastMembershipId: active.id } });
     }
 
-    const accessToken = await this.signAccess(user, active, this.mfaAssuranceForUser(user, mfaVerifiedAt));
+    const accessToken = await this.signAccess(user, active, this.mfaAssuranceForUser(user, mfaVerifiedAt), familyId);
     const memberships: MembershipSummary[] = list.map((m) => ({
       id: m.id,
       tenantId: m.tenant.id,
@@ -970,6 +1040,7 @@ export class AuthService {
     user: Pick<User, 'id' | 'isPlatformAdmin' | 'authGeneration'>,
     membership: ActiveMembership | null,
     mfaAssurance: MfaAssurance | null = null,
+    familyId?: string,
   ): Promise<string> {
     const payload: AccessTokenPayload = {
       sub: user.id,
@@ -992,6 +1063,7 @@ export class AuthService {
       payload.mfaAt = mfaAssurance.mfaAt;
       payload.mfaEpoch = mfaAssurance.mfaEpoch;
     }
+    if (familyId) payload.sid = familyId;
     if (user.isPlatformAdmin) payload.plat = true;
     // owner/platform -> perms are omitted; the guard treats them as all-permission tiers.
     // Other tiers receive either roleRef permissions or their default enum-tier permissions.

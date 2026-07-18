@@ -1,26 +1,21 @@
-import { commissionPlanSchema } from '@refearn/shared';
 import { z } from 'zod';
 
-const centsSchema = z
-  .union([z.string().trim().regex(/^\d+$/), z.number().int().positive()])
-  .transform((v) => String(v));
-
-export const createPlanSchema = commissionPlanSchema.and(
-  z.object({
-    effectiveFrom: z.coerce.date().optional(),
-  }),
-);
-export type CreatePlanInput = z.infer<typeof createPlanSchema>;
-
-export const simulatePlanSchema = z
-  .object({
-    amountCents: centsSchema,
-    planId: z.string().uuid().optional(),
-    plan: commissionPlanSchema.optional(),
-    uplineCount: z.coerce.number().int().min(1).max(12).optional(),
-  })
-  .refine((v) => v.planId || v.plan, {
-    message: 'planId veya plan gerekli',
-    path: ['planId'],
-  });
+export const simulatePlanSchema = z.object({
+  amountCents: z.number().int().positive(),
+  sellerMembershipId: z.string().uuid().optional(),
+});
 export type SimulatePlanInput = z.infer<typeof simulatePlanSchema>;
+
+/** Yeni plan VERSIYONU (effective_from ileri tarihli). Derin capraz kurallar serviste
+ *  @refearn/shared commissionPlanSchema ile ikinci kez dogrulanir. */
+export const createPlanSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  poolRateBps: z.number().int().min(0).max(10_000),
+  depth: z.number().int().min(1).max(20),
+  levels: z.array(z.object({ level: z.number().int().min(0).max(19), rateBps: z.number().int().min(0).max(10_000) })).min(1),
+  fastStartBps: z.number().int().min(0).max(10_000).optional(),
+  fastStartDays: z.number().int().min(0).max(3650).optional(),
+  matchingBps: z.number().int().min(0).max(10_000).optional(),
+  effectiveFrom: z.string().datetime().optional(),
+});
+export type CreatePlanInput = z.infer<typeof createPlanSchema>;

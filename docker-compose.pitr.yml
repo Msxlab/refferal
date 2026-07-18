@@ -1,0 +1,53 @@
+# Refearn — PITR (Faz B7) overlay. SANIYELIK kurtarma: surekli WAL arsivleme + periyodik taban yedek.
+# Bu, mevcut gunluk MANTIKSAL yedegin (docker/backup/backup.sh) USTUNE eklenir; onu degistirmez.
+#
+# Kullanim (prod):
+#   docker compose -f docker-compose.yml -f docker-compose.pitr.yml --profile app up -d
+#
+# NE saglar: wal_level=replica + archive_mode=on → her commit WAL'a yazilir, dolan her WAL segmenti
+# /wal_archive'a kopyalanir. archive_timeout=60 → en fazla ~60s veri kaybi (RPO). Taban yedek +
+# o taban sonrasi WAL'larin recovery_target_time'a kadar tekrari = HERHANGI BIR SANIYEYE donus.
+#
+# ONEMLI: /wal_archive ve /basebackups hacimleri OFFSITE'e de kopyalanmali (disk olursa PITR de gider).
+# Mevcut offsite hatti (rclone+age) bu iki dizini de senkronlamali — bkz. docs/PITR.md.
+services:
+  postgres:
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - "archive_command=test ! -f /wal_archive/%f && cp %p /wal_archive/%f"
+      - -c
+      - archive_timeout=60
+      - -c
+      - max_wal_senders=4
+      - -c
+      - wal_keep_size=512MB
+    volumes:
+      - walarchive:/wal_archive
+
+  basebackup:
+    profiles: ["app"]
+    image: postgres:17
+    environment:
+      PGPASSWORD: refearn
+      PGHOST: postgres
+      PGUSER: refearn
+      BASEBACKUP_INTERVAL_SECONDS: "86400"
+      BASEBACKUP_RETENTION_DAYS: "14"
+    entrypoint: ["bash", "/pitr/basebackup.sh"]
+    volumes:
+      - basebackups:/basebackups
+      - walarchive:/wal_archive:ro
+      - ./docker/pitr:/pitr:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  walarchive:
+  basebackups:

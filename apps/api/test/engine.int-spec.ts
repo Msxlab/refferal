@@ -1,5 +1,6 @@
 import { LedgerStatus, LedgerType, MaturationRule, MembershipStatus, SaleStatus } from '@prisma/client';
 import { EngineService } from '../src/engine/engine.service';
+import { RanksService } from '../src/ranks/ranks.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import {
   createChain,
@@ -22,7 +23,7 @@ describe('commission engine (integration)', () => {
   beforeAll(async () => {
     prisma = new PrismaService();
     await prisma.$connect();
-    engine = new EngineService(prisma);
+    engine = new EngineService(prisma, undefined, new RanksService(prisma));
   });
 
   afterAll(async () => {
@@ -200,12 +201,13 @@ describe('commission engine (integration)', () => {
     const tomorrow = new Date('2026-06-11T12:00:00Z');
     const dayAfter = new Date('2026-06-12T12:00:00Z');
 
-    await createPlan(prisma, tenant.id, { effectiveFrom: new Date('2026-01-01T00:00:00Z') });
+    const originalPlan = await createPlan(prisma, tenant.id, { effectiveFrom: new Date('2026-01-01T00:00:00Z') });
     const chain = await createChain(prisma, tenant.id, 6);
 
     // Sale with the old plan.
     const oldSale = await createSale(prisma, tenant.id, chain[5].id, 10_000_000n, { saleDate: now });
     await engine.approveSale(oldSale.id);
+    expect((await prisma.sale.findUniqueOrThrow({ where: { id: oldSale.id } })).commissionPlanId).toBe(originalPlan.id);
 
     // New plan with different rates starting tomorrow.
     await createPlan(prisma, tenant.id, {
@@ -233,7 +235,33 @@ describe('commission engine (integration)', () => {
     expect(newEntries.map((e) => e.amountCents)).toEqual([600_000n, 200_000n, 100_000n, 50_000n, 50_000n]);
   });
 
-  it('T7: on_delivery - approved but not delivered -> pending; delivery + job -> payable', async () => {
+  it('T6 provenance: onceden pinlenmis satis daha yeni plan varken exact snapshot ile hesaplanir', async () => {
+    const tenant = await createTenant(prisma);
+    const originalPlan = await createPlan(prisma, tenant.id, {
+      effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+      rates: [500, 200],
+    });
+    const [, seller] = await createChain(prisma, tenant.id, 2);
+    const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n, {
+      saleDate: new Date('2026-06-10T12:00:00.000Z'),
+    });
+    await prisma.sale.update({ where: { id: sale.id }, data: { commissionPlanId: originalPlan.id } });
+
+    await createPlan(prisma, tenant.id, {
+      effectiveFrom: new Date('2026-06-01T00:00:00.000Z'),
+      rates: [900, 100],
+    });
+    await engine.approveSale(sale.id);
+
+    const entries = await prisma.ledgerEntry.findMany({
+      where: { saleId: sale.id, type: LedgerType.commission },
+      orderBy: { level: 'asc' },
+    });
+    expect(entries.map((entry) => entry.rateBpsUsed)).toEqual([500, 200]);
+    expect((await prisma.sale.findUniqueOrThrow({ where: { id: sale.id } })).commissionPlanId).toBe(originalPlan.id);
+  });
+
+  it('T7: on_delivery — approved ama delivered degil → pending; teslim + job → payable', async () => {
     const tenant = await createTenant(prisma, { maturationRule: MaturationRule.on_delivery });
     await createPlan(prisma, tenant.id);
     const chain = await createChain(prisma, tenant.id, 6);

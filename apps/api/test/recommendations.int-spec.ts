@@ -200,7 +200,7 @@ describe('next best action recommendations (integration)', () => {
       ],
     });
     const period = monthKey(now, tenant.timezone);
-    await prisma.payoutBatch.create({
+    await prisma.payoutSettlementBatch.create({
       data: {
         tenantId: tenant.id,
         period,

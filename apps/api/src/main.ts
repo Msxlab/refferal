@@ -4,8 +4,11 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { configuredCorsOrigins } from './common/cors';
+import { initSentry } from './observability/sentry';
 
 async function bootstrap(): Promise<void> {
+  // Faz B4: hata takibi — app olusmadan ONCE (SENTRY_DSN yoksa no-op)
+  initSentry();
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // Behind Caddy/reverse proxies, resolve the real client IP from X-Forwarded-For.

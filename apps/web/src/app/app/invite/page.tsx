@@ -1,18 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
-import { AlertCircle, Copy, Gift, Plus } from 'lucide-react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { Loading, useToast } from '@/components/ui';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { QRCodeSVG } from 'qrcode.react';
 import { dateShort } from '@/lib/format';
 import { t } from '@/lib/i18n';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface InviteItem {
   id: string;
@@ -24,11 +22,17 @@ interface InviteItem {
   createdAt: string;
 }
 
+type BadgeVariant = 'default' | 'secondary' | 'success' | 'destructive';
+const INVITE_VARIANT: Record<string, BadgeVariant> = { active: 'success', used: 'default', expired: 'secondary', revoked: 'destructive' };
+
 export default function InvitePage() {
+  const uid = useId();
   const [invites, setInvites] = useState<InviteItem[] | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [latest, setLatest] = useState<string | null>(null);
+  const [message, setMessage] = useState('');
+  const [savingMsg, setSavingMsg] = useState(false);
   const [toast, showToast] = useToast();
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -36,13 +40,24 @@ export default function InvitePage() {
 
   const load = useCallback(async () => {
     try {
-      setInvites(await api.get<InviteItem[]>('/app/invites'));
+      const items = await api.get<InviteItem[]>('/app/invites');
+      setInvites(items);
+      setLatest((cur) => cur ?? items.find((i) => i.status === 'active')?.code ?? null);
     } catch (e) {
       setError(String((e as ApiError).message));
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    api.get<{ message: string | null }>('/app/invites/message').then((r) => setMessage(r.message ?? '')).catch(() => {});
+  }, [load]);
+
+  async function saveMessage() {
+    setSavingMsg(true);
+    try { await api.post('/app/invites/message', { message: message.trim() || null }); showToast('Invite note saved ✓'); }
+    catch (e) { setError(String((e as ApiError).message)); } finally { setSavingMsg(false); }
+  }
 
   async function create() {
     setBusy(true);
@@ -58,74 +73,94 @@ export default function InvitePage() {
     }
   }
 
+  // clipboard izin reddi / insecure-context'te sessiz patlamayi onle (denetim bulgusu)
   async function copy(code: string) {
-    await navigator.clipboard.writeText(linkFor(code));
-    showToast(t('me.copied'));
+    try {
+      await navigator.clipboard.writeText(linkFor(code));
+      showToast(t('me.copied') + ' ✓');
+    } catch {
+      showToast('Copy failed — select the link and copy manually');
+    }
   }
 
   return (
     <div>
-      <div className="eyebrow fade-in">{t('anav.invite')}</div>
-      <h1 className="h1 fade-in">Grow Your Team</h1>
-      <p className="sub fade-in">Share your invite link; everyone who joins becomes part of your tree.</p>
+      <div className="fade-in text-[11px] font-bold uppercase tracking-[0.14em] text-primary">{t('anav.invite')}</div>
+      <h1 className="fade-in mb-1.5 font-display text-2xl font-bold tracking-tight">Grow Your Team</h1>
+      <p className="fade-in mb-5 text-sm text-muted-foreground">Share your invite link; everyone who joins becomes part of your tree.</p>
 
-      <Card className="fade-in delay-1">
-        <CardContent className="grid place-items-center gap-4 text-center">
-          {!latest ? (
-            <>
-              <span className="grid size-12 place-items-center rounded-xl bg-primary/10 text-primary"><Gift className="size-6" /></span>
-              <p className="m-0 text-sm text-muted-foreground">Create a new invite link.</p>
-              <Button onClick={create} disabled={busy}><Plus />{t('me.inviteCreate')}</Button>
-            </>
-          ) : (
-            <>
-              <div className="qr"><QRCodeSVG value={linkFor(latest)} size={172} /></div>
-              <div className="flex w-full max-w-xl flex-col justify-center gap-2 sm:flex-row">
-                <Input readOnly value={linkFor(latest)} onFocus={(e) => e.currentTarget.select()} />
-                <Button onClick={() => copy(latest)}><Copy />{t('me.copy')}</Button>
-              </div>
-              <Button variant="ghost" size="sm" onClick={create} disabled={busy}><Plus />New invite</Button>
-            </>
-          )}
-          {error && (
-            <Alert variant="destructive" className="w-full text-left">
-              <AlertCircle />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-        </CardContent>
+      <Card className="fade-in mb-4 p-5">
+        <Label htmlFor={`${uid}-msg`} className="block">Personal invite note</Label>
+        <p className="mb-2 mt-1 text-xs text-muted-foreground">
+          Saved in your authenticated invite workspace; it is not displayed on the public signup page.
+        </p>
+        <textarea
+          id={`${uid}-msg`}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          maxLength={280}
+          rows={2}
+          placeholder="Add a private note for your invite workspace."
+          className="mt-1.5 resize-y"
+        />
+        <div className="mt-2 flex items-center justify-between">
+          <span className="text-[11px] text-muted-foreground">{message.length}/280</span>
+          <Button variant="ghost" size="sm" onClick={saveMessage} disabled={savingMsg}>{savingMsg ? 'Saving…' : 'Save message'}</Button>
+        </div>
       </Card>
 
-      <Card className="mt-4 fade-in delay-2 py-0">
-        <CardHeader className="border-b"><CardTitle>{t('me.myInvites')}</CardTitle></CardHeader>
-        <CardContent className="p-0">
-          {!invites ? <div className="p-4"><Loading rows={2} /></div> : (
-            <Table>
-              <TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Status</TableHead><TableHead>Expires</TableHead><TableHead>Created</TableHead><TableHead /></TableRow></TableHeader>
-              <TableBody>
-                {invites.map((invite) => (
-                  <TableRow key={invite.id}>
-                    <TableCell className="font-mono">{invite.code}</TableCell>
-                    <TableCell><StatusBadge status={invite.status} /></TableCell>
-                    <TableCell className="text-muted-foreground">{dateShort(invite.expiresAt)}</TableCell>
-                    <TableCell className="text-muted-foreground">{dateShort(invite.createdAt)}</TableCell>
-                    <TableCell className="text-right">
-                      {invite.status === 'active' && <Button variant="ghost" size="sm" onClick={() => copy(invite.code)}><Copy />{t('me.copy')}</Button>}
-                    </TableCell>
-                  </TableRow>
+      <Card className="card-glow fade-in delay-1 p-5 text-center">
+        {!latest ? (
+          <>
+            <div className="mb-2 text-[40px]">✦</div>
+            <p className="mt-0 text-muted-foreground">Create a new invite link.</p>
+            <Button onClick={create} disabled={busy} className="mx-auto mt-2">{t('me.inviteCreate')}</Button>
+          </>
+        ) : (
+          <>
+            <div className="flex justify-center">
+              <div className="inline-block rounded-2xl bg-white p-3.5 shadow-lg">
+                <QRCodeSVG value={linkFor(latest)} size={172} />
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2.5">
+              <Input readOnly value={linkFor(latest)} className="max-w-[340px]" onFocus={(e) => e.currentTarget.select()} />
+              <Button size="sm" onClick={() => copy(latest)}>{t('me.copy')}</Button>
+            </div>
+            <Button variant="ghost" size="sm" onClick={create} disabled={busy} className="mx-auto mt-3.5">New invite</Button>
+          </>
+        )}
+        {error && <div className="mt-3 text-sm text-destructive">{error}</div>}
+      </Card>
+
+      <Card className="fade-in delay-2 mt-4 p-5">
+        <strong className="mb-3 block">{t('me.myInvites')}</strong>
+        {!invites ? (
+          <Loading rows={2} />
+        ) : (
+          <div className="overflow-x-auto">
+            <table>
+              <thead><tr><th>Code</th><th>Status</th><th>Expires</th><th>Created</th><th></th></tr></thead>
+              <tbody>
+                {invites.map((i) => (
+                  <tr key={i.id}>
+                    <td className="font-mono">{i.code}</td>
+                    <td><Badge variant={INVITE_VARIANT[i.status] ?? 'secondary'}>{i.status}</Badge></td>
+                    <td className="text-muted-foreground">{dateShort(i.expiresAt)}</td>
+                    <td className="text-muted-foreground">{dateShort(i.createdAt)}</td>
+                    <td className="text-right">
+                      {i.status === 'active' && <Button variant="ghost" size="sm" onClick={() => copy(i.code)}>{t('me.copy')}</Button>}
+                    </td>
+                  </tr>
                 ))}
-                {invites.length === 0 && <TableRow><TableCell colSpan={5} className="py-6 text-center text-muted-foreground">{t('me.noData')}</TableCell></TableRow>}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
+                {invites.length === 0 && <tr><td colSpan={5} className="text-muted-foreground">No invites yet — create your first link above.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
 
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  return <Badge variant={status === 'active' ? 'default' : status === 'expired' ? 'destructive' : 'secondary'}>{status}</Badge>;
 }

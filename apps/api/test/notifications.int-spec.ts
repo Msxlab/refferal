@@ -5,7 +5,7 @@ import { EmailAdapter, EmailMessage, PushAdapter, PushMessage } from '../src/not
 import { NotificationRelayService } from '../src/notifications/notification-relay.service';
 import { render } from '../src/notifications/templates';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { createChain, createTenant, truncateAll } from './helpers';
+import { createChain, createPlatformAdmin, createTenant, truncateAll } from './helpers';
 
 /** Outbox relay: drains pending notifications and marks sent/failed/retry (SPEC 5). */
 describe('notification relay (integration)', () => {
@@ -85,7 +85,58 @@ describe('notification relay (integration)', () => {
     expect(sentPush[0].tokens).toHaveLength(0);
   });
 
-  it('push: registered device token is included in the send list', async () => {
+  it('uyeligi olmayan dogrudan kullanici e-posta outbox kaydini kullaniciya gonderir', async () => {
+    const user = await createPlatformAdmin(prisma, 'Platform-Sifre-42!', 'direct-notification@test.refearn.local');
+    const notification = await prisma.notification.create({
+      data: {
+        tenantId: null,
+        recipientMembershipId: null,
+        recipientUserId: user.id,
+        channel: NotificationChannel.email,
+        template: 'password_reset',
+        payload: { token: 'direct-user-token' },
+      },
+    });
+
+    await expect(relay.drainOnce()).resolves.toBe(1);
+
+    expect(sentEmails).toHaveLength(1);
+    expect(sentEmails[0]).toEqual(expect.objectContaining({ to: user.email }));
+    const persisted = await prisma.notification.findUniqueOrThrow({ where: { id: notification.id } });
+    expect(persisted.status).toBe(NotificationStatus.sent);
+  });
+
+  it('veritabani tam olarak bir membership veya user recipient zorunlu kilar', async () => {
+    const r = await recipient();
+
+    await expect(
+      prisma.notification.create({
+        data: {
+          tenantId: null,
+          recipientMembershipId: null,
+          recipientUserId: null,
+          channel: NotificationChannel.email,
+          template: 'password_reset',
+          payload: {},
+        },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      prisma.notification.create({
+        data: {
+          tenantId: r.tenantId,
+          recipientMembershipId: r.membershipId,
+          recipientUserId: r.userId,
+          channel: NotificationChannel.email,
+          template: 'password_reset',
+          payload: {},
+        },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('push: kayitli cihaz token`i varsa gonderim listesine girer', async () => {
     const r = await recipient();
     await prisma.device.create({
       data: { userId: r.userId, expoPushToken: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]', platform: 'ios' },
@@ -124,7 +175,7 @@ describe('notification relay (integration)', () => {
     const after = await prisma.notification.findUniqueOrThrow({ where: { id: n.id } });
     expect(after.attempts).toBe(5);
     expect(after.status).toBe(NotificationStatus.failed);
-    expect(after.lastError).toContain('SMTP down');
+    expect(after.lastError).toBe('notification delivery failed');
     expect(after.availableAt).toBeNull();
     expect(after.leaseToken).toBeNull();
 

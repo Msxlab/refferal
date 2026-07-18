@@ -7,6 +7,7 @@ import { AppModule } from '../src/app.module';
 import { authConfig } from '../src/auth/auth.config';
 import { AccessTokenPayload } from '../src/auth/auth.types';
 import { EngineService } from '../src/engine/engine.service';
+import { RanksService } from '../src/ranks/ranks.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createChain, createPlan, createSale, createTenant, truncateAll } from './helpers';
 
@@ -251,7 +252,7 @@ describe('admin members/tree/dashboard (integration)', () => {
   it('dashboard: revenue/commission/member/payable for this month', async () => {
     const { tenant, chain, owner } = await setup();
     const tok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
-    const engine = new EngineService(prisma);
+    const engine = new EngineService(prisma, undefined, new RanksService(prisma));
 
     // Seller is chain[3] with 3 uplines, so the full pool is not distributed; revenue is 100k, commission is L0..L3.
     const sale = await createSale(prisma, tenant.id, chain[3].id, 10_000_000n);
@@ -273,7 +274,7 @@ describe('admin members/tree/dashboard (integration)', () => {
   it('analytics: time series, totals, funnel, top performers, and previous period', async () => {
     const { tenant, chain, owner } = await setup();
     const tok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
-    const engine = new EngineService(prisma);
+    const engine = new EngineService(prisma, undefined, new RanksService(prisma));
 
     const sale = await createSale(prisma, tenant.id, chain[3].id, 10_000_000n);
     await engine.approveSale(sale.id);

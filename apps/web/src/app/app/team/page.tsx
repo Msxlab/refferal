@@ -1,13 +1,22 @@
 'use client';
 
-import { type ReactNode, useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle2, Users } from 'lucide-react';
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import { Bars, CountUp, Loading } from '@/components/ui';
+import { Bars, CountUp, Loading, MoneyCounter, StatCard, useToast } from '@/components/ui';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { RadialNetwork } from '@/components/RadialNetwork';
+import { EarningsSimulator } from '@/components/EarningsSimulator';
+import { money, dateShort } from '@/lib/format';
 import { t } from '@/lib/i18n';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+/** 'YYYY-MM' → kisa ay etiketi (ör. 'Jun'). */
+function monthShort(ym: string): string {
+  const [y, m] = ym.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { month: 'short' });
+}
 
 interface TeamLevel {
   level: number;
@@ -20,22 +29,39 @@ interface Team {
   levels: TeamLevel[];
 }
 
+interface EarnSummary { currency: string; earnedThisMonthCents: string; soldThisMonthCents: string; soldLifetimeCents: string }
+
+interface Recruit {
+  id: string; fullName: string; email: string; referralCode: string;
+  status: string; joinedAt: string; salesThisMonth: number; soldThisMonthCents: string; needsNudge: boolean;
+}
+interface RecruitsResponse {
+  month: string; currency: string; recruits: Recruit[];
+  summary: { total: number; active: number; needsNudgeCount: number; joinedThisMonth: number };
+  growthTrend: Array<{ month: string; joined: number }>;
+}
+
 export default function TeamPage() {
   const [team, setTeam] = useState<Team | null>(null);
+  const [earn, setEarn] = useState<EarnSummary | null>(null);
+  const [recruits, setRecruits] = useState<RecruitsResponse | null>(null);
   const [error, setError] = useState('');
+  const [toast, showToast] = useToast();
+
+  function nudge(r: Recruit) {
+    // MVP: recruit e-postasini panoya kopyala (gercek bildirim gondermez — net mesaj).
+    if (r.email && typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(r.email).then(() => showToast(`${r.fullName}'s email copied — send them a message`)).catch(() => showToast('Could not copy'));
+    }
+  }
 
   useEffect(() => {
     api.get<Team>('/app/team').then(setTeam).catch((e) => setError(String((e as ApiError).message)));
+    api.get<EarnSummary>('/app/dashboard').then(setEarn).catch(() => { /* optional */ });
+    api.get<RecruitsResponse>('/app/team/recruits').then(setRecruits).catch(() => { /* optional */ });
   }, []);
 
-  if (error) {
-    return (
-      <Alert variant="destructive" className="fade-in">
-        <AlertCircle />
-        <AlertDescription>{error}</AlertDescription>
-      </Alert>
-    );
-  }
+  if (error) return <div className="my-2 text-sm text-destructive">{error}</div>;
   if (!team) return <Loading />;
 
   const inactive = team.totalMembers - team.totalActive;
@@ -44,51 +70,114 @@ export default function TeamPage() {
     <div>
       <div className="eyebrow fade-in">{t('anav.team')}</div>
       <h1 className="h1 fade-in">My Network</h1>
-      <p className="sub fade-in">Your downline at a glance, sized by level and shaded by activity.</p>
+      <p className="sub fade-in">Your downline at a glance — sized by level, shaded by activity.</p>
 
-      <div className="mb-4 grid gap-4 fade-in delay-1 sm:grid-cols-2">
-        <TeamStat label={t('me.members')} value={<CountUp value={team.totalMembers} />} Icon={Users} />
-        <TeamStat label={t('me.activeMembers')} value={<CountUp value={team.totalActive} />} Icon={CheckCircle2} />
+      <div className="stat-grid fade-in delay-1" style={{ marginBottom: 16 }}>
+        {earn && <StatCard label="Earned (this month)" value={<MoneyCounter cents={Number(earn.earnedThisMonthCents)} currency={earn.currency} />} icon="◆" grad="var(--foil)" hint={`${money(earn.soldThisMonthCents, earn.currency)} sold this month`} />}
+        {earn && <StatCard label="Sold (lifetime)" value={<MoneyCounter cents={Number(earn.soldLifetimeCents)} currency={earn.currency} />} icon="◇" />}
+        <StatCard label={t('me.members')} value={<CountUp value={team.totalMembers} />} icon="⬡" grad="var(--grad-primary)" />
+        <StatCard label={t('me.activeMembers')} value={<CountUp value={team.totalActive} />} icon="✓" grad="var(--grad-emerald)" />
       </div>
 
-      <div className="grid gap-4 fade-in delay-2 lg:grid-cols-[minmax(0,1fr)_minmax(280px,320px)]">
-        <Card>
-          <CardContent className="grid min-h-[320px] place-items-center">
-            <RadialNetwork levels={team.levels} totalMembers={team.totalMembers} />
-          </CardContent>
+      <div className="grid fade-in delay-2 stack-sm" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,300px)', gap: 16, alignItems: 'stretch' }}>
+        <Card className="grid place-items-center p-[18px]">
+          <RadialNetwork levels={team.levels} totalMembers={team.totalMembers} />
         </Card>
 
-        <Card>
-          <CardHeader><CardTitle>Level distribution</CardTitle></CardHeader>
-          <CardContent className="flex min-h-[320px] flex-col">
-            {team.levels.some((l) => l.memberCount > 0) ? <Bars data={team.levels.map((l) => ({ label: `Level ${l.level}`, value: l.memberCount }))} /> : <div className="text-sm text-muted-foreground">{t('me.noData')}</div>}
-            <div className="mt-auto flex flex-wrap gap-4 pt-4 text-xs">
-              <Legend color="var(--emerald)" label={`Active ${team.totalActive}`} />
-              <Legend color="var(--muted)" label={`Inactive ${inactive}`} />
+        <Card className="flex flex-col p-5">
+          <div className="spread" style={{ marginBottom: 14 }}>
+            <strong>Level distribution</strong>
+          </div>
+          {team.levels.some((l) => l.memberCount > 0) ? (
+            <Bars data={team.levels.map((l) => ({ label: `Level ${l.level}`, value: l.memberCount }))} />
+          ) : (
+            <div className="muted" style={{ textAlign: 'center', padding: '18px 0' }}>
+              Invite your first teammate.<br />
+              <span className="faint" style={{ fontSize: 12.5 }}>Eligible commissions may be credited only after approved sales and according to your company&apos;s plan.</span>
             </div>
-          </CardContent>
+          )}
+          <div className="row" style={{ gap: 16, marginTop: 'auto', paddingTop: 16, fontSize: 12 }}>
+            <span className="row" style={{ gap: 6 }}><i style={{ width: 10, height: 10, borderRadius: 999, background: 'var(--emerald)' }} /> Active {team.totalActive}</span>
+            <span className="row" style={{ gap: 6 }}><i style={{ width: 10, height: 10, borderRadius: 999, background: 'var(--muted)' }} /> Inactive {inactive}</span>
+          </div>
         </Card>
       </div>
 
-      <div className="mt-4 text-[11px] text-muted-foreground fade-in">For privacy, individual member or sales details are never shared; only aggregate counts per level.</div>
+      {/* ---- Direkt recruit'ler: uyenin kendi davet ettikleri (isimli) ---- */}
+      {recruits && (
+        <Card className="fade-in delay-3 mt-4 p-5">
+          <div className="spread" style={{ alignItems: 'flex-start', marginBottom: 4 }}>
+            <div>
+              <strong style={{ fontSize: 15 }}>Your direct recruits</strong>
+              <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
+                People you personally invited
+                {recruits.summary.joinedThisMonth > 0 && <span style={{ color: 'var(--emerald)', fontWeight: 600 }}> · +{recruits.summary.joinedThisMonth} this month</span>}
+              </div>
+            </div>
+            <Button asChild size="sm">
+              <Link href="/app/invite">✦ Invite</Link>
+            </Button>
+          </div>
+
+          {recruits.summary.needsNudgeCount > 0 && (
+            <div className="row" style={{ gap: 8, padding: '8px 12px', borderRadius: 10, margin: '8px 0 12px', fontSize: 13,
+              background: 'color-mix(in srgb, var(--amber) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--amber) 32%, transparent)' }}>
+              <span aria-hidden>👋</span>
+              <span><strong>{recruits.summary.needsNudgeCount}</strong> active teammate{recruits.summary.needsNudgeCount > 1 ? 's' : ''} haven&apos;t sold this month — a quick nudge can help them get started.</span>
+            </div>
+          )}
+
+          {recruits.recruits.length > 0 && recruits.growthTrend.some((g) => g.joined > 0) && (
+            <div style={{ margin: '8px 0 14px' }}>
+              <div className="faint" style={{ fontSize: 11, marginBottom: 6 }}>New direct recruits — last 6 months</div>
+              <Bars data={recruits.growthTrend.map((g) => ({ label: monthShort(g.month), value: g.joined }))} />
+            </div>
+          )}
+
+          {recruits.recruits.length === 0 ? (
+            <div className="muted" style={{ textAlign: 'center', padding: '22px 0' }}>
+              You haven&apos;t invited anyone yet.<br />
+              <Button asChild size="sm" className="mt-3 inline-flex">
+                <Link href="/app/invite">Send your first invite →</Link>
+              </Button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table>
+                <thead><tr><th>Member</th><th>Status</th><th>Joined</th><th className="text-right">Sales (mo)</th><th className="text-right">Sold (mo)</th><th></th></tr></thead>
+                <tbody>
+                  {recruits.recruits.map((r) => (
+                    <tr key={r.id} style={r.needsNudge ? { background: 'color-mix(in srgb, var(--amber) 6%, transparent)' } : undefined}>
+                      <td>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{r.fullName}</div>
+                        <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{r.referralCode}</div>
+                      </td>
+                      <td><Badge variant={r.status === 'active' ? 'success' : 'secondary'}>{r.status}</Badge></td>
+                      <td className="faint" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{dateShort(r.joinedAt)}</td>
+                      <td className="tnum text-right">{r.salesThisMonth || '—'}</td>
+                      <td className="tnum text-right" style={{ fontWeight: 600, color: Number(r.soldThisMonthCents) > 0 ? 'var(--gold-500)' : 'var(--faint)' }}>
+                        {Number(r.soldThisMonthCents) > 0 ? money(r.soldThisMonthCents, recruits.currency) : '—'}
+                      </td>
+                      <td className="text-right">
+                        {r.needsNudge && <Button variant="ghost" size="sm" onClick={() => nudge(r)} title={`Copy ${r.fullName}'s email`}>👋 Nudge</Button>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      <EarningsSimulator />
+
+      <div className="faint fade-in" style={{ fontSize: 11, marginTop: 16 }}>
+        Your <strong>direct recruits</strong> — the people you personally invited — are shown by name above.
+        Deeper levels of your network are shared only as aggregate counts per level, never individual details.
+      </div>
+
+      {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
-}
-
-function TeamStat({ label, value, Icon }: { label: string; value: ReactNode; Icon: typeof Users }) {
-  return (
-    <Card>
-      <CardContent className="grid gap-2">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
-          <span className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary"><Icon className="size-4" /></span>
-        </div>
-        <div className="text-2xl font-semibold tabular-nums">{value}</div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function Legend({ color, label }: { color: string; label: string }) {
-  return <span className="inline-flex items-center gap-2"><i className="size-2.5 rounded-full" style={{ background: color }} />{label}</span>;
 }

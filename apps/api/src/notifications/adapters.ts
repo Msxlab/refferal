@@ -42,8 +42,8 @@ export function redactSensitiveEmailText(text: string): string {
 }
 
 /**
- * Without SMTP in dev, writes to console so the outbox still drains and flows remain testable.
- * Uses a real nodemailer transport when SMTP_HOST is configured (SPEC 5).
+ * SMTP yoksa (dev) hassas icerik icermeyen sabit bir tanilama yazar; outbox yine drenaj olur.
+ * SMTP_HOST tanimliysa gercek nodemailer transport kullanir (SPEC 5).
  */
 export class SmtpEmailAdapter implements EmailAdapter {
   private readonly logger = new Logger('EmailAdapter');
@@ -69,7 +69,7 @@ export class SmtpEmailAdapter implements EmailAdapter {
       if (isProduction()) {
         throw new Error('email provider is not configured');
       }
-      this.logger.log(`[DEV email] -> ${msg.to} | ${msg.subject}\n${redactSensitiveEmailText(msg.text)}`);
+      this.logger.log('[DEV e-posta] SMTP yapilandirilmadi; bildirim gonderilmedi');
       return;
     }
     await this.transport.sendMail({
@@ -103,7 +103,7 @@ export class ResendEmailAdapter implements EmailAdapter {
       if (isProduction()) {
         throw new Error('email provider is not configured');
       }
-      this.logger.warn(`[DEV email/provider key missing] -> ${msg.to} | ${msg.subject}`);
+      this.logger.warn('[DEV e-posta] provider key yok; bildirim gonderilmedi');
       return;
     }
     const res = await fetch(this.endpoint, {
@@ -118,8 +118,7 @@ export class ResendEmailAdapter implements EmailAdapter {
       }),
     });
     if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      throw new Error(`mail provider ${res.status}: ${detail.slice(0, 200)}`);
+      throw new Error(`mail provider ${res.status}`);
     }
   }
 }

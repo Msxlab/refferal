@@ -1,18 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Background, Controls, Handle, MiniMap, Position, ReactFlow, type Edge, type Node, type NodeProps } from '@xyflow/react';
 import { stratify, tree } from 'd3-hierarchy';
-import { ChevronRight, Focus, Folder, ListTree, Network, Search, TreePine, User } from 'lucide-react';
+import { toPng } from 'html-to-image';
 import '@xyflow/react/dist/style.css';
 import { Drawer } from '@/components/Drawer';
-import { cn } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { PrintSheet, PrintHeader } from '@/components/PrintSheet';
+import { activeMembership, getSession } from '@/lib/auth';
 
 export interface ApiNode {
   id: string;
@@ -22,65 +17,85 @@ export interface ApiNode {
   role: string;
   status: string;
   depth: number;
+  // tree() ucundan gelir (bu ay); platform ag verisinde olmayabilir
+  salesCount?: number;
+  revenueCents?: string;
+  joinedAt?: string;
+  earningsCents?: string; // yasam-boyu (payable+paid)
+  monthlyCommissionCents?: string; // BU AY komisyon (pending+payable+paid)
+  isTeamLeader?: boolean;
+  // server-side hesaplanmis (tree() ucu) — varsa client recursion yerine kullanilir
+  teamSize?: number; // alt-agac kisi sayisi (kendisi haric)
+  subtreeRevenueCents?: string; // dugum + tum torunlarin bu-ay cirosu
 }
 
-type NodeData = { node: ApiNode; team: number; direct: number; match: boolean; isFocus: boolean };
+export interface RankTierLite { name: string; minTeam: number; minEarningsCents: string }
 
-const ROLE_BG: Record<string, string> = {
-  tenant_owner: 'var(--primary)',
-  tenant_admin: 'var(--primary)',
-  tenant_staff: 'var(--panel-3)',
-  member: 'var(--panel-2)',
+type NodeData = {
+  node: ApiNode; team: number; direct: number; match: boolean; isFocus: boolean;
+  rank: string | null;
+  // isi haritasi: secilen metrige gore tonlama
+  revenue: number; sales: number; heatValue: number; heatMax: number;
 };
 
-function roleLabel(role: string) {
-  return role.replace('tenant_', '');
+/** kompakt para: $12.3k / $1.2M (dugum rozeti icin). */
+function compactMoney(cents: number): string {
+  const d = cents / 100;
+  if (d >= 1_000_000) return `$${(d / 1_000_000).toFixed(1)}M`;
+  if (d >= 1000) return `$${(d / 1000).toFixed(1)}k`;
+  return `$${d.toFixed(0)}`;
 }
 
-function RoleBadge({ role }: { role: string }) {
-  if (role === 'member') return <span className="text-xs text-muted-foreground">member</span>;
-  return <Badge variant="secondary">{roleLabel(role)}</Badge>;
-}
+const ROLE_BG: Record<string, string> = {
+  tenant_owner: 'var(--foil)',
+  tenant_admin: 'var(--foil)',
+  tenant_staff: 'rgba(91,124,250,.9)',
+  member: 'var(--panel-3)',
+};
 
-function StatusBadge({ status }: { status: string }) {
-  return <Badge variant={status === 'active' ? 'default' : 'outline'}>{status}</Badge>;
-}
-
+/* ---- ozel agac dugumu ---- */
 function MemberNode({ data }: NodeProps<Node<NodeData>>) {
   const n = data.node;
   const owner = n.role === 'tenant_owner';
-  const leadership = owner || n.role === 'tenant_admin';
+  // isi haritasi: secilen metrik/max oranina gore altin tonu (0..0.7)
+  const intensity = data.heatMax > 0 ? Math.min(0.72, data.heatValue / data.heatMax) : 0;
+  const bg = intensity > 0
+    ? `color-mix(in srgb, var(--gold-500) ${Math.round(intensity * 100)}%, var(--panel))`
+    : 'var(--panel)';
   return (
     <div
       style={{
-        width: 196, background: 'var(--panel)', cursor: 'pointer',
-        border: `1px solid ${data.isFocus || data.match ? 'var(--primary)' : 'var(--border)'}`,
+        width: 196, background: bg, cursor: 'pointer',
+        border: `1px solid ${data.isFocus ? 'var(--gold-500)' : data.match ? 'var(--gold-500)' : 'var(--border)'}`,
         borderRadius: 14, padding: '10px 12px',
-        boxShadow: data.match || data.isFocus ? 'var(--shadow-lg)' : 'var(--shadow-card)',
-        color: 'var(--text)', transition: 'border-color .2s, box-shadow .2s',
+        boxShadow: data.match || data.isFocus ? 'var(--shadow-glow)' : 'var(--shadow-lg)',
+        color: 'var(--text)', transition: 'border-color .2s, box-shadow .2s, background .3s',
       }}
     >
       <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
-      <div className="flex items-center gap-2.5">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 13,
-          color: leadership ? 'var(--on-primary)' : 'var(--text)', background: ROLE_BG[n.role] ?? 'var(--panel-2)', flexShrink: 0, fontFamily: 'var(--font-display)' }}>
+          color: owner ? 'var(--on-gold)' : 'var(--text)', background: ROLE_BG[n.role] ?? 'var(--panel-3)', flexShrink: 0, fontFamily: 'var(--font-display)' }}>
           {n.fullName.charAt(0).toUpperCase()}
         </span>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold">{n.fullName}</div>
-          <div className="font-mono text-[11px] text-muted-foreground">{n.referralCode}</div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.fullName}</div>
+          <div style={{ fontSize: 11, color: 'var(--faint)', fontFamily: 'ui-monospace, monospace' }}>{n.referralCode}</div>
         </div>
       </div>
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-1">
-          {n.role !== 'member' && <RoleBadge role={n.role} />}
-          {n.status !== 'active' && <StatusBadge status={n.status} />}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {n.isTeamLeader && <span className="badge payable" style={{ fontSize: 9 }}>🎖 leader</span>}
+          {n.role !== 'member' && <span className="badge active" style={{ fontSize: 9 }}>{n.role.replace('tenant_', '')}</span>}
+          {data.rank && <span className="badge payable" style={{ fontSize: 9 }}>🏅 {data.rank}</span>}
+          {n.status !== 'active' && <span className="badge inactive" style={{ fontSize: 9 }}>{n.status}</span>}
         </div>
-        {data.team > 0 && (
-          <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-            <Network className="size-3" aria-hidden="true" /> {data.team}
-          </span>
-        )}
+        <span className="row" style={{ gap: 6 }}>
+          {data.revenue > 0 && <span className="tnum" style={{ fontSize: 10, color: 'var(--muted)' }} title={`${data.sales} satış (bu ay)`}>◇ {compactMoney(data.revenue)}</span>}
+          {Number(n.monthlyCommissionCents ?? 0) > 0
+            ? <span className="tnum" style={{ fontSize: 10, fontWeight: 700, color: 'var(--gold-500)' }} title="Commission this month (earned)">◆ {compactMoney(Number(n.monthlyCommissionCents))}</span>
+            : (data.revenue === 0 && data.team > 0 && <span style={{ fontSize: 10, color: 'var(--muted)' }}>⬡ {data.team}</span>)}
+        </span>
       </div>
       <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
     </div>
@@ -88,19 +103,38 @@ function MemberNode({ data }: NodeProps<Node<NodeData>>) {
 }
 const nodeTypes = { member: MemberNode };
 
-export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]; title?: string }) {
+export function NetworkExplorer({ nodes, title = 'network', tiers = [], onToggleLeader }: { nodes: ApiNode[]; title?: string; tiers?: RankTierLite[]; onToggleLeader?: (n: ApiNode) => void }) {
   const [view, setView] = useState<'tree' | 'list'>('list');
   const [focusId, setFocusId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<ApiNode | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<'dark' | 'light'>('dark');
+  const [heat, setHeat] = useState<'none' | 'revenue' | 'earnings'>('none');
+  const [printing, setPrinting] = useState(false);
+  const flowRef = useRef<HTMLDivElement>(null);
+  const tenantName = useMemo(() => { const s = getSession(); return (s && activeMembership(s)?.tenantName) || 'Refearn'; }, []);
   const toggleExpand = (id: string) => setExpanded((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  // bu ay ciro var mi? (tree ucu doldurur; platform ag verisinde olmayabilir)
+  const hasRevenue = useMemo(() => nodes.some((n) => Number(n.revenueCents ?? 0) > 0), [nodes]);
+
+  // react-flow viewport'unu PNG indir
+  const exportPng = useCallback(async () => {
+    const el = flowRef.current?.querySelector('.react-flow__viewport') as HTMLElement | null;
+    if (!el) return;
+    try {
+      const dataUrl = await toPng(el, { backgroundColor: mode === 'dark' ? '#0c0e13' : '#ffffff', pixelRatio: 2, cacheBust: true });
+      const a = document.createElement('a');
+      a.href = dataUrl; a.download = `${title}-network.png`; a.click();
+    } catch { /* export basarisiz — sessiz gec */ }
+  }, [mode, title]);
 
   useEffect(() => {
     setMode((document.documentElement.getAttribute('data-theme') as 'dark' | 'light') ?? 'dark');
   }, []);
 
+  // react-flow dugum tiklamasi (resmi API; dugum-ici DOM tiklamalari react-flow tarafindan yutulur)
   const onNodeClick = useCallback((_e: unknown, node: { id: string }) => {
     const n = nodes.find((x) => x.id === node.id);
     if (n) setSelected(n);
@@ -118,12 +152,52 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
   }, [nodes, byId]);
 
   const teamOf = useCallback((id: string): number => {
+    // server degeri varsa onu kullan (tree() ucu hesapliyor); yoksa client'ta yur (platform ag verisi / eski response)
+    const sv = byId.get(id)?.teamSize;
+    if (sv !== undefined) return sv;
     let count = 0;
     const stack = [...(childrenOf.get(id) ?? [])];
     while (stack.length) { const c = stack.pop()!; count++; stack.push(...(childrenOf.get(c.id) ?? [])); }
     return count;
-  }, [childrenOf]);
+  }, [childrenOf, byId]);
 
+  // client-side rutbe: tenant tier'lari + (team, yasam-boyu kazanc) ile kosulan en yuksek tier
+  const earningsById = useMemo(() => new Map(nodes.map((n) => [n.id, Number(n.earningsCents ?? 0)])), [nodes]);
+  // tier'lari ARTAN sirala (esik->yuksek): en yuksek kosulan tier kazanir, API sirasindan bagimsiz
+  const sortedTiers = useMemo(
+    () => [...tiers].sort((a, b) => (Number(a.minEarningsCents) - Number(b.minEarningsCents)) || (a.minTeam - b.minTeam)),
+    [tiers],
+  );
+  const rankOf = useCallback((id: string): string | null => {
+    if (sortedTiers.length === 0) return null;
+    const team = teamOf(id);
+    const earn = earningsById.get(id) ?? 0;
+    let name: string | null = null;
+    for (const t of sortedTiers) { if (team >= t.minTeam && earn >= Number(t.minEarningsCents)) name = t.name; }
+    return name;
+  }, [sortedTiers, teamOf, earningsById]);
+
+  // alt-agac cirosu (bu ay): dugum + tum torunlarinin revenueCents toplami.
+  // server degeri (subtreeRevenueCents) varsa onu kullan (recursion yok); yoksa client'ta hesapla.
+  const subtreeRevById = useMemo(() => {
+    const memo = new Map<string, number>();
+    if (nodes.length > 0 && nodes[0].subtreeRevenueCents !== undefined) {
+      for (const n of nodes) memo.set(n.id, Number(n.subtreeRevenueCents ?? 0));
+      return memo;
+    }
+    const calc = (id: string): number => {
+      const cached = memo.get(id);
+      if (cached !== undefined) return cached;
+      let sum = Number(byId.get(id)?.revenueCents ?? 0);
+      for (const c of childrenOf.get(id) ?? []) sum += calc(c.id);
+      memo.set(id, sum);
+      return sum;
+    };
+    for (const n of nodes) calc(n.id);
+    return memo;
+  }, [nodes, byId, childrenOf]);
+
+  // odak alt-agaci: focusId + tum torunlari
   const subtree = useMemo(() => {
     if (!focusId) return nodes;
     const set: ApiNode[] = [];
@@ -134,6 +208,7 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
 
   const roots = useMemo(() => subtree.filter((n) => !n.parentId || !subtree.some((m) => m.id === n.parentId)), [subtree]);
 
+  // breadcrumb: kokten focusId'ye yol
   const breadcrumb = useMemo(() => {
     if (!focusId) return [];
     const path: ApiNode[] = [];
@@ -145,6 +220,56 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
   const q = query.trim().toLowerCase();
   const matches = useCallback((n: ApiNode) => q.length > 0 && (n.fullName.toLowerCase().includes(q) || n.referralCode.toLowerCase().includes(q)), [q]);
 
+  // isi haritasi degeri: secilen metrik (none → 0); max ile normalize edilir
+  const heatVal = useCallback((n: ApiNode) => heat === 'revenue' ? Number(n.revenueCents ?? 0) : heat === 'earnings' ? Number(n.earningsCents ?? 0) : 0, [heat]);
+  const heatMax = useMemo(() => heat === 'none' ? 0 : Math.max(0, ...subtree.map(heatVal)), [heat, subtree, heatVal]);
+
+  // ---- ag analitigi (odaklanilan kapsama gore) ----
+  const analytics = useMemo(() => {
+    const startOfMonth = new Date(); startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0);
+    let active = 0, newThisMonth = 0, revenue = 0, earnings = 0, monthlyComm = 0, maxDepth = 0;
+    let top: { name: string; cents: number } | null = null;
+    const minDepth = Math.min(...subtree.map((n) => n.depth));
+    for (const n of subtree) {
+      if (n.status === 'active') active++;
+      if (n.joinedAt && new Date(n.joinedAt) >= startOfMonth) newThisMonth++;
+      revenue += Number(n.revenueCents ?? 0);
+      monthlyComm += Number(n.monthlyCommissionCents ?? 0);
+      const e = Number(n.earningsCents ?? 0);
+      earnings += e;
+      if (!top || e > top.cents) top = { name: n.fullName, cents: e };
+      maxDepth = Math.max(maxDepth, n.depth - minDepth);
+    }
+    return { people: subtree.length, active, newThisMonth, revenue, earnings, monthlyComm, maxDepth, top };
+  }, [subtree]);
+  const hasEarnings = useMemo(() => subtree.some((n) => Number(n.earningsCents ?? 0) > 0), [subtree]);
+
+  // ag CSV disa aktarim (odaklanilan kapsam + hesaplanan metrikler)
+  const exportCsv = useCallback(() => {
+    const esc = (v: string | number) => { const s = String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const header = ['Name', 'Code', 'Role', 'Status', 'Level', 'Sponsor', 'Direct', 'Team', 'Joined', 'Revenue(mo)', 'Commission(mo)', 'LifetimeEarnings', 'Rank', 'SubtreeRevenue(mo)'];
+    const lines = [header.join(',')];
+    for (const n of subtree) {
+      lines.push([
+        esc(n.fullName), esc(n.referralCode), esc(n.role), esc(n.status), n.depth,
+        esc(n.parentId ? byId.get(n.parentId)?.fullName ?? '' : ''),
+        (childrenOf.get(n.id) ?? []).length, teamOf(n.id),
+        esc(n.joinedAt ? new Date(n.joinedAt).toISOString().slice(0, 10) : ''),
+        (Number(n.revenueCents ?? 0) / 100).toFixed(2),
+        (Number(n.monthlyCommissionCents ?? 0) / 100).toFixed(2),
+        (Number(n.earningsCents ?? 0) / 100).toFixed(2),
+        esc(rankOf(n.id) ?? ''),
+        ((subtreeRevById.get(n.id) ?? 0) / 100).toFixed(2),
+      ].join(','));
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${title}-network.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }, [subtree, byId, childrenOf, teamOf, rankOf, subtreeRevById, title]);
+
+  /* ---- agac layout ---- */
   const { rfNodes, rfEdges } = useMemo<{ rfNodes: Node<NodeData>[]; rfEdges: Edge[] }>(() => {
     if (subtree.length === 0) return { rfNodes: [], rfEdges: [] };
     const VIRTUAL = '__root__';
@@ -163,16 +288,22 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
       ns.push({
         id, type: 'member',
         position: { x: (d as unknown as { x: number }).x, y: (d as unknown as { y: number }).y },
-        data: { node: n, team: teamOf(id), direct: (childrenOf.get(id) ?? []).length, match: matches(n), isFocus: id === focusId },
+        data: {
+          node: n, team: teamOf(id), direct: (childrenOf.get(id) ?? []).length, match: matches(n), isFocus: id === focusId,
+          rank: rankOf(id), revenue: Number(n.revenueCents ?? 0), sales: n.salesCount ?? 0, heatValue: heatVal(n), heatMax,
+        },
       });
       if (d.parent && d.parent.id !== VIRTUAL) {
         es.push({ id: `${d.parent.id}-${id}`, source: d.parent.id as string, target: id, type: 'smoothstep', style: { stroke: 'var(--border-strong)', strokeWidth: 1.5 } });
       }
     });
     return { rfNodes: ns, rfEdges: es };
-  }, [subtree, roots, focusId, teamOf, childrenOf, matches]);
+  }, [subtree, roots, focusId, teamOf, childrenOf, matches, rankOf, heatVal, heatMax]);
 
+  /* ---- liste = koleps-edilebilir klasor agaci. Kapali baslar (yalniz kokler = ilk kisiler).
+         Arama: eslesen + atalari acik gosterilir. ---- */
   const sortKids = (n: ApiNode) => (childrenOf.get(n.id) ?? []).slice().sort((a, b) => a.fullName.localeCompare(b.fullName));
+  // her satir: lasts[] = kokten kendisine kadar her dugumun "son cocuk mu" bayragi (klavuz cizgileri icin)
   const listRows = useMemo(() => {
     const out: Array<{ n: ApiNode; lasts: boolean[]; hasChildren: boolean }> = [];
     const has = (n: ApiNode) => (childrenOf.get(n.id) ?? []).length > 0;
@@ -205,146 +336,171 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
 
   const parentIds = useMemo(() => subtree.filter((n) => (childrenOf.get(n.id) ?? []).length > 0).map((n) => n.id), [subtree, childrenOf]);
 
+  // yazdirma icin: odaklanilan kapsamin TAM (expand'den bagimsiz) derinlik-girintili dokumu
+  const printRows = useMemo(() => {
+    const out: Array<{ n: ApiNode; rel: number }> = [];
+    const walk = (n: ApiNode, rel: number) => {
+      out.push({ n, rel });
+      for (const c of sortKids(n)) walk(c, rel + 1);
+    };
+    roots.forEach((r) => walk(r, 0));
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roots, childrenOf]);
+
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Tabs value={view} onValueChange={(next: string) => setView(next as 'tree' | 'list')}>
-          <TabsList>
-            <TabsTrigger value="tree"><TreePine />Tree</TabsTrigger>
-            <TabsTrigger value="list"><ListTree />List</TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <div className="relative min-w-40 flex-1 max-w-64">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-          <Input className="pl-8" placeholder="Search name or code" value={query} onChange={(e) => setQuery(e.target.value)} />
-        </div>
-        {view === 'list' && !query && (
-          <>
-            <Button variant="ghost" size="sm" onClick={() => setExpanded(new Set(parentIds))}>Expand all</Button>
-            <Button variant="ghost" size="sm" onClick={() => setExpanded(new Set())}>Collapse all</Button>
-          </>
-        )}
-        <Badge variant="outline">{subtree.length} {subtree.length === 1 ? 'person' : 'people'}</Badge>
+      {/* ---- ag analitigi seridi ---- */}
+      <div className="net-kpis" style={{ marginBottom: 14 }}>
+        <Kpi label={focusId ? 'In this branch' : 'Total people'} value={String(analytics.people)} icon="⬡" />
+        <Kpi label="Active" value={`${analytics.active}`} sub={analytics.people ? `${Math.round((analytics.active / analytics.people) * 100)}%` : undefined} icon="●" />
+        <Kpi label="Depth" value={String(analytics.maxDepth)} icon="⤳" />
+        <Kpi label="Joined this month" value={String(analytics.newThisMonth)} icon="✦" />
+        <Kpi label="Revenue (this mo)" value={compactMoney(analytics.revenue)} icon="◇" />
+        <Kpi label="Commission (this mo)" value={compactMoney(analytics.monthlyComm)} icon="◆" />
+        {hasEarnings && <Kpi label="Lifetime earnings" value={compactMoney(analytics.earnings)} icon="$" />}
+        {analytics.top && analytics.top.cents > 0 && <Kpi label="Top earner" value={analytics.top.name} sub={compactMoney(analytics.top.cents)} icon="★" />}
       </div>
 
+      {/* ---- temiz arac cubugu ---- */}
+      <div className="row" style={{ gap: 10, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+        <div className="seg-tabs" role="tablist" style={{ padding: 4 }}>
+          <button className={`seg-tab ${view === 'tree' ? 'on' : ''}`} onClick={() => setView('tree')}>⤳ Tree</button>
+          <button className={`seg-tab ${view === 'list' ? 'on' : ''}`} onClick={() => setView('list')}>☰ List</button>
+        </div>
+        <input placeholder="Search name or code…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ maxWidth: 240, flex: 1, minWidth: 160 }} />
+        {view === 'list' && !query && (
+          <>
+            <button className="btn ghost sm" onClick={() => setExpanded(new Set(parentIds))}>Expand all</button>
+            <button className="btn ghost sm" onClick={() => setExpanded(new Set())}>Collapse all</button>
+          </>
+        )}
+        {(hasRevenue || hasEarnings) && (
+          <button
+            className={`btn sm ${heat === 'none' ? 'ghost' : ''}`}
+            onClick={() => setHeat((h) => h === 'none' ? 'revenue' : h === 'revenue' ? 'earnings' : 'none')}
+            title="Shade nodes by metric (heat map)"
+          >◉ Heat: {heat === 'none' ? 'off' : heat === 'revenue' ? 'revenue' : 'earnings'}</button>
+        )}
+        <button className="btn ghost sm" onClick={exportCsv}>⇩ CSV</button>
+        <button className="btn ghost sm" onClick={() => setPrinting(true)}>⇩ Print</button>
+        {view === 'tree' && <button className="btn ghost sm" onClick={exportPng}>⇩ PNG</button>}
+        <span className="faint" style={{ fontSize: 12 }}>{subtree.length} {subtree.length === 1 ? 'person' : 'people'}</span>
+      </div>
+
+      {/* ---- breadcrumb (odak) ---- */}
       {breadcrumb.length > 0 && (
-        <div className="mb-3 flex flex-wrap items-center gap-1 text-sm">
-          <Button variant="ghost" size="sm" onClick={() => setFocusId(null)}>All</Button>
+        <div className="row" style={{ gap: 6, marginBottom: 10, fontSize: 12, flexWrap: 'wrap' }}>
+          <button className="link-crumb" onClick={() => setFocusId(null)} style={crumbStyle(false)}>All</button>
           {breadcrumb.map((b, i) => (
-            <span key={b.id} className="inline-flex items-center gap-1">
-              <span className="text-muted-foreground">/</span>
-              <Button variant={i === breadcrumb.length - 1 ? 'secondary' : 'ghost'} size="sm" onClick={() => setFocusId(b.id)}>{b.fullName}</Button>
+            <span key={b.id} className="row" style={{ gap: 6 }}>
+              <span className="faint">/</span>
+              <button onClick={() => setFocusId(b.id)} style={crumbStyle(i === breadcrumb.length - 1)}>{b.fullName}</button>
             </span>
           ))}
         </div>
       )}
 
       {view === 'tree' ? (
-        <Card className="h-[66vh] py-0">
-          <CardContent className="h-full p-0">
-            <ReactFlow
-              nodes={rfNodes} edges={rfEdges} nodeTypes={nodeTypes} fitView colorMode={mode}
-              onNodeClick={onNodeClick}
-              minZoom={0.2} maxZoom={1.8} proOptions={{ hideAttribution: true }}
-              nodesDraggable={false} nodesConnectable={false}
-            >
-              <Background gap={20} size={1} color="var(--border)" />
-              <Controls showInteractive={false} />
-              <MiniMap pannable zoomable nodeColor={() => 'var(--primary)'} maskColor="rgba(15, 28, 51, .45)" style={{ background: 'var(--panel-2)' }} />
-            </ReactFlow>
-          </CardContent>
-        </Card>
+        <div ref={flowRef} className="card" style={{ padding: 0, overflow: 'hidden', height: '66vh' }}>
+          <ReactFlow
+            nodes={rfNodes} edges={rfEdges} nodeTypes={nodeTypes} fitView colorMode={mode}
+            onNodeClick={onNodeClick}
+            minZoom={0.2} maxZoom={1.8} proOptions={{ hideAttribution: true }}
+            nodesDraggable={false} nodesConnectable={false}
+          >
+            <Background gap={20} size={1} color="var(--border)" />
+            <Controls showInteractive={false} />
+            <MiniMap pannable zoomable nodeColor={() => 'var(--gold-600)'} maskColor="rgba(0,0,0,.5)" style={{ background: 'var(--panel-2)' }} />
+          </ReactFlow>
+        </div>
       ) : (
-        <Card className="py-0">
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Member</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead className="text-right">Level</TableHead>
-                  <TableHead className="text-right">Team</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {listRows.map(({ n, lasts, hasChildren }) => {
-                  const open = !!q || expanded.has(n.id);
-                  return (
-                    <TableRow key={n.id} className="cursor-pointer" onClick={() => setSelected(n)}>
-                      <TableCell>
-                        <div className="flex min-h-10 items-stretch">
-                          <GuideCells lasts={lasts} />
-                          <div className="flex items-center gap-2">
-                            {hasChildren ? (
-                              <Button
-                                variant="ghost"
-                                size="icon-xs"
-                                onClick={(e) => { e.stopPropagation(); toggleExpand(n.id); }}
-                                aria-label={open ? 'Collapse' : 'Expand'}
-                                className={cn('transition-transform', open && 'rotate-90')}
-                              >
-                                <ChevronRight />
-                              </Button>
-                            ) : <span className="w-6 shrink-0" />}
-                            {hasChildren ? <Folder className="size-4 text-muted-foreground" /> : <User className="size-4 text-muted-foreground" />}
-                            <div className="min-w-0">
-                              <div className="text-sm font-semibold">{n.fullName}</div>
-                              <div className="font-mono text-[11px] text-muted-foreground">{n.referralCode}</div>
+        <div className="card" style={{ padding: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          <table>
+            <thead><tr><th>Member</th><th>Role</th><th style={{ textAlign: 'right' }}>Level</th><th style={{ textAlign: 'right' }}>Team</th><th style={{ textAlign: 'right' }}>Revenue (mo)</th><th style={{ textAlign: 'right' }}>Commission (mo)</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {listRows.map(({ n, lasts, hasChildren }) => {
+                const open = !!q || expanded.has(n.id);
+                return (
+                  <tr key={n.id} style={{ cursor: 'pointer' }} onClick={() => setSelected(n)}>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'stretch', minHeight: 40 }}>
+                        <GuideCells lasts={lasts} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {hasChildren ? (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); toggleExpand(n.id); }}
+                              aria-label={open ? 'Collapse' : 'Expand'}
+                              style={{ width: 20, height: 20, display: 'grid', placeItems: 'center', background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 10, flexShrink: 0, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s ease' }}
+                            >▶</button>
+                          ) : <span style={{ width: 20, flexShrink: 0 }} />}
+                          <span style={{ flexShrink: 0, fontSize: 15 }}>{hasChildren ? '🗂' : '👤'}</span>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {n.fullName}
+                              {Number(n.revenueCents ?? 0) > 0 && <span className="tnum" style={{ fontSize: 10, fontWeight: 700, color: 'var(--gold-500)' }} title={`${n.salesCount ?? 0} sales this month`}>◆ {compactMoney(Number(n.revenueCents))}</span>}
                             </div>
+                            <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{n.referralCode}</div>
                           </div>
                         </div>
-                      </TableCell>
-                      <TableCell><RoleBadge role={n.role} /></TableCell>
-                      <TableCell className="text-right tabular-nums">{n.depth}</TableCell>
-                      <TableCell className="text-right tabular-nums">{hasChildren ? teamOf(n.id) : '-'}</TableCell>
-                      <TableCell><StatusBadge status={n.status} /></TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()} className="text-right">
-                        {hasChildren && <Button variant="ghost" size="sm" onClick={() => setFocusId(n.id)}><Focus />Focus</Button>}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-                {listRows.length === 0 && (
-                  <TableRow><TableCell colSpan={6} className="py-6 text-center text-muted-foreground">No members match.</TableCell></TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                      </div>
+                    </td>
+                    <td>{n.role !== 'member' ? <span className="badge active" style={{ fontSize: 9 }}>{n.role.replace('tenant_', '')}</span> : <span className="faint" style={{ fontSize: 12 }}>member</span>}</td>
+                    <td className="tnum" style={{ textAlign: 'right' }}>{n.depth}</td>
+                    <td className="tnum" style={{ textAlign: 'right' }}>{hasChildren ? teamOf(n.id) : '—'}</td>
+                    <td className="tnum" style={{ textAlign: 'right', color: 'var(--muted)' }}>{Number(n.revenueCents ?? 0) > 0 ? compactMoney(Number(n.revenueCents)) : '—'}</td>
+                    <td className="tnum" style={{ textAlign: 'right', fontWeight: 600, color: Number(n.monthlyCommissionCents ?? 0) > 0 ? 'var(--gold-500)' : 'var(--faint)' }}>{Number(n.monthlyCommissionCents ?? 0) > 0 ? compactMoney(Number(n.monthlyCommissionCents)) : '—'}</td>
+                    <td><span className={`badge ${n.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>{n.status}</span></td>
+                    <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'right' }}>
+                      {hasChildren && <button className="btn ghost sm" onClick={() => setFocusId(n.id)}>Focus ⤢</button>}
+                    </td>
+                  </tr>
+                );
+              })}
+              {listRows.length === 0 && <tr><td colSpan={8} className="muted">No members match.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {selected && (
-        <Drawer title={selected.fullName} subtitle={`${selected.referralCode} - ${title}`} onClose={() => setSelected(null)}
+        <Drawer title={selected.fullName} subtitle={`${selected.referralCode} · ${title}`} onClose={() => setSelected(null)}
           footer={
             <>
-              <Button variant="ghost" onClick={() => { setView('tree'); setQuery(selected.referralCode); setSelected(null); }}><TreePine />Show in tree</Button>
-              {teamOf(selected.id) > 0 && <Button onClick={() => { setFocusId(selected.id); setSelected(null); }}><Focus />Focus subtree</Button>}
+              {onToggleLeader && <button className="btn ghost" onClick={() => { onToggleLeader(selected); setSelected(null); }}>{selected.isTeamLeader ? '🎖 Remove leader' : '🎖 Make leader'}</button>}
+              <button className="btn ghost" onClick={() => { setView('tree'); setQuery(selected.referralCode); setSelected(null); }}>Show in tree ⤳</button>
+              {teamOf(selected.id) > 0 && <button className="btn" onClick={() => { setFocusId(selected.id); setSelected(null); }}>Focus subtree ⤢</button>}
             </>
           }>
-          <div className="grid gap-4">
-            <div className="flex flex-wrap gap-2">
-              {selected.role !== 'member' && <RoleBadge role={selected.role} />}
-              <StatusBadge status={selected.status} />
+          <div className="grid" style={{ gap: 16 }}>
+            <div className="row" style={{ gap: 8 }}>
+              {selected.role !== 'member' && <span className="badge active" style={{ fontSize: 10 }}>{selected.role.replace('tenant_', '')}</span>}
+              {rankOf(selected.id) && <span className="badge payable" style={{ fontSize: 10 }}>🏅 {rankOf(selected.id)}</span>}
+              <span className={`badge ${selected.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 10 }}>{selected.status}</span>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <Stat label="Level" value={String(selected.depth)} />
               <Stat label="Direct recruits" value={String((childrenOf.get(selected.id) ?? []).length)} />
               <Stat label="Total team" value={String(teamOf(selected.id))} />
-              <Stat label="Sponsor" value={selected.parentId ? byId.get(selected.parentId)?.fullName ?? '-' : '- (top)'} />
+              <Stat label="Sponsor" value={selected.parentId ? byId.get(selected.parentId)?.fullName ?? '—' : '— (top)'} />
+              {Number(selected.monthlyCommissionCents ?? 0) > 0 && <Stat label="Commission (this mo)" value={compactMoney(Number(selected.monthlyCommissionCents))} />}
+              {Number(selected.earningsCents ?? 0) > 0 && <Stat label="Lifetime earnings" value={compactMoney(Number(selected.earningsCents))} />}
+              {Number(selected.revenueCents ?? 0) > 0 && <Stat label="Revenue (this mo)" value={compactMoney(Number(selected.revenueCents))} />}
+              {(subtreeRevById.get(selected.id) ?? 0) > 0 && <Stat label="Subtree revenue (mo)" value={compactMoney(subtreeRevById.get(selected.id) ?? 0)} />}
+              {selected.joinedAt && <Stat label="Joined" value={new Date(selected.joinedAt).toLocaleDateString()} />}
             </div>
             {(childrenOf.get(selected.id) ?? []).length > 0 && (
               <div>
-                <strong className="text-sm">Direct recruits</strong>
-                <div className="mt-2 grid gap-2">
+                <strong style={{ fontSize: 13 }}>Direct recruits</strong>
+                <div className="grid" style={{ gap: 6, marginTop: 8 }}>
                   {(childrenOf.get(selected.id) ?? []).map((c) => (
-                    <Button key={c.id} variant="outline" className="h-auto justify-start px-3 py-2 text-left" onClick={() => setSelected(c)}>
-                      <span className="text-sm font-semibold">{c.fullName}</span>
-                      <span className="font-mono text-xs text-muted-foreground">{c.referralCode}</span>
-                      <span className="min-w-2 flex-1" />
-                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Network className="size-3" />{teamOf(c.id)}</span>
-                    </Button>
+                    <button key={c.id} className="row" onClick={() => setSelected(c)}
+                      style={{ gap: 8, padding: '7px 10px', borderRadius: 9, background: 'var(--panel-2)', border: '1px solid var(--border)', cursor: 'pointer', textAlign: 'left' }}>
+                      <span style={{ fontWeight: 600, fontSize: 12.5 }}>{c.fullName}</span>
+                      <span className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{c.referralCode}</span>
+                      <span style={{ flex: 1 }} />
+                      <span className="faint" style={{ fontSize: 11 }}>⬡ {teamOf(c.id)}</span>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -352,13 +508,48 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
           </div>
         </Drawer>
       )}
+
+      {printing && (
+        <PrintSheet onDone={() => setPrinting(false)}>
+          <PrintHeader tenantName={tenantName} title="Network Genealogy" subtitle={`${title} · ${printRows.length} people`} />
+          <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #999', textAlign: 'left' }}>
+                <th style={{ padding: '4px 6px' }}>Member</th>
+                <th style={{ padding: '4px 6px' }}>Code</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right' }}>Lvl</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right' }}>Direct</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right' }}>Team</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right' }}>Revenue (mo)</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right' }}>Commission (mo)</th>
+                <th style={{ padding: '4px 6px' }}>Rank</th>
+              </tr>
+            </thead>
+            <tbody>
+              {printRows.map(({ n, rel }) => (
+                <tr key={n.id} style={{ borderBottom: '1px solid #eee', breakInside: 'avoid' }}>
+                  <td style={{ padding: `3px 6px 3px ${6 + rel * 16}px` }}>{rel > 0 ? '└ ' : ''}{n.fullName}{n.isTeamLeader ? ' 🎖' : ''}</td>
+                  <td style={{ padding: '3px 6px', fontFamily: 'ui-monospace, monospace' }}>{n.referralCode}</td>
+                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{n.depth}</td>
+                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{(childrenOf.get(n.id) ?? []).length}</td>
+                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{teamOf(n.id)}</td>
+                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{compactMoney(Number(n.revenueCents ?? 0))}</td>
+                  <td style={{ padding: '3px 6px', textAlign: 'right' }}>{compactMoney(Number(n.monthlyCommissionCents ?? 0))}</td>
+                  <td style={{ padding: '3px 6px' }}>{rankOf(n.id) ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </PrintSheet>
+      )}
     </div>
   );
 }
 
+/** Dosya-gezgini klavuz cizgileri: her seviye icin dikey cizgi + konnektor (├/└). */
 function GuideCells({ lasts }: { lasts: boolean[] }) {
   const depth = lasts.length - 1;
-  if (depth <= 0) return <span className="w-1.5 shrink-0" />;
+  if (depth <= 0) return <span style={{ width: 6, flexShrink: 0 }} />;
   return (
     <>
       {Array.from({ length: depth }).map((_, j) => {
@@ -377,11 +568,26 @@ function GuideCells({ lasts }: { lasts: boolean[] }) {
   );
 }
 
+function crumbStyle(active: boolean): React.CSSProperties {
+  return { background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: active ? 700 : 500, color: active ? 'var(--gold-500)' : 'var(--muted)' };
+}
+function Kpi({ label, value, sub, icon }: { label: string; value: string; sub?: string; icon?: string }) {
+  return (
+    <div className="net-kpi">
+      <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+        {icon && <span className="net-kpi-ic" aria-hidden>{icon}</span>}
+        <span className="faint" style={{ fontSize: 11 }}>{label}</span>
+      </div>
+      <div style={{ fontWeight: 750, fontSize: 17, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+      {sub && <div className="faint" style={{ fontSize: 11 }}>{sub}</div>}
+    </div>
+  );
+}
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-      <div className="mt-0.5 text-sm font-semibold">{value}</div>
+      <div className="faint" style={{ fontSize: 11 }}>{label}</div>
+      <div style={{ fontWeight: 700, fontSize: 15, marginTop: 2 }}>{value}</div>
     </div>
   );
 }

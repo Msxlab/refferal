@@ -20,13 +20,5 @@
     "prettier": "^3.5.3",
     "turbo": "^2.5.0",
     "typescript": "^5.8.3"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@node-rs/argon2",
-      "@prisma/client",
-      "@prisma/engines",
-      "prisma"
-    ]
   }
 }

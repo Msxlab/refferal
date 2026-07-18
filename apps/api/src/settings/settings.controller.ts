@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Patch } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Patch, Post } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { z } from 'zod';
 import { CurrentUser, RequireMembership, RequirePermission, Roles } from '../auth/auth.guard';
@@ -12,7 +12,7 @@ const ADMIN = [Role.tenant_owner, Role.tenant_admin];
 
 const updateSchema = z.object({
   name: z.string().trim().min(2).max(80).optional(),
-  maturationRule: z.enum(['on_approval', 'on_delivery', 'days_after_approval']).optional(),
+  maturationRule: z.enum(['on_approval', 'on_delivery', 'days_after_approval', 'days_after_delivery']).optional(),
   maturationDays: z.number().int().min(0).max(365).nullable().optional(),
   payoutMinCents: z.number().int().min(0).optional(),
   timezone: z.string().min(3).max(64).optional(),
@@ -20,6 +20,9 @@ const updateSchema = z.object({
   compressionEnabled: z.boolean().optional(),
   inactiveMembersEarn: z.boolean().optional(),
   requireSeparateApprover: z.boolean().optional(),
+  requireKycForPayout: z.boolean().optional(),
+  requirePayoutApproval: z.boolean().optional(),
+  autoRequestPayouts: z.boolean().optional(),
   branding: z
     .object({
       logoText: z.string().trim().max(2).optional(),
@@ -30,6 +33,12 @@ const updateSchema = z.object({
     .optional(),
 });
 type UpdateBody = z.infer<typeof updateSchema>;
+
+const planBonusSchema = z.object({
+  fastStartBps: z.number().int().min(0).max(10000),
+  fastStartDays: z.number().int().min(0).max(365),
+  matchingBps: z.number().int().min(0).max(10000),
+});
 
 @RequireMembership()
 @Controller('admin/settings')
@@ -86,5 +95,18 @@ export class SettingsController {
       payoutMinCents: body.payoutMinCents === undefined ? undefined : BigInt(body.payoutMinCents),
     };
     return this.settings.update(actor, input);
+  }
+
+  // MLM plan bonus katmanlari (unilevel+)
+  @Roles(...STAFF)
+  @Get('plan-bonus')
+  getPlanBonus(@CurrentUser() user: RequestUser) {
+    return this.settings.getPlanBonus(user.tid as string);
+  }
+
+  @Roles(...ADMIN)
+  @Post('plan-bonus')
+  updatePlanBonus(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(planBonusSchema)) body: z.infer<typeof planBonusSchema>) {
+    return this.settings.updatePlanBonus({ userId: user.sub, tenantId: user.tid as string }, body);
   }
 }

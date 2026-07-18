@@ -1,126 +1,328 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { computeCommissionLines, totalDistributed } from '@refearn/shared';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { commissionPlanSchema, computeCommissionLines, PlanLevelRate } from '@refearn/shared';
 import { ActorContext } from '../common/actor';
 import { PrismaService } from '../prisma/prisma.service';
-import { TenantContextService } from '../prisma/tenant-context.service';
 import { CreatePlanInput, SimulatePlanInput } from './plans.types';
+
+const EFFECTIVE_FROM_UNIQUE_CONSTRAINT = 'commission_plans_tenant_id_effective_from_key';
+const EFFECTIVE_FROM_CONFLICT_MESSAGE = 'bu effectiveFrom degeri icin bir plan zaten var';
+
+interface PlanSnapshotInput {
+  name: string;
+  poolRateBps: number;
+  depth: number;
+  levels: Array<{ level: number; rateBps: number }>;
+  fastStartBps: number;
+  fastStartDays: number;
+  matchingBps: number;
+}
+
+interface PlanBonusInput {
+  fastStartBps: number;
+  fastStartDays: number;
+  matchingBps: number;
+}
+
+function isEffectiveFromUniqueConflict(error: unknown): boolean {
+  const prismaError = error as { code?: string; meta?: { target?: unknown } };
+  if (prismaError.code !== 'P2002') return false;
+  const target = prismaError.meta?.target;
+  if (target === EFFECTIVE_FROM_UNIQUE_CONSTRAINT) return true;
+  if (!Array.isArray(target)) return false;
+  const fields = new Set(target.filter((field): field is string => typeof field === 'string'));
+  return (
+    (fields.has('tenant_id') && fields.has('effective_from')) ||
+    (fields.has('tenantId') && fields.has('effectiveFrom'))
+  );
+}
 
 @Injectable()
 export class PlansService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly tenantContext: TenantContextService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async list(actor: ActorContext) {
-    this.tenantContext.assertActor(actor);
-    const plans = await this.prisma.commissionPlan.findMany({
-      where: { tenantId: actor.tenantId },
-      orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
+  /** Satis tarihinde aktif plan: effective_from <= at, en yeni (engine ile ayni secim). */
+  private activePlan(
+    tenantId: string,
+    at: Date = new Date(),
+    db: PrismaService | Prisma.TransactionClient = this.prisma,
+  ) {
+    return db.commissionPlan.findFirst({
+      where: { tenantId, finalized: true, effectiveFrom: { lte: at } },
+      orderBy: [{ effectiveFrom: 'desc' }, { version: 'desc' }],
       include: { levels: { orderBy: { level: 'asc' } } },
     });
-    return plans.map((p) => ({
-      id: p.id,
-      name: p.name,
-      poolRateBps: p.poolRateBps,
-      depth: p.depth,
-      effectiveFrom: p.effectiveFrom,
-      createdBy: p.createdBy,
-      createdAt: p.createdAt,
-      levels: p.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })),
-    }));
   }
 
-  async create(actor: ActorContext, input: CreatePlanInput) {
-    this.tenantContext.assertActor(actor);
-    const effectiveFrom = input.effectiveFrom ?? new Date();
-    const existing = await this.prisma.commissionPlan.findFirst({
-      where: { tenantId: actor.tenantId, effectiveFrom },
-      select: { id: true },
-    });
-    if (existing) {
-      throw new BadRequestException('a plan already exists for this effectiveFrom value');
-    }
-
-    const plan = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.commissionPlan.create({
-        data: {
-          tenantId: actor.tenantId,
-          name: input.name,
-          poolRateBps: input.poolRateBps,
-          depth: input.depth,
-          effectiveFrom,
-          createdBy: actor.userId,
-          levels: { create: input.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })) },
-        },
-        include: { levels: { orderBy: { level: 'asc' } } },
-      });
-      await tx.auditLog.create({
-        data: {
-          tenantId: actor.tenantId,
-          actorUserId: actor.userId,
-          action: 'commission_plan.create',
-          entity: 'commission_plan',
-          entityId: created.id,
-          after: {
-            name: created.name,
-            poolRateBps: created.poolRateBps,
-            depth: created.depth,
-            effectiveFrom: created.effectiveFrom.toISOString(),
-            levels: created.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })),
-          },
-        },
-      });
-      return created;
-    });
-
+  /**
+   * Faz D4: uyeye aktif planin seviye oranlari (komisyon seffafligi + kazanc simulatoru icin).
+   * Gizlilik-guvenli: yalniz ORANLAR doner (kim/ne kadar kazaniyor DEGIL) — uye bunlari client'ta
+   * "ben/ekibim su kadar satarsa ne kazanirim"a cevirir. Aktif plan yoksa active:false.
+   */
+  async memberPlan(tenantId: string) {
+    const plan = await this.activePlan(tenantId);
+    if (!plan) return { active: false as const };
     return {
-      id: plan.id,
+      active: true as const,
       name: plan.name,
       poolRateBps: plan.poolRateBps,
       depth: plan.depth,
-      effectiveFrom: plan.effectiveFrom,
       levels: plan.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })),
     };
   }
 
-  async simulate(actor: ActorContext, input: SimulatePlanInput) {
-    this.tenantContext.assertActor(actor);
-    const plan = input.planId ? await this.findPlan(actor.tenantId, input.planId) : input.plan;
-    if (!plan) throw new NotFoundException('plan not found');
-
-    const amount = BigInt(input.amountCents);
-    if (amount <= 0n) throw new BadRequestException('amountCents must be positive');
-    const chain = Array.from({ length: input.uplineCount ?? plan.depth }, (_, i) => `level_${i}`);
-    const lines = computeCommissionLines(amount, plan.levels, chain);
-    const distributed = totalDistributed(lines);
+  /** Tum plan versiyonlari + hangisi su an aktif. */
+  async list(tenantId: string) {
+    const [plans, active] = await Promise.all([
+      this.prisma.commissionPlan.findMany({
+        where: { tenantId, finalized: true },
+        orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
+        include: { levels: { orderBy: { level: 'asc' } } },
+      }),
+      this.activePlan(tenantId),
+    ]);
     return {
-      amountCents: amount.toString(),
-      poolRateBps: plan.poolRateBps,
-      depth: plan.depth,
-      uplineCount: chain.length,
-      distributedCents: distributed.toString(),
-      retainedCents: (amount - distributed).toString(),
-      lines: lines.map((l) => ({
-        level: l.level,
-        beneficiary: l.beneficiaryMembershipId,
-        rateBps: l.rateBpsUsed,
-        amountCents: l.amountCents.toString(),
+      activeId: active?.id ?? null,
+      plans: plans.map((p) => ({
+        id: p.id,
+        name: p.name,
+        poolRateBps: p.poolRateBps,
+        depth: p.depth,
+        fastStartBps: p.fastStartBps,
+        fastStartDays: p.fastStartDays,
+        matchingBps: p.matchingBps,
+        version: p.version,
+        effectiveFrom: p.effectiveFrom,
+        active: p.id === active?.id,
+        levels: p.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })),
       })),
     };
   }
 
-  private async findPlan(tenantId: string, planId: string) {
-    const plan = await this.prisma.commissionPlan.findFirst({
-      where: { id: planId, tenantId },
-      include: { levels: { orderBy: { level: 'asc' } } },
-    });
-    if (!plan) return null;
+  /** Settings endpoint'i de aktif bonus snapshot'ini ayni plan sahipliginden okur. */
+  async getPlanBonus(tenantId: string) {
+    const plan = await this.activePlan(tenantId);
+    if (!plan) return { planName: null, fastStartBps: 0, fastStartDays: 0, matchingBps: 0 };
     return {
-      name: plan.name,
+      planId: plan.id,
+      planName: plan.name,
+      version: plan.version,
+      fastStartBps: plan.fastStartBps,
+      fastStartDays: plan.fastStartDays,
+      matchingBps: plan.matchingBps,
+    };
+  }
+
+  /**
+   * Komisyon simulatoru (Dalga 2.3): bir tutar icin aktif planin seviye seviye dagilimini gosterir.
+   * sellerMembershipId verilirse upline zinciri cozulur (kime ne gider); yoksa eksik seviyeler
+   * "sirkette kalir" olarak isaretlenir. computeCommissionLines (saf cekirdek) ile motorla ayni hesap.
+   */
+  async simulate(tenantId: string, input: SimulatePlanInput) {
+    const plan = await this.activePlan(tenantId);
+    if (!plan) throw new BadRequestException('aktif komisyon plani yok');
+    const levels: PlanLevelRate[] = plan.levels.map((l) => ({ level: l.level, rateBps: l.rateBps }));
+    const amount = BigInt(Math.round(input.amountCents));
+
+    const chain: string[] = [];
+    const nameById = new Map<string, { name: string; code: string }>();
+    if (input.sellerMembershipId) {
+      type Row = { id: string; sponsorMembershipId: string | null; referralCode: string; user: { fullName: string } };
+      let cur: Row | null = await this.prisma.membership.findFirst({
+        where: { id: input.sellerMembershipId, tenantId },
+        select: { id: true, sponsorMembershipId: true, referralCode: true, user: { select: { fullName: true } } },
+      });
+      let guard = 0;
+      while (cur && chain.length < plan.depth && guard++ < 64) {
+        chain.push(cur.id);
+        nameById.set(cur.id, { name: cur.user.fullName, code: cur.referralCode });
+        cur = cur.sponsorMembershipId
+          ? await this.prisma.membership.findFirst({
+              where: { id: cur.sponsorMembershipId },
+              select: { id: true, sponsorMembershipId: true, referralCode: true, user: { select: { fullName: true } } },
+            })
+          : null;
+      }
+    }
+
+    const lines = computeCommissionLines(amount, levels, chain);
+    const byLevel = new Map(lines.map((l) => [l.level, l]));
+    const noSeller = !input.sellerMembershipId; // satici yoksa: editor onizlemesi -> tam merdiven
+    const rows = levels.map((l) => {
+      const line = byLevel.get(l.level);
+      const filledId = chain[l.level];
+      // satici verildiyse gercek (upline yoksa 0 + sirkette); verilmediyse hipotetik tam merdiven
+      const amt = noSeller ? (amount * BigInt(l.rateBps)) / 10000n : line?.amountCents ?? 0n;
+      return {
+        level: l.level,
+        rateBps: l.rateBps,
+        amountCents: amt.toString(),
+        beneficiary: filledId ? nameById.get(filledId) ?? null : null,
+        // satici verildiyse ve o seviyede upline yoksa pay sirkette kalir (SPEC 3.3)
+        retainedByCompany: !noSeller && !filledId,
+      };
+    });
+    const distributed = noSeller
+      ? rows.reduce((a, r) => a + BigInt(r.amountCents), 0n)
+      : lines.reduce((a, l) => a + l.amountCents, 0n);
+    return {
+      planName: plan.name,
       poolRateBps: plan.poolRateBps,
       depth: plan.depth,
-      levels: plan.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })),
+      amountCents: amount.toString(),
+      levels: rows,
+      distributedCents: distributed.toString(),
+      companyKeepsCents: (amount - distributed).toString(),
     };
+  }
+
+  /**
+   * Yeni plan versiyonu olusturur (Dalga 2.4). Mevcut plan DEGISTIRILMEZ — yeni satir INSERT edilir
+   * (tarihsel butunluk: gecmis satislar kendi tarihindeki planla hesaplanmis kalir). effective_from
+   * ileri/su-an tarihli; engine bu tarihten itibaren yeni plani kullanir.
+   */
+  async createVersion(actor: ActorContext, input: CreatePlanInput) {
+    // Derin capraz kurallar (level 0 zorunlu, 0..depth-1 bossuz, SUM<=pool) shared semasiyla.
+    const parsed = commissionPlanSchema.safeParse({
+      name: input.name,
+      poolRateBps: input.poolRateBps,
+      depth: input.depth,
+      levels: input.levels,
+    });
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.issues[0]?.message ?? 'gecersiz plan');
+    }
+    const plan = await this.createImmutableVersion(
+      actor,
+      input.effectiveFrom ? new Date(input.effectiveFrom) : undefined,
+      async () => ({
+        name: parsed.data.name,
+        poolRateBps: parsed.data.poolRateBps,
+        depth: parsed.data.depth,
+        levels: parsed.data.levels,
+        fastStartBps: input.fastStartBps ?? 0,
+        fastStartDays: input.fastStartDays ?? 0,
+        matchingBps: input.matchingBps ?? 0,
+      }),
+      'plan.create_version',
+    );
+    return { id: plan.id, version: plan.version, effectiveFrom: plan.effectiveFrom };
+  }
+
+  /** Bonus degisikligi mevcut plani mutate etmez; tum snapshot'i yeni versiyona kopyalar. */
+  async createBonusVersion(actor: ActorContext, input: PlanBonusInput) {
+    const plan = await this.createImmutableVersion(
+      actor,
+      undefined,
+      async (tx) => {
+        const active = await this.activePlan(actor.tenantId, new Date(), tx);
+        if (!active) throw new BadRequestException('aktif plan yok');
+        return {
+          name: active.name,
+          poolRateBps: active.poolRateBps,
+          depth: active.depth,
+          levels: active.levels.map((level) => ({ level: level.level, rateBps: level.rateBps })),
+          ...input,
+        };
+      },
+      'plan.update_bonus',
+    );
+    return {
+      planId: plan.id,
+      planName: plan.name,
+      version: plan.version,
+      fastStartBps: plan.fastStartBps,
+      fastStartDays: plan.fastStartDays,
+      matchingBps: plan.matchingBps,
+    };
+  }
+
+  /**
+   * Tek tenant advisory lock'i altinda version/effective timestamp tahsis eder, snapshot + audit'i
+   * ayni transaction'da yazar. Ayni tenant seri, farkli tenant'lar bagimsiz ilerler.
+   */
+  private async createImmutableVersion(
+    actor: ActorContext,
+    requestedEffectiveFrom: Date | undefined,
+    snapshot: (tx: Prisma.TransactionClient) => Promise<PlanSnapshotInput>,
+    auditAction: 'plan.create_version' | 'plan.update_bonus',
+  ) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('commission_plan_version'), hashtext(${actor.tenantId}))`;
+
+        const aggregate = await tx.commissionPlan.aggregate({
+          where: { tenantId: actor.tenantId },
+          _max: { version: true },
+        });
+        const version = (aggregate._max.version ?? 0) + 1;
+        const effectiveFrom = requestedEffectiveFrom ?? (await this.nextImmediateEffectiveFrom(tx, actor.tenantId));
+        const data = await snapshot(tx);
+
+        const plan = await tx.commissionPlan.create({
+          data: {
+            tenantId: actor.tenantId,
+            version,
+            finalized: false,
+            name: data.name,
+            poolRateBps: data.poolRateBps,
+            depth: data.depth,
+            fastStartBps: data.fastStartBps,
+            fastStartDays: data.fastStartDays,
+            matchingBps: data.matchingBps,
+            effectiveFrom,
+            createdBy: actor.userId,
+            levels: { create: data.levels.map((level) => ({ level: level.level, rateBps: level.rateBps })) },
+          },
+          include: { levels: { orderBy: { level: 'asc' } } },
+        });
+
+        await tx.commissionPlan.update({
+          where: { id: plan.id },
+          data: { finalized: true },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            tenantId: actor.tenantId,
+            actorUserId: actor.userId,
+            action: auditAction,
+            entity: 'commission_plan',
+            entityId: plan.id,
+            after: {
+              version,
+              name: plan.name,
+              poolRateBps: plan.poolRateBps,
+              depth: plan.depth,
+              fastStartBps: plan.fastStartBps,
+              fastStartDays: plan.fastStartDays,
+              matchingBps: plan.matchingBps,
+              effectiveFrom: plan.effectiveFrom.toISOString(),
+              levels: plan.levels.map((level) => ({ level: level.level, rateBps: level.rateBps })),
+            } as Prisma.InputJsonValue,
+          },
+        });
+        return plan;
+      });
+    } catch (error) {
+      if (isEffectiveFromUniqueConflict(error)) {
+        throw new ConflictException(EFFECTIVE_FROM_CONFLICT_MESSAGE);
+      }
+      throw error;
+    }
+  }
+
+  /** Future-scheduled planlari atlamadan, "simdi"dan baslayan ilk bos milisaniyeyi bulur. */
+  private async nextImmediateEffectiveFrom(tx: Prisma.TransactionClient, tenantId: string): Promise<Date> {
+    const candidate = new Date(Date.now());
+    while (
+      await tx.commissionPlan.findFirst({
+        where: { tenantId, effectiveFrom: candidate },
+        select: { id: true },
+      })
+    ) {
+      candidate.setTime(candidate.getTime() + 1);
+    }
+    return candidate;
   }
 }

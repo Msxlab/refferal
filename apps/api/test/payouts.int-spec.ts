@@ -1,4 +1,5 @@
 import { INestApplication } from '@nestjs/common';
+import { RanksService } from '../src/ranks/ranks.service';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import { LedgerStatus, LedgerType, PayoutStatus, Prisma, Role, SaleStatus } from '@prisma/client';
@@ -656,7 +657,7 @@ describe('payouts (integration)', () => {
       .send({})
       .expect(400);
 
-    expect(await prisma.payoutBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
+    expect(await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
     expect(await prisma.payout.count({ where: { tenantId: tenant.id } })).toBe(0);
     expect(await prisma.ledgerEntry.count({ where: { tenantId: tenant.id, status: LedgerStatus.processing } })).toBe(0);
   });
@@ -685,7 +686,7 @@ describe('payouts (integration)', () => {
       normalizedScope: scope,
     });
     expect(Number.isNaN(Date.parse(preview.body.expiresAt))).toBe(false);
-    expect(await prisma.payoutBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
+    expect(await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
     expect(await prisma.ledgerEntry.count({ where: { tenantId: tenant.id, status: LedgerStatus.payable } })).toBeGreaterThan(0);
 
     const confirmed = await request(app.getHttpServer())
@@ -694,7 +695,7 @@ describe('payouts (integration)', () => {
       .send({ scope, previewToken: preview.body.previewToken })
       .expect(200);
     expect(confirmed.body).toMatchObject({ status: 'processing', processingCount: 1 });
-    expect(await prisma.payoutBatch.count({ where: { tenantId: tenant.id } })).toBe(1);
+    expect(await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } })).toBe(1);
   });
 
   it('normalizes selected IDs and binds the actor, tenant, snapshot, totals, expiry, and domain into the token', async () => {
@@ -729,7 +730,7 @@ describe('payouts (integration)', () => {
       selectionFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
       expiresAt: preview.body.expiresAt,
     });
-    expect(await prisma.payoutBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
+    expect(await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
     expect(await prisma.payout.count({ where: { tenantId: tenant.id } })).toBe(0);
   });
 
@@ -748,7 +749,7 @@ describe('payouts (integration)', () => {
       .set('Authorization', `Bearer ${ownerTok}`)
       .send({ scope: { mode: 'selected', membershipIds: [second.seller.id] } })
       .expect(404);
-    expect(await prisma.payoutBatch.count()).toBe(0);
+    expect(await prisma.payoutSettlementBatch.count()).toBe(0);
     expect(await prisma.payout.count()).toBe(0);
     expect(await prisma.ledgerEntry.count({ where: { status: LedgerStatus.processing } })).toBe(0);
   });
@@ -810,7 +811,7 @@ describe('payouts (integration)', () => {
       .send({ scope, previewToken: preview.body.previewToken })
       .expect(400);
 
-    expect(await prisma.payoutBatch.count()).toBe(0);
+    expect(await prisma.payoutSettlementBatch.count()).toBe(0);
     expect(await prisma.payout.count()).toBe(0);
     expect(await prisma.ledgerEntry.count({ where: { status: LedgerStatus.processing } })).toBe(0);
   });
@@ -843,9 +844,9 @@ describe('payouts (integration)', () => {
       expect(response.body.message).toBe('invalid payout batch preview token');
     }
 
-    expect(await prisma.payoutBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
+    expect(await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
     expect(await prisma.payout.count({ where: { tenantId: tenant.id } })).toBe(0);
-    expect(await prisma.payoutBatchItem.count()).toBe(0);
+    expect(await prisma.payoutSettlementBatchItem.count()).toBe(0);
     expect(await prisma.ledgerEntry.count({ where: { tenantId: tenant.id, status: LedgerStatus.processing } })).toBe(0);
     expect(await prisma.auditLog.count({ where: { tenantId: tenant.id, action: { startsWith: 'payout' } } })).toBe(0);
   });
@@ -873,7 +874,7 @@ describe('payouts (integration)', () => {
         normalizedScope: { mode: 'all_eligible', filters: { method: 'manual', period: expect.any(String) } },
       },
     });
-    expect(await prisma.payoutBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
+    expect(await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
 
     const driftPreview = await requestPreview(ownerTok, selectedScope);
     const adjustmentSale = await prisma.sale.create({
@@ -906,7 +907,7 @@ describe('payouts (integration)', () => {
       code: 'review_required',
       preview: { eligibleCount: 1, totals: [{ currency: 'USD', amountCents: '500001' }] },
     });
-    expect(await prisma.payoutBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
+    expect(await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
     expect(await prisma.payout.count({ where: { tenantId: tenant.id } })).toBe(0);
     expect(await prisma.ledgerEntry.count({ where: { tenantId: tenant.id, status: LedgerStatus.processing } })).toBe(0);
     expect(await prisma.auditLog.count({ where: { tenantId: tenant.id, action: { startsWith: 'payout' } } })).toBe(0);
@@ -948,9 +949,9 @@ describe('payouts (integration)', () => {
       }
     });
     const before = {
-      batches: await prisma.payoutBatch.count({ where: { tenantId: tenant.id } }),
+      batches: await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } }),
       payouts: await prisma.payout.count({ where: { tenantId: tenant.id } }),
-      items: await prisma.payoutBatchItem.count(),
+      items: await prisma.payoutSettlementBatchItem.count(),
       processing: await prisma.ledgerEntry.count({ where: { tenantId: tenant.id, status: LedgerStatus.processing } }),
       audits: await prisma.auditLog.count({ where: { tenantId: tenant.id, action: { startsWith: 'payout' } } }),
     };
@@ -982,9 +983,9 @@ describe('payouts (integration)', () => {
       })
       .expect(400);
     expect({
-      batches: await prisma.payoutBatch.count({ where: { tenantId: tenant.id } }),
+      batches: await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } }),
       payouts: await prisma.payout.count({ where: { tenantId: tenant.id } }),
-      items: await prisma.payoutBatchItem.count(),
+      items: await prisma.payoutSettlementBatchItem.count(),
       processing: await prisma.ledgerEntry.count({ where: { tenantId: tenant.id, status: LedgerStatus.processing } }),
       audits: await prisma.auditLog.count({ where: { tenantId: tenant.id, action: { startsWith: 'payout' } } }),
     }).toEqual(before);
@@ -1078,9 +1079,9 @@ describe('payouts (integration)', () => {
       }
     }
     const beforeDrift = {
-      batches: await prisma.payoutBatch.count({ where: { tenantId: tenant.id } }),
+      batches: await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } }),
       payouts: await prisma.payout.count({ where: { tenantId: tenant.id } }),
-      items: await prisma.payoutBatchItem.count(),
+      items: await prisma.payoutSettlementBatchItem.count(),
       processing: await prisma.ledgerEntry.count({
         where: { tenantId: tenant.id, status: LedgerStatus.processing },
       }),
@@ -1120,9 +1121,9 @@ describe('payouts (integration)', () => {
       preview: { totals: [expect.objectContaining({ currency: 'EUR' })] },
     });
     expect({
-      batches: await prisma.payoutBatch.count({ where: { tenantId: tenant.id } }),
+      batches: await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } }),
       payouts: await prisma.payout.count({ where: { tenantId: tenant.id } }),
-      items: await prisma.payoutBatchItem.count(),
+      items: await prisma.payoutSettlementBatchItem.count(),
       processing: await prisma.ledgerEntry.count({
         where: { tenantId: tenant.id, status: LedgerStatus.processing },
       }),
@@ -1163,9 +1164,9 @@ describe('payouts (integration)', () => {
       },
     });
     const before = {
-      batches: await prisma.payoutBatch.count({ where: { tenantId: tenant.id } }),
+      batches: await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } }),
       payouts: await prisma.payout.count({ where: { tenantId: tenant.id } }),
-      items: await prisma.payoutBatchItem.count(),
+      items: await prisma.payoutSettlementBatchItem.count(),
       processing: await prisma.ledgerEntry.count({
         where: { tenantId: tenant.id, status: LedgerStatus.processing },
       }),
@@ -1186,9 +1187,9 @@ describe('payouts (integration)', () => {
       },
     });
     expect({
-      batches: await prisma.payoutBatch.count({ where: { tenantId: tenant.id } }),
+      batches: await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } }),
       payouts: await prisma.payout.count({ where: { tenantId: tenant.id } }),
-      items: await prisma.payoutBatchItem.count(),
+      items: await prisma.payoutSettlementBatchItem.count(),
       processing: await prisma.ledgerEntry.count({
         where: { tenantId: tenant.id, status: LedgerStatus.processing },
       }),
@@ -1236,7 +1237,7 @@ describe('payouts (integration)', () => {
       .set('Authorization', `Bearer ${secondOwnerTok}`)
       .expect(404);
 
-    expect(await prisma.payoutBatch.findUniqueOrThrow({ where: { id: started.body.id } })).toMatchObject({
+    expect(await prisma.payoutSettlementBatch.findUniqueOrThrow({ where: { id: started.body.id } })).toMatchObject({
       tenantId: first.tenant.id,
       status: 'processing',
     });
@@ -1398,7 +1399,7 @@ describe('payouts (integration)', () => {
       .expect(409);
     expect((await prisma.sale.findUniqueOrThrow({ where: { id: sale.id } })).status).toBe('approved');
     expect(await prisma.ledgerEntry.count({ where: { saleId: sale.id, status: LedgerStatus.processing } })).toBe(1);
-    expect(await prisma.payoutBatchItem.count({ where: { batchId: started.body.id } })).toBe(1);
+    expect(await prisma.payoutSettlementBatchItem.count({ where: { batchId: started.body.id } })).toBe(1);
   });
 
   it('MVP loop: approval -> payable -> processing batch -> settle -> CSV; void -> offset', async () => {
@@ -1409,7 +1410,7 @@ describe('payouts (integration)', () => {
     const s1 = await createSale(prisma, tenant.id, seller.id, 10_000_000n); // L0 = 500.000
     const s2 = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
     const { EngineService } = await import('../src/engine/engine.service');
-    const engine = new EngineService(prisma);
+    const engine = new EngineService(prisma, undefined, new RanksService(prisma));
     await engine.approveSale(s1.id);
     await engine.approveSale(s2.id);
     for (const member of chain) {
@@ -1526,7 +1527,7 @@ describe('payouts (integration)', () => {
     // Small sale: L0 = $5, below the $1000 threshold.
     const sale = await createSale(prisma, tenant.id, seller.id, 10_000n);
     const { EngineService } = await import('../src/engine/engine.service');
-    await new EngineService(prisma).approveSale(sale.id);
+    await new EngineService(prisma, undefined, new RanksService(prisma)).approveSale(sale.id);
 
     // Payable list is empty below the threshold.
     const payable = await request(app.getHttpServer())
@@ -1636,7 +1637,7 @@ describe('payouts (integration)', () => {
     expect(csv.text).toBe(repeatedCsv.text);
     expect(csv.text).toContain('10000000000000000');
     expect(csv.text).toContain(",'=huge,'+huge@example.test,");
-    expect((await prisma.payoutBatch.findUniqueOrThrow({ where: { id: started.body.id } })).csvChecksum).toEqual(expect.any(String));
+    expect((await prisma.payoutSettlementBatch.findUniqueOrThrow({ where: { id: started.body.id } })).csvChecksum).toEqual(expect.any(String));
   });
 
   it('bounds one processing batch to at most 100 memberships', async () => {
@@ -1663,7 +1664,7 @@ describe('payouts (integration)', () => {
     await seedReadyPayoutCompliance(prisma, tenant.id, seller.id, owner.userId);
     const started = await startReviewedBatch(ownerTok, { mode: 'selected', membershipIds: [seller.id] });
 
-    await prisma.payoutBatchItem.updateMany({
+    await prisma.payoutSettlementBatchItem.updateMany({
       where: { batchId: started.body.id },
       data: { recipientSnapshotAt: null },
     });
@@ -1712,7 +1713,7 @@ describe('payouts (integration)', () => {
       .set('Authorization', `Bearer ${ownerTok}`)
       .send({ scope: { mode: 'all_eligible', filters: { method: 'manual' } } })
       .expect(400);
-    expect(await prisma.payoutBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
+    expect(await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
     expect(await prisma.ledgerEntry.count({ where: { tenantId: tenant.id, status: LedgerStatus.processing } })).toBe(0);
   });
 
@@ -2135,7 +2136,8 @@ describe('payouts (integration)', () => {
     const sellerTok = token({ userId: seller.userId, membershipId: seller.id, tenantId: tenant.id, role: Role.member });
     const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
     const { EngineService } = await import('../src/engine/engine.service');
-    await new EngineService(prisma).approveSale(sale.id);
+    await new EngineService(prisma, undefined, new RanksService(prisma)).approveSale(sale.id);
+    // not: cek-odeme adresi (Faz A2 kapisi) createChain helper'inda varsayilan dolu gelir
 
     const wallet = await request(app.getHttpServer())
       .get('/v1/app/wallet')
@@ -2214,7 +2216,7 @@ describe('payouts (integration)', () => {
 
     const blockedPreview = await requestPreview(ownerTok, scope);
     expect(blockedPreview.body).toMatchObject({ eligibleCount: 0, excludedCount: 1, totals: [] });
-    expect(await prisma.payoutBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
+    expect(await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
     expect(await prisma.ledgerEntry.count({ where: { beneficiaryMembershipId: seller.id, status: LedgerStatus.processing } })).toBe(0);
 
     const requested = await createRequestedPayout(tenant.id, seller.id, 500_000n);
@@ -2326,7 +2328,7 @@ describe('payouts (integration)', () => {
       settlementReference: null,
       settlementEvidence: null,
     });
-    expect(await prisma.payoutBatch.findUniqueOrThrow({ where: { id: started.body.id } })).toMatchObject({
+    expect(await prisma.payoutSettlementBatch.findUniqueOrThrow({ where: { id: started.body.id } })).toMatchObject({
       status: 'processing',
       settlementReference: null,
       settlementEvidence: null,
@@ -2397,7 +2399,7 @@ describe('payouts (integration)', () => {
       code: 'payout_compliance_recheck_required',
     });
     expect((await prisma.payout.findUniqueOrThrow({ where: { id: payoutId } })).status).toBe(PayoutStatus.processing);
-    expect((await prisma.payoutBatch.findUniqueOrThrow({ where: { id: started.body.id } })).status).toBe('processing');
+    expect((await prisma.payoutSettlementBatch.findUniqueOrThrow({ where: { id: started.body.id } })).status).toBe('processing');
     expect(await prisma.ledgerEntry.count({ where: { payoutId, status: LedgerStatus.processing } })).toBe(1);
   });
 
@@ -2415,7 +2417,7 @@ describe('payouts (integration)', () => {
         method: 'manual',
       }),
     ).rejects.toMatchObject({ status: 500 });
-    expect(await prisma.payoutBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
+    expect(await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
 
     await seedReadyPayoutCompliance(prisma, tenant.id, seller.id, owner.userId);
     const started = await engine.reservePayoutBatch({
@@ -2432,7 +2434,7 @@ describe('payouts (integration)', () => {
         settlementEvidence: 'direct-evidence',
       }),
     ).rejects.toMatchObject({ status: 500 });
-    expect((await prisma.payoutBatch.findUniqueOrThrow({ where: { id: started.batchId! } })).status).toBe('processing');
+    expect((await prisma.payoutSettlementBatch.findUniqueOrThrow({ where: { id: started.batchId! } })).status).toBe('processing');
   });
 
   it('reserve excludes malformed ready controls with version zero without processing money', async () => {
@@ -2470,7 +2472,7 @@ describe('payouts (integration)', () => {
 
     expect(result.processing).toEqual([]);
     expect(result.skipped).toEqual([{ membershipId: seller.id, reason: 'payout_not_ready', netCents: 500_000n }]);
-    expect(await prisma.payoutBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
+    expect(await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
     expect(await prisma.ledgerEntry.count({
       where: { beneficiaryMembershipId: seller.id, status: LedgerStatus.payable },
     })).toBe(1);
@@ -2650,7 +2652,7 @@ describe('payouts (integration)', () => {
     expect(await prisma.payout.count({
       where: { tenantId: tenant.id, membershipId: seller.id, period: requested.period, status: PayoutStatus.processing },
     })).toBe(1);
-    expect(await prisma.payoutBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
+    expect(await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
     expect(await prisma.ledgerEntry.count({
       where: { beneficiaryMembershipId: seller.id, status: LedgerStatus.payable },
     })).toBe(1);

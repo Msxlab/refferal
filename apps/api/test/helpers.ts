@@ -7,11 +7,24 @@ import {
   SaleStatus,
   Tenant,
 } from '@prisma/client';
+import { hash } from '@node-rs/argon2';
 import { DEFAULT_LEVEL_RATES_BPS, DEFAULT_POOL_RATE_BPS } from '@refearn/shared';
 import { assertPrismaTargetsConfiguredTestDatabase } from './test-database-guard';
 
 let seq = 0;
 const next = () => ++seq;
+
+const ARGON2 = { memoryCost: 19_456, timeCost: 2, parallelism: 1 };
+/** Dogrulanmis bir platform_admin kullanicisi olusturur (login icin gercek sifre hash'i). */
+export async function createPlatformAdmin(
+  prisma: PrismaClient, password: string, email = `platform-${next()}@test.refearn.local`,
+): Promise<{ id: string; email: string }> {
+  const user = await prisma.user.create({
+    data: { email, passwordHash: await hash(password, ARGON2), fullName: 'Test Platform', isPlatformAdmin: true, emailVerifiedAt: new Date() },
+    select: { id: true, email: true },
+  });
+  return user;
+}
 
 export async function truncateAll(prisma: PrismaClient): Promise<void> {
   await assertPrismaTargetsConfiguredTestDatabase(prisma);
@@ -53,19 +66,35 @@ export async function createPlan(
     rates: number[];
     effectiveFrom: Date;
     name: string;
+    version: number;
+    fastStartBps: number;
+    fastStartDays: number;
+    matchingBps: number;
   }> = {},
 ): Promise<CommissionPlan> {
   await assertPrismaTargetsConfiguredTestDatabase(prisma);
   const rates = opts.rates ?? [...DEFAULT_LEVEL_RATES_BPS];
-  return prisma.commissionPlan.create({
-    data: {
-      tenantId,
-      name: opts.name ?? `Plan ${next()}`,
-      poolRateBps: opts.poolRateBps ?? DEFAULT_POOL_RATE_BPS,
-      depth: rates.length,
-      effectiveFrom: opts.effectiveFrom ?? new Date('2026-01-01T00:00:00Z'),
-      levels: { create: rates.map((rateBps, level) => ({ level, rateBps })) },
-    },
+  const latest = await prisma.commissionPlan.aggregate({
+    where: { tenantId },
+    _max: { version: true },
+  });
+  return prisma.$transaction(async (tx) => {
+    const plan = await tx.commissionPlan.create({
+      data: {
+        tenantId,
+        version: opts.version ?? (latest._max.version ?? 0) + 1,
+        finalized: false,
+        name: opts.name ?? `Plan ${next()}`,
+        poolRateBps: opts.poolRateBps ?? DEFAULT_POOL_RATE_BPS,
+        depth: rates.length,
+        fastStartBps: opts.fastStartBps ?? 0,
+        fastStartDays: opts.fastStartDays ?? 0,
+        matchingBps: opts.matchingBps ?? 0,
+        effectiveFrom: opts.effectiveFrom ?? new Date('2026-01-01T00:00:00Z'),
+        levels: { create: rates.map((rateBps, level) => ({ level, rateBps })) },
+      },
+    });
+    return tx.commissionPlan.update({ where: { id: plan.id }, data: { finalized: true } });
   });
 }
 
@@ -99,7 +128,14 @@ export async function createChain(
         sponsorMembershipId: parent?.id ?? null,
         referralCode: `RC${k}`,
         depth: parent ? parent.depth + 1 : 0,
-        path: '', // The path is updated below with the member's own id in ltree-compatible format.
+        path: '', // path asagida kendi id'siyle guncellenir (ltree-uyumlu format)
+        // test uyeleri tam posta adresli sayilir (Faz A2 cek-odeme kapisi) — emailVerifiedAt gibi
+        mailingName: `User ${k}`,
+        mailingLine1: '1 Test St',
+        mailingCity: 'Austin',
+        mailingState: 'TX',
+        mailingPostal: '73301',
+        mailingCountry: 'US',
       },
     });
     const ownLabel = member.id.replace(/-/g, '_');

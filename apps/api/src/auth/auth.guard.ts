@@ -13,6 +13,7 @@ import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { MembershipStatus, Role, TenantStatus } from '@prisma/client';
 import { Request } from 'express';
+import { sha256 } from '../common/crypto';
 import { defaultPermissionsForTier } from '../common/permissions';
 import { PrismaService } from '../prisma/prisma.service';
 import { authConfig } from './auth.config';
@@ -80,29 +81,51 @@ export class AccessTokenGuard implements CanActivate {
     const accountSessionOnly = this.reflector.getAllAndOverride<boolean>(ACCOUNT_SESSION_ONLY_KEY, targets);
 
     const req = ctx.switchToHttp().getRequest<Request & { user?: RequestUser }>();
-    const header = req.headers.authorization;
-    if (!header?.startsWith('Bearer ')) {
-      throw new UnauthorizedException('access token required');
+
+    // API anahtari (entegrasyon): X-Api-Key → olusturan admin'in uyeligi/rolu adina davranir.
+    const apiKey = req.headers['x-api-key'];
+    let payload: RequestUser;
+    // Principal'in API anahtarindan mi (uyelik+kiraci zaten dogrulandi) yoksa JWT'den mi geldigini izle.
+    let fromApiKey = false;
+    if (typeof apiKey === 'string' && apiKey.length > 0) {
+      const k = await this.prisma.apiKey.findUnique({
+        where: { keyHash: sha256(apiKey) },
+        include: { membership: { select: { status: true, role: true, tenant: { select: { status: true } } } } },
+      });
+      // yasam-dongusu kapilari: revoke / sure dolmus / uyelik pasif / kiraci askida -> reddet
+      if (!k || k.revokedAt || (k.expiresAt && k.expiresAt.getTime() <= Date.now())) {
+        throw new UnauthorizedException('gecersiz api anahtari');
+      }
+      if (k.membership.status !== 'active' || k.membership.tenant.status !== 'active') {
+        this.logger.warn(`[security] apikey_inactive_principal key=${k.id} mid=${k.membershipId} tid=${k.tenantId}`);
+        throw new UnauthorizedException('gecersiz api anahtari');
+      }
+      void this.prisma.apiKey.update({ where: { id: k.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
+      // rol her zaman CANLI uyelikten (k.membership.role) -- saklanmis stale rol downgrade'i asamaz
+      payload = { sub: k.createdByUserId, mid: k.membershipId, tid: k.tenantId, role: k.membership.role, iat: 0, exp: 0 };
+      fromApiKey = true;
+    } else {
+      const header = req.headers.authorization;
+      if (!header?.startsWith('Bearer ')) {
+        throw new UnauthorizedException('erisim tokeni gerekli');
+      }
+      try {
+        payload = await this.jwt.verifyAsync<RequestUser>(header.slice(7), { secret: authConfig.accessSecret() });
+      } catch {
+        throw new UnauthorizedException('erisim tokeni gecersiz veya suresi dolmus');
+      }
     }
 
-    let payload: RequestUser;
-    try {
-      payload = await this.jwt.verifyAsync<RequestUser>(header.slice(7), {
-        secret: authConfig.accessSecret(),
+    let dbUser: { isPlatformAdmin: boolean; totpEnabledAt: Date | null; authGeneration: number } | null = null;
+    if (!fromApiKey) {
+      dbUser = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { isPlatformAdmin: true, totpEnabledAt: true, authGeneration: true },
       });
-    } catch {
-      throw new UnauthorizedException('access token is invalid or expired');
-    }
-    const dbUser = await this.prisma.user.findUnique({
-      where: { id: payload.sub },
-      select: { isPlatformAdmin: true, totpEnabledAt: true, authGeneration: true },
-    });
-    if (!dbUser) {
-      throw new UnauthorizedException('session is no longer active');
-    }
-    if (!this.hasCurrentAuthGeneration(payload, dbUser.authGeneration)) {
-      this.logger.warn(`[security] stale_session user=${payload.sub} ${req.method} ${req.url}`);
-      throw new UnauthorizedException('session is no longer active');
+      if (!dbUser || !this.hasCurrentAuthGeneration(payload, dbUser.authGeneration)) {
+        this.logger.warn(`[security] stale_session user=${payload.sub} ${req.method} ${req.url}`);
+        throw new UnauthorizedException('session is no longer active');
+      }
     }
 
     if (accountSessionOnly) {
@@ -115,13 +138,68 @@ export class AccessTokenGuard implements CanActivate {
       delete payload.plat;
     }
 
-    let userMfaEnabled = dbUser.totpEnabledAt !== null;
-    let mfaEpoch: number | null = dbUser.totpEnabledAt?.getTime() ?? null;
+    const userMfaEnabled = !fromApiKey && dbUser?.totpEnabledAt !== null;
+    const mfaEpoch = !fromApiKey ? (dbUser?.totpEnabledAt?.getTime() ?? null) : null;
 
-    if (requireMembership && !payload.mid) {
-      throw new ForbiddenException('active membership selection required (switch tenant)');
+    // A revoked platform grant must not remain usable for the remainder of an access-token TTL.
+    if (payload.plat && !dbUser?.isPlatformAdmin) delete payload.plat;
+    req.user = payload;
+
+    // impersonation salt-okunur: admin uye adina yalniz GET yapabilir (para/mutasyon yasak)
+    if (payload.imp && req.method !== 'GET') {
+      this.logger.warn(`[security] impersonation_write_blocked imp=${payload.imp} as=${payload.sub} ${req.method} ${req.url}`);
+      throw new ForbiddenException('impersonation oturumu salt-okunurdur');
     }
 
+    // JWT bayatligi (#jwt-staleness): erisim tokeni statelessdir — pasif/yetkisi-dusurulmus uye token
+    // dolana dek (~15dk) yazma yapabilir. Yalnizca DURUM-DEGISTIREN (GET disi) JWT isteklerinde TEK
+    // indexli uyelik bakisi yap; api-key yolu zaten dogrulandi, GET okumalar 15dk tokeni korur.
+    // Canli uyelik ASKIDA/PASIF ise reddet; rolu CANLI uyelikten tazele (downgrade aninda etki etsin).
+    if (!fromApiKey && req.method !== 'GET' && payload.mid) {
+      const m = await this.prisma.membership.findUnique({
+        where: { id: payload.mid },
+        select: { status: true, role: true, tenant: { select: { status: true } } },
+      });
+      if (!m || m.status !== 'active' || m.tenant.status !== 'active') {
+        this.logger.warn(`[security] jwt_inactive_principal user=${payload.sub} mid=${payload.mid} ${req.method} ${req.url}`);
+        throw new ForbiddenException('uyelik veya kiraci artik aktif degil');
+      }
+      // rol CANLI uyelikten — saklanmis stale rol bir downgrade'i asamaz
+      payload.role = m.role;
+      // NOT: ince izinler (perms) burada CANLI tazelenMEZ — bilincli (access-TTL tradeoff). Tazeleme,
+      // servis assertGrantable tavanini aktorun perms'inden hesapladigi icin RBAC davranisini degistirir
+      // (audit-remediation regresyonu). Coarse rol-downgrade + money-move re-gating B2 cekirdegini karsilar.
+    }
+
+    // Act-as (platform admin, uyelik yok): mid-bazli staleness kontrolu calismaz (mid=null).
+    // Yuksek yetkili token oldugu icin write'larda CANLI dogrula: tenant hala aktif + kullanici
+    // hala platform admin. Mint sonrasi askiya alinan tenant veya geri alinan platform-yetkisi
+    // token TTL'i boyunca yazma yapamaz.
+    if (!fromApiKey && req.method !== 'GET' && !payload.mid && payload.plat === true && payload.tid) {
+      const [tenant, user] = await Promise.all([
+        this.prisma.tenant.findUnique({ where: { id: payload.tid }, select: { status: true } }),
+        this.prisma.user.findUnique({ where: { id: payload.sub }, select: { isPlatformAdmin: true } }),
+      ]);
+      if (!tenant || tenant.status !== TenantStatus.active || !user?.isPlatformAdmin) {
+        this.logger.warn(`[security] act_as_inactive_principal user=${payload.sub} tid=${payload.tid} ${req.method} ${req.url}`);
+        throw new ForbiddenException('act-as: tenant askida veya platform yetkisi yok');
+      }
+    }
+
+    // Act-as istisna: platform admin bir sirket adina davranirken (plat && tid) uyeligi (mid) yoktur.
+    // Boyle bir token YALNIZCA @PlatformAdmin()-korumali act-as endpoint'i mintleyebilir; siradan
+    // platform tokenlerinin tid'i null'dir, bu yuzden /admin gecisini elde edemez.
+    const actingAsTenant = payload.plat === true && !!payload.tid;
+    if (
+      requireMembership &&
+      !payload.mid &&
+      !actingAsTenant
+    ) {
+      throw new ForbiddenException('aktif uyelik secimi gerekli (switch-tenant)');
+    }
+
+    // Rehydrate membership and custom-role grants on every request. This closes both
+    // stale-read and stale-write windows after a membership, tenant, or role change.
     if (payload.mid) {
       const membership = await this.prisma.membership.findFirst({
         where: { id: payload.mid, userId: payload.sub, tenantId: payload.tid ?? undefined },
@@ -140,19 +218,19 @@ export class AccessTokenGuard implements CanActivate {
       const membershipVersion = membership.updatedAt.getTime();
       const roleRefControlsPermissions = membership.role === Role.tenant_admin || membership.role === Role.tenant_staff;
       const roleVersion = roleRefControlsPermissions ? (membership.roleRef?.updatedAt.getTime() ?? null) : null;
-      const tokenHasVersion = payload.mver !== undefined || payload.rver !== undefined;
-      if (tokenHasVersion && (payload.mver !== membershipVersion || (payload.rver ?? null) !== roleVersion)) {
+      if (
+        (payload.mver !== undefined || payload.rver !== undefined) &&
+        (payload.mver !== membershipVersion || (payload.rver ?? null) !== roleVersion)
+      ) {
         this.logger.warn(`[security] stale_authz_token user=${payload.sub} mid=${payload.mid} ${req.method} ${req.url}`);
       }
       payload.role = membership.role;
-      payload.perms =
-        roleRefControlsPermissions
-          ? membership.roleRef?.permissions ?? defaultPermissionsForTier(membership.role)
-          : defaultPermissionsForTier(membership.role);
+      payload.perms = roleRefControlsPermissions
+        ? membership.roleRef?.permissions ?? defaultPermissionsForTier(membership.role)
+        : defaultPermissionsForTier(membership.role);
       payload.mver = membershipVersion;
       if (roleVersion === null) delete payload.rver;
       else payload.rver = roleVersion;
-      req.user = payload;
     }
 
     if (roles?.length) {
@@ -166,12 +244,12 @@ export class AccessTokenGuard implements CanActivate {
     }
 
     if (platformOnly) {
-      if (!payload.plat || !dbUser.isPlatformAdmin) {
+      if (!payload.plat || !dbUser?.isPlatformAdmin) {
         this.logger.warn(`[security] platform_denied user=${payload.sub} ${req.method} ${req.url}`);
         throw new ForbiddenException('platform permission required');
       }
     } else if (payload.plat) {
-      if (!dbUser.isPlatformAdmin) {
+      if (!dbUser?.isPlatformAdmin) {
         payload.plat = false;
       }
     }
@@ -190,7 +268,9 @@ export class AccessTokenGuard implements CanActivate {
     }
     req.user = payload;
 
-    if (!mfaExempt) {
+    // API keys are independently revocable integration credentials and cannot carry an
+    // interactive session-assurance proof.
+    if (!mfaExempt && !fromApiKey) {
       this.enforceMfa(payload, userMfaEnabled, mfaEpoch, req);
     }
 

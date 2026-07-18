@@ -36,25 +36,47 @@ interface Settings {
   slug: string;
   currency: string;
   timezone: string;
-  maturationRule: 'on_approval' | 'on_delivery' | 'days_after_approval';
+  maturationRule: 'on_approval' | 'on_delivery' | 'days_after_approval' | 'days_after_delivery';
   maturationDays: number | null;
   payoutMinCents: string;
   notifyNewMemberName: boolean;
   compressionEnabled: boolean;
   inactiveMembersEarn: boolean;
   requireSeparateApprover: boolean;
+  requireKycForPayout: boolean;
+  requirePayoutApproval: boolean;
+  autoRequestPayouts: boolean;
 }
 
 const MATURATION = [
   { value: 'on_approval', label: 'On approval - payable immediately' },
   { value: 'on_delivery', label: 'On delivery - matures after delivery' },
   { value: 'days_after_approval', label: 'Days after approval' },
+  { value: 'days_after_delivery', label: 'Days after delivery (return window)' },
 ] satisfies Array<{
   value: Settings['maturationRule'];
   label: string;
 }>;
 
 const POLICY_FIELDS = [
+  {
+    id: 'require-kyc-for-payout',
+    title: 'Verified payout profile',
+    description: 'Require a verified payout profile before paying members.',
+    key: 'requireKycForPayout',
+  },
+  {
+    id: 'require-payout-approval',
+    title: 'Payout maker-checker',
+    description: 'A second administrator must approve each payout run.',
+    key: 'requirePayoutApproval',
+  },
+  {
+    id: 'auto-request-payouts',
+    title: 'Automatic payout requests',
+    description: 'Create nightly payout requests when members meet the threshold; administrators still approve them.',
+    key: 'autoRequestPayouts',
+  },
   {
     id: 'require-separate-approver',
     title: 'Separation of duties',
@@ -77,8 +99,18 @@ const POLICY_FIELDS = [
   id: string;
   title: string;
   description: string;
-  key: 'requireSeparateApprover' | 'notifyNewMemberName' | 'inactiveMembersEarn';
+  key:
+    | 'requireKycForPayout'
+    | 'requirePayoutApproval'
+    | 'autoRequestPayouts'
+    | 'requireSeparateApprover'
+    | 'notifyNewMemberName'
+    | 'inactiveMembersEarn';
 }>;
+
+function usesMaturationDays(rule: Settings['maturationRule']) {
+  return rule === 'days_after_approval' || rule === 'days_after_delivery';
+}
 
 const TIMEZONES = [
   'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
@@ -102,12 +134,16 @@ export default function General() {
     try {
       const res = await api.patch<Settings>('/admin/settings', {
         maturationRule: s.maturationRule,
-        maturationDays: s.maturationRule === 'days_after_approval' ? Number(s.maturationDays ?? 0) : null,
+        maturationDays: usesMaturationDays(s.maturationRule) ? Number(s.maturationDays ?? 0) : null,
+        payoutMinCents: Number(s.payoutMinCents),
         timezone: s.timezone,
         notifyNewMemberName: s.notifyNewMemberName,
-        compressionEnabled: s.inactiveMembersEarn ? false : s.compressionEnabled,
+        compressionEnabled: s.compressionEnabled,
         inactiveMembersEarn: s.inactiveMembersEarn,
         requireSeparateApprover: s.requireSeparateApprover,
+        requireKycForPayout: s.requireKycForPayout,
+        requirePayoutApproval: s.requirePayoutApproval,
+        autoRequestPayouts: s.autoRequestPayouts,
       });
       setS(res);
       showToast('Settings saved');
@@ -125,7 +161,7 @@ export default function General() {
   if (!s) return <Loading rows={4} />;
 
   const maturationDays = Number(s.maturationDays ?? 0);
-  const invalidMaturationDays = s.maturationRule === 'days_after_approval' && (maturationDays < 0 || maturationDays > 365);
+  const invalidMaturationDays = usesMaturationDays(s.maturationRule) && (maturationDays < 0 || maturationDays > 365);
   const timezones = TIMEZONES.includes(s.timezone) ? TIMEZONES : [s.timezone, ...TIMEZONES];
 
   return (
@@ -186,9 +222,11 @@ export default function General() {
               </Select>
             </Field>
 
-            {s.maturationRule === 'days_after_approval' && (
+            {usesMaturationDays(s.maturationRule) && (
               <Field data-invalid={invalidMaturationDays}>
-                <FieldLabel htmlFor="general-maturation-days">Days after approval</FieldLabel>
+                <FieldLabel htmlFor="general-maturation-days">
+                  {s.maturationRule === 'days_after_delivery' ? 'Days after delivery (return window)' : 'Days after approval'}
+                </FieldLabel>
                 <Input
                   id="general-maturation-days"
                   type="number"
@@ -203,12 +241,20 @@ export default function General() {
               </Field>
             )}
 
-            <Read
-              id="general-payout-threshold"
-              label="Payout threshold"
-              value={money(s.payoutMinCents, s.currency)}
-              description="Configured by platform-level payout policy."
-            />
+            <Field>
+              <FieldLabel htmlFor="general-payout-threshold">Payout threshold</FieldLabel>
+              <Input
+                id="general-payout-threshold"
+                type="number"
+                min={0}
+                step="0.01"
+                value={Number(s.payoutMinCents) / 100}
+                onChange={(e) => setS({ ...s, payoutMinCents: String(Math.round(Number(e.target.value) * 100)) })}
+              />
+              <FieldDescription>
+                Members can request payouts after reaching {money(s.payoutMinCents, s.currency)}.
+              </FieldDescription>
+            </Field>
           </FieldGroup>
         </CardContent>
       </Card>
@@ -227,25 +273,17 @@ export default function General() {
                 title={field.title}
                 description={field.description}
                 checked={s[field.key]}
-                onCheckedChange={(checked) => {
-                  if (field.key === 'inactiveMembersEarn') {
-                    setS({ ...s, inactiveMembersEarn: checked, compressionEnabled: checked ? false : s.compressionEnabled });
-                    return;
-                  }
-                  setS({ ...s, [field.key]: checked });
-                }}
+                onCheckedChange={(checked) => setS({ ...s, [field.key]: checked })}
               />
             ))}
 
-            {!s.inactiveMembersEarn && (
-              <SettingSwitch
-                id="compression-enabled"
-                title="Compression"
-                description="Skip inactive uplines when calculating eligible commission recipients."
-                checked={s.compressionEnabled}
-                onCheckedChange={(compressionEnabled) => setS({ ...s, compressionEnabled })}
-              />
-            )}
+            <SettingSwitch
+              id="compression-enabled"
+              title="Compression"
+              description="Skip inactive uplines when calculating eligible commission recipients."
+              checked={s.compressionEnabled}
+              onCheckedChange={(compressionEnabled) => setS({ ...s, compressionEnabled })}
+            />
           </FieldGroup>
         </CardContent>
       </Card>

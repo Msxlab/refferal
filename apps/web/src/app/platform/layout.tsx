@@ -3,19 +3,22 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Building2, LogOut, type LucideIcon } from 'lucide-react';
-import { getSession, type Session } from '@/lib/auth';
-import { api } from '@/lib/api';
-import { Brand, ThemeToggle } from '@/components/ui';
-import { Badge } from '@/components/ui/badge';
+import { clearSession, getSession, subscribeToSessionStorageChanges, type Session } from '@/lib/auth';
+import { ThemeToggle } from '@/components/ui';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { APP_MONOGRAM, APP_NAME } from '@/lib/brand';
 
-const NAV: Array<{ href: string; label: string; Icon: LucideIcon }> = [{ href: '/platform', label: 'Companies', Icon: Building2 }];
+const NAV = [{ href: '/platform', label: 'Companies', ic: '◳' }];
 
 export default function PlatformLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [session, setSession] = useState<Session | null>(null);
+  const [navOpen, setNavOpen] = useState(false);
+
+  // route degisince mobil drawer'i kapat
+  useEffect(() => { setNavOpen(false); }, [pathname]);
 
   useEffect(() => {
     const s = getSession();
@@ -26,58 +29,59 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
     setSession(s);
   }, [router]);
 
-  if (!session) return <div className="center muted" role="status" aria-live="polite">Loading…</div>;
+  useEffect(() => {
+    return subscribeToSessionStorageChanges(
+      (change) => {
+        if (change.action === 'defer-to-caller') return;
+        if (change.action === 'reload' || !change.session) {
+          setSession(null);
+          window.location.reload();
+          return;
+        }
+        setSession(change.session);
+      },
+      (next) => next.user.isPlatformAdmin === true,
+    );
+  }, []);
+
+  if (!session) return <div className="center muted">Loading…</div>;
 
   async function logout() {
-    try {
-      await api.logout();
-    } finally {
-      router.replace('/login');
-    }
+    await clearSession();
+    router.replace('/login');
   }
 
   return (
-    <div className="shell">
-      <a className="skip-link" href="#main-content">Skip to main content</a>
+    <div className={`shell${navOpen ? ' nav-open' : ''}`}>
+      <div className="mobile-topbar no-print">
+        <button className="hamburger" aria-label="Menu" aria-expanded={navOpen} onClick={() => setNavOpen((v) => !v)}>☰</button>
+        <div className="brand"><span className="dot">{APP_MONOGRAM}</span> {APP_NAME}</div>
+        <div className="row" style={{ gap: 6, marginLeft: 'auto' }}><ThemeToggle /></div>
+      </div>
+      {navOpen && <div className="nav-backdrop no-print" onClick={() => setNavOpen(false)} aria-hidden="true" />}
       <aside className="side">
-        <Brand className="brand" />
-        <div className="mb-2.5 ml-1 text-[10px] uppercase tracking-widest text-muted-foreground">Platform</div>
-        <nav aria-label="Platform navigation">
-          {NAV.map(({ Icon, ...n }) => (
-            <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
-              <Icon className="ic size-4" aria-hidden="true" />{n.label}
+        <div className="brand"><span className="dot">{APP_MONOGRAM}</span> {APP_NAME}</div>
+        <div className="faint" style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', margin: '0 0 10px 4px' }}>Platform</div>
+        <nav>
+          {NAV.map((n) => (
+            <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''} onClick={() => setNavOpen(false)}>
+              <span className="ic">{n.ic}</span>{n.label}
             </Link>
           ))}
         </nav>
         <div className="foot">
-          <div className="text-[11px] text-muted-foreground">Platform owner</div>
-          <div className="my-1 text-sm font-semibold">{session.user.fullName}</div>
+          <div className="faint" style={{ fontSize: 11 }}>Platform owner</div>
+          <div style={{ fontSize: 13, fontWeight: 600, margin: '2px 0 4px' }}>{session.user.fullName}</div>
           <div className="row spread">
-            <Badge variant="secondary">platform</Badge>
+            <Badge variant="success" className="text-[10px]">platform</Badge>
             <div className="row" style={{ gap: 6 }}>
               <ThemeToggle />
-              <Button variant="ghost" size="sm" onClick={logout}><LogOut />Log out</Button>
+              <Button variant="ghost" size="sm" onClick={logout}>Log out</Button>
             </div>
           </div>
         </div>
       </aside>
-      <header className="admin-mobilebar">
-        <div className="admin-mobilebar-head">
-          <Brand className="brand" />
-          <div className="row" style={{ gap: 6 }}>
-            <ThemeToggle />
-            <Button variant="ghost" size="sm" onClick={logout}><LogOut />Log out</Button>
-          </div>
-        </div>
-        <nav aria-label="Platform navigation">
-          {NAV.map(({ Icon, ...n }) => (
-            <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
-              <Icon className="ic size-4" aria-hidden="true" />{n.label}
-            </Link>
-          ))}
-        </nav>
-      </header>
-      <main id="main-content" className="main" tabIndex={-1}>{children}</main>
+      <main className="main">{children}</main>
     </div>
   );
 }

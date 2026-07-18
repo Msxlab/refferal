@@ -1,5 +1,6 @@
 import { LedgerStatus, LedgerType, MaturationRule, SaleStatus } from '@prisma/client';
 import { EngineService } from '../src/engine/engine.service';
+import { RanksService } from '../src/ranks/ranks.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import {
   createChain,
@@ -22,7 +23,7 @@ describe('engine review regression tests', () => {
   beforeAll(async () => {
     prisma = new PrismaService();
     await prisma.$connect();
-    engine = new EngineService(prisma);
+    engine = new EngineService(prisma, undefined, new RanksService(prisma));
   });
 
   afterAll(async () => {
@@ -159,18 +160,23 @@ describe('engine review regression tests', () => {
     expect(after.status).toBe(LedgerStatus.paid);
   });
 
-  it('B4 (plan trigger): concurrent level commits cannot create SUM > pool', async () => {
+  it('B4 (plan snapshot): finalize sonrasi es zamanli level INSERT`leri reddedilir', async () => {
     const tenant = await createTenant(prisma);
-    // Pool 1000 with existing level 800: each +200 is valid alone.
-    const plan = await prisma.commissionPlan.create({
-      data: {
-        tenantId: tenant.id,
-        name: 'race',
-        poolRateBps: 1000,
-        depth: 8,
-        effectiveFrom: new Date('2026-01-01T00:00:00Z'),
-        levels: { create: [{ level: 0, rateBps: 800 }] },
-      },
+    // pool 1000, mevcut tek level 800 → her biri tek basina +200 ile 1000 (gecer)
+    const plan = await prisma.$transaction(async (tx) => {
+      const created = await tx.commissionPlan.create({
+        data: {
+          tenantId: tenant.id,
+          version: 1,
+          finalized: false,
+          name: 'sealed',
+          poolRateBps: 1000,
+          depth: 1,
+          effectiveFrom: new Date('2026-01-01T00:00:00Z'),
+          levels: { create: [{ level: 0, rateBps: 800 }] },
+        },
+      });
+      return tx.commissionPlan.update({ where: { id: created.id }, data: { finalized: true } });
     });
 
     const insertLevel = (level: number) =>
@@ -178,10 +184,10 @@ describe('engine review regression tests', () => {
         await tx.commissionPlanLevel.create({ data: { planId: plan.id, level, rateBps: 200 } });
       });
 
-    // If both passed, SUM would be 1200 > 1000; the FOR UPDATE trigger should reject at least one.
+    // Snapshot seal edildikten sonra yeni level eklemek, oranlar gecerli olsa bile yasaktir.
     const results = await Promise.allSettled([insertLevel(6), insertLevel(7)]);
     const ok = results.filter((r) => r.status === 'fulfilled').length;
-    expect(ok).toBeLessThanOrEqual(1);
+    expect(ok).toBe(0);
 
     const total = await prisma.commissionPlanLevel.aggregate({
       where: { planId: plan.id },

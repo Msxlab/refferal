@@ -1,10 +1,11 @@
 'use client';
 
-import { ReactNode, useEffect, useRef, useState } from 'react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { ReactNode, useState } from 'react';
+import { Popover as PopoverRoot, PopoverTrigger, PopoverContent } from './ui/popover';
+import { Button } from './ui/button';
 
-/** Anchored popover panel for compact filters and contextual actions. */
+/** Tetikleyici butona tutturulmus acilir panel (temiz arac cubugu: filtre/aksiyon talep uzerine).
+ *  shadcn/Radix Popover ile: konumlandirma + dis-tiklama + ESC + portal/collision dahili. API ayni. */
 export function Popover({
   label, badge, children, width = 320, align = 'left', variant = 'ghost',
 }: {
@@ -16,37 +17,22 @@ export function Popover({
   variant?: 'ghost' | 'solid';
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
   const close = () => setOpen(false);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', onDoc);
-    document.addEventListener('keydown', onEsc);
-    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onEsc); };
-  }, [open]);
-
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <Button
-        type="button"
-        variant={variant === 'ghost' ? 'outline' : 'default'}
-        size="sm"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        {label}
-        {badge !== undefined && badge > 0 && (
-          <Badge variant="secondary">{badge}</Badge>
-        )}
-      </Button>
-      {open && (
-        <div className="popover-panel" role="dialog" style={{ width: `min(${width}px, 92vw)`, [align]: 0 } as React.CSSProperties}>
-          {typeof children === 'function' ? children(close) : children}
-        </div>
-      )}
-    </div>
+    <PopoverRoot open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant={variant === 'ghost' ? 'ghost' : 'default'} size="sm" className="relative" aria-expanded={open}>
+          {label}
+          {badge !== undefined && badge > 0 && (
+            <span className="ml-1.5 inline-grid h-[17px] min-w-[17px] place-items-center rounded-full bg-primary px-1 text-[10px] font-extrabold leading-none text-primary-foreground">
+              {badge}
+            </span>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align={align === 'right' ? 'end' : 'start'} style={{ width: `min(${width}px, 92vw)` }}>
+        {typeof children === 'function' ? children(close) : children}
+      </PopoverContent>
+    </PopoverRoot>
   );
 }

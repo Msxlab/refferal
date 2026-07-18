@@ -5,13 +5,17 @@ const en = {
   'nav.sales': 'Sales',
   'nav.members': 'Members',
   'nav.tree': 'Network',
+  'nav.campaigns': 'Campaigns',
   'nav.payouts': 'Payouts',
+  'nav.checks': 'Checks',
+  'nav.periods': 'Close',
   'nav.audit': 'Audit',
   'nav.settings': 'Settings',
   'nav.logout': 'Log out',
+  'nav.menu': 'Menu',
   'login.title': 'Business sign-in',
   'login.welcome': 'Welcome back',
-  'login.tagline': 'Grow your referral network, distribute commissions automatically.',
+  'login.tagline': 'Turn approved referral sales into clear, traceable commissions.',
   'login.email': 'Email',
   'login.password': 'Password',
   'login.submit': 'Sign in',
@@ -92,7 +96,8 @@ const en = {
   'payouts.history': 'Payout history',
   'anav.home': 'Overview',
   'anav.wallet': 'Wallet',
-  'anav.team': 'Team',
+  'anav.sales': 'My sales',
+  'anav.team': 'Network',
   'anav.invite': 'Invite',
   'me.title': 'Your earnings',
   'me.sub': "How this month's commissions from your network are doing.",
@@ -204,10 +209,12 @@ export function getLocale(): Locale {
 
 export function setLocale(_locale: Locale): void {
   window.localStorage.setItem('refearn.locale', DEFAULT_LOCALE);
+
+// Faz D1: arayuz tek dil — INGILIZCE. (TR sozlugu kaldirildi.) Locale tipi geriye-uyum icin 'en'.
 }
 
 export function t(key: MsgKey): string {
-  return dicts[getLocale()][key] ?? en[key] ?? key;
+  return en[key] ?? key;
 }
 
 /** Recommendation copy is selected by the canonical policy key; arbitrary server params are intentionally ignored. */

@@ -1,29 +1,216 @@
 'use client';
 
-import { type CSSProperties, useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Gift, Home, LogOut, Users, WalletCards, type LucideIcon } from 'lucide-react';
+import {
+  Eye,
+  Home,
+  LogOut,
+  Menu,
+  Network,
+  ReceiptText,
+  UserPlus,
+  WalletCards,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
+import {
+  activeMembership,
+  clearSession,
+  getSession,
+  isImpersonating,
+  stopImpersonation,
+  subscribeToSessionStorageChanges,
+  type Session,
+} from '@/lib/auth';
 import { api } from '@/lib/api';
-import { activeMembership, getSession, type Session } from '@/lib/auth';
-import { normalizeRuntimeBrand, type RuntimeBrand } from '@/lib/brand';
 import { Brand, ThemeToggle } from '@/components/ui';
+import { Button } from '@/components/ui/button';
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { NotificationBell } from '@/components/NotificationBell';
 import { t } from '@/lib/i18n';
-import { Button } from '@/components/ui/button';
 
-const NAV: Array<{ href: string; key: Parameters<typeof t>[0]; Icon: LucideIcon }> = [
+interface NavigationItem {
+  href: string;
+  key: Parameters<typeof t>[0];
+  Icon: LucideIcon;
+}
+
+const NAV: NavigationItem[] = [
   { href: '/app', key: 'anav.home', Icon: Home },
   { href: '/app/wallet', key: 'anav.wallet', Icon: WalletCards },
-  { href: '/app/team', key: 'anav.team', Icon: Users },
-  { href: '/app/invite', key: 'anav.invite', Icon: Gift },
+  { href: '/app/sales', key: 'anav.sales', Icon: ReceiptText },
+  { href: '/app/team', key: 'anav.team', Icon: Network },
+  { href: '/app/invite', key: 'anav.invite', Icon: UserPlus },
 ];
+
+function isMemberNavItemActive(pathname: string, href: string) {
+  if (href === '/app') return pathname === href;
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function userInitials(name: string) {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || '?';
+}
+
+function MemberHomeLink() {
+  return (
+    <Link href="/app" className="member-home-link" aria-label="Go to member overview">
+      <Brand />
+    </Link>
+  );
+}
+
+function MemberNavigation({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+  return (
+    <nav className="member-navigation" data-slot="member-navigation" aria-label="Member navigation">
+      {NAV.map(({ Icon, ...item }) => {
+        const active = isMemberNavItemActive(pathname, item.href);
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={`member-nav-link${active ? ' active' : ''}`}
+            aria-current={active ? 'page' : undefined}
+            onClick={onNavigate}
+          >
+            <span className="member-nav-icon" aria-hidden="true"><Icon /></span>
+            <span>{t(item.key)}</span>
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+function MemberIdentity({
+  tenantName,
+  userName,
+  onNavigate,
+}: {
+  tenantName: string;
+  userName: string;
+  onNavigate?: () => void;
+}) {
+  return (
+    <Link href="/account" className="member-identity member-identity-link"
+      title="Account settings"
+      onClick={onNavigate}
+    >
+      <span className="member-avatar" aria-hidden="true">{userInitials(userName)}</span>
+      <span className="member-identity-copy">
+        <strong title={userName}>{userName || 'Member'}</strong>
+        <span title={tenantName}>{tenantName}</span>
+      </span>
+    </Link>
+  );
+}
+
+function MemberDesktopNavigation({
+  pathname,
+  tenantName,
+  userName,
+  logout,
+}: {
+  pathname: string;
+  tenantName: string;
+  userName: string;
+  logout: () => Promise<void>;
+}) {
+  return (
+    <div className="member-desktop-navigation">
+      <div className="member-desktop-navigation-inner">
+        <MemberNavigation pathname={pathname} />
+        <div className="member-desktop-account">
+          <MemberIdentity tenantName={tenantName} userName={userName} />
+          <Button type="button" variant="ghost" className="member-logout" onClick={logout}>
+            <LogOut aria-hidden="true" />
+            {t('nav.logout')}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MemberMobileNavigation({
+  mobileNavOpen,
+  setMobileNavOpen,
+  pathname,
+  tenantName,
+  userName,
+  logout,
+  returnFocusRef,
+}: {
+  mobileNavOpen: boolean;
+  setMobileNavOpen: (open: boolean) => void;
+  pathname: string;
+  tenantName: string;
+  userName: string;
+  logout: () => Promise<void>;
+  returnFocusRef: RefObject<HTMLButtonElement | null>;
+}) {
+  const closeMobileNav = () => setMobileNavOpen(false);
+
+  return (
+    <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+      <SheetContent
+        id="member-mobile-navigation"
+        side="left"
+        className="member-mobile-sheet"
+        hideClose
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          returnFocusRef.current?.focus();
+        }}
+      >
+        <SheetHeader className="member-mobile-sheet-head">
+          <div className="member-mobile-title">
+            <span className="member-mobile-kicker">Member workspace</span>
+            <SheetTitle>Navigation</SheetTitle>
+            <SheetDescription className="sr-only">Move through your referral workspace.</SheetDescription>
+          </div>
+          <SheetClose asChild>
+            <Button type="button" variant="ghost" size="icon" aria-label="Close navigation">
+              <X aria-hidden="true" />
+            </Button>
+          </SheetClose>
+        </SheetHeader>
+        <div className="member-mobile-sheet-body">
+          <MemberNavigation pathname={pathname} onNavigate={closeMobileNav} />
+        </div>
+        <div className="member-mobile-sheet-foot">
+          <MemberIdentity tenantName={tenantName} userName={userName} onNavigate={closeMobileNav} />
+          <Button type="button" variant="outline" className="member-mobile-logout" onClick={logout}>
+            <LogOut aria-hidden="true" />
+            {t('nav.logout')}
+          </Button>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [session, setSessionState] = useState<Session | null>(null);
-  const [brand, setBrand] = useState<RuntimeBrand | null>(null);
+  const [imp, setImp] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const mobileTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const s = getSession();
@@ -32,52 +219,150 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       return;
     }
     setSessionState(s);
+    setImp(isImpersonating());
   }, [router]);
 
+  // Ayni owner/workspace refresh'ini state'e tasi; owner veya guard degisiminde shell'i kapat.
   useEffect(() => {
-    if (!session) return;
-    api.get<RuntimeBrand>('/app/brand').then((next) => setBrand(normalizeRuntimeBrand(next))).catch(() => undefined);
-  }, [session]);
+    return subscribeToSessionStorageChanges(
+      (change) => {
+        if (change.action === 'defer-to-caller') return;
+        if (change.action === 'reload' || !change.session) {
+          setSessionState(null);
+          setImp(false);
+          window.location.reload();
+          return;
+        }
+        setSessionState(change.session);
+        setImp(isImpersonating());
+      },
+      (next) => Boolean(activeMembership(next)),
+    );
+  }, []);
 
-  if (!session) return <div className="center muted" role="status" aria-live="polite">{t('common.loading')}</div>;
-  const active = activeMembership(session);
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
 
-  async function logout() {
-    try {
-      await api.logout();
-    } finally {
-      router.replace('/login');
-    }
+  useEffect(() => {
+    const desktopMedia = window.matchMedia('(min-width: 901px)');
+    const closeOnDesktop = (event: MediaQueryListEvent) => {
+      if (event.matches) setMobileNavOpen(false);
+    };
+    desktopMedia.addEventListener('change', closeOnDesktop);
+    return () => desktopMedia.removeEventListener('change', closeOnDesktop);
+  }, []);
+
+  if (!session) {
+    return (
+      <div className="member-auth-loading" role="status" aria-live="polite">
+        <Brand size="lg" />
+        <span>{t('common.loading')}</span>
+      </div>
+    );
   }
 
-  const activeBrand = brand ?? normalizeRuntimeBrand({ name: active?.tenantName ?? undefined });
-  const brandVars = {
-    '--brand-accent': activeBrand.primaryColor,
-  } as CSSProperties;
+  const active = activeMembership(session);
+  const tenantName = active?.tenantName ?? 'Workspace';
+  const currentItem = NAV.find((item) => isMemberNavItemActive(pathname, item.href)) ?? NAV[0];
+
+  async function logout() {
+    await clearSession();
+    router.replace('/login');
+  }
+
+  async function exitImpersonation() {
+    const mid = getSession()?.activeMembershipId;
+    const admin = await stopImpersonation();
+    if (!admin) {
+      router.replace('/login');
+      return;
+    }
+    if (mid) {
+      try {
+        await api.post(`/admin/members/${mid}/impersonate/end`);
+      } catch {
+        /* yok say */
+      }
+    }
+    window.location.href = '/admin';
+  }
 
   return (
-    <div style={brandVars}>
-      <a className="skip-link" href="#main-content">Skip to main content</a>
-      <header className="topbar">
-        <div className="inner">
-          <Brand className="brand" brand={activeBrand} />
-          <nav aria-label="Member navigation">
-            {NAV.map(({ Icon, ...n }) => (
-              <Link key={n.href} href={n.href} className={pathname === n.href ? 'active' : ''}>
-                <Icon className="mr-1.5 inline size-4 opacity-85" aria-hidden="true" />{t(n.key)}
-              </Link>
-            ))}
-          </nav>
-          <span className="min-w-0 max-w-48 truncate text-xs text-muted-foreground" title={activeBrand.tagline}>{activeBrand.tagline}</span>
-          <NotificationBell />
-          <ThemeToggle />
-          <Button variant="ghost" size="sm" onClick={logout}>
-            <LogOut />
-            {t('nav.logout')}
+    <div className="member-shell" data-slot="member-shell">
+      <a className="skip-link" href="#member-main">Skip to main content</a>
+
+      {imp && (
+        <div className="member-impersonation no-print" role="status">
+          <span className="member-impersonation-copy">
+            <Eye aria-hidden="true" />
+            Viewing as <strong>{session.user.fullName}</strong> — read only
+          </span>
+          <Button type="button" size="sm" variant="ghost" onClick={exitImpersonation}>
+            Exit impersonation
           </Button>
         </div>
-      </header>
-      <main id="main-content" className="appmain" tabIndex={-1}>{children}</main>
+      )}
+
+      <div className="member-workspace">
+        <header className="member-commandbar" data-slot="member-commandbar">
+          <div className="member-commandbar-inner">
+            <div className="member-leading">
+              <Button
+                ref={mobileTriggerRef}
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="member-mobile-trigger"
+                aria-label="Open navigation"
+                aria-expanded={mobileNavOpen}
+                aria-controls="member-mobile-navigation"
+                aria-haspopup="dialog"
+                onClick={() => setMobileNavOpen(true)}
+              >
+                <Menu aria-hidden="true" />
+              </Button>
+              <MemberHomeLink />
+            </div>
+
+            <div className="member-commandbar-context">
+              <span>Your network</span>
+              <strong>{t(currentItem.key)}</strong>
+            </div>
+
+            <span className="member-tenant-chip">
+              <span className="member-tenant-dot" aria-hidden="true" />
+              <span className="member-tenant-name" title={tenantName}>{tenantName}</span>
+            </span>
+
+            <div className="member-global-actions" role="group" aria-label="Workspace utilities">
+              <NotificationBell />
+              <ThemeToggle />
+            </div>
+          </div>
+        </header>
+
+        <MemberDesktopNavigation
+          pathname={pathname}
+          tenantName={tenantName}
+          userName={session.user.fullName}
+          logout={logout}
+        />
+
+        <main id="member-main" className="member-main appmain" data-slot="member-main" tabIndex={-1}>
+          {children}
+        </main>
+      </div>
+
+      <MemberMobileNavigation
+        mobileNavOpen={mobileNavOpen}
+        setMobileNavOpen={setMobileNavOpen}
+        pathname={pathname}
+        tenantName={tenantName}
+        userName={session.user.fullName}
+        logout={logout}
+        returnFocusRef={mobileTriggerRef}
+      />
     </div>
   );
 }

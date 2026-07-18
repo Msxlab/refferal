@@ -83,6 +83,12 @@ export class AuthController {
     return this.browserSession(req, res, session);
   }
 
+  // Markali subdomain girisinden ONCE (kimliksiz) marka bilgisi — Alt-proje B.
+  @Get('tenant-brand/:slug')
+  tenantBrand(@Param('slug') slug: string) {
+    return this.auth.tenantBrand(slug.toLowerCase());
+  }
+
   @HttpCode(200)
   @Post('refresh')
   async refresh(

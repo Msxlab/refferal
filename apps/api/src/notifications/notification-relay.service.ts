@@ -19,7 +19,8 @@ const APP_MONOGRAM = (): string => process.env.APP_MONOGRAM ?? 'A';
 
 type ClaimedNotification = {
   id: string;
-  recipientMembershipId: string;
+  recipientMembershipId: string | null;
+  recipientUserId: string | null;
   channel: NotificationChannel;
   template: string;
   payload: Prisma.JsonValue;
@@ -161,9 +162,9 @@ export class NotificationRelayService {
         if (result.count === 0) {
           this.logger.warn(`notification ${n.id} result ignored because its lease is stale`);
         }
-      } catch (err) {
+      } catch {
         const attempts = n.attempts;
-        const message = err instanceof Error ? err.message : String(err);
+        const message = 'notification delivery failed';
         const finalAttempt = attempts >= MAX_ATTEMPTS;
         const retrySeconds = Math.min(30 * 2 ** (attempts - 1), MAX_RETRY_SECONDS);
         const result = await this.prisma.notification.updateMany({
@@ -221,7 +222,8 @@ export class NotificationRelayService {
 
       const rows = await tx.$queryRaw<Array<{
         id: string;
-        recipientMembershipId: string;
+        recipientMembershipId: string | null;
+        recipientUserId: string | null;
         channel: NotificationChannel;
         template: string;
         payload: Prisma.JsonValue;
@@ -230,6 +232,7 @@ export class NotificationRelayService {
       }>>`
         SELECT id,
                recipient_membership_id AS "recipientMembershipId",
+               recipient_user_id AS "recipientUserId",
                channel,
                template,
                payload,
@@ -261,40 +264,46 @@ export class NotificationRelayService {
   }
 
   private async dispatch(n: {
-    recipientMembershipId: string;
+    recipientMembershipId: string | null;
+    recipientUserId: string | null;
     channel: NotificationChannel;
     template: string;
     payload: unknown;
   }): Promise<{ suppressed?: boolean; channel?: NotificationChannel }> {
-    const membership = await this.prisma.membership.findUnique({
-      where: { id: n.recipientMembershipId },
-      include: { tenant: { select: { currency: true } }, user: { include: { devices: true } } },
-    });
-    if (!membership) {
-      // Missing recipient is permanent; no retry is useful.
-      throw new Error(`recipient membership not found: ${n.recipientMembershipId}`);
-    }
+    const membership = n.recipientMembershipId
+      ? await this.prisma.membership.findUnique({
+          where: { id: n.recipientMembershipId },
+          include: { tenant: { select: { currency: true } }, user: { include: { devices: true } } },
+        })
+      : null;
+    const recipient = membership?.user ?? (n.recipientUserId
+      ? await this.prisma.user.findUnique({
+          where: { id: n.recipientUserId },
+          include: { devices: true },
+        })
+      : null);
+    if (!recipient) throw new Error('notification recipient unavailable');
 
-    if (!notificationEnabled(n.template, n.channel, membership.notificationPrefs)) {
+    if (membership && !notificationEnabled(n.template, n.channel, membership.notificationPrefs)) {
       return { suppressed: true, channel: n.channel };
     }
 
     const payload = hydratePayload(n.payload);
-    const { subject, body } = render(n.template, payload, membership.tenant.currency);
+    const { subject, body } = render(n.template, payload, membership?.tenant.currency);
 
     if (n.channel === NotificationChannel.in_app) {
       // Inbox channel: the row is already in DB; "sent" means delivered to the user. readAt tracks reads.
       return {};
     }
     if (n.channel === NotificationChannel.email) {
-      await this.email.send({ to: membership.user.email, subject, text: body, html: toHtml(subject, body) });
+      await this.email.send({ to: recipient.email, subject, text: body, html: toHtml(subject, body) });
     } else {
-      const tokens = membership.user.devices.map((d) => d.expoPushToken);
+      const tokens = recipient.devices.map((d) => d.expoPushToken);
       const result = await this.push.send({ tokens, title: subject, body, data: { template: n.template } });
       const invalidTokens = result?.invalidTokens ?? [];
       if (invalidTokens.length > 0) {
         await this.prisma.device.deleteMany({
-          where: { userId: membership.userId, expoPushToken: { in: invalidTokens } },
+          where: { userId: recipient.id, expoPushToken: { in: invalidTokens } },
         });
       }
     }

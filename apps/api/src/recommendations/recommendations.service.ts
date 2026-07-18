@@ -120,7 +120,7 @@ export class RecommendationsService {
     const canViewPayouts = this.canAccessPayoutRoute(user);
     const [staleBatches, requestedPayouts, draftSales, deliverySales] = await Promise.all([
       canViewPayouts
-        ? this.prisma.payoutBatch.aggregate({
+        ? this.prisma.payoutSettlementBatch.aggregate({
             where: {
               tenantId,
               status: PayoutSettlementBatchStatus.processing,

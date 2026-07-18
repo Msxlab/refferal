@@ -8,33 +8,50 @@ import { PlansService } from './plans.service';
 import { createPlanSchema, CreatePlanInput, simulatePlanSchema, SimulatePlanInput } from './plans.types';
 
 const ADMIN = [Role.tenant_owner, Role.tenant_admin];
+const STAFF = [Role.tenant_owner, Role.tenant_admin, Role.tenant_staff];
 
+/** Komisyon plani: goruntule + simule (STAFF) + yeni versiyon (ADMIN). */
 @RequireMembership()
-@Roles(...ADMIN)
 @Controller('admin/plans')
 export class PlansController {
   constructor(private readonly plans: PlansService) {}
 
+  private actor(user: RequestUser): ActorContext {
+    return { userId: user.sub, tenantId: user.tid as string };
+  }
+
+  @Roles(...STAFF)
   @RequirePermission('settings.plan')
   @Get()
   list(@CurrentUser() user: RequestUser) {
-    return this.plans.list(this.actor(user));
+    return this.plans.list(user.tid as string);
   }
 
+  @Roles(...STAFF)
   @RequirePermission('settings.plan')
-  @Post()
-  create(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(createPlanSchema)) body: CreatePlanInput) {
-    return this.plans.create(this.actor(user), body);
-  }
-
   @HttpCode(200)
-  @RequirePermission('settings.plan')
   @Post('simulate')
   simulate(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(simulatePlanSchema)) body: SimulatePlanInput) {
-    return this.plans.simulate(this.actor(user), body);
+    return this.plans.simulate(user.tid as string, body);
   }
 
-  private actor(user: RequestUser): ActorContext {
-    return { userId: user.sub, tenantId: user.tid as string };
+  @Roles(...ADMIN)
+  @RequirePermission('settings.plan')
+  @HttpCode(200)
+  @Post()
+  create(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(createPlanSchema)) body: CreatePlanInput) {
+    return this.plans.createVersion(this.actor(user), body);
+  }
+}
+
+/** Faz D4: uye kazanc simulatoru — aktif planin oranlarini gizlilik-guvenli doner. */
+@RequireMembership()
+@Controller('app/plan')
+export class AppPlansController {
+  constructor(private readonly plans: PlansService) {}
+
+  @Get()
+  mine(@CurrentUser() user: RequestUser) {
+    return this.plans.memberPlan(user.tid as string);
   }
 }

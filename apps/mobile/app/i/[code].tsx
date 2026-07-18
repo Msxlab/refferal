@@ -1,22 +1,31 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api, ApiError, isMfaChallenge, loginMfa, type MfaChallenge } from '@/lib/api';
 import { landingForSession, saveSession, type Session } from '@/lib/auth';
-import { normalizeRuntimeBrand, type RuntimeBrand } from '@/lib/brand';
+import { normalizeRuntimeBrand } from '@/lib/brand';
 import { registerPushToken } from '@/lib/push';
 import { Badge, Brand, Button, Card, ErrorText, Field, MutedText, Title } from '@/components/ui';
 import { t } from '@/lib/i18n';
 import { space, text, useTheme } from '@/theme';
 
 interface InviteResolve {
-  code: string;
-  valid: boolean;
-  tenantName: string;
-  inviterName: string;
-  emailLocked: boolean;
-  brand?: RuntimeBrand;
+  state: 'invalid' | 'valid' | 'expired' | 'revoked' | 'used' | 'tenant-suspended';
+  tenant?: { displayName: string; logoUrl?: string };
+  programSummary?: string;
+  disclaimer?: { version: string; locale: 'en' | 'tr'; body: string };
+  expiresAt?: string;
+}
+
+function hasInviteRegistrationContext(
+  invite: InviteResolve | null,
+): invite is InviteResolve & {
+  state: 'valid';
+  tenant: NonNullable<InviteResolve['tenant']>;
+  disclaimer: NonNullable<InviteResolve['disclaimer']>;
+} {
+  return invite?.state === 'valid' && Boolean(invite.tenant && invite.disclaimer);
 }
 
 function isExpiredMfaChallenge(error: unknown): boolean {
@@ -35,12 +44,16 @@ export default function InviteRegisterScreen() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [acceptDisclaimer, setAcceptDisclaimer] = useState(false);
   const [mfaCode, setMfaCode] = useState('');
   const [challengeToken, setChallengeToken] = useState('');
   const [challengeExpired, setChallengeExpired] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const activeBrand = normalizeRuntimeBrand(invite?.brand ?? (invite ? { name: invite.tenantName } : null));
+  const registrationInvite = hasInviteRegistrationContext(invite) ? invite : null;
+  const activeBrand = normalizeRuntimeBrand(
+    registrationInvite ? { name: registrationInvite.tenant.displayName } : null,
+  );
 
   useEffect(() => {
     if (!code) return;
@@ -54,14 +67,21 @@ export default function InviteRegisterScreen() {
     setError('');
     setBusy(true);
     try {
-      const session = challengeToken
-        ? await loginMfa(challengeToken, mfaCode)
-        : await api.post<Session | MfaChallenge>('/auth/register-by-invite', {
+      let session: Session | MfaChallenge;
+      if (challengeToken) {
+        session = await loginMfa(challengeToken, mfaCode);
+      } else {
+        if (!registrationInvite) throw new Error('invitation is unavailable');
+        session = await api.post<Session | MfaChallenge>('/auth/register-by-invite', {
             inviteCode: code,
             email: email.trim().toLowerCase(),
             password,
             fullName: fullName.trim(),
+            acceptDisclaimer: true,
+            disclaimerVersion: registrationInvite.disclaimer.version,
+            disclaimerLocale: registrationInvite.disclaimer.locale,
           });
+      }
       if (isMfaChallenge(session)) {
         // Keep the challenge in memory only; deep links and navigation state never contain it.
         setChallengeToken(session.challengeToken);
@@ -110,11 +130,18 @@ export default function InviteRegisterScreen() {
         <Card glow>
           <Brand brand={activeBrand} style={{ alignSelf: 'center', marginBottom: space.s5 }} />
 
-          <Title eyebrow={t('reg.title')} title={invite ? `${invite.inviterName} invited you` : ' '} />
+          <Title
+            eyebrow={t('reg.title')}
+            title={
+              registrationInvite
+                ? `You're invited to join ${registrationInvite.tenant.displayName}`
+                : ' '
+            }
+          />
 
-          {loadError || (invite && !invite.valid) ? (
+          {loadError || (invite && !registrationInvite) ? (
             <ErrorText>{t('reg.invalid')}</ErrorText>
-          ) : !invite ? (
+          ) : !registrationInvite ? (
             <ActivityIndicator color={colors.primary} />
           ) : (
             <>
@@ -122,10 +149,14 @@ export default function InviteRegisterScreen() {
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <View>
                     <MutedText size={text.xs}>{t('reg.tenant')}</MutedText>
-                    <Text style={{ color: colors.text, fontWeight: '700' }}>{invite.tenantName}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>{registrationInvite.tenant.displayName}</Text>
                   </View>
                   <Badge value="active" />
                 </View>
+              </Card>
+
+              <Card style={{ backgroundColor: colors.infoSubtle, padding: space.s3 }}>
+                <MutedText size={text.sm}>{registrationInvite.programSummary}</MutedText>
               </Card>
 
               {challengeToken ? (
@@ -165,6 +196,19 @@ export default function InviteRegisterScreen() {
                     secureTextEntry
                     placeholder="**********"
                   />
+                  <Card style={{ backgroundColor: colors.infoSubtle, padding: space.s3 }}>
+                    <MutedText size={text.sm}>{registrationInvite.disclaimer.body}</MutedText>
+                    <Pressable
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: acceptDisclaimer }}
+                      onPress={() => setAcceptDisclaimer((accepted) => !accepted)}
+                      style={{ marginTop: space.s3 }}
+                    >
+                      <Text style={{ color: colors.text, lineHeight: text.sm * 1.5 }}>
+                        {acceptDisclaimer ? '☑' : '☐'} I have read and agree to this invitation disclosure.
+                      </Text>
+                    </Pressable>
+                  </Card>
                 </>
               )}
               {error ? <ErrorText>{error}</ErrorText> : null}
@@ -173,7 +217,7 @@ export default function InviteRegisterScreen() {
                 title={busy ? t('common.loading') : challengeToken ? 'Verify and join' : t('reg.submit')}
                 onPress={onSubmit}
                 busy={busy}
-                disabled={challengeExpired}
+                disabled={challengeExpired || (!challengeToken && !acceptDisclaimer)}
               />
             </>
           )}

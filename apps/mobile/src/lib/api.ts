@@ -1,4 +1,12 @@
-import { clearSession, loadSession, saveSession, type Session } from './auth';
+import {
+  clearSessionIfCurrent,
+  isSessionGenerationCurrent,
+  loadSessionSnapshot,
+  mergeSessionTokensIfSameIdentity,
+  saveSessionIfCurrent,
+  type Session,
+  type SessionSnapshot,
+} from './auth';
 
 /**
  * API base URL:
@@ -21,6 +29,49 @@ export class ApiError extends Error {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isSession(value: unknown): value is Session {
+  if (
+    !isRecord(value) ||
+    !isNonEmptyString(value.accessToken) ||
+    !isNonEmptyString(value.refreshToken) ||
+    !isRecord(value.user) ||
+    !Array.isArray(value.memberships)
+  ) {
+    return false;
+  }
+  const user = value.user;
+  if (
+    !isNonEmptyString(user.id) ||
+    !isNonEmptyString(user.email) ||
+    !isNonEmptyString(user.fullName) ||
+    !isNonEmptyString(user.locale) ||
+    typeof user.emailVerified !== 'boolean' ||
+    (user.isPlatformAdmin !== undefined && typeof user.isPlatformAdmin !== 'boolean') ||
+    (value.activeMembershipId !== null && !isNonEmptyString(value.activeMembershipId))
+  ) {
+    return false;
+  }
+  return value.memberships.every(
+    (membership) =>
+      isRecord(membership) &&
+      isNonEmptyString(membership.id) &&
+      isNonEmptyString(membership.tenantId) &&
+      isNonEmptyString(membership.tenantSlug) &&
+      isNonEmptyString(membership.tenantName) &&
+      isNonEmptyString(membership.role) &&
+      isNonEmptyString(membership.referralCode) &&
+      Number.isInteger(membership.depth),
+  );
+}
+
 async function rawFetch(path: string, init: RequestInit, token?: string): Promise<Response> {
   const headers = new Headers(init.headers);
   if (token) headers.set('Authorization', `Bearer ${token}`);
@@ -28,28 +79,211 @@ async function rawFetch(path: string, init: RequestInit, token?: string): Promis
   return fetch(`${BASE}${path}`, { ...init, headers });
 }
 
-/** If the access token expired, try one refresh; clear the session if it fails. */
-async function refresh(session: Session): Promise<Session | null> {
-  const res = await rawFetch('/auth/refresh', {
-    method: 'POST',
-    body: JSON.stringify({ refreshToken: session.refreshToken }),
-  });
-  if (!res.ok) {
-    await clearSession();
-    return null;
-  }
-  const next = (await res.json()) as Session;
-  await saveSession(next);
-  return next;
+interface AuthenticatedSessionSnapshot extends SessionSnapshot {
+  session: Session;
 }
 
-async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
-  const session = await loadSession();
+interface RefreshFlight {
+  owner: AuthenticatedSessionSnapshot;
+  promise: Promise<AuthenticatedSessionSnapshot | null>;
+}
+
+interface CompletedRefresh {
+  owner: AuthenticatedSessionSnapshot;
+  refreshed: AuthenticatedSessionSnapshot;
+}
+
+let refreshInFlight: RefreshFlight | null = null;
+let completedRefresh: CompletedRefresh | null = null;
+
+function sameSessionIdentity(captured: Session, current: Session): boolean {
+  if (captured.user.id !== current.user.id || captured.activeMembershipId !== current.activeMembershipId) return false;
+  if (captured.activeMembershipId === null) return true;
+  const capturedMembership = captured.memberships.find((membership) => membership.id === captured.activeMembershipId);
+  const currentMembership = current.memberships.find((membership) => membership.id === current.activeMembershipId);
+  return Boolean(capturedMembership && currentMembership && capturedMembership.tenantId === currentMembership.tenantId);
+}
+
+function sameSessionOwner(captured: Session, current: Session): boolean {
+  return (
+    captured.accessToken === current.accessToken &&
+    captured.refreshToken === current.refreshToken &&
+    sameSessionIdentity(captured, current)
+  );
+}
+
+function sameSessionSnapshot(captured: Session, current: Session): boolean {
+  return (
+    sameSessionOwner(captured, current) &&
+    captured.user.email === current.user.email &&
+    captured.user.fullName === current.user.fullName &&
+    captured.user.locale === current.user.locale &&
+    captured.user.emailVerified === current.user.emailVerified &&
+    captured.user.isPlatformAdmin === current.user.isPlatformAdmin &&
+    captured.memberships.length === current.memberships.length &&
+    captured.memberships.every((membership, index) => {
+      const other = current.memberships[index];
+      return Boolean(
+        other &&
+          membership.id === other.id &&
+          membership.tenantId === other.tenantId &&
+          membership.tenantSlug === other.tenantSlug &&
+          membership.tenantName === other.tenantName &&
+          membership.role === other.role &&
+          membership.referralCode === other.referralCode &&
+          membership.depth === other.depth,
+      );
+    })
+  );
+}
+
+function isAuthenticatedSnapshot(snapshot: SessionSnapshot): snapshot is AuthenticatedSessionSnapshot {
+  return Boolean(snapshot.session && isSession(snapshot.session));
+}
+
+function sameAuthenticatedSnapshot(
+  captured: AuthenticatedSessionSnapshot,
+  current: SessionSnapshot,
+): boolean {
+  return Boolean(
+    isAuthenticatedSnapshot(current) &&
+      captured.generation === current.generation &&
+      sameSessionSnapshot(captured.session, current.session),
+  );
+}
+
+async function refreshOwnerIsCurrent(owner: AuthenticatedSessionSnapshot): Promise<boolean> {
+  try {
+    return sameAuthenticatedSnapshot(owner, await loadSessionSnapshot());
+  } catch {
+    return false;
+  }
+}
+
+async function completedSessionFor(
+  captured: AuthenticatedSessionSnapshot,
+): Promise<AuthenticatedSessionSnapshot | null> {
+  const completed = completedRefresh;
+  if (!completed || !sameAuthenticatedSnapshot(captured, completed.owner)) return null;
+  try {
+    const current = await loadSessionSnapshot();
+    if (isAuthenticatedSnapshot(current) && sameAuthenticatedSnapshot(completed.refreshed, current)) {
+      return completed.refreshed;
+    }
+  } catch {
+    // A storage read failure makes the advancement unusable.
+  }
+  if (completedRefresh === completed) completedRefresh = null;
+  return null;
+}
+
+/** If the access token expired, try one refresh; clear the session if it fails. */
+async function performRefresh(
+  owner: AuthenticatedSessionSnapshot,
+): Promise<AuthenticatedSessionSnapshot | null> {
+  if (!(await refreshOwnerIsCurrent(owner))) return null;
+  let next: Session | null = null;
+  try {
+    const res = await rawFetch('/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: owner.session.refreshToken }),
+    });
+    if (res.ok) {
+      const candidate: unknown = await res.json();
+      if (isSession(candidate) && sameSessionIdentity(owner.session, candidate)) next = candidate;
+    }
+  } catch {
+    // Refresh transport and parsing failures are normalized below.
+  }
+  if (!next) {
+    try {
+      await clearSessionIfCurrent(owner);
+    } catch {
+      // Refresh waiters still receive the normalized unauthorized outcome.
+    }
+    return null;
+  }
+  try {
+    const saved = await saveSessionIfCurrent(owner, next);
+    if (saved && isAuthenticatedSnapshot(saved)) return saved;
+  } catch {
+    // A stable same-owner metadata snapshot may still accept only the rotated tokens below.
+  }
+  try {
+    await mergeSessionTokensIfSameIdentity(owner.session, {
+      accessToken: next.accessToken,
+      refreshToken: next.refreshToken,
+    });
+  } catch {
+    try {
+      await clearSessionIfCurrent(owner);
+    } catch {
+      // Refresh waiters still receive the normalized unauthorized outcome.
+    }
+  }
+  return null;
+}
+
+function refresh(owner: AuthenticatedSessionSnapshot): Promise<AuthenticatedSessionSnapshot | null> {
+  if (refreshInFlight) {
+    if (sameAuthenticatedSnapshot(refreshInFlight.owner, owner)) return refreshInFlight.promise;
+    const active = refreshInFlight;
+    return active.promise.then(
+      async () => ((await refreshOwnerIsCurrent(owner)) ? refresh(owner) : null),
+      async () => ((await refreshOwnerIsCurrent(owner)) ? refresh(owner) : null),
+    );
+  }
+  let flight: RefreshFlight;
+  const current = performRefresh(owner)
+    .then((refreshed) => {
+      if (refreshed) completedRefresh = { owner, refreshed };
+      return refreshed;
+    })
+    .finally(() => {
+      if (refreshInFlight === flight) refreshInFlight = null;
+    });
+  flight = { owner, promise: current };
+  refreshInFlight = flight;
+  return current;
+}
+
+async function retrySessionFor(
+  captured: AuthenticatedSessionSnapshot,
+  candidate: AuthenticatedSessionSnapshot | null,
+): Promise<AuthenticatedSessionSnapshot | null> {
+  if (!candidate || !sameSessionIdentity(captured.session, candidate.session)) return null;
+  try {
+    return sameAuthenticatedSnapshot(candidate, await loadSessionSnapshot()) ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
+async function sessionForRetry(
+  captured: AuthenticatedSessionSnapshot,
+): Promise<AuthenticatedSessionSnapshot | null> {
+  const completed = await completedSessionFor(captured);
+  if (completed) return retrySessionFor(captured, completed);
+  return retrySessionFor(captured, await refresh(captured));
+}
+
+async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  retry = true,
+  capturedSnapshot?: SessionSnapshot,
+): Promise<T> {
+  const snapshot = capturedSnapshot ?? (await loadSessionSnapshot());
+  const session = isSession(snapshot.session) ? snapshot.session : null;
+  if (capturedSnapshot && !isSessionGenerationCurrent(snapshot.generation)) {
+    throw new ApiError(401, { message: 'session expired' });
+  }
   const res = await rawFetch(path, init, session?.accessToken);
 
   if (res.status === 401 && session && retry) {
-    const refreshed = await refresh(session);
-    if (refreshed) return request<T>(path, init, false);
+    const refreshed = await sessionForRetry({ session, generation: snapshot.generation });
+    if (refreshed) return request<T>(path, init, false, refreshed);
     throw new ApiError(401, { message: 'session expired' });
   }
 
@@ -70,7 +304,12 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
 export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }),
+    request<T>(path, {
+      method: 'POST',
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    }),
+  request: <T>(path: string, init: RequestInit = {}) => request<T>(path, init),
 };
 
 export interface MfaChallenge {
@@ -87,6 +326,7 @@ export function isMfaChallenge(value: Session | MfaChallenge): value is MfaChall
 export async function login(email: string, password: string): Promise<Session | MfaChallenge> {
   const res = await rawFetch('/auth/login', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) {

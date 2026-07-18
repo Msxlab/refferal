@@ -16,3 +16,6 @@ uploads/
 # Yedek sirlari (service account JSON, age private key) — ASLA commit edilmez
 docker/backup/secrets/*
 !docker/backup/secrets/.gitkeep
+
+# local dev server logs
+.api-dev.log

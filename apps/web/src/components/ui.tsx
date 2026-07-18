@@ -10,6 +10,7 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { useOverlayFocus } from '@/components/useOverlayFocus';
+import { Popover } from './Popover';
 import { cn } from '@/lib/utils';
 
 /* ----------------------------------------------------- animated counter */
@@ -297,4 +298,129 @@ export function useToast(): [string | null, (msg: string) => void] {
     setTimeout(() => setMsg(null), 2800);
   };
   return [msg, show];
+}
+
+
+/* ----------------------------------------------------- pagination and table preferences */
+export function Pagination({ page, pageSize, total, onPage }: { page: number; pageSize: number; total: number; onPage: (page: number) => void }) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  if (total <= 0 || pages <= 1) return null;
+  const first = (page - 1) * pageSize + 1;
+  const last = Math.min(page * pageSize, total);
+  return (
+    <div className="row no-print" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
+      <span className="faint tnum" style={{ fontSize: 12 }}>{first}-{last} / {total}</span>
+      <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page">Previous</Button>
+      <span className="tnum" style={{ fontSize: 12 }}>{page} / {pages}</span>
+      <Button variant="ghost" size="sm" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page">Next</Button>
+    </div>
+  );
+}
+
+export interface TableColumn { key: string; label: string; locked?: boolean }
+export type Density = 'comfortable' | 'compact';
+
+interface TablePrefs {
+  isVisible: (key: string) => boolean;
+  toggle: (key: string) => void;
+  density: Density;
+  setDensity: (density: Density) => void;
+  reset: () => void;
+  columns: TableColumn[];
+  hiddenCount: number;
+}
+
+export function useTablePrefs(tableId: string, columns: TableColumn[]): TablePrefs {
+  const storeKey = `refearn.table.${tableId}`;
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [density, setDensityState] = useState<Density>('comfortable');
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storeKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { hidden?: string[]; density?: Density };
+      setHidden(new Set(parsed.hidden ?? []));
+      if (parsed.density) setDensityState(parsed.density);
+    } catch {
+      // User preferences are optional.
+    }
+  }, [storeKey]);
+
+  const persist = (nextHidden: Set<string>, nextDensity: Density) => {
+    try { localStorage.setItem(storeKey, JSON.stringify({ hidden: [...nextHidden], density: nextDensity })); } catch { /* optional */ }
+  };
+  const toggle = (key: string) => {
+    setHidden((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      persist(next, density);
+      return next;
+    });
+  };
+  const setDensity = (next: Density) => { setDensityState(next); persist(hidden, next); };
+  const reset = () => { const next = new Set<string>(); setHidden(next); setDensityState('comfortable'); persist(next, 'comfortable'); };
+
+  return {
+    isVisible: (key) => !hidden.has(key),
+    toggle,
+    density,
+    setDensity,
+    reset,
+    columns,
+    hiddenCount: [...hidden].filter((key) => columns.some((column) => column.key === key && !column.locked)).length,
+  };
+}
+
+export function ColumnsMenu({ prefs }: { prefs: TablePrefs }) {
+  return (
+    <Popover label={<>Columns</>} badge={prefs.hiddenCount} width={240}>
+      <div className="grid" style={{ gap: 4 }}>
+        {prefs.columns.map((column) => {
+          const visible = column.locked || prefs.isVisible(column.key);
+          return (
+            <label
+              key={column.key}
+              onClick={(event) => { event.preventDefault(); if (!column.locked) prefs.toggle(column.key); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', borderRadius: 8, cursor: column.locked ? 'default' : 'pointer', fontSize: 13, opacity: column.locked ? 0.6 : 1 }}
+            >
+              <span style={{ width: 14, height: 14, borderRadius: 4, display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 900, background: visible ? 'var(--gold-500)' : 'transparent', border: visible ? 'none' : '1.5px solid var(--border-strong)', color: 'var(--on-gold)' }}>{visible ? 'x' : ''}</span>
+              {column.label}{column.locked && <span className="faint" style={{ fontSize: 10 }}>(fixed)</span>}
+            </label>
+          );
+        })}
+        <div className="row" style={{ justifyContent: 'space-between', borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 8 }}>
+          <div className="seg-tabs" style={{ padding: 3 }}>
+            <button className={`seg-tab ${prefs.density === 'comfortable' ? 'on' : ''}`} style={{ padding: '5px 9px', fontSize: 12 }} onClick={() => prefs.setDensity('comfortable')}>Comfortable</button>
+            <button className={`seg-tab ${prefs.density === 'compact' ? 'on' : ''}`} style={{ padding: '5px 9px', fontSize: 12 }} onClick={() => prefs.setDensity('compact')}>Compact</button>
+          </div>
+          <Button variant="ghost" size="sm" onClick={prefs.reset}>Reset</Button>
+        </div>
+      </div>
+    </Popover>
+  );
+}
+
+export type SortDir = 'asc' | 'desc';
+export function SortableTh({ label, field, sort, dir, onSort, align }: {
+  label: string;
+  field: string;
+  sort: string;
+  dir: SortDir;
+  onSort: (field: string, direction: SortDir) => void;
+  align?: 'left' | 'right';
+}) {
+  const active = sort === field;
+  return (
+    <th
+      className="sortable"
+      style={align === 'right' ? { textAlign: 'right' } : undefined}
+      aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      onClick={() => onSort(field, active && dir === 'desc' ? 'asc' : 'desc')}
+    >
+      {label}
+      {active && <span className="sort-ind">{dir === 'asc' ? 'up' : 'down'}</span>}
+    </th>
+  );
 }

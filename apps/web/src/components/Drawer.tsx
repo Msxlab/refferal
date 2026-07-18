@@ -1,11 +1,11 @@
 'use client';
 
-import { ReactNode, useId, useRef } from 'react';
-import { X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { useOverlayFocus } from '@/components/useOverlayFocus';
+import { ReactNode, useState } from 'react';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from './ui/sheet';
 
-/** Right-side slide-over panel for details and CRM-style drawers. Closes with Escape or outside click. */
+/** Sagdan acilan slide-over panel (detay/CRM cekmecesi).
+ *  shadcn/Radix Sheet ile: focus-trap + ESC + dis-tiklama + arka plan scroll-lock + portal.
+ *  Govde KENDI icinde kayar (flex-1 overflow-y-auto); baslik/altlik sabit kalir. */
 export function Drawer({ title, subtitle, onClose, children, footer, width = 460 }: {
   title: string;
   subtitle?: string;
@@ -14,35 +14,28 @@ export function Drawer({ title, subtitle, onClose, children, footer, width = 460
   footer?: ReactNode;
   width?: number;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const titleId = useId();
-  const onKeyDown = useOverlayFocus(ref, onClose);
-
+  const [open, setOpen] = useState(true);
+  const handle = (o: boolean) => {
+    if (!o) { setOpen(false); onClose(); }
+  };
   return (
-    <div className="drawer-backdrop" onClick={onClose}>
-      <div
-        ref={ref}
-        className="drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        style={{ width: `min(${width}px, 94vw)` }}
-        onKeyDown={onKeyDown}
-        onClick={(e) => e.stopPropagation()}
+    <Sheet open={open} onOpenChange={handle}>
+      <SheetContent
+        side="right"
+        className="w-full p-0"
+        style={{ width: `min(${width}px, 94vw)`, maxWidth: '94vw' }}
       >
-        <div className="drawer-head">
+        <SheetHeader className="flex flex-row items-center justify-between gap-3 border-b border-border px-5 py-4">
           <div className="min-w-0">
-            <h2 id={titleId} className="drawer-title">{title}</h2>
-            {subtitle && <div className="mt-0.5 text-xs text-muted-foreground">{subtitle}</div>}
+            <SheetTitle className="truncate text-[17px] font-bold">{title}</SheetTitle>
+            {subtitle && <SheetDescription className="mt-0.5 text-xs">{subtitle}</SheetDescription>}
           </div>
-          <Button type="button" variant="ghost" size="icon" aria-label="Close" onClick={onClose}>
-            <X />
-          </Button>
-        </div>
-        <div className="drawer-body">{children}</div>
-        {footer && <div className="drawer-foot">{footer}</div>}
-      </div>
-    </div>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">{children}</div>
+        {footer && (
+          <SheetFooter className="flex flex-wrap justify-end gap-2.5 border-t border-border px-5 py-3.5">{footer}</SheetFooter>
+        )}
+      </SheetContent>
+    </Sheet>
   );
 }

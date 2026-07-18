@@ -9,12 +9,16 @@ import { withPayoutActionCandidates } from './payout-presentation';
 import { PayoutsService } from './payouts.service';
 import { PayoutComplianceService } from './payout-compliance.service';
 import {
+  decidePayoutSchema,
+  DecidePayoutInput,
   exportPayoutsSchema,
   ExportPayoutsInput,
   failPayoutBatchSchema,
   FailPayoutBatchInput,
   approvePayoutRequestSchema,
   ApprovePayoutRequestInput,
+  reconcilePayoutsSchema,
+  ReconcilePayoutsInput,
   listPayoutsSchema,
   ListPayoutsInput,
   previewPayoutBatchSchema,
@@ -203,6 +207,77 @@ export class AdminPayoutsController {
   ) {
     const csv = await this.payouts.exportBatchCsv(user.tid as string, id);
     res.send(csv);
+  }
+
+  // self-hosted ACH/NACHA banka dosyasi (statik route ':id'den ONCE)
+  @Get('ach.txt')
+  @Header('Content-Type', 'text/plain; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="payouts-ach.txt"')
+  async ach(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(exportPayoutsSchema)) q: ExportPayoutsInput,
+    @Res() res: Response,
+  ) {
+    // Banka bilgisi olmadigi icin dosyaya GIRMEYEN 'paid' payout'lar header ile yuzeye cikar
+    // (govde/NACHA byte'lari degismez — indirme sozlesmesi korunur).
+    const { file, skipped } = await this.payouts.achFile(user.tid as string, q.period);
+    res.setHeader('X-Refearn-Skipped', String(skipped.length));
+    if (skipped.length) {
+      res.setHeader('X-Refearn-Skipped-Ids', skipped.map((s) => s.membershipId).join(','));
+    }
+    res.send(file);
+  }
+
+  // banka mutabakati: ekstre satirlarini odenmis payout'larla esle, 'cleared' isaretle
+  @HttpCode(200)
+  @Post('reconcile')
+  reconcile(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(reconcilePayoutsSchema)) body: ReconcilePayoutsInput,
+  ) {
+    return this.payouts.reconcile(this.actor(user), body.rows);
+  }
+
+  // maker-checker: bekleyen oneriler + onay/red (statik route'lar ':id'den ONCE)
+  @Get('batches')
+  batches(@CurrentUser() user: RequestUser) {
+    return this.payouts.listBatches(user.tid as string);
+  }
+
+  @HttpCode(200)
+  @Post('batches/:id/approve')
+  approveBatch(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.payouts.approveBatch(this.actor(user), id);
+  }
+
+  @HttpCode(200)
+  @Post('batches/:id/reject')
+  rejectBatch(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.payouts.rejectBatch(this.actor(user), id);
+  }
+
+  // DIKKAT: ':id' GET'i statik GET'lerden (payable, export.csv, batches) SONRA tanimli.
+  @Get(':id')
+  detail(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.payouts.detail(user.tid as string, id);
+  }
+
+  // talep karari (onay/red) — para etkileyen, audit'li
+  @HttpCode(200)
+  @Post(':id/decide')
+  decide(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(decidePayoutSchema)) body: DecidePayoutInput,
+  ) {
+    return this.payouts.decide(this.actor(user), id, body);
+  }
+
+  // basarisiz odemeyi yeniden dene
+  @HttpCode(200)
+  @Post(':id/retry')
+  retry(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.payouts.retry(this.actor(user), id);
   }
 }
 
