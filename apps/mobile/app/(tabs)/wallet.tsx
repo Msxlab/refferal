@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { RefreshControl, ScrollView, Text, View } from 'react-native';
 import { api, ApiError } from '@/lib/api';
-import { Badge, Button, Card, ErrorText, MoneyCounter, MutedText, Title } from '@/components/ui';
+import { Badge, Button, Card, EmptyState, ErrorText, MutedText, Title } from '@/components/ui';
 import { dateShort, money } from '@/lib/format';
 import { t } from '@/lib/i18n';
-import { colors, space, text } from '@/theme';
+import { space, text, useTheme } from '@/theme';
 
 interface LedgerItem {
   id: string;
@@ -15,17 +15,31 @@ interface LedgerItem {
   createdAt: string;
 }
 interface Wallet {
-  balance: { pendingCents: string; payableCents: string; paidCents: string };
+  currency: string;
+  payoutMinCents: string;
+  payoutEligibility: {
+    requestable: boolean;
+    reason: string;
+    message: string;
+    activePayout: { id: string; status: 'requested' | 'processing' } | null;
+  };
+  balance: { pendingCents: string; payableCents: string; processingCents: string; paidCents: string };
   ledger: { total: number; items: LedgerItem[] };
 }
 interface PayoutReq {
   id: string;
+  batchId: string | null;
   totalCents: string;
+  currency?: string;
   status: string;
   period: string;
+  processingStartedAt?: string | null;
+  paidAt?: string | null;
+  settledAt?: string | null;
 }
 
 export default function WalletScreen() {
+  const { colors } = useTheme();
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [history, setHistory] = useState<PayoutReq[]>([]);
   const [error, setError] = useState('');
@@ -47,6 +61,10 @@ export default function WalletScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const payoutEligibility = wallet?.payoutEligibility;
+  const activePayout = payoutEligibility?.activePayout ?? null;
+  const activePayoutDetails = activePayout ? history.find((payout) => payout.id === activePayout.id) ?? null : null;
 
   async function onRefresh() {
     setRefreshing(true);
@@ -72,7 +90,7 @@ export default function WalletScreen() {
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.bg0 }}
-      contentContainerStyle={{ padding: space.s4, paddingTop: space.s8 }}
+      contentContainerStyle={{ padding: space.s4, paddingTop: space.s8, paddingBottom: space.s8 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
     >
       <Title eyebrow={t('tab.wallet')} title={t('wallet.title')} />
@@ -82,22 +100,46 @@ export default function WalletScreen() {
       ) : (
         <>
           <Card glow>
-            <MutedText size={text.sm}>{t('wallet.balance')}</MutedText>
-            <MoneyCounter cents={wallet.balance.payableCents} />
-            <MutedText size={text.sm}>
-              {t('home.pending')}: {money(wallet.balance.pendingCents)} · {t('home.paid')}: {money(wallet.balance.paidCents)}
-            </MutedText>
-            <View style={{ marginTop: space.s4 }}>
-              <Button title={t('wallet.request')} onPress={requestPayout} busy={busy} variant="success" />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: space.s3 }}>
+              <MutedText size={text.sm}>{t('wallet.balance')}</MutedText>
+              <Text style={{ color: colors.muted, fontSize: text.xs, fontWeight: '700' }}>{wallet.currency}</Text>
             </View>
-            {notice ? <Text style={{ color: colors.emerald, marginTop: space.s2 }}>{notice} ✓</Text> : null}
+            <Text style={{ color: colors.money, fontSize: text.xxl, fontWeight: '800', fontVariant: ['tabular-nums'] }}>
+              {money(wallet.balance.payableCents, wallet.currency)}
+            </Text>
+            <View style={{ gap: space.s2, marginTop: space.s3 }}>
+              <BalanceLine label={t('home.pending')} value={money(wallet.balance.pendingCents, wallet.currency)} color={colors.amber} />
+              <BalanceLine label="Processing" value={money(wallet.balance.processingCents, wallet.currency)} color={colors.amber} />
+              <BalanceLine label={t('home.paid')} value={money(wallet.balance.paidCents, wallet.currency)} color={colors.emerald} />
+            </View>
+            <View style={{ marginTop: space.s4 }}>
+              <Button
+                title={activePayout ? (activePayout.status === 'processing' ? 'Payout processing' : 'Payout request open') : t('wallet.request')}
+                onPress={requestPayout}
+                busy={busy}
+                disabled={!payoutEligibility?.requestable}
+                variant="success"
+              />
+            </View>
+            {!payoutEligibility ? (
+              <View accessibilityLiveRegion="polite" style={{ marginTop: space.s2 }}>
+                <MutedText size={text.sm}>Payout availability is unavailable. Refresh and try again.</MutedText>
+              </View>
+            ) : !payoutEligibility.requestable ? (
+              <View accessibilityLiveRegion="polite" style={{ marginTop: space.s2 }}>
+                <MutedText size={text.sm}>
+                  {payoutEligibilityNotice(payoutEligibility, activePayoutDetails, wallet.currency, wallet.payoutMinCents)}
+                </MutedText>
+              </View>
+            ) : null}
+            {notice ? <Text style={{ color: colors.emerald, marginTop: space.s2 }}>{notice}</Text> : null}
             {error ? <ErrorText>{error}</ErrorText> : null}
           </Card>
 
           <Card>
             <Text style={{ color: colors.text, fontWeight: '700', marginBottom: space.s3 }}>{t('wallet.ledger')}</Text>
             {wallet.ledger.items.length === 0 ? (
-              <MutedText>{t('me.noData')}</MutedText>
+              <EmptyState title="No wallet activity yet" detail="Approved commissions will create activity here." />
             ) : (
               wallet.ledger.items.map((e) => (
                 <View
@@ -111,21 +153,21 @@ export default function WalletScreen() {
                     borderBottomColor: colors.border,
                   }}
                 >
-                  <View>
-                    <Text style={{ color: colors.text, fontSize: text.md }}>
-                      L{e.level} · {e.type}
+                  <View style={{ flex: 1, minWidth: 0, paddingRight: space.s3 }}>
+                    <Text numberOfLines={1} style={{ color: colors.text, fontSize: text.md }}>
+                      L{e.level} - {e.type}
                     </Text>
                     <MutedText size={text.xs}>{dateShort(e.createdAt)}</MutedText>
                   </View>
                   <View style={{ alignItems: 'flex-end', gap: 4 }}>
                     <Text
                       style={{
-                        color: Number(e.amountCents) < 0 ? colors.rose : colors.text,
+                        color: e.amountCents.startsWith('-') ? colors.rose : colors.text,
                         fontWeight: '700',
                         fontVariant: ['tabular-nums'],
                       }}
                     >
-                      {money(e.amountCents)}
+                      {money(e.amountCents, wallet.currency)}
                     </Text>
                     <Badge value={e.status} />
                   </View>
@@ -137,7 +179,7 @@ export default function WalletScreen() {
           <Card>
             <Text style={{ color: colors.text, fontWeight: '700', marginBottom: space.s3 }}>{t('wallet.history')}</Text>
             {history.length === 0 ? (
-              <MutedText>{t('me.noData')}</MutedText>
+              <EmptyState title="No payout requests yet" detail="Request a payout when your payable balance is ready." />
             ) : (
               history.map((p) => (
                 <View
@@ -151,9 +193,16 @@ export default function WalletScreen() {
                     borderBottomColor: colors.border,
                   }}
                 >
-                  <Text style={{ color: colors.text }}>{p.period}</Text>
-                  <Text style={{ color: colors.text, fontVariant: ['tabular-nums'] }}>{money(p.totalCents)}</Text>
-                  <Badge value={p.status} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text numberOfLines={1} style={{ color: colors.text }}>{p.period}</Text>
+                    <MutedText size={text.xs}>Run period</MutedText>
+                  </View>
+                  <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontVariant: ['tabular-nums'] }}>
+                      {money(p.totalCents, p.currency ?? wallet.currency)}
+                    </Text>
+                    <Badge value={p.status} />
+                  </View>
                 </View>
               ))
             )}
@@ -162,4 +211,48 @@ export default function WalletScreen() {
       )}
     </ScrollView>
   );
+}
+
+function BalanceLine({ label, value, color }: { label: string; value: string; color: string }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: space.s3,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 12,
+        paddingHorizontal: space.s3,
+        paddingVertical: space.s2,
+        backgroundColor: colors.panel2,
+      }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+        <View style={{ width: 8, height: 8, borderRadius: 3, backgroundColor: color }} />
+        <MutedText size={text.sm}>{label}</MutedText>
+      </View>
+      <Text style={{ color: colors.text, fontSize: text.sm, fontWeight: '700', fontVariant: ['tabular-nums'] }}>{value}</Text>
+    </View>
+  );
+}
+
+function payoutEligibilityNotice(
+  eligibility: Wallet['payoutEligibility'],
+  activePayout: PayoutReq | null,
+  currency: string,
+  payoutMinCents: string,
+): string {
+  if (eligibility.reason === 'processing' && activePayout) {
+    return `${money(activePayout.totalCents, activePayout.currency ?? currency)} is reserved for payout processing. It is not paid until settlement.`;
+  }
+  if (eligibility.reason === 'requested' && activePayout) {
+    return `${money(activePayout.totalCents, activePayout.currency ?? currency)} already has an open payout request.`;
+  }
+  if (eligibility.reason === 'below_threshold') {
+    return `${eligibility.message} Payout requests become available at ${money(payoutMinCents, currency)}.`;
+  }
+  return eligibility.message || 'Payout requests are unavailable right now. Please refresh and try again.';
 }

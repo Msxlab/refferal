@@ -1,7 +1,7 @@
 /**
- * Istek sahibi (actor) baglami: JWT claim'lerinden turetilir, para/yonetim
- * servislerine gecirilir. Ortak kavram oldugu icin common/'da (yaprak modullere
- * bagimlilik olusturmamak icin — bkz. DECISIONS "Inceleme bulgulari").
+ * Request actor context derived from JWT claims.
+ * Passed into services that need to write audit records. It lives in common to avoid
+ * creating dependencies between leaf modules.
  */
 export interface ActorContext {
   userId: string;

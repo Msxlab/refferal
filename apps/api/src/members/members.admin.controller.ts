@@ -1,8 +1,9 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { MembershipStatus, Role } from '@prisma/client';
 import { z } from 'zod';
-import { CurrentUser, RequireMembership, Roles } from '../auth/auth.guard';
+import { CurrentUser, RequireMembership, RequirePermission, Roles } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
+import { parseIdempotencyKey } from '../common/idempotency-key';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { ActorContext } from '../common/actor';
 import { MembersAdminService } from './members.admin.service';
@@ -21,7 +22,6 @@ const inviteSchema = z.object({
   sponsorMembershipId: z.string().uuid().optional(),
   email: z.string().trim().toLowerCase().email().max(254).optional(),
 });
-const roleSchema = z.object({ role: z.enum(['tenant_admin', 'tenant_staff', 'member']) });
 
 @RequireMembership()
 @Controller('admin/members')
@@ -33,26 +33,34 @@ export class MembersAdminController {
   }
 
   @Roles(...STAFF)
+  @RequirePermission('members.view')
   @Get()
   list(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(listSchema)) q: z.infer<typeof listSchema>) {
     return this.members.list(user.tid as string, { ...q, status: q.status as MembershipStatus | undefined });
   }
 
   @Roles(...STAFF)
+  @RequirePermission('network.view')
   @Get('tree')
   tree(@CurrentUser() user: RequestUser) {
     return this.members.tree(user.tid as string);
   }
 
-  // davet/pasiflestir/rol → admin+ (audit'li)
+  // Invites and membership status changes are admin+ only and audited.
   @Roles(...ADMIN)
+  @RequirePermission('invites.create')
   @HttpCode(200)
   @Post('invite')
-  invite(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(inviteSchema)) body: z.infer<typeof inviteSchema>) {
-    return this.members.invite(this.actor(user), user.mid as string, body);
+  invite(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(inviteSchema)) body: z.infer<typeof inviteSchema>,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
+    return this.members.invite(this.actor(user), user.mid as string, body, parseIdempotencyKey(idempotencyKey));
   }
 
   @Roles(...ADMIN)
+  @RequirePermission('members.suspend')
   @HttpCode(200)
   @Post(':id/deactivate')
   deactivate(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
@@ -60,20 +68,11 @@ export class MembersAdminController {
   }
 
   @Roles(...ADMIN)
+  @RequirePermission('members.suspend')
   @HttpCode(200)
   @Post(':id/activate')
   activate(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.members.setStatus(this.actor(user), id, MembershipStatus.active);
   }
 
-  @Roles(...ADMIN)
-  @HttpCode(200)
-  @Post(':id/role')
-  setRole(
-    @CurrentUser() user: RequestUser,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(roleSchema)) body: z.infer<typeof roleSchema>,
-  ) {
-    return this.members.setRole(this.actor(user), id, body.role as Role);
-  }
 }

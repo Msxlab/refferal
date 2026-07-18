@@ -1,7 +1,7 @@
 import { BadRequestException, PipeTransform } from '@nestjs/common';
 import { ZodIssue, ZodSchema } from 'zod';
 
-/** Tum girisler zod ile dogrulanir (SPEC 10 — Guvenlik). */
+/** All inputs are validated with zod (SPEC 10 - Security). */
 export class ZodValidationPipe<T> implements PipeTransform<unknown, T> {
   constructor(private readonly schema: ZodSchema<T>) {}
 

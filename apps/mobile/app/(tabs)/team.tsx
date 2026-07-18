@@ -3,7 +3,7 @@ import { RefreshControl, ScrollView, Text, View } from 'react-native';
 import { api, ApiError } from '@/lib/api';
 import { Bars, Card, ErrorText, MutedText, Title } from '@/components/ui';
 import { t } from '@/lib/i18n';
-import { colors, space, text } from '@/theme';
+import { space, text, useTheme } from '@/theme';
 
 interface TeamLevel {
   level: number;
@@ -17,6 +17,7 @@ interface Team {
 }
 
 function Stat({ label, value, color }: { label: string; value: number; color: string }) {
+  const { colors } = useTheme();
   return (
     <Card style={{ flex: 1, marginBottom: 0 }}>
       <MutedText size={text.sm}>{label}</MutedText>
@@ -26,6 +27,7 @@ function Stat({ label, value, color }: { label: string; value: number; color: st
 }
 
 export default function TeamScreen() {
+  const { colors } = useTheme();
   const [team, setTeam] = useState<Team | null>(null);
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -52,7 +54,7 @@ export default function TeamScreen() {
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.bg0 }}
-      contentContainerStyle={{ padding: space.s4, paddingTop: space.s8 }}
+      contentContainerStyle={{ padding: space.s4, paddingTop: space.s8, paddingBottom: space.s8 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
     >
       <Title eyebrow={t('tab.team')} title={t('team.title')} sub={t('team.privacy')} />

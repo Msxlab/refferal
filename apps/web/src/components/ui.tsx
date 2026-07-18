@@ -1,8 +1,18 @@
 'use client';
 
-import { ReactNode, useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
+import { type CSSProperties, type ReactNode, useEffect, useId, useRef, useState } from 'react';
+import { Moon, Sun } from 'lucide-react';
+import { APP_NAME, normalizeRuntimeBrand, type RuntimeBrand } from '@/lib/brand';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
+import { useOverlayFocus } from '@/components/useOverlayFocus';
+import { cn } from '@/lib/utils';
 
-/* ----------------------------------------------------- animasyonlu sayac */
+/* ----------------------------------------------------- animated counter */
 function easeOut(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
@@ -11,6 +21,12 @@ export function useCountUp(target: number, durationMs = 750): number {
   const [val, setVal] = useState(0);
   const fromRef = useRef(0);
   useEffect(() => {
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion) {
+      fromRef.current = target;
+      setVal(target);
+      return;
+    }
     const from = fromRef.current;
     const start = performance.now();
     let raf = 0;
@@ -27,16 +43,16 @@ export function useCountUp(target: number, durationMs = 750): number {
   return val;
 }
 
-/** Cent (string/number) → animasyonlu para gosterimi. */
+/** Animated money display for cent values supplied as strings or numbers. */
 export function MoneyCounter({ cents, currency = 'USD', className }: { cents: string | number; currency?: string; className?: string }) {
   const target = Number(cents) / 100;
   const v = useCountUp(target);
-  return <span className={`tnum ${className ?? ''}`}>{new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(v)}</span>;
+  return <span className={cn('tnum', className)}>{new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(v)}</span>;
 }
 
 export function CountUp({ value, className }: { value: number; className?: string }) {
   const v = useCountUp(value);
-  return <span className={`tnum ${className ?? ''}`}>{Math.round(v).toLocaleString('en-US')}</span>;
+  return <span className={cn('tnum', className)}>{Math.round(v).toLocaleString('en-US')}</span>;
 }
 
 /* ----------------------------------------------------- SVG donut */
@@ -51,14 +67,14 @@ export function Donut({ segments, size = 168, thickness = 20, center }: { segmen
   const r = (size - thickness) / 2;
   const c = 2 * Math.PI * r;
   let offset = 0;
-  // ekran okuyucu icin grafik ozeti
+  // Chart summary for screen readers.
   const ariaLabel = segments
     .map((s) => `${s.label}: ${total > 0 ? Math.round((Math.max(0, s.value) / total) * 100) : 0}%`)
     .join(', ');
   return (
     <div role="img" aria-label={ariaLabel} style={{ position: 'relative', width: size, height: size }}>
       <svg width={size} height={size} aria-hidden="true" style={{ transform: 'rotate(-90deg)' }}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,.06)" strokeWidth={thickness} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--border)" strokeWidth={thickness} />
         {total > 0 &&
           segments.map((s, i) => {
             const frac = Math.max(0, s.value) / total;
@@ -89,7 +105,7 @@ export function Donut({ segments, size = 168, thickness = 20, center }: { segmen
   );
 }
 
-/* ----------------------------------------------------- yatay bar */
+/* ----------------------------------------------------- horizontal bars */
 export function Bars({ data, max, format }: { data: Array<{ label: string; value: number; color?: string }>; max?: number; format?: (v: number) => string }) {
   const top = max ?? Math.max(1, ...data.map((d) => d.value));
   return (
@@ -100,13 +116,13 @@ export function Bars({ data, max, format }: { data: Array<{ label: string; value
             <span className="muted" style={{ fontSize: 12 }}>{d.label}</span>
             <span className="tnum" style={{ fontSize: 13, fontWeight: 650 }}>{format ? format(d.value) : d.value}</span>
           </div>
-          <div style={{ height: 9, borderRadius: 6, background: 'rgba(255,255,255,.05)', overflow: 'hidden' }}>
+          <div style={{ height: 9, borderRadius: 6, background: 'var(--panel-3)', overflow: 'hidden' }}>
             <div
               style={{
                 height: '100%',
                 width: `${Math.min(100, (d.value / top) * 100)}%`,
                 borderRadius: 6,
-                background: d.color ?? 'var(--grad-primary)',
+                background: d.color ?? 'var(--primary)',
                 transition: 'width .7s cubic-bezier(.2,.9,.3,1)',
               }}
             />
@@ -117,33 +133,35 @@ export function Bars({ data, max, format }: { data: Array<{ label: string; value
   );
 }
 
-/* ----------------------------------------------------- stat kart */
+/* ----------------------------------------------------- stat card */
 export function StatCard({ label, value, icon, grad, hint, delay }: { label: string; value: ReactNode; icon?: string; grad?: string; hint?: string; delay?: string }) {
   return (
-    <div className={`card hover stat fade-in ${delay ?? ''}`}>
-      <div className="spread">
-        <span className="k">{label}</span>
-        {icon && <span className="icon" style={grad ? { background: grad } : undefined}>{icon}</span>}
-      </div>
-      <div className="v">{value}</div>
-      {hint && <div className="faint" style={{ fontSize: 11, marginTop: 6 }}>{hint}</div>}
-    </div>
+    <Card className={cn('fade-in transition-shadow hover:shadow-lg', delay)}>
+      <CardHeader className="grid-cols-[1fr_auto] items-center">
+        <CardTitle className="text-sm text-muted-foreground">{label}</CardTitle>
+        {icon && (
+          <span
+            className="grid size-9 place-items-center rounded-lg border bg-muted text-base"
+            style={grad ? { background: grad } : undefined}
+            aria-hidden="true"
+          >
+            {icon}
+          </span>
+        )}
+      </CardHeader>
+      <CardContent className="flex flex-col gap-1">
+        <div className="font-[var(--font-display)] text-2xl font-bold">{value}</div>
+        {hint && <div className="text-xs text-muted-foreground">{hint}</div>}
+      </CardContent>
+    </Card>
   );
 }
 
-/* ----------------------------------------------------- modal / onay */
+/* ----------------------------------------------------- modal / confirmation */
 export function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
-
-  // a11y: acilista odagi modala tasi; ESC ile kapat
-  useEffect(() => {
-    ref.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const titleId = useId();
+  const onKeyDown = useOverlayFocus(ref, onClose);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -152,11 +170,12 @@ export function Modal({ title, children, onClose }: { title: string; children: R
         className="modal"
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-labelledby={titleId}
         tabIndex={-1}
+        onKeyDown={onKeyDown}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ fontWeight: 720, fontSize: 'var(--text-lg)', marginBottom: 'var(--space-3)' }}>{title}</div>
+        <h2 id={titleId} className="modal-title">{title}</h2>
         {children}
       </div>
     </div>
@@ -176,36 +195,44 @@ export function Confirm({ title, message, confirmLabel, danger, onConfirm, onClo
     <Modal title={title} onClose={onClose}>
       <p className="muted" style={{ marginTop: 0 }}>{message}</p>
       <div className="row" style={{ justifyContent: 'flex-end', marginTop: 18 }}>
-        <button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
-        <button className={`btn ${danger ? 'danger' : ''}`} onClick={onConfirm} disabled={busy}>{confirmLabel}</button>
+        <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button variant={danger ? 'destructive' : 'default'} onClick={onConfirm} disabled={busy}>{confirmLabel}</Button>
       </div>
     </Modal>
   );
 }
 
-/* ----------------------------------------------------- marka (altin R monogram) */
-export function Brand({ size = 'md' }: { size?: 'md' | 'lg' }) {
-  const dot = size === 'lg' ? 34 : 26;
+/* ----------------------------------------------------- brand mark */
+export function Brand({
+  size = 'md',
+  brand,
+  className,
+}: {
+  size?: 'md' | 'lg';
+  brand?: Partial<RuntimeBrand> | null;
+  className?: string;
+}) {
+  const runtimeBrand = brand ? normalizeRuntimeBrand(brand) : null;
+  const name = runtimeBrand?.name ?? APP_NAME;
+  const brandStyle = runtimeBrand ? ({ '--brand-accent': runtimeBrand.primaryColor } as CSSProperties) : undefined;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-      <span
-        style={{
-          width: dot, height: dot, borderRadius: dot * 0.32, background: 'var(--foil)',
-          display: 'grid', placeItems: 'center', color: 'var(--on-gold)',
-          fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: dot * 0.56,
-          boxShadow: '0 8px 20px -8px rgba(212,175,55,.7)',
-        }}
-      >
-        R
+    <span className={cn('brand-lockup', size === 'lg' && 'brand-lockup-lg', className)} style={brandStyle}>
+      <span className="brand-mark">
+        <Image
+          src="/brand/refearn-network-mark-v1.png"
+          alt=""
+          aria-hidden="true"
+          width={size === 'lg' ? 34 : 26}
+          height={size === 'lg' ? 34 : 26}
+          className="brand-mark-image"
+        />
       </span>
-      <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: size === 'lg' ? 22 : 17, letterSpacing: '-.01em' }}>
-        Refearn
-      </span>
+      <span className="brand-wordmark" translate="no">{name}</span>
     </span>
   );
 }
 
-/* ----------------------------------------------------- tema toggle (light/dark) */
+/* ----------------------------------------------------- theme toggle (light/dark) */
 export function ThemeToggle() {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   useEffect(() => {
@@ -215,74 +242,54 @@ export function ThemeToggle() {
   function toggle() {
     const next = theme === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
+    document.documentElement.style.colorScheme = next;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', next === 'light' ? '#f5f7fb' : '#0b1324');
     try {
       localStorage.setItem('refearn.theme', next);
     } catch {
-      /* yok say */
+      /* ignore storage failures */
     }
     setTheme(next);
   }
   return (
-    <button className="theme-toggle" onClick={toggle} aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
-      {theme === 'dark' ? '☾' : '☀'}
-    </button>
+    <Button
+      type="button"
+      variant="outline"
+      size="icon"
+      onClick={toggle}
+      aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+      title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+    >
+      {theme === 'dark' ? <Moon /> : <Sun />}
+    </Button>
   );
 }
 
 /* ----------------------------------------------------- toggle (switch) */
 export function Toggle({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
-    <div className="spread" style={{ padding: 'var(--space-3) 0', borderTop: '1px solid var(--border)' }}>
-      <span style={{ fontSize: 'var(--text-md)' }}>{label}</span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        disabled={disabled}
-        onClick={() => onChange(!checked)}
-        style={{
-          width: 46,
-          height: 26,
-          borderRadius: 999,
-          border: 'none',
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          position: 'relative',
-          background: checked ? 'var(--grad-emerald)' : 'rgba(255,255,255,.12)',
-          transition: 'background var(--dur-fast) ease',
-          opacity: disabled ? 0.5 : 1,
-        }}
-      >
-        <span
-          aria-hidden="true"
-          style={{
-            position: 'absolute',
-            top: 3,
-            left: checked ? 23 : 3,
-            width: 20,
-            height: 20,
-            borderRadius: '50%',
-            background: '#fff',
-            transition: 'left var(--dur-fast) ease',
-          }}
-        />
-      </button>
+    <div className="flex flex-col gap-3 py-3">
+      <Separator />
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm">{label}</span>
+        <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} aria-label={label} />
+      </div>
     </div>
   );
 }
 
-/* ----------------------------------------------------- yukleme iskeleti */
+/* ----------------------------------------------------- loading skeleton */
 export function Loading({ rows = 3 }: { rows?: number }) {
   return (
-    <div className="grid" role="status" aria-label="Loading">
+    <div className="grid" role="status" aria-live="polite" aria-atomic="true" aria-label="Loading">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="skeleton" style={{ height: 64 }} />
+        <Skeleton key={i} className="h-16 w-full" />
       ))}
     </div>
   );
 }
 
-/* ----------------------------------------------------- basit toast hook */
+/* ----------------------------------------------------- simple toast hook */
 export function useToast(): [string | null, (msg: string) => void] {
   const [msg, setMsg] = useState<string | null>(null);
   const show = (m: string) => {

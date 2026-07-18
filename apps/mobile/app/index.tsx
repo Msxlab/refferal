@@ -1,17 +1,22 @@
 import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { loadSession } from '@/lib/auth';
-import { colors } from '@/theme';
+import { landingForSession, loadSession } from '@/lib/auth';
+import { useTheme } from '@/theme';
 
-/** Giris noktasi: oturum varsa tab'lere, yoksa login'e. */
+/** Entry point: restore a session to its role- and MFA-aware mobile destination. */
 export default function Index() {
   const router = useRouter();
+  const { colors } = useTheme();
 
   useEffect(() => {
-    void loadSession().then((s) => {
-      router.replace(s ? '/(tabs)' : '/login');
-    });
+    void loadSession()
+      .then((s) => {
+        router.replace(s ? landingForSession(s) : '/login');
+      })
+      .catch(() => {
+        router.replace('/login');
+      });
   }, [router]);
 
   return (

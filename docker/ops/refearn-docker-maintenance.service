@@ -1,0 +1,8 @@
+[Unit]
+Description=Americana Earn Docker build cache and image maintenance
+Documentation=file:/opt/americana-earn/docker/ops/README.md
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/americana-earn
+ExecStart=/opt/americana-earn/docker/ops/docker-maintenance.sh

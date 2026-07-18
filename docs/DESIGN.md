@@ -1,79 +1,90 @@
-# Refearn Tasarım Sistemi
+# Design System
 
-Tek kaynak: `apps/web/src/app/globals.css` (token + temel sınıflar) ve
-`apps/web/src/components/ui.tsx` (React bileşenleri). Bu doküman ikisinin sözleşmesidir.
+The current product design direction is a practical B2B fintech interface: calm, dense, readable, and brandable. The runtime UI should feel like an operator tool, not a marketing page.
 
-Kimlik: **koyu fintech** — gradient mesh arka plan, cam (glassmorphism) kartlar,
-gradient vurgular, sayısal animasyonlar. "Etkileyici ama anlatıcı": her görsel öğe
-bir veriyi açıklar, süs için efekt kullanılmaz.
+## Sources Of Truth
 
----
+- Tokens and global layout helpers: `apps/web/src/app/globals.css`
+- shadcn primitives: `apps/web/src/components/ui/*`
+- Legacy chart/utility helpers: `apps/web/src/components/ui.tsx`
+- Brand defaults: `apps/web/src/lib/brand.ts` and `apps/mobile/src/lib/brand.ts`
 
-## 1. Design Token'ları (`:root`)
+## Principles
 
-| Grup | Token'lar | Not |
-|---|---|---|
-| Zemin | `--bg-0/1`, `--panel`, `--panel-solid`, `--panel-2` | Kartlar `--panel` + blur |
-| Çizgi | `--border`, `--border-strong` | 1px hairline |
-| Metin | `--text`, `--muted`, `--faint` | 3 kademeli hiyerarşi |
-| Marka | `--primary`, `--primary-2`, `--grad-primary` | Mor-mavi gradient |
-| Semantik | `--emerald`(başarı/para), `--amber`(bekleyen), `--rose`(tehlike), `--sky`(bilgi) + `--grad-*` | Badge/grafik renkleri |
-| Gölge | `--shadow-lg`, `--shadow-glow` | Glow yalnız vurgu kartında |
-| Yarıçap | `--radius`(18), `--radius-sm`(12) | |
-| **Boşluk** | `--space-1..8` (4/8/12/16/20/24/32) | 4px taban |
-| **Tipografi** | `--text-xs..hero` (11→42) | |
-| **Hareket** | `--dur-fast/base/slow`, `--ease-out/spring` | |
-| **Odak** | `--focus-ring` | a11y halkası |
+- Use shadcn components for buttons, cards, forms, tables, tabs, alerts, badges, selects, switches, and skeletons.
+- Use lucide icons for actions and navigation.
+- Keep UI copy English-only.
+- Keep product surfaces task-first: dense, scannable, and predictable.
+- Use semantic tokens instead of raw one-off colors.
+- Keep brand customization runtime-configurable where possible.
 
-**Kural:** Yeni kodda renk/boşluk/font boyutu **token'dan** gelir. Inline `style` yalnız
-yerleşim mikro-ayarı (flex/width) için kabul edilir; sabit hex/rgb yazılmaz.
+## Web Tokens
 
-## 2. CSS Sınıfları (temel yapı taşları)
+The web theme maps local CSS variables into Tailwind/shadcn tokens through `@theme inline`:
 
-- **Buton** `.btn` — varyant: `.ghost` `.danger` `.success`; boyut: `.sm`; genişlik: `.block`.
-  Durumlar: hover(kalkış+shimmer), active, `:disabled`, `:focus-visible`(halka).
-  Meşgul durum: `disabled + metin değişimi` deseni (`{busy ? '...' : '...'}`).
-- **Kart** `.card` — `.hover`(kalkış), `.card-glow`(gradient çerçeve), `.hero`(vurgu/bignum).
-- **Rozet** `.badge` — durum sınıfı **API enum adıyla birebir**: `draft/approved/void/active/
-  inactive/pending/payable/paid/reversed/requested/processing/failed/used/expired/revoked`.
-- **Kabuklar** — admin: `.shell > .side + .main` (sidebar); üye: `.topbar + .appmain` (üst-nav).
-- **Yardımcılar** — `.muted .faint .row .spread .grid .h1 .sub .eyebrow .gradient-text
-  .tnum .center .error .skeleton .fade-in .delay-1/2/3`.
-- **Geri bildirim** — `.toast` (her zaman `role="status"` ile), `.modal-backdrop + .modal`.
+| Purpose | Token examples |
+|---|---|
+| Background | `--bg-0`, `--bg-1` |
+| Surface | `--panel`, `--panel-solid`, `--panel-2`, `--panel-3` |
+| Text | `--text`, `--muted`, `--faint` |
+| Brand | `--primary`, `--brand`, `--foil`, `--on-gold` |
+| Status | `--emerald`, `--amber`, `--rose`, `--sky` |
+| Shape | `--radius`, `--radius-sm` |
+| Motion | `--dur-fast`, `--dur-base`, `--dur-slow` |
+| Focus | `--focus-ring` |
 
-## 3. React Bileşenleri (`components/ui.tsx`)
+## Component Rules
 
-| Bileşen | Görev | a11y |
-|---|---|---|
-| `MoneyCounter` / `CountUp` | Animasyonlu para/sayı (cent string alır) | `tnum` hizalı |
-| `Donut` | SVG halka grafik (+`center` slot) | `role="img"` + yüzde özetli `aria-label` |
-| `Bars` | Yatay bar listesi | `role="list/listitem"` + değer etiketli |
-| `StatCard` | İkonlu metrik kartı (grad + hint + delay) | — |
-| `Modal` | Diyalog kabuğu | `role="dialog"` `aria-modal`, **ESC kapatır**, açılışta odak |
-| `Confirm` | Para/geri-alınamaz aksiyon onayı | Modal üzerine kurulu; `danger` varyantı |
-| `Toggle` | Anahtar (ayarlar) | `role="switch"` `aria-checked`, klavye |
-| `Brand` | Logo+isim (`md/lg`) | — |
-| `Loading` | Skeleton satırlar | `role="status"` |
-| `useToast` | 2.8s otomatik kapanan bildirim | render: `<div className="toast" role="status">` |
+- Forms use `FieldGroup`, `Field`, `FieldLabel`, `Input`, `Textarea`, `Select`, `Checkbox`, or `Switch`.
+- Status and short labels use `Badge`.
+- Errors and important callouts use `Alert`.
+- Loading uses `Skeleton` or the shared `Loading` helper.
+- Data tables use the shadcn `Table` composition.
+- Page-level panels use full `Card` composition where the content is a true card.
+- Repeated actions use icon buttons with a tooltip or clear text.
 
-## 4. Desenler
+## Existing Utility Helpers
 
-- **Para aksiyonu = Confirm** — approve/void/payout-run asla tek tıkla çalışmaz.
-- **Sayfa girişi** — `.eyebrow` (bağlam) → `.h1` (başlık) → `.sub` (tek cümle açıklama);
-  kartlar `fade-in delay-1/2/3` ile kademeli gelir.
-- **Veri durumları** — yükleniyor: `<Loading/>`; boş: `.muted` satır; hata: `.error`.
-- **Para gösterimi** — daima `lib/format.money(cents)` (string cent → $) + `.tnum`.
+`components/ui.tsx` still owns non-shadcn helpers that are specific to this product:
 
-## 5. Erişilebilirlik taban çizgisi
+| Helper | Purpose |
+|---|---|
+| `MoneyCounter` / `CountUp` | Animated numeric display with tabular formatting |
+| `Donut` | Accessible SVG donut summary |
+| `Bars` | Accessible horizontal bar list |
+| `StatCard` | shadcn-backed metric card helper |
+| `Modal` / `Confirm` | Existing accessible modal shell and confirmation helper |
+| `Brand` | Runtime brand mark and name |
+| `ThemeToggle` | Light/dark toggle backed by shadcn Button |
+| `Toggle` | Generic setting switch backed by shadcn Switch |
+| `Loading` | Skeleton row helper |
+| `useToast` | Small local toast state helper |
 
-- Klavye odağı: global `:focus-visible` halkası (`--focus-ring`).
-- `prefers-reduced-motion: reduce` → tüm animasyon/geçişler kapanır.
-- Grafikler ekran okuyucuya metinle anlatılır (Donut/Bars aria).
-- Modal: ESC + odak yönetimi; toast/loading: `role="status"`.
+Long-term, `Modal` and `Drawer` can move to shadcn Dialog/Sheet after those components are intentionally added.
 
-## 6. Yapılacaklar (bilinçli açık)
+## Page Pattern
 
-- Sayfalardaki mevcut inline `style` yoğunluğu (~140 kullanım) kademeli olarak token/sınıfa
-  taşınacak — yeni kod için kural şimdiden geçerli.
-- EN sözlüğü (i18n şu an yalnız TR), kontrast denetimi (WCAG AA), tablo→kart mobil dönüşümü.
-- Mobil (Expo) aynı token setini `theme.ts` olarak paylaşacak.
+Use this rhythm for admin and member pages:
+
+1. Eyebrow for section context.
+2. Short H1.
+3. One sentence explaining the task.
+4. Filter/search area in a Card or unframed toolbar.
+5. Data table, graph, or focused work surface.
+6. Drawer/modal for details and irreversible actions.
+
+## Accessibility Baseline
+
+- Respect `prefers-reduced-motion`.
+- Keep keyboard focus visible.
+- Use `aria-invalid` and `data-invalid` for form validation.
+- Use `role="status"` for loading/toast messages.
+- Graph helpers must provide text labels or aria summaries.
+- Modals must trap attention, support Escape close, and have a clear title.
+
+## Open Design Debt
+
+- Replace custom Modal/Drawer shells with shadcn Dialog/Sheet once those primitives are added.
+- Reduce remaining legacy layout helpers such as `.row`, `.spread`, `.h1`, and `.sub` over time.
+- Add visual regression or screenshot QA for desktop and mobile widths.
+- Add a small design-system enforcement checklist to PR review.

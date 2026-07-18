@@ -1,142 +1,184 @@
-# Refearn — Dağıtım (Deploy) Kılavuzu
+# Deployment Guide
 
-Tam yığın tek komutla: **Caddy (otomatik TLS) → Next.js web + NestJS API → Postgres + Redis**, ve günlük yedek alan bir `backup` servisi. (SPEC Bölüm 5/10/13.)
+This guide covers the Docker Compose deployment for Americana Earn: Caddy TLS proxy, Next.js web, NestJS API, Postgres, Redis, and the backup container.
 
-## Mimari
+## Architecture
 
+```text
+Internet :80/:443
+  -> Caddy
+      /v1/* and /healthz -> API container
+      /*                 -> Web container
+API -> Postgres + Redis
+Backup -> pg_dump -> backup volume -> optional encrypted offsite copy
 ```
-        İnternet
-           │ :80 / :443  (otomatik TLS)
-        ┌──▼──── caddy ────┐
-        │  /v1/* , /healthz │──► api  (NestJS, :3001) ──► postgres, redis
-        │  /*               │──► web  (Next.js, :3000)
-        └───────────────────┘
-                              backup (pg_dump → volume, 30 gün)
-```
 
-Tarayıcı API'yi **aynı origin'den** `/v1` ile çağırır (Caddy proxy'ler) → CORS gerekmez.
+The browser calls the API from the same origin through `/v1`, so production CORS stays simple.
 
-## Ön koşullar
-- Docker + Docker Compose
-- (Gerçek HTTPS için) bir alan adı, DNS A kaydı sunucuya bakmalı, 80/443 açık.
+## Prerequisites
 
-## Kurulum
+- Docker and Docker Compose.
+- A real DNS record pointing to the host for HTTPS.
+- Ports `80` and `443` open on the host.
+- Production secrets outside the repository.
+
+## First Deploy
 
 ```bash
 cp .env.example .env
-# .env içinde MUTLAKA ayarla:
-#   JWT_ACCESS_SECRET=<güçlü rastgele>     (örn: openssl rand -base64 48)
-#   DOMAIN=refearn.example.com             (gerçek alan adı → otomatik HTTPS)
-#   PUBLIC_ORIGIN=https://refearn.example.com
-#   SMTP_* (e-posta doğrulama/şifre sıfırlama için)
+# Fill at minimum:
+#   JWT_ACCESS_SECRET=<strong random secret>
+#   DOMAIN=example.com
+#   PUBLIC_ORIGIN=https://example.com
+#   SMTP_* for verification and password reset email
 
 docker compose --profile app up -d --build
 ```
 
-İlk açılışta `api` servisi `prisma migrate deploy` ile şemayı uygular. Sağlık:
+On first boot the API runs `prisma migrate deploy` before starting.
+
+Health checks:
 
 ```bash
-curl https://refearn.example.com/healthz       # {"status":"ok","db":true,...}
-docker compose ps                              # tüm servisler healthy/up
+curl https://example.com/healthz
+docker compose ps
 ```
 
-İlk tenant + örnek veri (yalnızca demo/ilk kurulum):
+Optional demo seed:
 
 ```bash
 docker compose exec api pnpm db:seed
 ```
 
-### Lokal (TLS'siz) deneme
-`.env`'de `DOMAIN=` boş bırakın → Caddy `:80`'de servis eder. `http://localhost` açın.
-> Not: Bu makinede `pnpm dev:api`/`dev:web` lokal portları (3101/3000) kullanır; prod
-> compose ayrı çalışır. Aynı anda 80/5432 çakışmasına dikkat (lokal postgres 5434'te).
+## Local HTTP Trial
 
-## Yedekleme (3-2-1: yerel + şifreli Google Drive)
+For a local trial without TLS, leave `DOMAIN=` empty and open `http://localhost`. Do not run this alongside another service already bound to port `80`.
 
-`backup` servisi her gün `pg_dump | gzip` (+ opsiyonel **age şifreleme**) ile `backups`
-volume'una **atomik** yazar (`.part`→`mv`; bozuk dosya asla geçerli yedek sayılmaz),
-30 günden eskileri siler (en az 3 sağlam yedek korunur), ve `BACKUP_OFFSITE_CMD` ile
-**offsite**'e kopyalar. Başarısızlıkta `BACKUP_ALERT_CMD` tetiklenir.
+Local development can still use `pnpm dev:api` and `pnpm dev:web` on ports `3101` and `3000`; production Compose is separate.
+
+## Backup Model
+
+The `backup` service writes compressed Postgres dumps to the backup volume. The script is atomic: it writes a `.part` file first and only moves it into place after a successful dump. Retention runs after a successful backup and keeps a minimum set of valid backups.
 
 ```bash
 docker compose exec backup ls -lh /backups
 ```
 
-### Google Drive offsite (önerilen)
+Recommended 3-2-1 posture:
+- Local backup volume.
+- Encrypted offsite copy, for example Google Drive through rclone and age.
+- Optional second provider for higher durability.
 
-1. **Google Cloud** → yeni proje → **Drive API**'yi etkinleştir → **Service Account** oluştur
-   → JSON anahtarı indir → `docker/backup/secrets/gdrive.json` olarak bırak (repoya girmez).
-2. **Drive**'da `refearn-backups` klasörü aç → klasörü service account e-postasıyla
-   (`...@...iam.gserviceaccount.com`) **Düzenleyen** olarak paylaş → klasör ID'sini al.
-   (Service account'un kendi kotası yoktur; paylaşılan klasöre yazar. Büyük hacim → Shared Drive.)
-3. **Şifreleme anahtarı**: `age-keygen -o age.key` → çıktıdaki **public** satırı
-   `BACKUP_AGE_RECIPIENT`'a yaz. **Private `age.key`'i sunucuda tutma** — 1Password/Bitwarden
-   + offline ikinci yere koy (anahtar kaybı = yedek kaybı).
-4. `.env`:
-   ```
-   GDRIVE_FOLDER_ID=<klasör ID>
-   BACKUP_AGE_RECIPIENT=age1...
-   BACKUP_OFFSITE_CMD=rclone copyto "$1" gdrive:$(basename "$1")
-   # opsiyonel dead-man's-switch:
-   BACKUP_ALERT_CMD=curl -fsS -m10 https://hc-ping.com/<uuid>/fail -d "$1"
-   ```
-5. `docker compose --profile app up -d --build backup` → yedekler artık `refearn_*.sql.gz.age`
-   olarak hem yerelde hem Drive'da, **şifreli**.
+## Google Drive Offsite Backup
 
-> `.env`/secrets'in de ayrı bir Drive klasörüne (DB'den **farklı** age anahtarıyla) şifreli
-> kopyasını al — DB geri gelse bile secrets yoksa sistem ayağa kalkmaz.
+1. Create a Google Cloud project and enable Drive API.
+2. Create a Service Account and download its JSON key outside the repository.
+3. Create a Drive folder for backups and share it with the Service Account email.
+4. Generate an age key pair; keep the private key outside the server and repository.
+5. Configure `GDRIVE_FOLDER_ID`, `BACKUP_AGE_RECIPIENT`, `BACKUP_OFFSITE_CMD`, and optional alert hooks in the environment.
 
-### Restore-test (yedeğin gerçekten çalıştığını kanıtla)
+Example command shape:
 
 ```bash
-# .age yedek için private anahtarı geçici mount edip:
-docker compose exec backup bash /restore-test.sh
-# -> en son yedeği izole bir geçici DB'ye yükler, tenants/users sayar, BAŞARILI/BAŞARISIZ döner
+BACKUP_OFFSITE_CMD=rclone copyto "$1" gdrive:$(basename "$1")
 ```
-Bunu **haftalık** çalıştırın (cron/CI) ve sonucu aşağıdaki DR notlarına işleyin.
 
-### DR hedefleri (öneri)
-RPO ~6 saat (sıklık artırılabilir: `BACKUP_INTERVAL_SECONDS`), RTO ~2 saat. 3-2-1:
-(1) yerel volume, (2) şifreli Google Drive, (3) opsiyonel ikinci sağlayıcı. Düşük RPO için
-orta vadede WAL arşivleme (pgBackRest/wal-g).
+Keep `.env` and other secrets backed up separately with a different encryption key. A database restore is not enough if production secrets are lost.
 
-### Restore (test edilmiş prosedür)
+## Restore Drill
+
+Run the restore test regularly. It loads the newest backup into an isolated temporary database and checks core table counts.
 
 ```bash
-# 1) En son yedeği seç
-docker compose exec backup sh -c 'ls -t /backups/refearn_*.sql.gz | head -1'
+docker compose exec backup bash /restore-test.sh
+```
 
-# 2) (Önerilir) API'yi durdur ki yazma olmasın
+Recommended targets:
+- RPO: about 6 hours, adjustable by backup interval.
+- RTO: about 2 hours for a practiced operator.
+
+## Manual Restore Procedure
+
+```bash
+# 1. Identify latest backup.
+docker compose exec backup sh -c 'ls -t /backups/${BACKUP_PREFIX:-americana_earn}_*.sql.gz | head -1'
+
+# 2. Stop writers.
 docker compose stop api web
 
-# 3) Veritabanını sıfırla ve geri yükle
+# 3. Recreate database and restore.
 docker compose exec postgres psql -U refearn -d postgres -c \
   "DROP DATABASE IF EXISTS refearn; CREATE DATABASE refearn;"
 docker compose exec backup sh -c \
-  'gunzip -c "$(ls -t /backups/refearn_*.sql.gz | head -1)" | psql "$DATABASE_URL"'
+  'gunzip -c "$(ls -t /backups/${BACKUP_PREFIX:-americana_earn}_*.sql.gz | head -1)" | psql "$DATABASE_URL"'
 
-# 4) Servisleri başlat
+# 4. Start services and check health.
 docker compose start api web
 curl -fsS http://localhost/healthz
 ```
 
-> Restore'u **üretime almadan önce** bir kez boş ortamda deneyin (yedek bütünlüğü).
+Practice this in an empty environment before relying on it for production recovery.
 
-## Güncelleme
+## Updates
 
 ```bash
 git pull
-docker compose --profile app up -d --build   # migrate deploy otomatik koşar
+docker compose --profile app up -d --build
 ```
 
-## Operasyon
+The API image applies migrations automatically on boot.
 
-- Loglar: `docker compose logs -f api` / `web` / `caddy` / `backup`
-- Sağlık: `GET /healthz` (auth'suz, rate-limit muaf)
-- Olgunlaşma job'ı (`matureCommissions`) ve bildirim relay'i `api` içinde `@Cron`/`@Interval`
-  ile çalışır (ayrı worker gerekmez).
+## Host Disk Maintenance
 
-## Açık üretim notları (bkz. docs/DECISIONS.md "Analiz sonrasi")
-- Rate-limit MVP'de in-memory (tek instance). Çok-instance için Redis store'a geçilmeli.
-- JWT iptali, RLS, 2FA henüz yok — Americana (2. tenant) öncesi ele alınmalı.
-- Yedeğin offsite kopyası `BACKUP_OFFSITE_CMD` ile yapılandırılmalı (yerel volume tek nokta).
+Docker JSON log rotation is configured in Compose. Optional host timers in `docker/ops` can prune build cache and old unused images. They do not prune volumes.
+
+```bash
+chmod +x docker/ops/docker-maintenance.sh
+sudo cp docker/ops/refearn-docker-maintenance.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now refearn-docker-maintenance.timer
+```
+
+Do not run:
+
+```bash
+docker volume prune
+docker system prune --volumes
+```
+
+Those commands can remove database and backup volumes.
+
+## Restore-Test Automation
+
+```bash
+sudo cp docker/ops/refearn-restore-test.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now refearn-restore-test.timer
+```
+
+Encrypted backups require the private age identity file to be mounted into the backup container for restore tests.
+
+## Operations
+
+Useful commands:
+
+```bash
+docker compose logs -f api
+docker compose logs -f web
+docker compose logs -f caddy
+docker compose logs -f backup
+```
+
+Runtime notes:
+- `GET /healthz` is unauthenticated and exempt from rate limits.
+- `matureCommissions` runs inside the API scheduler.
+- Notification relay runs inside the API process.
+- For multi-instance API deployments, replace in-memory rate limiting with a Redis-backed store.
+
+## Open Production Items
+
+- Re-enable and enforce MFA once onboarding and recovery are smooth.
+- Add request-time token revocation checks for sensitive money/admin endpoints.
+- Add Postgres RLS as a second tenant-isolation barrier.
+- Configure offsite backup credentials and alerting on each production host.
+- Add Sentry or equivalent error tracking and uptime alerts.

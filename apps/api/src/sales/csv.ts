@@ -1,6 +1,6 @@
 /**
- * Minimal, bagimsiz CSV ayristirici (RFC4180 alt kumesi): tirnakli alan, "" kacisi,
- * alan ici virgul/yeni satir destegi. Disaridan parser bagimliligi yok (SPEC 5).
+ * Minimal standalone CSV parser (RFC4180 subset): quoted fields, "" escaping,
+ * commas/newlines inside fields, and no external parser dependency (SPEC 5).
  */
 export function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
@@ -36,11 +36,25 @@ export function parseCsv(text: string): string[][] {
       field += c;
     }
   }
-  // son alan/satir (dosya yeni satirla bitmiyorsa)
+  // Final field/row when the file does not end with a newline.
   if (field !== '' || row.length > 0) {
     row.push(field);
     rows.push(row);
   }
-  // tamamen bos satirlari ele
+  // Remove fully blank rows.
   return rows.filter((r) => r.some((cell) => cell.trim() !== ''));
+}
+
+/** Spreadsheet formula injection guard for CSV exports. */
+export function csvCell(value: string | number | bigint | null | undefined): string {
+  let text = String(value ?? '');
+  // Spreadsheet apps can trim leading spaces/control characters before evaluating
+  // a formula, so inspect the first non-whitespace character rather than byte 0.
+  if (/^[\u0000-\u0020]*[=+\-@]/.test(text)) {
+    text = `'${text}`;
+  }
+  if (/[",\n\r]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
 }

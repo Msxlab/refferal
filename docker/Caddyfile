@@ -1,11 +1,11 @@
-# Refearn reverse proxy. Site adresi DOMAIN env'inden gelir (compose ":80" verir).
-# Gercek alan adi verilirse Caddy otomatik TLS (Let's Encrypt) saglar.
+# Americana Earn reverse proxy. The site address comes from DOMAIN (compose passes ":80").
+# When a real domain is provided, Caddy enables automatic TLS with Let's Encrypt.
 {$DOMAIN::80} {
-	# NOT: compose DOMAIN'i ":80" veya alan adi olarak gecirir; ":80" ise duz HTTP.
+	# compose passes DOMAIN as ":80" or a domain name; ":80" means plain local HTTP.
 	encode gzip zstd
 
-	# Guvenlik basliklari (clickjacking/MIME-sniff/XSS yuzeyi + HSTS).
-	# HSTS yalniz gercek HTTPS modunda anlamli; ":80" lokal modda tarayici yok sayar.
+	# Security headers for clickjacking, MIME sniffing, XSS surface, and HSTS.
+	# HSTS only matters on real HTTPS; browsers ignore it in local ":80" mode.
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
@@ -14,15 +14,18 @@
 		-Server
 	}
 
-	# API: /v1/* ve /healthz → NestJS (api servisi). Prefix korunur (api globalPrefix=v1).
+	# API routes, readiness, and token-protected metrics go to NestJS.
 	handle /v1/* {
 		reverse_proxy api:3001
 	}
 	handle /healthz {
 		reverse_proxy api:3001
 	}
+	handle /metrics {
+		reverse_proxy api:3001
+	}
 
-	# Geri kalan her sey → Next.js web
+	# Everything else goes to the Next.js web app.
 	handle {
 		reverse_proxy web:3000
 	}

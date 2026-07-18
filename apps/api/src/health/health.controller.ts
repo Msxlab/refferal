@@ -1,11 +1,11 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Public } from '../auth/auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
- * Saglik ucu (SPEC 10): load balancer / orkestrasyon icin. Global prefix'ten haric
- * (main.ts exclude) → /healthz. Auth gerektirmez, rate-limit'ten muaf.
+ * Health endpoint (SPEC 10) for load balancers and orchestration.
+ * Excluded from the global prefix in main.ts, exposed as /healthz, public, and throttle-free.
  */
 @Public()
 @SkipThrottle()
@@ -15,13 +15,15 @@ export class HealthController {
 
   @Get()
   async check() {
-    let db = false;
     try {
       await this.prisma.$queryRaw`SELECT 1`;
-      db = true;
     } catch {
-      db = false;
+      throw new ServiceUnavailableException({
+        status: 'unavailable',
+        db: false,
+        message: 'Database unavailable',
+      });
     }
-    return { status: db ? 'ok' : 'degraded', db, ts: new Date().toISOString() };
+    return { status: 'ok', db: true, ts: new Date().toISOString() };
   }
 }

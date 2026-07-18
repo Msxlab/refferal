@@ -1,10 +1,10 @@
 import { clearSession, loadSession, saveSession, type Session } from './auth';
 
 /**
- * API taban adresi:
- *  - EXPO_PUBLIC_API_URL ile gecersiz kilinabilir (.env / app config)
- *  - Android emulatoru host makineye 10.0.2.2 ile ulasir (lokal API :3101)
- *  - Gercek cihazda LAN IP'nizi verin: EXPO_PUBLIC_API_URL=http://192.168.x.x:3101/v1
+ * API base URL:
+ *  - EXPO_PUBLIC_API_URL can override this (.env / app config).
+ *  - Android emulators reach the host machine at 10.0.2.2 (local API :3101).
+ *  - On a real device, provide your LAN IP: EXPO_PUBLIC_API_URL=http://192.168.x.x:3101/v1.
  */
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://10.0.2.2:3101/v1';
 
@@ -28,7 +28,7 @@ async function rawFetch(path: string, init: RequestInit, token?: string): Promis
   return fetch(`${BASE}${path}`, { ...init, headers });
 }
 
-/** access suresi dolmussa bir kez refresh dener; basarisizsa oturumu temizler. */
+/** If the access token expired, try one refresh; clear the session if it fails. */
 async function refresh(session: Session): Promise<Session | null> {
   const res = await rawFetch('/auth/refresh', {
     method: 'POST',
@@ -50,7 +50,7 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   if (res.status === 401 && session && retry) {
     const refreshed = await refresh(session);
     if (refreshed) return request<T>(path, init, false);
-    throw new ApiError(401, { message: 'oturum suresi doldu' });
+    throw new ApiError(401, { message: 'session expired' });
   }
 
   if (!res.ok) {
@@ -73,11 +73,38 @@ export const api = {
     request<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }),
 };
 
-/** Login ozel: token henuz yok. */
-export async function login(email: string, password: string): Promise<Session> {
+export interface MfaChallenge {
+  mfaRequired: true;
+  challengeToken: string;
+  expiresAt: string;
+}
+
+export function isMfaChallenge(value: Session | MfaChallenge): value is MfaChallenge {
+  return 'mfaRequired' in value && value.mfaRequired === true;
+}
+
+/** Login is special: there is no token yet. */
+export async function login(email: string, password: string): Promise<Session | MfaChallenge> {
   const res = await rawFetch('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = { message: res.statusText };
+    }
+    throw new ApiError(res.status, body);
+  }
+  return (await res.json()) as Session | MfaChallenge;
+}
+
+export async function loginMfa(challengeToken: string, code: string): Promise<Session> {
+  const res = await rawFetch('/auth/login/2fa', {
+    method: 'POST',
+    body: JSON.stringify({ challengeToken, code }),
   });
   if (!res.ok) {
     let body: unknown = null;

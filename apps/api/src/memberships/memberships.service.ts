@@ -1,27 +1,29 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { Membership, Prisma, Role } from '@prisma/client';
 import { ltreeLabel, newUuid, randomCode } from '../common/crypto';
+import { InviteConsentSnapshot } from '../invites/invite-consent';
 
 type Tx = Prisma.TransactionClient;
+type CreateUnderParams = {
+  tenantId: string;
+  userId: string;
+  sponsor: Pick<Membership, 'id' | 'path' | 'depth' | 'tenantId'>;
+  role?: Role;
+};
 
 @Injectable()
 export class MembershipsService {
   /**
-   * Sponsor altina yeni uyelik yerlestirir (SPEC 6):
-   * path = parent.path || own_id, yerlesim DEGISTIRILEMEZ (DB trigger'i da korur).
-   * id istemci tarafinda uretilir ki path tek INSERT'te dogru yazilsin.
+   * Places a new membership under the sponsor (SPEC 6):
+   * path = parent.path || own_id, and placement is immutable, also protected by a DB trigger.
+   * id is generated client-side so path is written correctly in one INSERT.
    */
   async createUnder(
     tx: Tx,
-    params: {
-      tenantId: string;
-      userId: string;
-      sponsor: Pick<Membership, 'id' | 'path' | 'depth' | 'tenantId'>;
-      role?: Role;
-    },
+    params: CreateUnderParams,
   ): Promise<Membership> {
     if (params.sponsor.tenantId !== params.tenantId) {
-      throw new ConflictException('sponsor baska bir tenantta');
+      throw new ConflictException('sponsor belongs to another tenant');
     }
 
     const id = newUuid();
@@ -42,7 +44,7 @@ export class MembershipsService {
           },
         });
       } catch (e) {
-        // referral_code carpismasi: yeniden dene; baska unique ihlali yukari firlat
+        // Retry referral_code collisions; rethrow other unique violations.
         if (
           e instanceof Prisma.PrismaClientKnownRequestError &&
           e.code === 'P2002' &&
@@ -54,6 +56,29 @@ export class MembershipsService {
         throw e;
       }
     }
-    throw new ConflictException('referral kodu uretilemedi');
+    throw new ConflictException('could not generate referral code');
+  }
+
+  async createUnderWithInviteConsent(
+    tx: Tx,
+    params: CreateUnderParams & { inviteId: string; consent: InviteConsentSnapshot },
+  ): Promise<Membership> {
+    const membership = await this.createUnder(tx, params);
+    await tx.inviteAcceptanceConsent.create({
+      data: {
+        inviteId: params.inviteId,
+        tenantId: membership.tenantId,
+        userId: membership.userId,
+        membershipId: membership.id,
+        disclaimerVersion: params.consent.disclaimerVersion,
+        locale: params.consent.locale,
+        disclaimerContentHash: params.consent.disclaimerContentHash,
+        tenantDisplayName: params.consent.tenantDisplayName,
+        programSummary: params.consent.programSummary,
+        programSummaryHash: params.consent.programSummaryHash,
+        acceptedAt: params.consent.acceptedAt,
+      },
+    });
+    return membership;
   }
 }

@@ -2,9 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Background, Controls, Handle, MiniMap, Position, ReactFlow, type Edge, type Node, type NodeProps } from '@xyflow/react';
-import { hierarchy, stratify, tree } from 'd3-hierarchy';
+import { stratify, tree } from 'd3-hierarchy';
+import { ChevronRight, Focus, Folder, ListTree, Network, Search, TreePine, User } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
 import { Drawer } from '@/components/Drawer';
+import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 export interface ApiNode {
   id: string;
@@ -19,43 +27,60 @@ export interface ApiNode {
 type NodeData = { node: ApiNode; team: number; direct: number; match: boolean; isFocus: boolean };
 
 const ROLE_BG: Record<string, string> = {
-  tenant_owner: 'var(--foil)',
-  tenant_admin: 'var(--foil)',
-  tenant_staff: 'rgba(91,124,250,.9)',
-  member: 'rgba(255,255,255,.1)',
+  tenant_owner: 'var(--primary)',
+  tenant_admin: 'var(--primary)',
+  tenant_staff: 'var(--panel-3)',
+  member: 'var(--panel-2)',
 };
 
-/* ---- ozel agac dugumu ---- */
+function roleLabel(role: string) {
+  return role.replace('tenant_', '');
+}
+
+function RoleBadge({ role }: { role: string }) {
+  if (role === 'member') return <span className="text-xs text-muted-foreground">member</span>;
+  return <Badge variant="secondary">{roleLabel(role)}</Badge>;
+}
+
+function StatusBadge({ status }: { status: string }) {
+  return <Badge variant={status === 'active' ? 'default' : 'outline'}>{status}</Badge>;
+}
+
 function MemberNode({ data }: NodeProps<Node<NodeData>>) {
   const n = data.node;
   const owner = n.role === 'tenant_owner';
+  const leadership = owner || n.role === 'tenant_admin';
   return (
     <div
       style={{
         width: 196, background: 'var(--panel)', cursor: 'pointer',
-        border: `1px solid ${data.isFocus ? 'var(--gold-500)' : data.match ? 'var(--gold-500)' : 'var(--border)'}`,
+        border: `1px solid ${data.isFocus || data.match ? 'var(--primary)' : 'var(--border)'}`,
         borderRadius: 14, padding: '10px 12px',
-        boxShadow: data.match || data.isFocus ? 'var(--shadow-glow)' : 'var(--shadow-lg)',
+        boxShadow: data.match || data.isFocus ? 'var(--shadow-lg)' : 'var(--shadow-card)',
         color: 'var(--text)', transition: 'border-color .2s, box-shadow .2s',
       }}
     >
       <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div className="flex items-center gap-2.5">
         <span style={{ width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 13,
-          color: owner ? 'var(--on-gold)' : 'var(--text)', background: ROLE_BG[n.role] ?? 'rgba(255,255,255,.1)', flexShrink: 0, fontFamily: 'var(--font-display)' }}>
+          color: leadership ? 'var(--on-primary)' : 'var(--text)', background: ROLE_BG[n.role] ?? 'var(--panel-2)', flexShrink: 0, fontFamily: 'var(--font-display)' }}>
           {n.fullName.charAt(0).toUpperCase()}
         </span>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.fullName}</div>
-          <div style={{ fontSize: 11, color: 'var(--faint)', fontFamily: 'ui-monospace, monospace' }}>{n.referralCode}</div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold">{n.fullName}</div>
+          <div className="font-mono text-[11px] text-muted-foreground">{n.referralCode}</div>
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {n.role !== 'member' && <span className="badge active" style={{ fontSize: 9 }}>{n.role.replace('tenant_', '')}</span>}
-          {n.status !== 'active' && <span className="badge inactive" style={{ fontSize: 9 }}>{n.status}</span>}
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-1">
+          {n.role !== 'member' && <RoleBadge role={n.role} />}
+          {n.status !== 'active' && <StatusBadge status={n.status} />}
         </div>
-        {data.team > 0 && <span style={{ fontSize: 10, color: 'var(--muted)' }}>⬡ {data.team}</span>}
+        {data.team > 0 && (
+          <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+            <Network className="size-3" aria-hidden="true" /> {data.team}
+          </span>
+        )}
       </div>
       <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
     </div>
@@ -76,7 +101,6 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
     setMode((document.documentElement.getAttribute('data-theme') as 'dark' | 'light') ?? 'dark');
   }, []);
 
-  // react-flow dugum tiklamasi (resmi API; dugum-ici DOM tiklamalari react-flow tarafindan yutulur)
   const onNodeClick = useCallback((_e: unknown, node: { id: string }) => {
     const n = nodes.find((x) => x.id === node.id);
     if (n) setSelected(n);
@@ -100,7 +124,6 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
     return count;
   }, [childrenOf]);
 
-  // odak alt-agaci: focusId + tum torunlari
   const subtree = useMemo(() => {
     if (!focusId) return nodes;
     const set: ApiNode[] = [];
@@ -111,7 +134,6 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
 
   const roots = useMemo(() => subtree.filter((n) => !n.parentId || !subtree.some((m) => m.id === n.parentId)), [subtree]);
 
-  // breadcrumb: kokten focusId'ye yol
   const breadcrumb = useMemo(() => {
     if (!focusId) return [];
     const path: ApiNode[] = [];
@@ -123,7 +145,6 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
   const q = query.trim().toLowerCase();
   const matches = useCallback((n: ApiNode) => q.length > 0 && (n.fullName.toLowerCase().includes(q) || n.referralCode.toLowerCase().includes(q)), [q]);
 
-  /* ---- agac layout ---- */
   const { rfNodes, rfEdges } = useMemo<{ rfNodes: Node<NodeData>[]; rfEdges: Edge[] }>(() => {
     if (subtree.length === 0) return { rfNodes: [], rfEdges: [] };
     const VIRTUAL = '__root__';
@@ -151,10 +172,7 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
     return { rfNodes: ns, rfEdges: es };
   }, [subtree, roots, focusId, teamOf, childrenOf, matches]);
 
-  /* ---- liste = koleps-edilebilir klasor agaci. Kapali baslar (yalniz kokler = ilk kisiler).
-         Arama: eslesen + atalari acik gosterilir. ---- */
   const sortKids = (n: ApiNode) => (childrenOf.get(n.id) ?? []).slice().sort((a, b) => a.fullName.localeCompare(b.fullName));
-  // her satir: lasts[] = kokten kendisine kadar her dugumun "son cocuk mu" bayragi (klavuz cizgileri icin)
   const listRows = useMemo(() => {
     const out: Array<{ n: ApiNode; lasts: boolean[]; hasChildren: boolean }> = [];
     const has = (n: ApiNode) => (childrenOf.get(n.id) ?? []).length > 0;
@@ -189,123 +207,144 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
 
   return (
     <div>
-      {/* ---- temiz arac cubugu ---- */}
-      <div className="row" style={{ gap: 10, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
-        <div className="seg-tabs" role="tablist" style={{ padding: 4 }}>
-          <button className={`seg-tab ${view === 'tree' ? 'on' : ''}`} onClick={() => setView('tree')}>⤳ Tree</button>
-          <button className={`seg-tab ${view === 'list' ? 'on' : ''}`} onClick={() => setView('list')}>☰ List</button>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Tabs value={view} onValueChange={(next: string) => setView(next as 'tree' | 'list')}>
+          <TabsList>
+            <TabsTrigger value="tree"><TreePine />Tree</TabsTrigger>
+            <TabsTrigger value="list"><ListTree />List</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <div className="relative min-w-40 flex-1 max-w-64">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <Input className="pl-8" placeholder="Search name or code" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
-        <input placeholder="Search name or code…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ maxWidth: 240, flex: 1, minWidth: 160 }} />
         {view === 'list' && !query && (
           <>
-            <button className="btn ghost sm" onClick={() => setExpanded(new Set(parentIds))}>Expand all</button>
-            <button className="btn ghost sm" onClick={() => setExpanded(new Set())}>Collapse all</button>
+            <Button variant="ghost" size="sm" onClick={() => setExpanded(new Set(parentIds))}>Expand all</Button>
+            <Button variant="ghost" size="sm" onClick={() => setExpanded(new Set())}>Collapse all</Button>
           </>
         )}
-        <span className="faint" style={{ fontSize: 12 }}>{subtree.length} {subtree.length === 1 ? 'person' : 'people'}</span>
+        <Badge variant="outline">{subtree.length} {subtree.length === 1 ? 'person' : 'people'}</Badge>
       </div>
 
-      {/* ---- breadcrumb (odak) ---- */}
       {breadcrumb.length > 0 && (
-        <div className="row" style={{ gap: 6, marginBottom: 10, fontSize: 12, flexWrap: 'wrap' }}>
-          <button className="link-crumb" onClick={() => setFocusId(null)} style={crumbStyle(false)}>All</button>
+        <div className="mb-3 flex flex-wrap items-center gap-1 text-sm">
+          <Button variant="ghost" size="sm" onClick={() => setFocusId(null)}>All</Button>
           {breadcrumb.map((b, i) => (
-            <span key={b.id} className="row" style={{ gap: 6 }}>
-              <span className="faint">/</span>
-              <button onClick={() => setFocusId(b.id)} style={crumbStyle(i === breadcrumb.length - 1)}>{b.fullName}</button>
+            <span key={b.id} className="inline-flex items-center gap-1">
+              <span className="text-muted-foreground">/</span>
+              <Button variant={i === breadcrumb.length - 1 ? 'secondary' : 'ghost'} size="sm" onClick={() => setFocusId(b.id)}>{b.fullName}</Button>
             </span>
           ))}
         </div>
       )}
 
       {view === 'tree' ? (
-        <div className="card" style={{ padding: 0, overflow: 'hidden', height: '66vh' }}>
-          <ReactFlow
-            nodes={rfNodes} edges={rfEdges} nodeTypes={nodeTypes} fitView colorMode={mode}
-            onNodeClick={onNodeClick}
-            minZoom={0.2} maxZoom={1.8} proOptions={{ hideAttribution: true }}
-            nodesDraggable={false} nodesConnectable={false}
-          >
-            <Background gap={20} size={1} color="var(--border)" />
-            <Controls showInteractive={false} />
-            <MiniMap pannable zoomable nodeColor={() => 'var(--gold-600)'} maskColor="rgba(0,0,0,.5)" style={{ background: 'var(--panel-2)' }} />
-          </ReactFlow>
-        </div>
+        <Card className="h-[66vh] py-0">
+          <CardContent className="h-full p-0">
+            <ReactFlow
+              nodes={rfNodes} edges={rfEdges} nodeTypes={nodeTypes} fitView colorMode={mode}
+              onNodeClick={onNodeClick}
+              minZoom={0.2} maxZoom={1.8} proOptions={{ hideAttribution: true }}
+              nodesDraggable={false} nodesConnectable={false}
+            >
+              <Background gap={20} size={1} color="var(--border)" />
+              <Controls showInteractive={false} />
+              <MiniMap pannable zoomable nodeColor={() => 'var(--primary)'} maskColor="rgba(15, 28, 51, .45)" style={{ background: 'var(--panel-2)' }} />
+            </ReactFlow>
+          </CardContent>
+        </Card>
       ) : (
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <table>
-            <thead><tr><th>Member</th><th>Role</th><th style={{ textAlign: 'right' }}>Level</th><th style={{ textAlign: 'right' }}>Team</th><th>Status</th><th></th></tr></thead>
-            <tbody>
-              {listRows.map(({ n, lasts, hasChildren }) => {
-                const open = !!q || expanded.has(n.id);
-                return (
-                  <tr key={n.id} style={{ cursor: 'pointer' }} onClick={() => setSelected(n)}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'stretch', minHeight: 40 }}>
-                        <GuideCells lasts={lasts} />
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          {hasChildren ? (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); toggleExpand(n.id); }}
-                              aria-label={open ? 'Collapse' : 'Expand'}
-                              style={{ width: 20, height: 20, display: 'grid', placeItems: 'center', background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 10, flexShrink: 0, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s ease' }}
-                            >▶</button>
-                          ) : <span style={{ width: 20, flexShrink: 0 }} />}
-                          <span style={{ flexShrink: 0, fontSize: 15 }}>{hasChildren ? '🗂' : '👤'}</span>
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: 600, fontSize: 13 }}>{n.fullName}</div>
-                            <div className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{n.referralCode}</div>
+        <Card className="py-0">
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Member</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead className="text-right">Level</TableHead>
+                  <TableHead className="text-right">Team</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {listRows.map(({ n, lasts, hasChildren }) => {
+                  const open = !!q || expanded.has(n.id);
+                  return (
+                    <TableRow key={n.id} className="cursor-pointer" onClick={() => setSelected(n)}>
+                      <TableCell>
+                        <div className="flex min-h-10 items-stretch">
+                          <GuideCells lasts={lasts} />
+                          <div className="flex items-center gap-2">
+                            {hasChildren ? (
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                onClick={(e) => { e.stopPropagation(); toggleExpand(n.id); }}
+                                aria-label={open ? 'Collapse' : 'Expand'}
+                                className={cn('transition-transform', open && 'rotate-90')}
+                              >
+                                <ChevronRight />
+                              </Button>
+                            ) : <span className="w-6 shrink-0" />}
+                            {hasChildren ? <Folder className="size-4 text-muted-foreground" /> : <User className="size-4 text-muted-foreground" />}
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold">{n.fullName}</div>
+                              <div className="font-mono text-[11px] text-muted-foreground">{n.referralCode}</div>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </td>
-                    <td>{n.role !== 'member' ? <span className="badge active" style={{ fontSize: 9 }}>{n.role.replace('tenant_', '')}</span> : <span className="faint" style={{ fontSize: 12 }}>member</span>}</td>
-                    <td className="tnum" style={{ textAlign: 'right' }}>{n.depth}</td>
-                    <td className="tnum" style={{ textAlign: 'right' }}>{hasChildren ? teamOf(n.id) : '—'}</td>
-                    <td><span className={`badge ${n.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 9 }}>{n.status}</span></td>
-                    <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'right' }}>
-                      {hasChildren && <button className="btn ghost sm" onClick={() => setFocusId(n.id)}>Focus ⤢</button>}
-                    </td>
-                  </tr>
-                );
-              })}
-              {listRows.length === 0 && <tr><td colSpan={6} className="muted">No members match.</td></tr>}
-            </tbody>
-          </table>
-        </div>
+                      </TableCell>
+                      <TableCell><RoleBadge role={n.role} /></TableCell>
+                      <TableCell className="text-right tabular-nums">{n.depth}</TableCell>
+                      <TableCell className="text-right tabular-nums">{hasChildren ? teamOf(n.id) : '-'}</TableCell>
+                      <TableCell><StatusBadge status={n.status} /></TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()} className="text-right">
+                        {hasChildren && <Button variant="ghost" size="sm" onClick={() => setFocusId(n.id)}><Focus />Focus</Button>}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {listRows.length === 0 && (
+                  <TableRow><TableCell colSpan={6} className="py-6 text-center text-muted-foreground">No members match.</TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
 
       {selected && (
-        <Drawer title={selected.fullName} subtitle={`${selected.referralCode} · ${title}`} onClose={() => setSelected(null)}
+        <Drawer title={selected.fullName} subtitle={`${selected.referralCode} - ${title}`} onClose={() => setSelected(null)}
           footer={
             <>
-              <button className="btn ghost" onClick={() => { setView('tree'); setQuery(selected.referralCode); setSelected(null); }}>Show in tree ⤳</button>
-              {teamOf(selected.id) > 0 && <button className="btn" onClick={() => { setFocusId(selected.id); setSelected(null); }}>Focus subtree ⤢</button>}
+              <Button variant="ghost" onClick={() => { setView('tree'); setQuery(selected.referralCode); setSelected(null); }}><TreePine />Show in tree</Button>
+              {teamOf(selected.id) > 0 && <Button onClick={() => { setFocusId(selected.id); setSelected(null); }}><Focus />Focus subtree</Button>}
             </>
           }>
-          <div className="grid" style={{ gap: 16 }}>
-            <div className="row" style={{ gap: 8 }}>
-              {selected.role !== 'member' && <span className="badge active" style={{ fontSize: 10 }}>{selected.role.replace('tenant_', '')}</span>}
-              <span className={`badge ${selected.status === 'active' ? 'active' : 'inactive'}`} style={{ fontSize: 10 }}>{selected.status}</span>
+          <div className="grid gap-4">
+            <div className="flex flex-wrap gap-2">
+              {selected.role !== 'member' && <RoleBadge role={selected.role} />}
+              <StatusBadge status={selected.status} />
             </div>
-            <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Stat label="Level" value={String(selected.depth)} />
               <Stat label="Direct recruits" value={String((childrenOf.get(selected.id) ?? []).length)} />
               <Stat label="Total team" value={String(teamOf(selected.id))} />
-              <Stat label="Sponsor" value={selected.parentId ? byId.get(selected.parentId)?.fullName ?? '—' : '— (top)'} />
+              <Stat label="Sponsor" value={selected.parentId ? byId.get(selected.parentId)?.fullName ?? '-' : '- (top)'} />
             </div>
             {(childrenOf.get(selected.id) ?? []).length > 0 && (
               <div>
-                <strong style={{ fontSize: 13 }}>Direct recruits</strong>
-                <div className="grid" style={{ gap: 6, marginTop: 8 }}>
+                <strong className="text-sm">Direct recruits</strong>
+                <div className="mt-2 grid gap-2">
                   {(childrenOf.get(selected.id) ?? []).map((c) => (
-                    <button key={c.id} className="row" onClick={() => setSelected(c)}
-                      style={{ gap: 8, padding: '7px 10px', borderRadius: 9, background: 'var(--panel-2)', border: '1px solid var(--border)', cursor: 'pointer', textAlign: 'left' }}>
-                      <span style={{ fontWeight: 600, fontSize: 12.5 }}>{c.fullName}</span>
-                      <span className="faint" style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{c.referralCode}</span>
-                      <span style={{ flex: 1 }} />
-                      <span className="faint" style={{ fontSize: 11 }}>⬡ {teamOf(c.id)}</span>
-                    </button>
+                    <Button key={c.id} variant="outline" className="h-auto justify-start px-3 py-2 text-left" onClick={() => setSelected(c)}>
+                      <span className="text-sm font-semibold">{c.fullName}</span>
+                      <span className="font-mono text-xs text-muted-foreground">{c.referralCode}</span>
+                      <span className="min-w-2 flex-1" />
+                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Network className="size-3" />{teamOf(c.id)}</span>
+                    </Button>
                   ))}
                 </div>
               </div>
@@ -317,10 +356,9 @@ export function NetworkExplorer({ nodes, title = 'network' }: { nodes: ApiNode[]
   );
 }
 
-/** Dosya-gezgini klavuz cizgileri: her seviye icin dikey cizgi + konnektor (├/└). */
 function GuideCells({ lasts }: { lasts: boolean[] }) {
   const depth = lasts.length - 1;
-  if (depth <= 0) return <span style={{ width: 6, flexShrink: 0 }} />;
+  if (depth <= 0) return <span className="w-1.5 shrink-0" />;
   return (
     <>
       {Array.from({ length: depth }).map((_, j) => {
@@ -339,14 +377,11 @@ function GuideCells({ lasts }: { lasts: boolean[] }) {
   );
 }
 
-function crumbStyle(active: boolean): React.CSSProperties {
-  return { background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: active ? 700 : 500, color: active ? 'var(--gold-500)' : 'var(--muted)' };
-}
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="faint" style={{ fontSize: 11 }}>{label}</div>
-      <div style={{ fontWeight: 700, fontSize: 15, marginTop: 2 }}>{value}</div>
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className="mt-0.5 text-sm font-semibold">{value}</div>
     </div>
   );
 }
