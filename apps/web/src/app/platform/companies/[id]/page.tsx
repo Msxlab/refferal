@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { api, ApiError, switchTenant } from '@/lib/api';
+import { api, apiForSession, ApiError } from '@/lib/api';
 import { applyTenantSwitch, getSession, membershipForTenant } from '@/lib/auth';
 import { Confirm, Loading, Modal, useToast } from '@/components/ui';
 import { Card } from '@/components/ui/card';
@@ -105,8 +105,12 @@ export default function CompanyPage() {
     }
     setEntering(true); setEnterMsg('');
     try {
-      const res = await switchTenant(membership.id);
-      applyTenantSwitch(res.accessToken, res.activeMembershipId);
+      const ownerApi = apiForSession(session);
+      const res = await ownerApi.post<{ accessToken: string; activeMembershipId: string }>(
+        '/me/switch-tenant',
+        { membershipId: membership.id },
+      );
+      await applyTenantSwitch(ownerApi.session(), res.accessToken, res.activeMembershipId);
       router.push('/admin');
     } catch (e) {
       setEntering(false);

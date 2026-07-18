@@ -26,6 +26,7 @@ interface LockedSale {
   status: SaleStatus;
   saleDate: Date;
   summaryMonth: string | null;
+  commissionPlanId: string | null;
   createdBy: string | null;
   approvedAt: Date | null;
   deliveredAt: Date | null;
@@ -482,7 +483,11 @@ export class EngineService {
     }
 
     const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: sale.tenantId } });
-    const plan = await this.resolvePlan(tx, sale.tenantId, sale.saleDate);
+    const plan = await this.resolvePlan(tx, sale.tenantId, sale.saleDate, sale.commissionPlanId);
+    if (!sale.commissionPlanId) {
+      await tx.sale.update({ where: { id: sale.id }, data: { commissionPlanId: plan.id } });
+      sale.commissionPlanId = plan.id;
+    }
     const rawChain = await this.uplineChain(tx, sale.sellerMembershipId, plan.depth);
     // base unilevel: tenant ayarlarina gore etkin zincir (compression / inactive-earn)
     const chain = this.effectiveBaseChain(rawChain, tenant);
@@ -613,6 +618,7 @@ export class EngineService {
              status,
              sale_date            AS "saleDate",
              summary_month        AS "summaryMonth",
+             commission_plan_id   AS "commissionPlanId",
              created_by           AS "createdBy",
              approved_at          AS "approvedAt",
              delivered_at         AS "deliveredAt"
@@ -658,16 +664,28 @@ export class EngineService {
     tx: Tx,
     tenantId: string,
     saleDate: Date,
-  ): Promise<{ depth: number; levels: PlanLevelRate[]; poolRateBps: number; fastStartBps: number; fastStartDays: number; matchingBps: number }> {
-    const plan = await tx.commissionPlan.findFirst({
-      where: { tenantId, effectiveFrom: { lte: saleDate } },
-      orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
-      include: { levels: { orderBy: { level: 'asc' } } },
-    });
+    commissionPlanId: string | null,
+  ): Promise<{ id: string; depth: number; levels: PlanLevelRate[]; poolRateBps: number; fastStartBps: number; fastStartDays: number; matchingBps: number }> {
+    const plan = commissionPlanId
+      ? await tx.commissionPlan.findFirst({
+          where: { tenantId, id: commissionPlanId, finalized: true },
+          include: { levels: { orderBy: { level: 'asc' } } },
+        })
+      : await tx.commissionPlan.findFirst({
+          where: { tenantId, finalized: true, effectiveFrom: { lte: saleDate } },
+          orderBy: [{ effectiveFrom: 'desc' }, { version: 'desc' }],
+          include: { levels: { orderBy: { level: 'asc' } } },
+        });
     if (!plan) {
+      if (commissionPlanId) {
+        throw new ConflictException(
+          `sabitlenmis komisyon plani kullanilamiyor (tenant=${tenantId}, plan=${commissionPlanId})`,
+        );
+      }
       throw new ConflictException(`satis tarihinde gecerli komisyon plani yok (tenant=${tenantId})`);
     }
     return {
+      id: plan.id,
       depth: plan.depth,
       levels: plan.levels.map((l) => ({ level: l.level, rateBps: l.rateBps })),
       poolRateBps: plan.poolRateBps,

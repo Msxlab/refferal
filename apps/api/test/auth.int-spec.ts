@@ -1,11 +1,13 @@
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { InviteStatus, MembershipStatus } from '@prisma/client';
+import { authenticator } from 'otplib';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { authConfig } from '../src/auth/auth.config';
+import { encryptSecret } from '../src/common/crypto';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { createChain, createPlan, createTenant, truncateAll } from './helpers';
+import { createChain, createPlan, createPlatformAdmin, createTenant, truncateAll } from './helpers';
 
 /**
  * Auth + davet akisi (SPEC 4 / 13-4) — HTTP seviyesinde, gercek Postgres'e karsi.
@@ -13,10 +15,12 @@ import { createChain, createPlan, createTenant, truncateAll } from './helpers';
 describe('auth + davet akisi (entegrasyon)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  const originalSecretWriteVersion = process.env.REFEARN_SECRET_WRITE_VERSION;
 
   const PASSWORD = 'Cok-Gizli-Sifre-42!';
 
   beforeAll(async () => {
+    process.env.REFEARN_SECRET_WRITE_VERSION = 'v1';
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
     app.setGlobalPrefix('v1');
@@ -26,6 +30,8 @@ describe('auth + davet akisi (entegrasyon)', () => {
 
   afterAll(async () => {
     await app.close();
+    if (originalSecretWriteVersion === undefined) delete process.env.REFEARN_SECRET_WRITE_VERSION;
+    else process.env.REFEARN_SECRET_WRITE_VERSION = originalSecretWriteVersion;
   });
 
   beforeEach(async () => {
@@ -60,13 +66,19 @@ describe('auth + davet akisi (entegrasyon)', () => {
   }
 
   it('public davet cozumleme: /v1/invites/:code', async () => {
-    const { tenant, invite } = await setupTenantWithInvite();
+    const { tenant, root, invite } = await setupTenantWithInvite();
+    await prisma.membership.update({
+      where: { id: root.id },
+      data: { inviteMessage: 'This note belongs to the authenticated editor.' },
+    });
 
     const res = await request(app.getHttpServer()).get(`/v1/invites/${invite.code}`).expect(200);
-    expect(res.body).toMatchObject({
+    expect(res.body).toEqual({
       code: invite.code,
       valid: true,
       tenantName: tenant.name,
+      tenantSlug: tenant.slug,
+      expiresAt: invite.expiresAt.toISOString(),
       emailLocked: false,
     });
 
@@ -174,6 +186,70 @@ describe('auth + davet akisi (entegrasyon)', () => {
       .post('/v1/auth/login')
       .send({ email: 'olmayan@kisi.test', password: PASSWORD })
       .expect(401);
+  });
+
+  it('2FA setup v1 secret yazar; enable ve MFA login ayni user context ile tamamlanir', async () => {
+    const { invite } = await setupTenantWithInvite();
+    const registration = await request(app.getHttpServer())
+      .post('/v1/auth/register-by-invite')
+      .send(registerBody(invite))
+      .expect(201);
+    const auth = { Authorization: `Bearer ${registration.body.accessToken}` };
+
+    const setup = await request(app.getHttpServer()).post('/v1/account/2fa/setup').set(auth).expect(200);
+    const userAfterSetup = await prisma.user.findUniqueOrThrow({ where: { email: 'yeni@uye.test' } });
+    expect(userAfterSetup.totpSecret).toMatch(/^v1\./);
+
+    const enableCode = authenticator.generate(setup.body.secret);
+    const enabled = await request(app.getHttpServer())
+      .post('/v1/account/2fa/enable')
+      .set(auth)
+      .send({ code: enableCode })
+      .expect(200);
+    expect(enabled.body.enabled).toBe(true);
+
+    const login = await request(app.getHttpServer())
+      .post('/v1/auth/login')
+      .send({ email: 'yeni@uye.test', password: PASSWORD })
+      .expect(200);
+    expect(login.body).toEqual(expect.objectContaining({ mfaRequired: true, mfaToken: expect.any(String) }));
+    expect(login.body.accessToken).toBeUndefined();
+
+    const completed = await request(app.getHttpServer())
+      .post('/v1/auth/login/2fa')
+      .send({ mfaToken: login.body.mfaToken, code: authenticator.generate(setup.body.secret) })
+      .expect(200);
+    expect(completed.body.accessToken).toEqual(expect.any(String));
+    expect(completed.body.activeMembershipId).toBe(registration.body.activeMembershipId);
+  });
+
+  it('MFA login mevcut uc-parcali legacy TOTP secret kaydini okumaya devam eder', async () => {
+    const { invite } = await setupTenantWithInvite();
+    const registration = await request(app.getHttpServer())
+      .post('/v1/auth/register-by-invite')
+      .send(registerBody(invite))
+      .expect(201);
+    const secret = authenticator.generateSecret();
+    const legacySecret = encryptSecret(secret);
+    expect(legacySecret).not.toMatch(/^v1\./);
+
+    await prisma.user.update({
+      where: { email: 'yeni@uye.test' },
+      data: { totpSecret: legacySecret, totpEnabledAt: new Date() },
+    });
+
+    const login = await request(app.getHttpServer())
+      .post('/v1/auth/login')
+      .send({ email: 'yeni@uye.test', password: PASSWORD })
+      .expect(200);
+    expect(login.body.mfaRequired).toBe(true);
+
+    const completed = await request(app.getHttpServer())
+      .post('/v1/auth/login/2fa')
+      .send({ mfaToken: login.body.mfaToken, code: authenticator.generate(secret) })
+      .expect(200);
+    expect(completed.body.accessToken).toEqual(expect.any(String));
+    expect(completed.body.activeMembershipId).toBe(registration.body.activeMembershipId);
   });
 
   it('korumali rotalar tokensiz 401; davet olustur/listele calisir', async () => {
@@ -386,5 +462,82 @@ describe('auth + davet akisi (entegrasyon)', () => {
       .post('/v1/auth/login')
       .send({ email: 'yeni@uye.test', password: newPassword })
       .expect(200);
+  });
+
+  it('uyeliksiz platform admin sifre sifirlama direct-user outbox ile tamamlanir ve cevap sabit kalir', async () => {
+    const platform = await createPlatformAdmin(prisma, PASSWORD, 'reset-platform@test.refearn.local');
+
+    const unknownStartedAt = Date.now();
+    const unknown = await request(app.getHttpServer())
+      .post('/v1/auth/password-reset/request')
+      .send({ email: 'unknown-platform@test.refearn.local' })
+      .expect(200);
+    const unknownElapsedMs = Date.now() - unknownStartedAt;
+
+    const knownStartedAt = Date.now();
+    const known = await request(app.getHttpServer())
+      .post('/v1/auth/password-reset/request')
+      .send({ email: platform.email })
+      .expect(200);
+    const knownElapsedMs = Date.now() - knownStartedAt;
+
+    expect(unknown.body).toEqual({ ok: true });
+    expect(known.body).toEqual(unknown.body);
+    expect(unknownElapsedMs).toBeGreaterThanOrEqual(225);
+    expect(knownElapsedMs).toBeGreaterThanOrEqual(225);
+
+    const notification = await prisma.notification.findFirstOrThrow({
+      where: { template: 'password_reset' },
+    });
+    expect(notification).toEqual(
+      expect.objectContaining({
+        tenantId: null,
+        recipientMembershipId: null,
+        recipientUserId: platform.id,
+      }),
+    );
+    const token = (notification.payload as { token: string }).token;
+    const newPassword = 'Platform-Yeni-Sifre-2026!';
+
+    await request(app.getHttpServer())
+      .post('/v1/auth/password-reset/confirm')
+      .send({ token, newPassword })
+      .expect(200, { ok: true });
+    await request(app.getHttpServer())
+      .post('/v1/auth/login')
+      .send({ email: platform.email, password: PASSWORD })
+      .expect(401);
+    await request(app.getHttpServer())
+      .post('/v1/auth/login')
+      .send({ email: platform.email, password: newPassword })
+      .expect(200);
+  });
+
+  it('bilinen kullanici transaction hatasini sizdirmadan ayni sabit cevapla kapatir', async () => {
+    const email = 'reset-write-failure@test.refearn.local';
+    await createPlatformAdmin(prisma, PASSWORD, email);
+    const transactionSpy = jest.spyOn(prisma, '$transaction').mockRejectedValueOnce(
+      new Error(`database rejected token for ${email}: raw-secret-token`),
+    );
+    const loggerSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+    try {
+      const startedAt = Date.now();
+      const response = await request(app.getHttpServer())
+        .post('/v1/auth/password-reset/request')
+        .send({ email })
+        .expect(200);
+
+      expect(response.body).toEqual({ ok: true });
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(225);
+      expect(loggerSpy).toHaveBeenCalledWith('password reset request processing failed');
+      expect(JSON.stringify(loggerSpy.mock.calls)).not.toContain(email);
+      expect(JSON.stringify(loggerSpy.mock.calls)).not.toContain('raw-secret-token');
+      await expect(prisma.userToken.count()).resolves.toBe(0);
+      await expect(prisma.notification.count()).resolves.toBe(0);
+    } finally {
+      transactionSpy.mockRestore();
+      loggerSpy.mockRestore();
+    }
   });
 });

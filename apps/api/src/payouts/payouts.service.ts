@@ -4,12 +4,12 @@ import { EngineService } from '../engine/engine.service';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActorContext } from '../common/actor';
+import { SecretCipher } from '../common/secret-cipher';
 import { kycPayoutBlock } from '../kyc/kyc.types';
 import { fraudPayoutBlock } from '../fraud/fraud.types';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { EventsService } from '../events/events.service';
 import { SanctionsService } from '../sanctions/sanctions.service';
-import { decryptSecret } from '../common/crypto';
 import { csvCell } from '../common/csv';
 import { centsToDecimalString } from '@refearn/shared';
 import { achConfigFromEnv, AchEntry, buildNachaFile } from './nacha';
@@ -48,6 +48,7 @@ export class PayoutsService {
     private readonly webhooks: WebhooksService,
     private readonly events: EventsService,
     private readonly sanctions: SanctionsService,
+    private readonly secretCipher: SecretCipher,
   ) {}
 
   private async currentPeriod(tenantId: string): Promise<string> {
@@ -638,7 +639,11 @@ export class PayoutsService {
       }
       entries.push({
         routingNumber: prof.routingNumber,
-        accountNumber: decryptSecret(prof.accountEnc),
+        accountNumber: await this.secretCipher.decrypt(prof.accountEnc, {
+          purpose: 'payout-account',
+          tenantId: p.tenantId,
+          recordId: p.membership.id,
+        }),
         accountType: prof.accountType === 'savings' ? 'savings' : 'checking',
         amountCents: Number(p.totalCents),
         name: prof.legalName ?? p.membership.user.fullName,

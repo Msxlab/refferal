@@ -105,7 +105,7 @@ export function AuditPageContent({ tenantName }: { tenantName: string }) {
         <div>
           <div className="eyebrow fade-in">{t('nav.audit')}</div>
           <h1 className="h1 fade-in">Audit Log</h1>
-          <p className="sub fade-in">Every action affecting money, roles, and plans is recorded here.</p>
+          <p className="sub fade-in">Recorded money, role, and plan changes appear here.</p>
         </div>
         <div className="row fade-in no-print" style={{ gap: 8 }}>
           {integrity && (
@@ -134,7 +134,7 @@ export function AuditPageContent({ tenantName }: { tenantName: string }) {
 
       <Card className="fade-in delay-2" style={{ padding: 0, overflow: 'hidden' }}>
         {!list ? <div style={{ padding: 16 }}><Loading rows={6} /></div> : items.length === 0 ? (
-          <div className="muted" style={{ padding: 18 }}>No matching events.</div>
+          <div className="muted" style={{ padding: 18 }}>No recorded events match these filters.</div>
         ) : (
           <div>
             {items.map((a) => (

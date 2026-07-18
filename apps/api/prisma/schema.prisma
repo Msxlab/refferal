@@ -296,6 +296,7 @@ model User {
   devices       Device[]
   refreshTokens RefreshToken[]
   userTokens    UserToken[]
+  directNotifications Notification[] @relation("DirectUserNotifications")
 
   @@map("users")
 }
@@ -453,6 +454,8 @@ model InviteEvent {
 model CommissionPlan {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
+  version       Int
+  finalized     Boolean  @default(false)
   name          String
   poolRateBps   Int      @map("pool_rate_bps")
   depth         Int
@@ -469,9 +472,13 @@ model CommissionPlan {
 
   tenant Tenant                @relation(fields: [tenantId], references: [id])
   levels CommissionPlanLevel[]
+  sales  Sale[]
 
-  // Tarihsel sorgu: satis tarihinde aktif plan (effective_from <= sale_date, en yeni)
-  @@index([tenantId, effectiveFrom(sort: Desc)])
+  // Tarihsel sorgu: satis tarihinde aktif plan (effective_from <= sale_date, en yeni).
+  // Her degisiklik yeni ve monoton bir version satiridir; var olan satirlar DB'de immutable'dir.
+  @@unique([tenantId, effectiveFrom], map: "commission_plans_tenant_id_effective_from_key")
+  @@unique([tenantId, version], map: "commission_plans_tenant_id_version_key")
+  @@unique([tenantId, id], map: "commission_plans_tenant_id_id_key")
   @@map("commission_plans")
 }
 
@@ -494,6 +501,7 @@ model Sale {
   id                 String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId           String     @map("tenant_id") @db.Uuid
   sellerMembershipId String     @map("seller_membership_id") @db.Uuid
+  commissionPlanId   String?    @map("commission_plan_id") @db.Uuid
   amountCents        BigInt     @map("amount_cents")
   currency           String     @default("USD")
   customerRef        String?    @map("customer_ref")
@@ -512,10 +520,12 @@ model Sale {
 
   tenant Tenant        @relation(fields: [tenantId], references: [id])
   seller Membership    @relation("Seller", fields: [sellerMembershipId], references: [id])
+  commissionPlan CommissionPlan? @relation(fields: [tenantId, commissionPlanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   ledger LedgerEntry[]
 
   @@index([tenantId, status])
   @@index([tenantId, saleDate])
+  @@index([tenantId, commissionPlanId], map: "sales_tenant_id_commission_plan_id_idx")
   @@map("sales")
 }
 
@@ -647,7 +657,8 @@ model Device {
 model Notification {
   id                    String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId              String?             @map("tenant_id") @db.Uuid
-  recipientMembershipId String              @map("recipient_membership_id") @db.Uuid
+  recipientMembershipId String?             @map("recipient_membership_id") @db.Uuid
+  recipientUserId       String?             @map("recipient_user_id") @db.Uuid
   channel               NotificationChannel
   template              String
   payload               Json                @default("{}")
@@ -661,10 +672,12 @@ model Notification {
   updatedAt             DateTime            @updatedAt @map("updated_at")
 
   // Cascade: uyelik silinince bildirimleri de gider (orphan satir kalmaz).
-  membership Membership @relation(fields: [recipientMembershipId], references: [id], onDelete: Cascade)
+  membership    Membership? @relation(fields: [recipientMembershipId], references: [id], onDelete: Cascade)
+  recipientUser User?       @relation("DirectUserNotifications", fields: [recipientUserId], references: [id], onDelete: Cascade)
 
   @@index([status, createdAt])
   @@index([recipientMembershipId, channel, readAt])
+  @@index([recipientUserId, channel, readAt])
   @@map("notifications")
 }
 

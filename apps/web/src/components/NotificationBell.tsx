@@ -1,8 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Popover as PopoverRoot, PopoverTrigger, PopoverContent } from './ui/popover';
+import { Button } from './ui/button';
 
 interface Item {
   id: string;
@@ -34,17 +36,55 @@ function ago(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function inboxFailureMessage(hasInbox: boolean): string {
+  return hasInbox
+    ? 'Notifications could not be refreshed. Showing previously loaded notifications.'
+    : 'Notifications could not be loaded.';
+}
+
+function requestIsCurrent(requestGeneration: number, currentGeneration: number): boolean {
+  return requestGeneration === currentGeneration;
+}
+
 export function NotificationBell({ placement = 'down' }: { placement?: 'down' | 'up' }) {
+  const headingId = useId();
   const [open, setOpen] = useState(false);
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [inboxError, setInboxError] = useState(false);
+  const [markAllPending, setMarkAllPending] = useState(false);
+  const mountedRef = useRef(false);
+  const inboxRequestGeneration = useRef(0);
+  const unreadWriteGeneration = useRef(0);
+  const countRequestFlight = useRef<Promise<void> | null>(null);
+  const notificationMutationPendingRef = useRef(0);
+  const markAllPendingRef = useRef(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
-  const refreshCount = useCallback(async () => {
-    try {
-      const { count } = await api.get<{ count: number }>('/me/notifications/unread-count');
-      setUnread(count);
-    } catch { /* sessiz */ }
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      inboxRequestGeneration.current += 1;
+    };
+  }, []);
+
+  const refreshCount = useCallback((): Promise<void> | null => {
+    if (notificationMutationPendingRef.current > 0 || countRequestFlight.current) return countRequestFlight.current;
+    const unreadGeneration = ++unreadWriteGeneration.current;
+    const flight = api.get<{ count: number }>('/me/notifications/unread-count')
+      .then(({ count }) => {
+        if (mountedRef.current && requestIsCurrent(unreadGeneration, unreadWriteGeneration.current)) {
+          setUnread(count);
+        }
+      })
+      .catch(() => { /* silent */ });
+    countRequestFlight.current = flight;
+    void flight.finally(() => {
+      if (countRequestFlight.current === flight) countRequestFlight.current = null;
+    });
+    return flight;
   }, []);
 
   // ilk yukleme + periyodik okunmamis sayisi (hafif uc)
@@ -54,32 +94,83 @@ export function NotificationBell({ placement = 'down' }: { placement?: 'down' | 
     return () => clearInterval(id);
   }, [refreshCount]);
 
-  // Radix Popover ac/kapa: acilista kutuyu cek (dis-tiklama/ESC/konumlandirma dahili)
-  async function onOpenChange(next: boolean) {
-    setOpen(next);
-    if (next) {
-      setLoading(true);
-      try {
-        const data = await api.get<Inbox>('/me/notifications?limit=12');
-        setInbox(data);
+  const invalidateNotificationLoads = useCallback(() => {
+    inboxRequestGeneration.current += 1;
+    unreadWriteGeneration.current += 1;
+    if (mountedRef.current) setLoading(false);
+  }, []);
+
+  function beginNotificationMutation() {
+    notificationMutationPendingRef.current += 1;
+    invalidateNotificationLoads();
+  }
+
+  function endNotificationMutation() {
+    notificationMutationPendingRef.current = Math.max(0, notificationMutationPendingRef.current - 1);
+  }
+
+  async function loadInbox() {
+    if (notificationMutationPendingRef.current > 0) return;
+    const requestGeneration = ++inboxRequestGeneration.current;
+    const inboxUnreadGeneration = ++unreadWriteGeneration.current;
+    const isCurrent = () => mountedRef.current && requestIsCurrent(requestGeneration, inboxRequestGeneration.current);
+    setLoading(true);
+    try {
+      const data = await api.get<Inbox>('/me/notifications?limit=12');
+      if (!isCurrent()) return;
+      setInbox(data);
+      if (requestIsCurrent(inboxUnreadGeneration, unreadWriteGeneration.current)) {
         setUnread(data.unreadCount);
-      } catch { /* sessiz */ } finally { setLoading(false); }
+      }
+      setInboxError(false);
+    } catch {
+      if (isCurrent()) setInboxError(true);
+    } finally {
+      if (isCurrent()) setLoading(false);
     }
   }
 
+  // Radix Popover ac/kapa: acilista kutuyu cek (dis-tiklama/ESC/konumlandirma dahili)
+  function onOpenChange(next: boolean) {
+    setOpen(next);
+    if (next) void loadInbox();
+  }
+
+  function handleOpenAutoFocus(event: Event) {
+    event.preventDefault();
+    closeButtonRef.current?.focus({ preventScroll: true });
+  }
+
+  function handleRetry() {
+    closeButtonRef.current?.focus({ preventScroll: true });
+    void loadInbox();
+  }
+
   async function markAll() {
+    if (markAllPendingRef.current) return;
+    markAllPendingRef.current = true;
+    setMarkAllPending(true);
+    beginNotificationMutation();
     try {
       await api.post('/me/notifications/read-all');
+      if (!mountedRef.current) return;
       setInbox((prev) => prev ? { ...prev, items: prev.items.map((i) => ({ ...i, read: true })) } : prev);
       setUnread(0);
-    } catch { /* sessiz */ }
+    } catch { /* sessiz */ } finally {
+      endNotificationMutation();
+      markAllPendingRef.current = false;
+      if (mountedRef.current) setMarkAllPending(false);
+    }
   }
 
   async function openItem(it: Item) {
     if (!it.read) {
+      beginNotificationMutation();
       setInbox((prev) => prev ? { ...prev, items: prev.items.map((i) => i.id === it.id ? { ...i, read: true } : i) } : prev);
       setUnread((u) => Math.max(0, u - 1));
-      try { await api.post(`/me/notifications/${it.id}/read`); } catch { /* sessiz */ }
+      try { await api.post(`/me/notifications/${it.id}/read`); } catch { /* sessiz */ } finally {
+        endNotificationMutation();
+      }
     }
   }
 
@@ -87,6 +178,7 @@ export function NotificationBell({ placement = 'down' }: { placement?: 'down' | 
     <PopoverRoot open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <button
+          type="button"
           className="theme-toggle"
           aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`}
           style={{ position: 'relative' }}
@@ -104,27 +196,53 @@ export function NotificationBell({ placement = 'down' }: { placement?: 'down' | 
       <PopoverContent
         side={placement === 'up' ? 'top' : 'bottom'}
         align="end"
-        className="w-[360px] max-w-[92vw] p-0"
-        aria-label="Notifications"
+        className="max-h-[var(--radix-popover-content-available-height)] w-[360px] max-w-[92vw] overflow-hidden p-0"
+        aria-labelledby={headingId}
+        onOpenAutoFocus={handleOpenAutoFocus}
       >
         <div className="spread" style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
-          <strong style={{ fontSize: 13 }}>Notifications</strong>
-          <button onClick={markAll}
-            style={{ fontSize: 11, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer' }}>
-            Mark all read
-          </button>
+          <strong id={headingId} style={{ fontSize: 13 }}>Notifications</strong>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Button type="button" variant="ghost" size="sm" onClick={markAll}
+              disabled={loading || markAllPending || !inbox || unread === 0}
+              className="px-2 text-[11px] text-[var(--brand)] hover:text-[var(--brand)]">
+              {markAllPending ? 'Marking...' : 'Mark all read'}
+            </Button>
+            <Button ref={closeButtonRef} type="button" variant="ghost" size="icon"
+              aria-label="Close notifications" onClick={() => setOpen(false)}>
+              <X aria-hidden="true" />
+            </Button>
+          </span>
         </div>
-        <div style={{ maxHeight: 380, overflow: 'auto' }}>
-          {loading && <div className="faint" style={{ padding: 18, fontSize: 12 }}>Loading…</div>}
-          {!loading && inbox && inbox.items.length === 0 && (
+        <div style={{ maxHeight: 'min(380px, calc(var(--radix-popover-content-available-height) - 65px))', overflow: 'auto' }}>
+          {loading && !inbox && !inboxError && <div className="faint" style={{ padding: 18, fontSize: 12 }}>Loading…</div>}
+          {inboxError && (
+            <div role="alert" style={{ padding: 14, borderBottom: '1px solid var(--border)' }}>
+              <strong style={{ display: 'block', fontSize: 12.5 }}>
+                {inbox ? 'Notifications may be stale' : 'Notifications unavailable'}
+              </strong>
+              <span className="faint" style={{ display: 'block', marginTop: 3, fontSize: 11.5 }}>
+                {inboxFailureMessage(Boolean(inbox))}
+              </span>
+              <Button type="button" variant="outline" size="sm" className="mt-3" onClick={handleRetry} disabled={loading}>
+                {loading ? 'Refreshing...' : 'Retry'}
+              </Button>
+            </div>
+          )}
+          {loading && inbox && !inboxError && (
+            <div className="faint" style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', fontSize: 11.5 }}>
+              Refreshing...
+            </div>
+          )}
+          {inbox && inbox.items.length === 0 && (
             <div className="faint" style={{ padding: 24, textAlign: 'center', fontSize: 12.5 }}>
               You&apos;re all caught up.
             </div>
           )}
-          {!loading && inbox?.items.map((it) => {
+          {inbox?.items.map((it) => {
             const k = KIND_ICON[it.kind];
             return (
-              <button key={it.id} onClick={() => openItem(it)} className="inbox-row"
+              <button key={it.id} type="button" onClick={() => openItem(it)} className="inbox-row"
                 style={{ background: it.read ? 'transparent' : 'var(--panel-2)' }}>
                 <span style={{
                   width: 28, height: 28, borderRadius: 8, flexShrink: 0, display: 'grid', placeItems: 'center',

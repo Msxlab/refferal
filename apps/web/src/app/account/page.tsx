@@ -4,8 +4,8 @@ import { useEffect, useId, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { QRCodeSVG } from 'qrcode.react';
-import { api, ApiError } from '@/lib/api';
-import { activeMembership, getSession, isAdminRole, setSession } from '@/lib/auth';
+import { api, apiForSession, ApiError } from '@/lib/api';
+import { activeMembership, getSession, isAdminRole, updateSession } from '@/lib/auth';
 import { Brand, Loading, ThemeToggle, useToast } from '@/components/ui';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -166,10 +166,15 @@ export default function AccountPage() {
     e.preventDefault();
     setSavingProfile(true);
     try {
-      const a = await api.patch<Account>('/account/profile', { fullName: fullName.trim() });
+      const expectedSession = getSession();
+      if (!expectedSession) throw new Error('session owner changed');
+      const ownerApi = apiForSession(expectedSession);
+      const a = await ownerApi.patch<Account>('/account/profile', { fullName: fullName.trim() });
+      await updateSession(ownerApi.session(), (session) => ({
+        ...session,
+        user: { ...session.user, fullName: a.fullName, locale: a.locale },
+      }));
       setAcc(a);
-      const s = getSession();
-      if (s) setSession({ ...s, user: { ...s.user, fullName: a.fullName, locale: a.locale } });
       showToast('Profile updated');
     } catch (err) {
       showToast(String((err as ApiError).message));

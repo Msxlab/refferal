@@ -5,5 +5,6 @@ import { PlansService } from './plans.service';
 @Module({
   controllers: [PlansController, AppPlansController],
   providers: [PlansService],
+  exports: [PlansService],
 })
 export class PlansModule {}

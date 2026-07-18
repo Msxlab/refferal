@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { clearSession, getSession, type Session } from '@/lib/auth';
+import { clearSession, getSession, subscribeToSessionStorageChanges, type Session } from '@/lib/auth';
 import { ThemeToggle } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -33,10 +33,25 @@ export default function HqLayout({ children }: { children: React.ReactNode }) {
     setSession(s);
   }, [router]);
 
+  useEffect(() => {
+    return subscribeToSessionStorageChanges(
+      (change) => {
+        if (change.action === 'defer-to-caller') return;
+        if (change.action === 'reload' || !change.session) {
+          setSession(null);
+          window.location.reload();
+          return;
+        }
+        setSession(change.session);
+      },
+      (next) => next.user.isPlatformAdmin === true,
+    );
+  }, []);
+
   if (!session) return <div className="center muted">Loading…</div>;
 
-  function logout() {
-    clearSession();
+  async function logout() {
+    await clearSession();
     router.replace('/login');
   }
 

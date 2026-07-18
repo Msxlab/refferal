@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Drawer } from '@/components/Drawer';
 import { PrintSheet, PrintHeader, PrintSignatures } from '@/components/PrintSheet';
 import { dateShort, money } from '@/lib/format';
@@ -232,19 +233,38 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
             <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>Min threshold: {payable ? money(payable.payoutMinCents, c) : '—'}</div>
           </div>
           <div className="row no-print">
-            <Button variant="success" onClick={() => setConfirmRun('all')} disabled={busy || !payable?.members.length}>{t('payouts.run')}</Button>
-            <Button variant="ghost" onClick={downloadExport}>⇩ {t('payouts.export')}</Button>
-            <Button variant="ghost" onClick={runFraudScan} disabled={scanning}>{scanning ? 'Scanning…' : '⚠ Fraud scan'}</Button>
-            <Button variant="ghost" onClick={() => { const y = new Date().getFullYear(); downloadCsv(`/admin/tax/1099.csv?year=${y}`, `1099-nec-${y}.csv`).catch((e) => setError(String((e as ApiError).message))); }}>⇩ 1099-NEC</Button>
-            <Button variant="ghost" onClick={() => { downloadCsv('/admin/payouts/ach.txt', 'payouts-ach.txt').catch((e) => setError(String((e as ApiError).message))); }} title="Self-hosted bank file (NACHA) — upload to your bank">⇩ ACH file</Button>
-            <Button variant="ghost" onClick={() => { setReconcileOpen(true); setReconcileText(''); setReconcileResult(null); }} title="Match the bank statement against paid payouts">⇄ Reconcile</Button>
+            {requests?.length ? (
+              <Button asChild>
+                <a href="#payout-requests">Review {requests.length} payout request{requests.length === 1 ? '' : 's'}</a>
+              </Button>
+            ) : (
+              <Button variant="success" onClick={() => setConfirmRun('all')} disabled={busy || !payable?.members.length}>{t('payouts.run')}</Button>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" aria-label="More payout actions">More actions <span aria-hidden="true">▾</span></Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {requests?.length ? (
+                  <>
+                    <DropdownMenuItem onSelect={() => setConfirmRun('all')} disabled={busy || !payable?.members.length}>{t('payouts.run')}</DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                ) : null}
+                <DropdownMenuItem onSelect={() => { void downloadExport(); }}>⇩ {t('payouts.export')}</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => { void runFraudScan(); }} disabled={scanning}>{scanning ? 'Scanning…' : '⚠ Fraud scan'}</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => { const y = new Date().getFullYear(); downloadCsv(`/admin/tax/1099.csv?year=${y}`, `1099-nec-${y}.csv`).catch((e) => setError(String((e as ApiError).message))); }}>⇩ 1099-NEC</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => { downloadCsv('/admin/payouts/ach.txt', 'payouts-ach.txt').catch((e) => setError(String((e as ApiError).message))); }} title="Self-hosted bank file (NACHA) — upload to your bank">⇩ ACH file</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => { setReconcileOpen(true); setReconcileText(''); setReconcileResult(null); }} title="Match the bank statement against paid payouts">⇄ Reconcile</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>
 
       {/* ---- talep kuyrugu ---- */}
       {requests && requests.length > 0 && (
-        <div className="card fade-in delay-1" style={{ marginBottom: 16, borderColor: 'var(--amber)' }}>
+        <div id="payout-requests" className="card fade-in delay-1 scroll-mt-24" style={{ marginBottom: 16, borderColor: 'var(--amber)' }}>
           <div className="spread" style={{ marginBottom: 12 }}>
             <strong>Payout requests <Badge variant="pending" className="ml-1.5">{requests.length}</Badge></strong>
           </div>

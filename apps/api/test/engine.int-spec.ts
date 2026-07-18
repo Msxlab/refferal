@@ -201,12 +201,13 @@ describe('komisyon motoru (entegrasyon)', () => {
     const tomorrow = new Date('2026-06-11T12:00:00Z');
     const dayAfter = new Date('2026-06-12T12:00:00Z');
 
-    await createPlan(prisma, tenant.id, { effectiveFrom: new Date('2026-01-01T00:00:00Z') });
+    const originalPlan = await createPlan(prisma, tenant.id, { effectiveFrom: new Date('2026-01-01T00:00:00Z') });
     const chain = await createChain(prisma, tenant.id, 6);
 
     // eski plan ile satis
     const oldSale = await createSale(prisma, tenant.id, chain[5].id, 10_000_000n, { saleDate: now });
     await engine.approveSale(oldSale.id);
+    expect((await prisma.sale.findUniqueOrThrow({ where: { id: oldSale.id } })).commissionPlanId).toBe(originalPlan.id);
 
     // yeni plan: yarindan itibaren farkli oranlar
     await createPlan(prisma, tenant.id, {
@@ -232,6 +233,32 @@ describe('komisyon motoru (entegrasyon)', () => {
     });
     expect(newEntries.map((e) => e.rateBpsUsed)).toEqual([600, 200, 100, 50, 50]);
     expect(newEntries.map((e) => e.amountCents)).toEqual([600_000n, 200_000n, 100_000n, 50_000n, 50_000n]);
+  });
+
+  it('T6 provenance: onceden pinlenmis satis daha yeni plan varken exact snapshot ile hesaplanir', async () => {
+    const tenant = await createTenant(prisma);
+    const originalPlan = await createPlan(prisma, tenant.id, {
+      effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+      rates: [500, 200],
+    });
+    const [, seller] = await createChain(prisma, tenant.id, 2);
+    const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n, {
+      saleDate: new Date('2026-06-10T12:00:00.000Z'),
+    });
+    await prisma.sale.update({ where: { id: sale.id }, data: { commissionPlanId: originalPlan.id } });
+
+    await createPlan(prisma, tenant.id, {
+      effectiveFrom: new Date('2026-06-01T00:00:00.000Z'),
+      rates: [900, 100],
+    });
+    await engine.approveSale(sale.id);
+
+    const entries = await prisma.ledgerEntry.findMany({
+      where: { saleId: sale.id, type: LedgerType.commission },
+      orderBy: { level: 'asc' },
+    });
+    expect(entries.map((entry) => entry.rateBpsUsed)).toEqual([500, 200]);
+    expect((await prisma.sale.findUniqueOrThrow({ where: { id: sale.id } })).commissionPlanId).toBe(originalPlan.id);
   });
 
   it('T7: on_delivery — approved ama delivered degil → pending; teslim + job → payable', async () => {

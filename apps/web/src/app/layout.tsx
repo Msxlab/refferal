@@ -10,7 +10,7 @@ const sora = Sora({ subsets: ['latin'], weight: ['600', '700', '800'], variable:
 
 export const metadata: Metadata = {
   title: `${APP_NAME} — Referral commission platform`,
-  description: 'Grow your referral network, distribute commissions automatically.',
+  description: 'Turn approved referral sales into clear, traceable commissions.',
   manifest: '/manifest.webmanifest',
   appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: APP_NAME },
   icons: { icon: '/icon.svg', apple: '/icon.svg' },

@@ -13,7 +13,7 @@ export function sha256(value: string): string {
 const DEV_ENC_FALLBACK = 'refearn-dev-encryption-key-change-in-prod';
 
 /** Simetrik sifreleme anahtari (32 bayt) — REFEARN_ENC_KEY'den turetilir. Uretimde zorunlu. */
-function encKey(): Buffer {
+export function encryptionKeyFromEnv(): Buffer {
   const key = process.env.REFEARN_ENC_KEY;
   if (process.env.NODE_ENV === 'production') {
     // Banka hesap no gibi veri bilinen anahtarla sifrelenirse DB/yedek sizintisi = aninda cozulur.
@@ -31,17 +31,19 @@ function encKey(): Buffer {
  * AES-256-GCM ile hassas veri sifreleme (self-hosted: banka hesap no gibi).
  * Cikti: iv.tag.ciphertext (base64), tek string. At-rest sifreli; dis servis YOK.
  */
+/** @deprecated Internal legacy compatibility for bank ciphertext until the next SecretCipher slice. */
 export function encryptSecret(plain: string): string {
   const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', encKey(), iv);
+  const cipher = createCipheriv('aes-256-gcm', encryptionKeyFromEnv(), iv);
   const enc = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
   return `${iv.toString('base64')}.${tag.toString('base64')}.${enc.toString('base64')}`;
 }
 
+/** @deprecated Internal legacy compatibility for bank ciphertext until the next SecretCipher slice. */
 export function decryptSecret(blob: string): string {
   const [ivB, tagB, encB] = blob.split('.');
-  const decipher = createDecipheriv('aes-256-gcm', encKey(), Buffer.from(ivB, 'base64'));
+  const decipher = createDecipheriv('aes-256-gcm', encryptionKeyFromEnv(), Buffer.from(ivB, 'base64'));
   decipher.setAuthTag(Buffer.from(tagB, 'base64'));
   return Buffer.concat([decipher.update(Buffer.from(encB, 'base64')), decipher.final()]).toString('utf8');
 }

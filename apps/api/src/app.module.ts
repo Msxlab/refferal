@@ -3,6 +3,7 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { SentryExceptionFilter } from './common/sentry-exceptions.filter';
+import { SecretsModule } from './common/secrets.module';
 import { ObservabilityModule } from './observability/observability.module';
 import { AccountModule } from './account/account.module';
 import { AnnouncementsModule } from './announcements/announcements.module';
@@ -54,6 +55,7 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
     // Scheduler testte kapali: cron'un test DB'sinde tetiklenmesini/kayit cakismasini onler
     ...(isTest ? [] : [ScheduleModule.forRoot(), SchedulerModule]),
     ObservabilityModule,
+    SecretsModule,
     PrismaModule,
     EngineModule,
     EventsModule,

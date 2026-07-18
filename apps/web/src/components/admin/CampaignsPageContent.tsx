@@ -298,7 +298,7 @@ function CampaignDrawer({ id, isAdmin, onClose, onChanged, onEdit, onToast }: {
 
           <div>
             <div className="spread" style={{ marginBottom: 8 }}>
-              <strong style={{ fontSize: 13 }}>{d.status === 'ended' ? 'Final standings' : 'Live leaderboard'}</strong>
+              <strong style={{ fontSize: 13 }}>{d.status === 'ended' ? 'Final standings' : 'Current leaderboard'}</strong>
               <span className="faint" style={{ fontSize: 11 }}>{d.standings.length} ranked</span>
             </div>
             {d.standings.length === 0 ? (
