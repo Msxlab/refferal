@@ -1,11 +1,13 @@
+import type { ComponentType } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { RefreshControl, ScrollView, Share, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { api, ApiError } from '@/lib/api';
 import { Badge, Button, Card, ErrorText, MutedText, Title } from '@/components/ui';
+import { APP_NAME } from '@/lib/brand';
 import { dateShort } from '@/lib/format';
 import { t } from '@/lib/i18n';
-import { colors, radius, space, text } from '@/theme';
+import { radius, space, text, useTheme } from '@/theme';
 
 interface InviteItem {
   id: string;
@@ -15,15 +17,18 @@ interface InviteItem {
   createdAt: string;
 }
 
-/** Davet linki web kayit sayfasina gider (tek app + deep link ayni yolu acar). */
+/** Invite links open the web sign-up page; the native app handles the same path as a deep link. */
 const WEB_URL = process.env.EXPO_PUBLIC_WEB_URL ?? 'http://localhost:3000';
 const linkFor = (code: string) => `${WEB_URL}/i/${code}`;
+const QRCodeView = QRCode as unknown as ComponentType<{ value: string; size: number }>;
 
 export default function InviteScreen() {
+  const { colors } = useTheme();
   const [invites, setInvites] = useState<InviteItem[] | null>(null);
   const [latest, setLatest] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sharingCode, setSharingCode] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
@@ -60,13 +65,21 @@ export default function InviteScreen() {
   }
 
   async function share(code: string) {
-    await Share.share({ message: `Refearn ekibime katil: ${linkFor(code)}` });
+    setSharingCode(code);
+    setError('');
+    try {
+      await Share.share({ message: `Join my ${APP_NAME} team: ${linkFor(code)}` });
+    } catch {
+      setError('Could not open sharing. Please try again.');
+    } finally {
+      setSharingCode(null);
+    }
   }
 
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.bg0 }}
-      contentContainerStyle={{ padding: space.s4, paddingTop: space.s8 }}
+      contentContainerStyle={{ padding: space.s4, paddingTop: space.s8, paddingBottom: space.s8 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
     >
       <Title eyebrow={t('tab.invite')} title={t('invite.title')} />
@@ -74,8 +87,8 @@ export default function InviteScreen() {
       <Card glow style={{ alignItems: 'center' }}>
         {latest ? (
           <>
-            <View style={{ backgroundColor: '#fff', padding: space.s3, borderRadius: radius.md }}>
-              <QRCode value={linkFor(latest)} size={170} />
+            <View style={{ backgroundColor: colors.qrSurface, padding: space.s3, borderRadius: radius.md }}>
+              <QRCodeView value={linkFor(latest)} size={170} />
             </View>
             <Text
               selectable
@@ -84,17 +97,21 @@ export default function InviteScreen() {
               {linkFor(latest)}
             </Text>
             <View style={{ flexDirection: 'row', gap: space.s3, marginTop: space.s3 }}>
-              <Button title={t('invite.share')} onPress={() => share(latest)} />
-              <Button title={t('invite.create')} onPress={create} busy={busy} variant="ghost" />
+              <Button title={t('invite.share')} onPress={() => share(latest)} busy={sharingCode === latest} />
+              <Button title={t('invite.create')} onPress={create} busy={busy} disabled={sharingCode !== null} variant="ghost" />
             </View>
           </>
         ) : (
           <>
-            <Text style={{ fontSize: 36, color: colors.primary, marginBottom: space.s2 }}>✦</Text>
+            <Text style={{ fontSize: 36, color: colors.primary, marginBottom: space.s2 }}>Invite</Text>
             <Button title={t('invite.create')} onPress={create} busy={busy} />
           </>
         )}
-        {error ? <ErrorText>{error}</ErrorText> : null}
+        {error ? (
+          <View accessibilityLiveRegion="polite" accessibilityRole="alert">
+            <ErrorText>{error}</ErrorText>
+          </View>
+        ) : null}
       </Card>
 
       <Card>
@@ -126,8 +143,10 @@ export default function InviteScreen() {
                   <Button
                     title={t('invite.share')}
                     onPress={() => share(i.code)}
+                    busy={sharingCode === i.code}
+                    disabled={sharingCode !== null && sharingCode !== i.code}
                     variant="ghost"
-                    style={{ minHeight: 34, paddingVertical: 6 }}
+                    style={{ paddingVertical: 9 }}
                   />
                 )}
               </View>

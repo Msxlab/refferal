@@ -1,4 +1,5 @@
 import {
+  clearSession,
   isSession,
   readSession,
   sameSessionFamily,
@@ -336,6 +337,19 @@ export const api = {
     request<T>(path, { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined }),
   del: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'DELETE', body: body !== undefined ? JSON.stringify(body) : undefined }),
+  logout: async (): Promise<void> => {
+    const session = currentSession();
+    try {
+      if (session?.refreshToken) {
+        await rawFetch('/auth/logout', {
+          method: 'POST',
+          body: JSON.stringify({ refreshToken: session.refreshToken }),
+        });
+      }
+    } finally {
+      await clearSession();
+    }
+  },
 };
 
 /** Bir async sonucunu yakalanan exact session sahibiyle ayni Bearer'a baglar. */
@@ -379,8 +393,14 @@ export async function switchTenant(
 /** 2FA etkin hesapta login 1. adimin donusu (tam oturum YERINE). */
 export interface MfaChallenge {
   mfaRequired: true;
-  mfaToken: string;
+  challengeToken: string;
+  /** Legacy UI compatibility; it is always the same opaque value as challengeToken. */
+  mfaToken?: string;
+  expiresAt?: string;
 }
+
+type MfaChallengeResponse = Omit<MfaChallenge, 'mfaToken'>;
+type LoginResponse = Session | MfaChallengeResponse;
 
 async function readOrThrow(res: Response): Promise<unknown> {
   if (!res.ok) {
@@ -397,7 +417,11 @@ async function readOrThrow(res: Response): Promise<unknown> {
 
 export async function login(email: string, password: string): Promise<Session | MfaChallenge> {
   const res = await rawFetch('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
-  return (await readOrThrow(res)) as Session | MfaChallenge;
+  const result = (await readOrThrow(res)) as LoginResponse;
+  if (isMfaChallengeResponse(result)) {
+    return { ...result, mfaToken: result.challengeToken };
+  }
+  return result;
 }
 
 export async function requestPasswordReset(email: string): Promise<{ ok: true }> {
@@ -408,10 +432,27 @@ export async function requestPasswordReset(email: string): Promise<{ ok: true }>
   return (await readOrThrow(res)) as { ok: true };
 }
 
-/** Login 2. adim: challenge token + TOTP/kurtarma kodu -> tam oturum. */
-export async function loginTwoFactor(mfaToken: string, code: string): Promise<Session> {
-  const res = await rawFetch('/auth/login/2fa', { method: 'POST', body: JSON.stringify({ mfaToken, code }) });
+/** Login 2. adim: opaque challenge token + TOTP/kurtarma kodu -> tam oturum. */
+export async function loginTwoFactor(challengeToken: string, code: string): Promise<Session> {
+  const res = await rawFetch('/auth/login/2fa', { method: 'POST', body: JSON.stringify({ challengeToken, code }) });
   return (await readOrThrow(res)) as Session;
+}
+
+/** Kept for older invite/login surfaces while the server uses `challengeToken`. */
+export function loginMfa(challengeToken: string, code: string): Promise<Session> {
+  return loginTwoFactor(challengeToken, code);
+}
+
+function isMfaChallengeResponse(value: LoginResponse): value is MfaChallengeResponse {
+  return 'mfaRequired' in value && value.mfaRequired === true && typeof value.challengeToken === 'string';
+}
+
+export function isMfaChallenge(value: Session | MfaChallenge): value is MfaChallenge {
+  return (
+    'mfaRequired' in value &&
+    value.mfaRequired === true &&
+    typeof value.challengeToken === 'string'
+  );
 }
 
 /** Markali subdomain girisi (Alt-proje B): giristen ONCE kimliksiz marka bilgisi. */
@@ -441,7 +482,12 @@ export async function postBlob(path: string, body?: unknown): Promise<Blob> {
   return res.blob();
 }
 
-/** CSV indirme: metin doner, Bearer ekler. */
+export async function refreshSession(): Promise<Session | null> {
+  const session = currentSession();
+  return session ? (await refresh(session)).session : null;
+}
+
+/** CSV download returns raw text and includes the bearer token. */
 export async function getCsv(path: string): Promise<string> {
   const session = sessionForRequest();
   let res = await rawFetch(path, {}, session?.accessToken);
@@ -450,6 +496,6 @@ export async function getCsv(path: string): Promise<string> {
     if (!retrySession) throw expiredSessionError();
     res = await rawFetch(path, {}, retrySession.accessToken);
   }
-  if (!res.ok) throw new ApiError(res.status, { message: 'CSV indirilemedi' });
+  if (!res.ok) throw new ApiError(res.status, { message: 'CSV download failed' });
   return res.text();
 }

@@ -47,6 +47,7 @@ describe('payout maker-checker (entegrasyon)', () => {
     const proposed = await request(srv()).post('/v1/admin/payouts/run').set('Authorization', `Bearer ${ownerTok}`).send({ method: 'csv', membershipIds: [member.id] }).expect(200);
     expect(proposed.body.proposed).toBe(true);
     const batchId = proposed.body.batchId;
+    expect((await prisma.payoutBatch.findUniqueOrThrow({ where: { id: batchId } })).membershipIds).toEqual([member.id]);
     expect((await prisma.payout.count({ where: { tenantId: tenant.id } }))).toBe(0); // henuz odeme yok
 
     // oneren (owner) onaylayamaz

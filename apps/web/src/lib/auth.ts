@@ -1,5 +1,5 @@
-// Admin SPA oturumu: token'lar localStorage'da (MVP tercihi — bkz. DECISIONS).
-// Uretimde httpOnly cookie'ye gecilebilir.
+// The SPA session is kept in localStorage; refresh-token rotation is coordinated
+// across tabs by the mutation lock below.
 
 import { getActiveCompanyToken, setActiveCompanyToken } from './active-company';
 
@@ -587,6 +587,8 @@ interface AccessClaims {
   perms?: string[];
   tid?: string;
   mid?: string;
+  mfa?: boolean;
+  plat?: boolean;
   sid?: string;
   imp?: string;
 }
@@ -702,14 +704,33 @@ export function can(s: Session | null, permission: string): boolean {
   return c.perms?.includes(permission) ?? false;
 }
 
-/** Rol bazli varsayilan inis: admin roller /admin, uye /app (SPEC 4.3). */
+/** Role-based default landing path: admin roles to /admin, members to /app (SPEC 4.3). */
 export function landingPath(role: string | undefined): string {
   return isAdminRole(role) ? '/admin' : '/app';
+}
+
+const DEFAULT_MFA_SETUP_ROLES = ['tenant_owner', 'tenant_admin', 'platform_admin'];
+
+function mfaSetupRoles(): ReadonlySet<string> {
+  const raw = process.env.NEXT_PUBLIC_MFA_REQUIRED_ROLES;
+  if (raw?.trim().toLowerCase() === 'none') return new Set();
+  return new Set((raw ?? DEFAULT_MFA_SETUP_ROLES.join(',')).split(',').map((role) => role.trim()).filter(Boolean));
+}
+
+export function requiresMfaSetup(s: Session | null): boolean {
+  if (!s) return false;
+  const claims = accessClaims(s);
+  const role = claims.role ?? activeMembership(s)?.role;
+  const requiredRoles = mfaSetupRoles();
+  const privilegedTenantRole = role !== undefined && requiredRoles.has(role);
+  const platformRole = requiredRoles.has('platform_admin') && (claims.plat === true || s.user.isPlatformAdmin === true);
+  return (privilegedTenantRole || platformRole) && claims.mfa !== true;
 }
 
 /** Oturum bazli inis: platform admin HQ'ya iner.
  *  Diger roller role gore (admin → /admin, uye → /app). */
 export function landingForSession(s: Session): string {
+  if (requiresMfaSetup(s)) return '/mfa-setup';
   if (s.user.isPlatformAdmin) return '/hq';
   return landingPath(activeMembership(s)?.role);
 }

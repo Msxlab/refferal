@@ -1,8 +1,9 @@
-import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, Post } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { z } from 'zod';
-import { CurrentUser, Public, RequireMembership, Roles } from '../auth/auth.guard';
-import { RequestUser } from '../auth/auth.types';
+import { AccountSessionOnly, CurrentUser, Public, RequireMembership, Roles } from '../auth/auth.guard';
+import { InviteContinuationDto, InviteResolveDto, RequestUser } from '../auth/auth.types';
+import { parseIdempotencyKey } from '../common/idempotency-key';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { InvitesService } from './invites.service';
 
@@ -17,14 +18,14 @@ const codeSchema = z.string().trim().min(4).max(64);
 const trackSchema = z.object({ event: z.literal('view'), utmSource: z.string().trim().max(80).optional() });
 const messageSchema = z.object({ message: z.string().trim().max(280).nullable() });
 
-/** Public: /i/{code} sayfasinin davet cozumlemesi + funnel tracking. */
+/** Public invite resolution for the /i/{code} registration page. */
 @Controller('invites')
 export class PublicInvitesController {
   constructor(private readonly invites: InvitesService) {}
 
   @Public()
   @Get(':code')
-  resolve(@Param('code', new ZodValidationPipe(codeSchema)) code: string) {
+  resolve(@Param('code', new ZodValidationPipe(codeSchema)) code: string): Promise<InviteResolveDto> {
     return this.invites.resolve(code);
   }
 
@@ -52,7 +53,22 @@ export class AdminInviteFunnelController {
   }
 }
 
-/** Uye yuzeyi: davet olustur + kendi davetlerini listele. */
+/** Authenticated recovery for a user who already consumed an invite. */
+@AccountSessionOnly()
+@Controller('invite-continuations')
+export class InviteContinuationsController {
+  constructor(private readonly invites: InvitesService) {}
+
+  @Get(':code')
+  resolve(
+    @CurrentUser() user: RequestUser,
+    @Param('code', new ZodValidationPipe(codeSchema)) code: string,
+  ): Promise<InviteContinuationDto> {
+    return this.invites.continuation(code, user.sub);
+  }
+}
+
+/** Member surface: create invites and list the caller's own invites. */
 @RequireMembership()
 @Controller('app/invites')
 export class AppInvitesController {
@@ -62,8 +78,9 @@ export class AppInvitesController {
   create(
     @CurrentUser() user: RequestUser,
     @Body(new ZodValidationPipe(createInviteSchema)) body: CreateInviteInput,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.invites.create(user.mid as string, body);
+    return this.invites.create(user.mid as string, body, parseIdempotencyKey(idempotencyKey));
   }
 
   @Get()

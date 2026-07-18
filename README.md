@@ -1,75 +1,94 @@
-# Refearn — Referans Komisyon Sistemi
+# Americana Earn - Referral Commission Platform
 
-Çok kiracılı (multi-tenant), self-hosted referans/komisyon SaaS platformu.
-Mimari ve iş kuralları: **[docs/SPEC.md](docs/SPEC.md)** · Karar kaydı: **[docs/DECISIONS.md](docs/DECISIONS.md)**
+Americana Earn is a self-hosted, multi-tenant referral commission platform for invite-only sales networks. Companies can onboard members, record product sales, distribute commission through a fixed upline window, and manage payouts with an auditable ledger.
 
-> "Refearn" geçici çalışma adıdır; marka/domain kararı routing'i etkilemez.
+Core references:
+- Architecture and business rules: [docs/SPEC.md](docs/SPEC.md)
+- Decision log: [docs/DECISIONS.md](docs/DECISIONS.md)
+- Deployment and restore operations: [docs/DEPLOY.md](docs/DEPLOY.md)
+- Product and UX roadmap: [docs/PRODUCT-BLUEPRINT.md](docs/PRODUCT-BLUEPRINT.md)
 
-## Yapı (pnpm + Turborepo)
+## Workspace
 
-```
-apps/api          NestJS + Prisma (komisyon motoru burada)        — API :3101
-apps/web          Next.js — /admin (yonetim) + /app (uye) + /i/{code} (davetle kayit) :3000
-apps/mobile       Expo (React Native) — login, ozet, cuzdan, ekibim, davet+QR, push
-packages/shared   zod şemaları, sabitler, para yardımcıları, saf komisyon çekirdeği
-```
-
-## Çalıştırma (geliştirme)
-
-```bash
-pnpm db:up && pnpm db:migrate && pnpm db:seed   # Postgres/Redis + şema + örnek tenant
-pnpm dev:api                                    # API → http://localhost:3101/v1
-pnpm dev:web                                    # Admin web → http://localhost:3000
+```text
+apps/api          NestJS + Prisma API and commission engine, local API :3101
+apps/web          Next.js web app: /admin, /app, /platform, /login, /i/{code}
+apps/mobile       Expo mobile member app: login, overview, wallet, team, invite, push
+packages/shared   Zod schemas, constants, money helpers, pure commission logic
+docker/backup     Backup, restore-test, and offsite copy helpers
+docker/ops        Optional host-level systemd timers for maintenance and restore drills
+AI                Working memory, audit notes, and implementation logs
 ```
 
-Demo giriş (seed): `owner@oppein.test` / `Refearn-Demo-2026!`. Portlar bu makinede
-kaydırıldı (Postgres 5434, Redis 6380, API 3101) — bkz. docs/DECISIONS.md.
-
-### Mobil (Expo)
-
-```bash
-pnpm --filter @refearn/mobile dev        # Expo Go ile QR okutun
-# Android emulatoru API'ye 10.0.2.2:3101 ile ulasir (varsayilan).
-# Gercek cihazda LAN IP'nizi verin:
-#   EXPO_PUBLIC_API_URL=http://192.168.x.x:3101/v1
-#   EXPO_PUBLIC_WEB_URL=http://192.168.x.x:3000   (davet linkleri icin)
-```
-
-Davet deep-link'i: `refearn://i/{code}` (web `/i/{code}` ile aynı yol).
-
-## Kurulum
+## Local Development
 
 ```bash
 pnpm install
 cp .env.example .env          # Windows: Copy-Item .env.example .env
-pnpm db:up                    # postgres:17 + redis:7 (Docker)
-pnpm db:migrate               # migration'lar (apps/api)
-pnpm db:seed                  # Oppein tenant + standart plan + örnek ağaç
+pnpm db:up                    # postgres:17 + redis:7
+pnpm db:migrate               # Prisma migrations
+pnpm db:seed                  # Seed demo tenant, plan, and member tree
+pnpm dev:api                  # http://localhost:3101/v1
+pnpm dev:web                  # http://localhost:3000
 ```
 
-## Test
+Demo seed login:
 
-Komisyon motoru test-first geliştirilir (SPEC Bölüm 11, T1–T10):
-
-```bash
-pnpm test                              # unit (saf çekirdek: dağıtım, yuvarlama, plan doğrulama)
-pnpm --filter @refearn/api test:int    # entegrasyon (gerçek Postgres, refearn_test DB)
+```text
+owner@oppein.test / Americana-Demo-2026!
 ```
 
-## Para kuralları (kısaca)
+Local port notes:
+- Postgres: `5434`
+- Redis: `6380`
+- API: `3101`
+- Web: `3000`
+- `apps/api/src/main.ts` falls back to `3001` when `PORT` is unset; local env files set `PORT=3101`.
 
-- Tüm tutarlar **integer cent** (`BIGINT`); float asla kullanılmaz.
-- Oranlar bps (10000 = %100). Seviye tutarı `floor(amount * rate_bps / 10000)`; kalan kuruş şirkette kalır.
-- Ledger satırı asla silinmez; düzeltme = eşit-ters reversal satırı.
-
-## Dağıtım (tam yığın)
-
-Caddy (otomatik TLS) + web + API + Postgres + Redis + günlük yedek tek komutla:
+## Mobile Development
 
 ```bash
-cp .env.example .env     # JWT_ACCESS_SECRET, DOMAIN, PUBLIC_ORIGIN, SMTP_* doldur
+pnpm --filter @refearn/mobile dev
+```
+
+Android emulator defaults can reach the API through `10.0.2.2:3101`. A physical device needs LAN URLs:
+
+```bash
+EXPO_PUBLIC_API_URL=http://192.168.x.x:3101/v1
+EXPO_PUBLIC_WEB_URL=http://192.168.x.x:3000
+```
+
+The native invite path mirrors the web invite path: `refearn://i/{code}` and `/i/{code}`.
+
+## Tests
+
+The commission engine is test-first and protected by unit and integration coverage.
+
+```bash
+pnpm test
+pnpm --filter @refearn/api test:int
+pnpm --filter @refearn/web build
+pnpm --filter @refearn/web lint
+pnpm --filter @refearn/mobile lint
+pnpm --filter @refearn/api lint
+```
+
+## Money Rules
+
+- Store all money as integer cents in `BIGINT` fields.
+- Store rates in basis points: `10000 = 100%`.
+- Per-level commission amount is `floor(amount_cents * rate_bps / 10000)`.
+- Undistributed remainder stays with the company.
+- Ledger rows are append-only. Corrections are equal-and-opposite reversal rows.
+
+## Deployment
+
+Full-stack deployment uses Docker Compose with web, API, Postgres, Redis, Caddy, and backup services.
+
+```bash
+cp .env.example .env
+# Fill required production values such as JWT_ACCESS_SECRET, DOMAIN, PUBLIC_ORIGIN, and SMTP settings.
 docker compose --profile app up -d --build
 ```
 
-Detay, restore prosedürü ve operasyon: **[docs/DEPLOY.md](docs/DEPLOY.md)**.
-Sağlık ucu: `GET /healthz`. Yedek: `backup` servisi günlük `pg_dump`, 30 gün saklama.
+Operational details, backup setup, restore drills, and production notes live in [docs/DEPLOY.md](docs/DEPLOY.md).

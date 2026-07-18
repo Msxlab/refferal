@@ -3,10 +3,11 @@ import { EngineModule } from '../engine/engine.module';
 import { WebhooksModule } from '../webhooks/webhooks.module';
 import { SanctionsModule } from '../sanctions/sanctions.module';
 import { AdminPayoutsController, AppPayoutsController } from './payouts.controller';
+import { PayoutComplianceModule } from './payout-compliance.module';
 import { PayoutsService } from './payouts.service';
 
 @Module({
-  imports: [EngineModule, WebhooksModule, SanctionsModule],
+  imports: [EngineModule, PayoutComplianceModule, WebhooksModule, SanctionsModule],
   controllers: [AdminPayoutsController, AppPayoutsController],
   providers: [PayoutsService],
   exports: [PayoutsService],

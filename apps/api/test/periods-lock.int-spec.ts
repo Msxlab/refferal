@@ -6,7 +6,7 @@ import { EngineService } from '../src/engine/engine.service';
 import { PeriodsService } from '../src/periods/periods.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { ActorContext } from '../src/common/actor';
-import { createChain, createPlan, createSale, createTenant, truncateAll } from './helpers';
+import { createChain, createPlan, createSale, createTenant, seedReadyPayoutCompliance, truncateAll } from './helpers';
 
 /** Dalga 3 — donem kilidi (muhasebe kapanisi): kilitli aya komisyon/payout yazilamaz. */
 describe('period lock (entegrasyon)', () => {
@@ -55,11 +55,18 @@ describe('period lock (entegrasyon)', () => {
 
   it('kilitli ayin payable payout edilemez', async () => {
     const { seller, sale, actor } = await setup();
+    await seedReadyPayoutCompliance(prisma, actor.tenantId, seller.id, actor.userId);
     await engine.approveSale(sale.id, actor.userId); // on_approval → payable
     await periods.lock(actor, PERIOD);
 
     await expect(
-      engine.payoutMember({ tenantId: actor.tenantId, membershipId: seller.id, period: PERIOD, method: PayoutMethod.manual }),
+      engine.reservePayoutBatch({
+        tenantId: actor.tenantId,
+        scope: { mode: 'selected', membershipIds: [seller.id] },
+        period: PERIOD,
+        method: PayoutMethod.manual,
+        actorUserId: actor.userId,
+      }),
     ).rejects.toThrow(/kilitli/);
   });
 

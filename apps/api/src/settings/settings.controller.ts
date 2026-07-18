@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Patch, Post } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Patch, Post } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { z } from 'zod';
-import { CurrentUser, RequireMembership, Roles } from '../auth/auth.guard';
+import { CurrentUser, RequireMembership, RequirePermission, Roles } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
 import { ActorContext } from '../common/actor';
 import { ZodValidationPipe } from '../common/zod.pipe';
@@ -11,6 +11,7 @@ const STAFF = [Role.tenant_owner, Role.tenant_admin, Role.tenant_staff];
 const ADMIN = [Role.tenant_owner, Role.tenant_admin];
 
 const updateSchema = z.object({
+  name: z.string().trim().min(2).max(80).optional(),
   maturationRule: z.enum(['on_approval', 'on_delivery', 'days_after_approval', 'days_after_delivery']).optional(),
   maturationDays: z.number().int().min(0).max(365).nullable().optional(),
   payoutMinCents: z.number().int().min(0).optional(),
@@ -24,7 +25,7 @@ const updateSchema = z.object({
   autoRequestPayouts: z.boolean().optional(),
   branding: z
     .object({
-      logoText: z.string().trim().max(40).optional(),
+      logoText: z.string().trim().max(2).optional(),
       tagline: z.string().trim().max(120).optional(),
       primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
       accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
@@ -44,15 +45,50 @@ const planBonusSchema = z.object({
 export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
 
+  private assertSettingsPermissions(user: RequestUser, body: UpdateBody): void {
+    if (user.role === Role.tenant_owner || user.role === Role.platform_admin) return;
+
+    const needed = new Set<string>();
+    if (
+      body.maturationRule !== undefined ||
+      body.maturationDays !== undefined ||
+      body.timezone !== undefined ||
+      body.compressionEnabled !== undefined ||
+      body.inactiveMembersEarn !== undefined
+    ) {
+      needed.add('settings.general');
+    }
+    if (body.payoutMinCents !== undefined) needed.add('settings.payments');
+    if (body.notifyNewMemberName !== undefined) needed.add('settings.notifications');
+    if (body.requireSeparateApprover !== undefined) needed.add('settings.security');
+    if (body.name !== undefined || body.branding !== undefined) needed.add('settings.branding');
+
+    const held = new Set(user.perms ?? []);
+    const missing = [...needed].filter((p) => !held.has(p));
+    if (missing.length > 0) {
+      throw new ForbiddenException(`you do not have permission for this action: ${missing.join(', ')}`);
+    }
+  }
+
   @Roles(...STAFF)
+  @RequirePermission('settings.view')
   @Get()
   get(@CurrentUser() user: RequestUser) {
     return this.settings.get(user.tid as string);
   }
 
   @Roles(...ADMIN)
+  @RequirePermission('settings.data')
+  @Get('data-status')
+  dataStatus(@CurrentUser() user: RequestUser) {
+    return this.settings.dataStatus(user.tid as string);
+  }
+
+  @Roles(...ADMIN)
+  @RequirePermission('settings.view')
   @Patch()
   update(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(updateSchema)) body: UpdateBody) {
+    this.assertSettingsPermissions(user, body);
     const actor: ActorContext = { userId: user.sub, tenantId: user.tid as string };
     const input: UpdateSettingsInput = {
       ...body,

@@ -54,6 +54,7 @@ function isSession(value: unknown): value is Session {
     !isNonEmptyString(user.fullName) ||
     !isNonEmptyString(user.locale) ||
     typeof user.emailVerified !== 'boolean' ||
+    (user.isPlatformAdmin !== undefined && typeof user.isPlatformAdmin !== 'boolean') ||
     (value.activeMembershipId !== null && !isNonEmptyString(value.activeMembershipId))
   ) {
     return false;
@@ -74,6 +75,7 @@ function isSession(value: unknown): value is Session {
 async function rawFetch(path: string, init: RequestInit, token?: string): Promise<Response> {
   const headers = new Headers(init.headers);
   if (token) headers.set('Authorization', `Bearer ${token}`);
+  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   return fetch(`${BASE}${path}`, { ...init, headers });
 }
 
@@ -117,6 +119,7 @@ function sameSessionSnapshot(captured: Session, current: Session): boolean {
     captured.user.fullName === current.user.fullName &&
     captured.user.locale === current.user.locale &&
     captured.user.emailVerified === current.user.emailVerified &&
+    captured.user.isPlatformAdmin === current.user.isPlatformAdmin &&
     captured.memberships.length === current.memberships.length &&
     captured.memberships.every((membership, index) => {
       const other = current.memberships[index];
@@ -309,12 +312,39 @@ export const api = {
   request: <T>(path: string, init: RequestInit = {}) => request<T>(path, init),
 };
 
-/** Login ozel: token henuz yok. */
-export async function login(email: string, password: string): Promise<Session> {
+export interface MfaChallenge {
+  mfaRequired: true;
+  challengeToken: string;
+  expiresAt: string;
+}
+
+export function isMfaChallenge(value: Session | MfaChallenge): value is MfaChallenge {
+  return 'mfaRequired' in value && value.mfaRequired === true;
+}
+
+/** Login is special: there is no token yet. */
+export async function login(email: string, password: string): Promise<Session | MfaChallenge> {
   const res = await rawFetch('/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = { message: res.statusText };
+    }
+    throw new ApiError(res.status, body);
+  }
+  return (await res.json()) as Session | MfaChallenge;
+}
+
+export async function loginMfa(challengeToken: string, code: string): Promise<Session> {
+  const res = await rawFetch('/auth/login/2fa', {
+    method: 'POST',
+    body: JSON.stringify({ challengeToken, code }),
   });
   if (!res.ok) {
     let body: unknown = null;

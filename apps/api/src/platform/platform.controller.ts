@@ -1,4 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put } from '@nestjs/common';
+import { TenantStatus } from '@prisma/client';
 import { z } from 'zod';
 import { CurrentUser, PlatformAdmin } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
@@ -35,7 +36,9 @@ const createCompanySchema = z.object({
   ownerName: z.string().trim().min(1).max(120),
 });
 
-/** /platform — kiracci-ustu yuzey. @RequireMembership YOK (platform admin uyelik tasimaz). */
+const reasonSchema = z.object({ reason: z.string().trim().max(180).optional() }).default({});
+
+/** /platform is above tenants. It does not require membership because platform admins may not hold one. */
 @PlatformAdmin()
 @Controller('platform')
 export class PlatformController {
@@ -72,6 +75,26 @@ export class PlatformController {
   @Get('companies/:id/network')
   network(@Param('id', ParseUUIDPipe) id: string) {
     return this.platform.network(id);
+  }
+
+  @HttpCode(200)
+  @Post('companies/:id/suspend')
+  suspend(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(reasonSchema)) body: z.infer<typeof reasonSchema>,
+  ) {
+    return this.platform.setStatus(user.sub, id, TenantStatus.suspended, body.reason);
+  }
+
+  @HttpCode(200)
+  @Post('companies/:id/reactivate')
+  reactivate(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(reasonSchema)) body: z.infer<typeof reasonSchema>,
+  ) {
+    return this.platform.setStatus(user.sub, id, TenantStatus.active, body.reason);
   }
 
   // ---- Act-as: sirket icin tenant-scoped owner token (platform admin) ----

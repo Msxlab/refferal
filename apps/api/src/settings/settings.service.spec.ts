@@ -138,6 +138,7 @@ describe('SettingsService.update', () => {
     const harness = createPrismaHarness();
 
     await createService(harness).update(actor, {
+      name: 'Network Ledger Plus',
       maturationRule: MaturationRule.days_after_approval,
       maturationDays: 14,
       payoutMinCents: 2_500n,
@@ -154,6 +155,7 @@ describe('SettingsService.update', () => {
 
     expect(harness.auditEvents).toHaveLength(1);
     expect(harness.auditEvents[0].before).toEqual({
+      name: 'Network Ledger',
       maturationRule: MaturationRule.on_approval,
       maturationDays: null,
       payoutMinCents: '1000',
@@ -168,6 +170,7 @@ describe('SettingsService.update', () => {
       branding: initialTenant.branding,
     });
     expect(harness.auditEvents[0].after).toEqual({
+      name: 'Network Ledger Plus',
       maturationRule: MaturationRule.days_after_approval,
       maturationDays: 14,
       payoutMinCents: '2500',
@@ -180,7 +183,7 @@ describe('SettingsService.update', () => {
       requirePayoutApproval: true,
       autoRequestPayouts: false,
       branding: {
-        logoText: 'Ledger',
+        logoText: 'LE',
         tagline: 'Before',
         primaryColor: '#ABCDEF',
         accentColor: '#222222',

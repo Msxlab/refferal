@@ -1,12 +1,16 @@
-import { MaturationRule, LedgerStatus, PayoutStatus } from '@prisma/client';
+import { BadRequestException } from '@nestjs/common';
+import { LedgerStatus, LedgerType, MaturationRule, PayoutStatus, SaleStatus } from '@prisma/client';
 import { EngineService } from '../src/engine/engine.service';
+import { BackgroundJobStatusService } from '../src/health/background-job-status.service';
 import { RanksService } from '../src/ranks/ranks.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { TenantContextService } from '../src/prisma/tenant-context.service';
 import { FraudService } from '../src/fraud/fraud.service';
 import { ReportsService } from '../src/reports/reports.service';
 import { WebhooksService } from '../src/webhooks/webhooks.service';
 import { CampaignsService } from '../src/campaigns/campaigns.service';
 import { PayoutsService } from '../src/payouts/payouts.service';
+import { PayoutComplianceService } from '../src/payouts/payout-compliance.service';
 import { EventsService } from '../src/events/events.service';
 import { SanctionsService } from '../src/sanctions/sanctions.service';
 import { AlertsService } from '../src/observability/alerts.service';
@@ -15,12 +19,12 @@ import { SchedulerService } from '../src/scheduler/scheduler.service';
 import { createChain, createPlan, createSale, createTenant, summaryTotals, truncateAll } from './helpers';
 
 /**
- * Inceleme bulgusu (kritik domino): on_delivery'de markDelivered statuyu cevirmez;
- * pending→payable gecisi YALNIZCA zamanlanmis matureCommissions ile olur. Scheduler
- * olmadan payable hep bos kalir, tum payout dongusu donar. Bu test scheduler wrapper'ini
- * + tum on_delivery→payable zincirini dogrular.
+ * Review finding (critical path): with on_delivery, markDelivered does not change status;
+ * the pending->payable transition happens only through scheduled matureCommissions. Without
+ * the scheduler, payable stays empty and the payout cycle stalls. This test verifies the
+ * scheduler wrapper plus the full on_delivery->payable chain.
  */
-describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
+describe('scheduler - maturation job chain (integration)', () => {
   let prisma: PrismaService;
   let engine: EngineService;
   let scheduler: SchedulerService;
@@ -29,17 +33,33 @@ describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
   beforeAll(async () => {
     prisma = new PrismaService();
     await prisma.$connect();
-    engine = new EngineService(prisma, new RanksService(prisma));
+    const tenantContext = new TenantContextService();
+    const compliance = new PayoutComplianceService(prisma, tenantContext);
+    const ranks = new RanksService(prisma);
+    engine = new EngineService(prisma, compliance, ranks);
     const secretCipher = new VersionedSecretCipher([new EnvAesGcmSecretCryptoProvider()]);
     payouts = new PayoutsService(
       prisma,
       engine,
+      tenantContext,
+      compliance,
       new WebhooksService(prisma),
       new EventsService(),
       new SanctionsService(prisma),
       secretCipher,
     );
-    scheduler = new SchedulerService(engine, new ReportsService(prisma), new FraudService(prisma), new WebhooksService(prisma), new CampaignsService(prisma, engine), prisma, payouts, new AlertsService(), new RanksService(prisma));
+    scheduler = new SchedulerService(
+      engine,
+      new BackgroundJobStatusService(),
+      new ReportsService(prisma),
+      new FraudService(prisma),
+      new WebhooksService(prisma),
+      new CampaignsService(prisma, engine),
+      prisma,
+      payouts,
+      new AlertsService(),
+      ranks,
+    );
   });
 
   afterAll(async () => {
@@ -50,7 +70,7 @@ describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
     await truncateAll(prisma);
   });
 
-  it('on_delivery: approve→pending, deliver, scheduler job→payable', async () => {
+  it('on_delivery: approve->pending, deliver, scheduler job->payable', async () => {
     const tenant = await createTenant(prisma, { maturationRule: MaturationRule.on_delivery });
     await createPlan(prisma, tenant.id);
     const chain = await createChain(prisma, tenant.id, 6);
@@ -59,17 +79,17 @@ describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
     const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
     await engine.approveSale(sale.id);
 
-    // approve sonrasi pending (scheduler henuz calismadi)
+    // Pending after approval because the scheduler has not run yet.
     let s = await summaryTotals(prisma, seller.id);
     expect(s.pending).toBe(500_000n);
     expect(s.payable).toBe(0n);
 
-    // teslim oncesi job hicbir sey olgunlastirmaz
+    // Before delivery, the job does not mature anything.
     await scheduler.matureCommissions();
     s = await summaryTotals(prisma, seller.id);
     expect(s.payable).toBe(0n);
 
-    // teslim → job → payable
+    // Delivery -> job -> payable.
     await engine.markDelivered(sale.id);
     await scheduler.matureCommissions();
 
@@ -81,7 +101,7 @@ describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
     expect(entries.every((e) => e.status === LedgerStatus.payable)).toBe(true);
   });
 
-  it('job tekrar calistiginda idempotent (cift olgunlasma yok)', async () => {
+  it('job is idempotent when run again, with no double maturation', async () => {
     const tenant = await createTenant(prisma, { maturationRule: MaturationRule.on_delivery });
     await createPlan(prisma, tenant.id);
     const [seller] = await createChain(prisma, tenant.id, 1);
@@ -90,12 +110,80 @@ describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
     await engine.markDelivered(sale.id);
 
     await scheduler.matureCommissions();
-    await scheduler.matureCommissions(); // ikinci kosum
+    await scheduler.matureCommissions(); // Second run.
 
     const s = await summaryTotals(prisma, seller.id);
-    expect(s.payable).toBe(500_000n); // cift sayilmadi
+    expect(s.payable).toBe(500_000n); // Not counted twice.
   });
 
+  it('matures one bounded batch and reports when more due rows remain', async () => {
+    const tenant = await createTenant(prisma, { maturationRule: MaturationRule.on_delivery });
+    const [seller] = await createChain(prisma, tenant.id, 1);
+    const now = new Date('2026-07-17T12:00:00.000Z');
+    const month = '2026-07';
+
+    await prisma.monthlySummary.create({
+      data: {
+        tenantId: tenant.id,
+        membershipId: seller.id,
+        month,
+        level: 0,
+        pendingCents: 101n,
+      },
+    });
+    await prisma.$transaction(
+      Array.from({ length: 101 }, (_, index) => {
+        const createdAt = new Date(now.getTime() - 101_000 + index);
+        return prisma.sale.create({
+          data: {
+            tenantId: tenant.id,
+            sellerMembershipId: seller.id,
+            amountCents: 1n,
+            saleDate: now,
+            summaryMonth: month,
+            status: SaleStatus.approved,
+            createdAt,
+            ledger: {
+              create: {
+                tenantId: tenant.id,
+                beneficiaryMembershipId: seller.id,
+                level: 0,
+                rateBpsUsed: 100,
+                amountCents: 1n,
+                type: LedgerType.commission,
+                status: LedgerStatus.pending,
+                maturesAt: new Date(now.getTime() - 1),
+                createdAt,
+              },
+            },
+          },
+        });
+      }),
+    );
+
+    await expect(engine.matureCommissions(now, 100)).resolves.toEqual({ matured: 100, hasMore: true });
+    await expect(
+      prisma.ledgerEntry.count({ where: { type: LedgerType.commission, status: LedgerStatus.payable } }),
+    ).resolves.toBe(100);
+    await expect(
+      prisma.ledgerEntry.count({ where: { type: LedgerType.commission, status: LedgerStatus.pending } }),
+    ).resolves.toBe(1);
+
+    await expect(engine.matureCommissions(now, 100)).resolves.toEqual({ matured: 1, hasMore: false });
+    await expect(
+      prisma.ledgerEntry.count({ where: { type: LedgerType.commission, status: LedgerStatus.payable } }),
+    ).resolves.toBe(101);
+    expect(await summaryTotals(prisma, seller.id)).toEqual({
+      pending: 0n,
+      payable: 101n,
+      processing: 0n,
+      paid: 0n,
+    });
+  });
+
+  it.each([0, -1, 1.5])('rejects invalid maturation batch limit %p', async (limit) => {
+    await expect(engine.matureCommissions(new Date(), limit)).rejects.toBeInstanceOf(BadRequestException);
+  });
   // ---- Faz A3: otomatik cek talebi ----
 
   /** Esigi gecmis payable'i olan uye uretir (createChain adres+email dolu verir). */
@@ -171,4 +259,80 @@ describe('scheduler — olgunlasma job zinciri (entegrasyon)', () => {
     expect(r.created).toBe(0);
     expect(await prisma.payout.count({ where: { membershipId: seller.id } })).toBe(0);
   });
+});
+
+describe('scheduler - bounded tick status (integration)', () => {
+  function schedulerForMaturation(engine: EngineService, status: BackgroundJobStatusService): SchedulerService {
+    return new SchedulerService(
+      engine,
+      status,
+      {} as ReportsService,
+      {} as FraudService,
+      {} as WebhooksService,
+      {} as CampaignsService,
+      {} as PrismaService,
+      {} as PayoutsService,
+      { critical: async () => undefined } as unknown as AlertsService,
+      {} as RanksService,
+    );
+  }
+
+  it('stops after the backlog is drained and records a successful run', async () => {
+    const matureCommissions = jest
+      .fn()
+      .mockResolvedValueOnce({ matured: 100, hasMore: true })
+      .mockResolvedValueOnce({ matured: 0, hasMore: false });
+    const status = new BackgroundJobStatusService();
+    const scheduler = schedulerForMaturation({ matureCommissions } as unknown as EngineService, status);
+
+    await scheduler.matureCommissions();
+
+    expect(matureCommissions).toHaveBeenCalledTimes(2);
+    for (const [now, limit] of matureCommissions.mock.calls) {
+      expect(now).toBeInstanceOf(Date);
+      expect(limit).toBe(100);
+    }
+    expect(status.snapshot()).toEqual({
+      maturationLastSuccessAt: expect.any(Date),
+      maturationLastDurationSeconds: expect.any(Number),
+      maturationFailureCount: 0,
+    });
+    expect(status.snapshot().maturationLastDurationSeconds).toBeGreaterThanOrEqual(0);
+  });
+
+  it('never runs more than ten batches in one tick', async () => {
+    const matureCommissions = jest.fn().mockResolvedValue({ matured: 100, hasMore: true });
+    const status = new BackgroundJobStatusService();
+    const scheduler = schedulerForMaturation({ matureCommissions } as unknown as EngineService, status);
+
+    await scheduler.matureCommissions();
+
+    expect(matureCommissions).toHaveBeenCalledTimes(10);
+    expect(status.snapshot().maturationLastSuccessAt).toBeInstanceOf(Date);
+  });
+
+  it('records failures and clears the running guard so a later tick can run', async () => {
+    const matureCommissions = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('test maturation failure'))
+      .mockResolvedValueOnce({ matured: 0, hasMore: false });
+    const status = new BackgroundJobStatusService();
+    const scheduler = schedulerForMaturation({ matureCommissions } as unknown as EngineService, status);
+
+    await scheduler.matureCommissions();
+    expect(status.snapshot()).toEqual({
+      maturationLastSuccessAt: null,
+      maturationLastDurationSeconds: 0,
+      maturationFailureCount: 1,
+    });
+
+    await scheduler.matureCommissions();
+    expect(matureCommissions).toHaveBeenCalledTimes(2);
+    expect(status.snapshot()).toEqual({
+      maturationLastSuccessAt: expect.any(Date),
+      maturationLastDurationSeconds: expect.any(Number),
+      maturationFailureCount: 1,
+    });
+  });
+
 });

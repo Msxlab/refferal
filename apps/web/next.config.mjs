@@ -6,8 +6,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // standalone yalniz Docker build'inde (NEXT_STANDALONE=1): Windows host'ta
-  // pnpm symlink'leri EPERM verir; lokal "next build" duz cikti kullanir.
+  // Use standalone output only in Docker builds. On Windows hosts, pnpm symlinks can
+  // hit EPERM during tracing, so local builds use the regular Next.js output.
   ...(process.env.NEXT_STANDALONE === '1'
     ? { output: 'standalone', outputFileTracingRoot: path.join(__dirname, '../../') }
     : {}),

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { CampaignsService } from '../campaigns/campaigns.service';
 import { EngineService } from '../engine/engine.service';
+import { BackgroundJobStatusService } from '../health/background-job-status.service';
 import { FraudService } from '../fraud/fraud.service';
 import { PayoutsService } from '../payouts/payouts.service';
 import { RanksService } from '../ranks/ranks.service';
@@ -36,6 +37,7 @@ export class SchedulerService {
 
   constructor(
     private readonly engine: EngineService,
+    private readonly backgroundJobStatus: BackgroundJobStatusService,
     private readonly reports: ReportsService,
     private readonly fraud: FraudService,
     private readonly webhooks: WebhooksService,
@@ -182,14 +184,30 @@ export class SchedulerService {
   @Cron(CronExpression.EVERY_5_MINUTES, { name: 'mature-commissions' })
   async matureCommissions(): Promise<void> {
     if (this.running) {
-      // onceki kosum hala suruyorsa atla (ust uste binmeyi onle)
+      // Skip if the previous run is still active.
       return;
     }
     this.running = true;
-    await this.runJob('mature-commissions', async () => {
-      const { matured } = await this.engine.matureCommissions();
-      if (matured > 0) this.logger.log(`olgunlasan komisyon satiri: ${matured}`);
-    });
-    this.running = false;
+    try {
+      await this.runJob('mature-commissions', async () => {
+        const startedAt = process.hrtime.bigint();
+        try {
+          let totalMatured = 0;
+          for (let batch = 0; batch < 10; batch += 1) {
+            const { matured, hasMore } = await this.engine.matureCommissions(new Date(), 100);
+            totalMatured += matured;
+            if (!hasMore || matured === 0) break;
+          }
+          const durationSeconds = Number(process.hrtime.bigint() - startedAt) / 1_000_000_000;
+          this.backgroundJobStatus.recordMaturationSuccess(durationSeconds);
+          if (totalMatured > 0) this.logger.log(`matured commission rows: ${totalMatured}`);
+        } catch (err) {
+          this.backgroundJobStatus.recordMaturationFailure();
+          throw err;
+        }
+      });
+    } finally {
+      this.running = false;
+    }
   }
 }

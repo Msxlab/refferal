@@ -1,14 +1,15 @@
 import { INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
-import { Role } from '@prisma/client';
+import { PayoutMethod, Role } from '@prisma/client';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { authConfig } from '../src/auth/auth.config';
 import { AccessTokenPayload } from '../src/auth/auth.types';
 import { EngineService } from '../src/engine/engine.service';
+import { monthKey } from '../src/engine/month';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { createChain, createPlan, createSale, createTenant, truncateAll } from './helpers';
+import { createChain, createPlan, createSale, createTenant, seedReadyPayoutCompliance, truncateAll } from './helpers';
 
 /** Dalga 3 — uyum: 1099-NEC vergi raporu + GDPR DSAR export. */
 describe('compliance: 1099 + DSAR (entegrasyon)', () => {
@@ -39,7 +40,22 @@ describe('compliance: 1099 + DSAR (entegrasyon)', () => {
     // satici kendi $100k satisini yapar → level0 komisyon $5,000 payable → payout (paid)
     const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
     await engine.approveSale(sale.id);
-    await engine.payoutMember({ tenantId: tenant.id, membershipId: seller.id, period: '2026-06' });
+    await seedReadyPayoutCompliance(prisma, tenant.id, seller.id, owner.userId);
+    const reservation = await engine.reservePayoutBatch({
+      tenantId: tenant.id,
+      scope: { mode: 'selected', membershipIds: [seller.id] },
+      period: monthKey(new Date(), tenant.timezone),
+      method: PayoutMethod.manual,
+      actorUserId: owner.userId,
+    });
+    if (!reservation.batchId) throw new Error('expected a payout batch for the eligible seller');
+    await engine.settlePayoutBatch({
+      tenantId: tenant.id,
+      batchId: reservation.batchId,
+      settlementReference: '1099-test-settlement',
+      settlementEvidence: '1099-test-evidence',
+      actorUserId: owner.userId,
+    });
 
     const tok = jwt.sign({ sub: owner.userId, mid: owner.id, tid: tenant.id, role: Role.tenant_owner } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
     const auth = (r: request.Test) => r.set('Authorization', `Bearer ${tok}`);

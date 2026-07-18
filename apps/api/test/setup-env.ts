@@ -1,11 +1,12 @@
 import * as path from 'node:path';
 import * as dotenv from 'dotenv';
+import { assertEffectiveTestDatabaseUrl, configuredTestDatabaseUrl } from './test-database-guard';
 
-// Test ortami: throttler/scheduler bunu gorup kapanir (app.module skipIf/conditional)
+// Test environment: throttler and scheduler check this and stay disabled.
 process.env.NODE_ENV = 'test';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
-// Entegrasyon testleri her zaman ayri test veritabanina kosar
-process.env.DATABASE_URL =
-  process.env.DATABASE_URL_TEST ?? 'postgresql://refearn:refearn@localhost:5434/refearn_test';
+// Integration tests always run against the configured, clearly named test database.
+process.env.DATABASE_URL = configuredTestDatabaseUrl();
+assertEffectiveTestDatabaseUrl(process.env.DATABASE_URL);

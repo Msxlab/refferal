@@ -27,7 +27,7 @@ export default function LoginPage() {
   const [recoveryError, setRecoveryError] = useState('');
   const forgotPasswordRef = useRef<HTMLButtonElement>(null);
   // 2FA 2. adim
-  const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const loginOwner = useRef<{ session: Session | null } | null>(null);
 
@@ -91,7 +91,7 @@ export default function LoginPage() {
       loginOwner.current = { session: expectedSession };
       const res = await login(email.trim(), password);
       if ('mfaRequired' in res) {
-        setMfaToken(res.mfaToken);
+        setChallengeToken(res.challengeToken);
         setBusy(false);
         return;
       }
@@ -108,7 +108,7 @@ export default function LoginPage() {
     setBusy(true);
     try {
       if (!loginOwner.current) throw new Error('login session owner unavailable');
-      const session = await loginTwoFactor(mfaToken as string, code.trim());
+      const session = await loginTwoFactor(challengeToken as string, code.trim());
       await completeLogin(session, loginOwner.current.session);
     } catch {
       setError('Invalid code. Enter a fresh 6-digit code or a recovery code.');
@@ -207,7 +207,7 @@ export default function LoginPage() {
               ← Back to sign in
             </Button>
           </div>
-        ) : !mfaToken ? (
+        ) : !challengeToken ? (
           <form className="card card-glow" onSubmit={onSubmit}>
             <div className="eyebrow" style={{ marginBottom: 4 }}>{t('login.title')}</div>
             <h1 className="h1" style={{ marginBottom: 18 }}>{t('login.welcome')}</h1>
@@ -254,7 +254,7 @@ export default function LoginPage() {
             <Button type="submit" className="mt-1.5 w-full" disabled={busy || code.trim().length < 6}>
               {busy ? t('common.loading') : 'Verify'} {!busy && <span>→</span>}
             </Button>
-            <Button type="button" variant="link" size="sm" className="mt-3 w-full text-xs" onClick={() => { setMfaToken(null); setCode(''); setError(''); }}>← Back to sign in</Button>
+            <Button type="button" variant="link" size="sm" className="mt-3 w-full text-xs" onClick={() => { setChallengeToken(null); setCode(''); setError(''); }}>← Back to sign in</Button>
           </form>
         )}
       </div>

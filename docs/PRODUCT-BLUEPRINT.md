@@ -1,208 +1,198 @@
-# Refearn — End-to-End Product Blueprint
+# End-To-End Product Blueprint
 
-> Bu doküman Refearn'ü oyuncak bir araçtan, başka şirketlere satılabilir gerçek bir B2B
-> referans/komisyon SaaS'ına taşıyan **tam** plandır. Tasarım dili: docs/DESIGN-VISION.md
-> ("Obsidian & Champagne", light/dark, EN). Güvenlik/yedek temeli: docs/DECISIONS.md.
-> Sistem dili **İngilizce**.
+This blueprint defines the path from a working referral commission system into a sellable B2B SaaS product. It reflects the current codebase direction: self-hosted core, English runtime, shadcn web UI, brand customization, auditable money flows, and privacy-safe member surfaces.
 
-İşaretler: ✅ var · 🟡 kısmi · ❌ yok
+Status markers:
+- Done: implemented and verified enough for current runtime use.
+- Partial: exists, but needs depth or hardening.
+- Missing: not implemented yet.
 
----
+## 1. Identity And Authentication
 
-## 0. Yüzeyler (3 ayrı uygulama)
+Current state: Partial.
 
-| Yüzey | Kim | URL |
-|---|---|---|
-| **Member app** | Üye | `/app` (web) + Expo mobil |
-| **Tenant admin** | İşletme yöneticisi | `/admin` |
-| **Platform admin** | Axtra (SaaS sahibi) | `platform.x.com` ❌ |
-| Public | Ziyaretçi + davetli | `/`, `/i/{code}` |
+Implemented foundations:
+- Argon2id password hashing.
+- Rotating refresh tokens with reuse detection.
+- Rate-limited auth endpoints.
+- Security event logging.
+- Email verification and password reset flows.
+- MFA primitives in the backend model.
 
----
+Next work:
+- TOTP setup UI with QR, recovery codes, and re-auth.
+- Active session list with revoke controls.
+- Request-time role/session freshness for sensitive endpoints.
+- New device and suspicious login notification.
+- Password policy and weak password checks.
 
-## 1. Identity & Authentication (giriş güvenliği)
+## 2. Authorization And RBAC
 
-**Mevcut:** argon2id ✅, rotasyonlu refresh + reuse-detection ✅, timing-safe login ✅,
-rate-limit (auth 10/dk) ✅, güvenlik olay logu ✅, e-posta doğrulama kapısı ✅.
+Current state: Partial.
 
-**Eklenecek:**
-- **2FA (TOTP)** ❌ — QR kurulum + recovery kodları + tenant-geneli "2FA zorunlu" politikası. `users.totpSecret` zaten var.
-- **Aktif oturumlar** ❌ — cihaz/konum/IP/son-aktivite listesi + "bu oturumu kapat" / "tüm diğer oturumları kapat".
-- **Login sertleştirme** 🟡 — ardışık başarısızlıkta geçici hesap kilidi (lockout), CAPTCHA (N denemeden sonra), "yeni cihazdan giriş" e-posta uyarısı.
-- **Parola politikası** ❌ — min uzunluk/zayıf-parola sözlüğü (HaveIBeenPwned k-anon opsiyonel), parola değişiminde tüm oturum iptali (✅ var).
-- **Şifre sıfırlama** ✅ — token tek-kullanım, enumeration-safe ✅.
-- **JWT iptali** ❌ — para uçlarında her istekte DB'den taze rol/durum teyidi (pasifleşen yetkili 15dk yetkili kalmasın).
-- **SSO/SAML/SCIM** ❌ — Enterprise faz (placeholder). Self-hosted SPEC gereği harici BaaS yok; kendi OIDC sağlayıcımız ya da Faz 3.
-- **Account management** ❌ — profil (ad/avatar/locale), e-posta değiştir (doğrulamalı), parola değiştir, 2FA, oturumlar, hesabı kapat (geri-alınamaz onay).
+Implemented foundations:
+- Platform admin, tenant owner, tenant admin, tenant staff, and member roles.
+- Permission catalog and guarded endpoints.
+- Tenant-scoped service queries in key modules.
+- People & Roles UI direction.
 
----
+Next work:
+- Request-time permission version checks.
+- Custom roles as a polished tenant feature.
+- Postgres RLS for critical tenant-scoped tables.
+- API keys with scoped permissions.
+- Full separation-of-duties review for money actions.
 
-## 2. Authorization / RBAC (yetkilendirme)
+## 3. Member App
 
-**Mevcut:** 5 sabit rol (`platform_admin > tenant_owner > tenant_admin > tenant_staff > member`) ✅,
-guard + @Roles ✅, tenant-scope (servis katmanı where) ✅.
+Current state: Partial.
 
-**Eklenecek:**
-- **İzin matrisi (permission grid)** ❌ — aksiyon × rol matrisi: kim satış girer/onaylar/void eder, payout çalıştırır, plan değiştirir, üye yönetir, ayar değiştirir, audit görür. UI'da görsel matris (Settings > Roles).
-- **Özel roller (custom roles)** ❌ (Enterprise) — tenant kendi rolünü tanımlar (örn. "Finance" = payout+reports, satış yok).
-- **Gorevler ayrımı (SoD)** ✅ — maker-checker (satışı giren onaylayamaz, tenant ayarı).
-- **RLS (Postgres row-level security)** ❌ — kritik tablolara ikinci kilit (Americana 2. tenant öncesi şart).
-- **Prisma tenant-middleware** ❌ — her sorguya otomatik tenant filtresi (unutulan where = sızıntı).
-- **API keys** ❌ — programatik erişim (kapsam + son-kullanım + revoke), Developer ayarları.
+Implemented foundations:
+- Web member overview.
+- Wallet with ledger and payout requests.
+- Invite creation and sharing.
+- Team summary.
+- Expo mobile equivalents for core member flows.
 
----
+Next work:
+- Earnings trend and period selector.
+- Pending-to-payable calendar.
+- Privacy-safe network view.
+- Invite funnel and invite card export.
+- Account page with profile, payment profile, notifications, MFA, and sessions.
+- Rank or milestone system only after legal income-disclosure copy is reviewed.
 
-## 3. Member app (üye yüzeyi) — web + mobil
+## 4. Tenant Admin
 
-| Modül | Mevcut | Eklenecek (fonksiyon/buton) |
-|---|---|---|
-| **Overview** | 🟡 hero+donut+bar | Kazanç trend grafiği, dönem seçici, rütbe rozeti+ilerleme, "what's new" akışı |
-| **Wallet** | 🟡 bakiye+ledger | Kazanç trend grafiği, **pending→payable vade takvimi** (maturesAt var), seviye-kaynak dağılım donut, payout durum timeline, **PDF ekstre indir**, ledger filtre/arama |
-| **Team** | 🟡 tek bar | KPI şerit (total/active/new/30g büyüme/en derin seviye), 12-haftalık büyüme trendi, gizlilikli yeni-katılım activity feed, rütbe ilerleme |
-| **Network (ağaç)** | ❌ | **Gizlilik-korumalı radial "My Network"**: merkez You, L1 isimli, L2+ agregat balon. Zoom/pan. |
-| **Invite** | 🟡 QR+link | Markalı **luxury davet kartı** (PNG export), sosyal paylaşım (WhatsApp/Telegram/Email/X), **durum takibi** (Pending/Opened/Joined), davet funnel/dönüşüm, e-posta daveti |
-| **Gamification** | ❌ | Rütbe Bronze→Diamond, kilometre taşı rozetleri, gizlilikli liderlik tablosu, rütbe-atlama kutlaması (push+confetti) |
-| **Account** | ❌ | Profil, banka/ödeme profili (KYC), bildirim tercihleri, 2FA, dil/tema, hesabı kapat |
-| **Notifications** | ❌ | Uygulama-içi bildirim merkezi (zil + okundu) |
+Current state: Partial to strong foundation.
 
----
+Implemented foundations:
+- Dashboard.
+- Sales table, filters, saved views, bulk actions, import wizard, detail drawer.
+- Members table and invite flow.
+- Payout processing and request handling.
+- Audit log.
+- Settings sections for general, brand, payments, plans, people/roles, security, notifications, and data.
+- Network explorer with tree/list behavior.
 
-## 4. Tenant admin — modül modül
+Next work:
+- Reports center.
+- Stronger pagination and export flows.
+- Rich member profile drawer.
+- Better audit before/after diffs.
+- Commission simulator and plan version comparison.
+- CSV formula injection protection.
 
-### Dashboard 🟡
-KPI kartları (sparkline+trend), **global zaman aralığı** (Bugün/7g/30g/Ay/Çeyrek/YTD/Özel),
-**dönem karşılaştırma** (delta rozetleri), ciro+komisyon **stacked-area** zaman serisi (önceki dönem
-hayalet çizgisi), **funnel** (Invite→Signup→First Sale→Matured), Top Performer tablosu, cohort, **Export**.
+## 5. Platform Admin
 
-### Sales 🟡
-Gelişmiş **FilterBar** (durum/tarih/satıcı/tutar-aralığı) + **Saved Views** + checkbox **bulk** (toplu
-onay/void) + **detay drawer** (satıcı + ağaç konumu + **komisyon dağılım listesi** + durum timeline) +
-**CSV import sihirbazı** (yükle→eşleştir→önizle→hata haritası→onayla) + inline düzenleme + sayfalama/sıralama.
-Butonlar: New sale · Import · Bulk approve · Bulk void · Export · Saved view · Filter.
+Current state: Partial.
 
-### Members 🟡 → CRM
-Zengin tablo (avatar/rol/durum/ekip-boyutu/kazanç) + filtre + **profil drawer** (Genel/Sales/Ledger/Invites/Audit)
-+ **toplu davet** (çoklu e-posta) + toplu rol/durum + CSV export. Butonlar: Invite · Bulk invite · Change role ·
-Deactivate · Message · Export · Filter.
+Implemented foundations:
+- Platform shell.
+- Company list.
+- Company drill-in.
+- Tenant metrics and status badges.
 
-### Network (ağaç) ❌ — ÖNCELİKLİ YENİDEN TASARIM
-Girintili liste → **react-flow interaktif org-chart**: auto-layout (dagre/ELK), pan/zoom, MiniMap,
-**ara→düğüme uç+highlight**, rol/durum/derinlik filtresi, lazy-expand (büyük ağaç), düğüm detay yan-paneli,
-sponsor breadcrumb, **PNG/SVG export**, "liste/tablo" erişilebilir alternatif toggle. (Radial varyant da seçenek.)
+Next work:
+- Tenant onboarding wizard.
+- Suspend/restore tenant controls with audit.
+- Usage and health dashboard.
+- Feature flags and limits.
+- Secure impersonation with visible banner and audit trail.
+- Billing readiness views.
 
-### Payouts 🟡
-Dönem seçici + payable tabloda **checkbox seçimli toplu ödeme** + banka CSV **preset'leri** (SEPA/havale) +
-**payout talep kuyruğu** (Approve/Reject + sebep) + detay drawer (dahil ledger satırları) +
-**negatif-bakiye uyarı bandı** (mahsup) + **vergi (1099) yıllık özeti** + export.
+## 6. Brand And Customization
 
-### Audit 🟡
-Filtrelenebilir zaman çizelgesi (aktör/entity/aksiyon/tarih/arama) + **insan-okur başlık** + **before/after
-diff** + para-aksiyon filtresi + relatif zaman + entity→kayıt deep-link + **export**. *(before alanı +
-aktör join backend'e eklenecek.)*
+Current state: Partial.
 
-### Reports ❌ — YENİ
-Komisyon / Vergi (1099) / Top-Performer / **Ağaç Sağlığı** (pasif oran, derinlik dağılımı, yetim düğüm) /
-Dönem-Kapanış — her biri grafik + tablo + **export (CSV/PDF)** + zamanlanmış-email.
+Implemented foundations:
+- Runtime app name and monogram defaults.
+- Tenant branding JSON path.
+- Brand settings UI with previews.
+- Invite registration can use tenant brand colors.
 
-### Settings Center ❌ — boş form yerine kategori-navigasyonlu merkez
-- **General** (işletme adı, timezone, currency, locale)
-- **Brand / White-label** — logo (light/dark/favicon), renk picker (WCAG AA uyarı), **canlı önizleme**, custom domain, "Powered by Refearn" toggle
-- **Commission plan editor + simulator** — görsel seviye/oran editörü (slider), SUM≤pool canlı doğrulama, **canlı ağaç simülatörü** ("1000 satış simüle et"), plan versiyonlama, şablonlar
-- **Payments** — olgunlaşma kuralı, payout eşiği, dönem, banka CSV şablonu
-- **People & Roles** — RBAC izin matrisi, davet politikası, SoD
-- **Security** — 2FA zorunluluğu, oturum politikası, IP allowlist (Enterprise), parola politikası
-- **Developer** — API keys, **webhooks** (olay aboneliği + teslimat logu + retry + imza secreti), entegrasyonlar (Zapier/Make/Slack/Monday CRM)
-- **Notifications** — olay × kanal matrisi (aşağı)
-- **Localization** — UI dili (EN/TR…), tarih/sayı/para formatı
-- **Billing** — abonelik planı, kullanım, fatura geçmişi
-- **Data & Backup** — export (GDPR/KVKK), yedek durumu + manuel tetik, saklama politikası, tenant silme
-
----
-
-## 5. Platform admin (SaaS sahibi) ❌ — YENİ yüzey
-Tenant listesi (plan/MRR/aktif-üye/sağlık) + tenant detay (kullanım+fatura+log) + güvenli
-**impersonation** (audit'li + "Viewing as X — exit" bandı) + per-tenant limit/feature-flag + global sağlık
-panosu (hata oranı, gecikmiş payout, webhook hatası) + paket matrisi (Starter/Growth/Enterprise) + onboarding.
-
----
-
-## 6. Email sistemi
-**Mevcut:** outbox relay → SMTP/console + Expo push ✅, şablonlar (TR) 🟡.
-**Eklenecek:** EN+marka-uyumlu HTML şablonlar, **deliverability** (SPF/DKIM/DMARC rehberi), bounce/complaint
-yönetimi, sağlayıcı soyutlama (SMTP/SES/Postmark), gönderim logu + retry (✅), unsubscribe (pazarlama),
-test-gönder. Akışlar: verify-email, password-reset, commission-earned, payout-sent, team-joined,
-security-alert, payout-request, digest.
+Next work:
+- Logo upload and asset validation.
+- Light/dark logo variants.
+- Favicon and email header assets.
+- Custom domain validation.
+- WCAG contrast checks for chosen colors.
+- Preview every affected surface before save.
 
 ## 7. Notifications
-**Mevcut:** outbox + push/email kanalları ✅.
-**Eklenecek:** **olay × kanal matrisi** (E-posta/Uygulama-içi/Push/Slack-webhook) — grid toggle; kişisel +
-tenant-varsayılan iki katman; **digest** (anında/günlük/haftalık) + sessiz saatler; **uygulama-içi bildirim
-merkezi** (zil + okundu + tıkla-git); test bildirimi.
 
-## 8. Invite (davet) — iki taraf
-Markalı luxury kart (QR+avatar+kod) + sosyal paylaşım + **durum takibi** (`Invite.openedAt` eklenir:
-Pending/Opened/Joined) + **funnel** (gönderildi→açıldı→kayıt→ilk satış, dönüşüm %) + admin davet
-leaderboard + e-postaya-kilitli davet + hoşgeldin/onboarding akışı + **davet cap** (✅ sybil önleme).
+Current state: Partial.
 
----
+Implemented foundations:
+- Notification templates.
+- Relay service.
+- In-app notification bell.
+- Preference model direction.
 
-## 9. Güvenlik operasyonu — önleme / tespit / müdahale
+Next work:
+- Full event x channel matrix.
+- Per-user and tenant-default preference layering.
+- Digests and quiet hours.
+- Delivery logs and retry visibility.
+- Bounce and complaint handling for production email providers.
 
-**Önleme:** helmet+Caddy başlıkları ✅, rate-limit ✅, trust-proxy ✅, secret fail-fast ✅, SoD ✅,
-e-posta kapısı ✅, davet cap ✅. Eklenecek: 2FA, RLS, parola politikası, **bağımlılık taraması (CI'da
-`pnpm audit` + Dependabot)** ❌, CSV formula-injection nötrleme ❌, helmet CSP ince ayar.
+## 8. Security Operations
 
-**Tespit:** güvenlik olay logu (login_failed/refresh_reuse/authz_denied) ✅. Eklenecek: **anomali/alarm**
-(anormal payout, ani ağaç büyümesi, self-sale, aynı IP'den N kayıt, payout-profili-değişip-hızlı-payout),
-**Sentry** + merkezi log + alert kanalı (Slack/e-posta), uptime izleme, kuyruk derinliği metriği.
+Current state: Partial.
 
-**Müdahale:** **kill-switch uçları** ❌ (tenant suspend + üye suspend → ilgili refresh token'ları toptan
-iptal + audit), payout dondurma, incident-response runbook ✅(DR), güvenlik bildirimi (uyeye/admine).
+Implemented foundations:
+- Helmet and proxy-aware API setup.
+- Rate limits.
+- Audit events for important security and money actions.
+- Backup hardening and restore test script.
 
-## 10. Audit & log yaşam döngüsü (şişme önleme)
-**Mevcut:** para/rol/plan/ayar/güvenlik aksiyonları audit ✅.
-**Eklenecek:**
-- **before/after diff** + aktör join + filtre + export.
-- **Audit retention cron** ❌ — `audit_logs`'u N gün (örn. 90) sıcak tablo, eskiyi **sıkıştırıp offsite'e
-  (Drive) arşivle + sıcak tablodan sil** (şişmeyi önler, yasal saklamayı korur). Aynı mantık
-  `notifications` (sent > X gün) için.
-- Partisyonlama (büyük tenant'ta `audit_logs` aylık partition) — ileri ölçek.
+Next work:
+- Tenant and member kill switches.
+- JWT/session revocation for sensitive operations.
+- RLS and tenant middleware audit.
+- Sentry or equivalent error tracking.
+- Structured logs with alerting.
+- Fraud/anomaly scans for payout velocity, self-sale, and invite abuse.
 
-## 11. Yedek & felaket kurtarma
-**Mevcut:** günlük pg_dump + atomik + age şifreleme + **Google Drive offsite** (rclone) + restore-test +
-30 gün retention + alarm hook ✅. **Eklenecek:** secrets'ın ayrı şifreli kopyası, haftalık restore-test
-cron'u, RPO/RTO yazılı hedef, (ileri) PITR/WAL arşivleme.
+## 9. Backup And Disaster Recovery
 
-## 12. Gözlemlenebilirlik
-**Mevcut:** /healthz ✅. **Eklenecek:** yapılandırılmış JSON log (pino), Sentry, /metrics (Prometheus),
-kuyruk/cron metrikleri, alerting, uptime, log rotation.
+Current state: Strong foundation.
 
-## 13. Faturalama & abonelik (SaaS) ❌
-Tenant'ın kendi Refearn aboneliği: plan kartı + kullanım progress-bar (limit uyarısı) + upgrade/downgrade +
-ödeme yöntemi + fatura geçmişi (PDF) + vergi. Platform tarafıyla simetrik.
+Implemented foundations:
+- Daily pg_dump.
+- Atomic backup writes.
+- Retention guard.
+- Optional age encryption.
+- Offsite copy path.
+- Restore-test script.
 
-## 14. Veri & uyumluluk
-GDPR/KVKK export+silme, veri saklama, **1099-NEC + TIN toplama** (>$600), **FTC income-disclosure** (MLM
-yasal zorunluluğu), gizlilik/şartlar/DPA, money-transmitter hukuki görüş.
+Next work:
+- Production credential wiring.
+- Weekly restore drill timer per host.
+- Separate encrypted secret backup.
+- PITR/WAL archiving for lower RPO.
 
----
+## 10. Compliance And Finance
 
-## 15. Zamanlanmış işler envanteri (cron/queue)
-| Job | Durum | Aralık |
-|---|---|---|
-| matureCommissions | ✅ | 5 dk |
-| notification relay | ✅ | 10 sn |
-| daily backup (+offsite Drive) | ✅ | 24 sa |
-| **audit/notification retention-archive** | ❌ | gece |
-| **team_stats snapshot** | ❌ | gece |
-| **restore-test** | 🟡 (script var) | hafta |
-| **anomaly/fraud scan** | ❌ | saatlik |
-| 1099 yıl-sonu derleme | ❌ | yıllık |
+Current state: Missing to partial.
 
----
+Next work:
+- 1099/TIN collection for US payout thresholds.
+- Tax export reports.
+- Income disclosure page and in-app language review.
+- Privacy policy, terms, DPA, and data export/delete workflows.
+- Legal review for payment flow and money-transmitter risk.
 
-## 16. İnşa fazları (öneri)
-- **Faz A** — Tasarım sistemi + tema + i18n (devam ediyor) + **Network ağaç (react-flow)** öne çekilir.
-- **Faz B** — Admin operasyon zenginleştirme (Dashboard/Sales/Members/Payouts/Audit/Reports).
-- **Faz C** — Üye + Invite funnel + Team + Gamification + Account.
-- **Faz D** — Settings Center + Brand/White-label + Plan editor + Security(2FA/RLS) + Platform admin + Notifications matrisi + Billing + ops (Sentry/retention cron/anomaly).
+## 11. Recommended Build Order
+
+1. Finish visual QA and docs cleanup.
+2. Re-enable MFA policy through a clean setup/recovery flow.
+3. Add request-time token/role freshness for money and admin endpoints.
+4. Add RLS and tenant-isolation verification.
+5. Add reports and export workflows.
+6. Finish platform tenant operations and billing readiness.
+7. Add compliance/tax workflows.
+
+## 12. Product Bar
+
+The system is not just a dashboard. The product bar is: a tenant can configure brand and rules, invite members, record sales, distribute commission, handle payout requests, review audit evidence, and recover from failure without developer intervention.

@@ -12,7 +12,7 @@ describe('iade penceresi (days_after_delivery)', () => {
   beforeAll(async () => {
     prisma = new PrismaService();
     await prisma.$connect();
-    engine = new EngineService(prisma, new RanksService(prisma));
+    engine = new EngineService(prisma, undefined, new RanksService(prisma));
   });
   afterAll(async () => { await prisma.$disconnect(); });
   beforeEach(async () => { await truncateAll(prisma); });

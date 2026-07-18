@@ -1,7 +1,7 @@
 /**
- * RBAC izin katalogu (kod kaynagi — DB'de tablo tutulmaz, roller bu anahtarlardan dizi tasir).
- * Anahtar bicimi: "<kaynak>.<eylem>". UI matrisi bu gruplari aynen render eder.
- * Owner enum katmani (tenant_owner) ve platform_admin her zaman TUM izinleri tasir.
+ * RBAC permission catalog as code. There is no DB table; roles store arrays of these keys.
+ * Key format is "<resource>.<action>". The UI matrix renders these groups directly.
+ * tenant_owner and platform_admin always carry every permission.
  */
 
 export interface PermissionDef {
@@ -60,6 +60,14 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ],
   },
   {
+    key: 'compliance',
+    label: 'Compliance',
+    permissions: [
+      { key: 'compliance.view', label: 'View payout compliance reviews' },
+      { key: 'compliance.review', label: 'Review payout compliance' },
+    ],
+  },
+  {
     key: 'reports',
     label: 'Reports',
     permissions: [
@@ -96,9 +104,10 @@ export const ALL_PERMISSIONS: string[] = PERMISSION_GROUPS.flatMap((g) =>
 const allExcept = (...omit: string[]): string[] =>
   ALL_PERMISSIONS.filter((p) => !omit.includes(p));
 
-const viewOnly = (): string[] => ALL_PERMISSIONS.filter((p) => p.endsWith('.view'));
+const viewOnly = (): string[] =>
+  ALL_PERMISSIONS.filter((p) => p.endsWith('.view') && p !== 'compliance.view');
 
-/** Sistem rol tanimlari — her kiracci olusurken seed edilir (RolesService.ensureSystemRoles). */
+/** System role definitions seeded for every tenant by RolesService.ensureSystemRoles. */
 export interface SystemRoleSeed {
   key: string;
   name: string;
@@ -169,7 +178,7 @@ export const SYSTEM_ROLES: SystemRoleSeed[] = [
   },
 ];
 
-/** enum Role katmaninin (ozel rol atanmamissa) varsayilan izinleri. */
+/** Default permissions for each enum Role tier when no custom role is assigned. */
 export function defaultPermissionsForTier(tier: string): string[] {
   switch (tier) {
     case 'platform_admin':
@@ -180,11 +189,11 @@ export function defaultPermissionsForTier(tier: string): string[] {
     case 'tenant_staff':
       return SYSTEM_ROLES.find((r) => r.key === 'support')!.permissions;
     default:
-      return []; // member: yonetim izni yok
+      return []; // member: no management permissions
   }
 }
 
-/** enum katman → seed edilen sistem rol anahtari (geri-doldurma icin). */
+/** System role definitions seeded for every tenant by RolesService.ensureSystemRoles. */
 export const TIER_TO_SYSTEM_ROLE: Record<string, string> = {
   tenant_owner: 'owner',
   tenant_admin: 'admin',

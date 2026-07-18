@@ -24,7 +24,7 @@ export class RbacController {
     return { userId: user.sub, tenantId: user.tid as string };
   }
 
-  /** Aktorun KENDI etkin izin kumesi — bir kullanici sahip olmadigi izni baskasina veremez. */
+  /** Actor's own effective permissions; users cannot grant permissions they do not hold. */
   private actorPerms(user: RequestUser): string[] {
     if (user.role === Role.tenant_owner || user.role === Role.platform_admin) {
       return [...ALL_PERMISSIONS];

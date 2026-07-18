@@ -1,14 +1,19 @@
 'use client';
 
-import { ReactNode, useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
+import { type CSSProperties, type ReactNode, useEffect, useId, useRef, useState } from 'react';
+import { Moon, Sun } from 'lucide-react';
+import { APP_NAME, normalizeRuntimeBrand, type RuntimeBrand } from '@/lib/brand';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
+import { useOverlayFocus } from '@/components/useOverlayFocus';
 import { Popover } from './Popover';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
-import { Switch } from './ui/switch';
-import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
-import { APP_MONOGRAM, APP_NAME } from '@/lib/brand';
 
-/* ----------------------------------------------------- animasyonlu sayac */
+/* ----------------------------------------------------- animated counter */
 function easeOut(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
@@ -17,6 +22,12 @@ export function useCountUp(target: number, durationMs = 750): number {
   const [val, setVal] = useState(0);
   const fromRef = useRef(0);
   useEffect(() => {
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion) {
+      fromRef.current = target;
+      setVal(target);
+      return;
+    }
     const from = fromRef.current;
     const start = performance.now();
     let raf = 0;
@@ -33,16 +44,16 @@ export function useCountUp(target: number, durationMs = 750): number {
   return val;
 }
 
-/** Cent (string/number) → animasyonlu para gosterimi. */
+/** Animated money display for cent values supplied as strings or numbers. */
 export function MoneyCounter({ cents, currency = 'USD', className }: { cents: string | number; currency?: string; className?: string }) {
   const target = Number(cents) / 100;
   const v = useCountUp(target);
-  return <span className={`tnum ${className ?? ''}`}>{new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(v)}</span>;
+  return <span className={cn('tnum', className)}>{new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(v)}</span>;
 }
 
 export function CountUp({ value, className }: { value: number; className?: string }) {
   const v = useCountUp(value);
-  return <span className={`tnum ${className ?? ''}`}>{Math.round(v).toLocaleString('en-US')}</span>;
+  return <span className={cn('tnum', className)}>{Math.round(v).toLocaleString('en-US')}</span>;
 }
 
 /* ----------------------------------------------------- SVG donut */
@@ -57,14 +68,14 @@ export function Donut({ segments, size = 168, thickness = 20, center }: { segmen
   const r = (size - thickness) / 2;
   const c = 2 * Math.PI * r;
   let offset = 0;
-  // ekran okuyucu icin grafik ozeti
+  // Chart summary for screen readers.
   const ariaLabel = segments
     .map((s) => `${s.label}: ${total > 0 ? Math.round((Math.max(0, s.value) / total) * 100) : 0}%`)
     .join(', ');
   return (
-    <div role="img" aria-label={ariaLabel} style={{ position: 'relative', width: '100%', maxWidth: size, aspectRatio: '1 / 1', margin: '0 auto' }}>
-      <svg viewBox={`0 0 ${size} ${size}`} width="100%" height="100%" aria-hidden="true" style={{ transform: 'rotate(-90deg)', display: 'block' }}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--panel-2)" strokeWidth={thickness} />
+    <div role="img" aria-label={ariaLabel} style={{ position: 'relative', width: size, height: size }}>
+      <svg width={size} height={size} aria-hidden="true" style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--border)" strokeWidth={thickness} />
         {total > 0 &&
           segments.map((s, i) => {
             const frac = Math.max(0, s.value) / total;
@@ -95,7 +106,7 @@ export function Donut({ segments, size = 168, thickness = 20, center }: { segmen
   );
 }
 
-/* ----------------------------------------------------- yatay bar */
+/* ----------------------------------------------------- horizontal bars */
 export function Bars({ data, max, format }: { data: Array<{ label: string; value: number; color?: string }>; max?: number; format?: (v: number) => string }) {
   const top = max ?? Math.max(1, ...data.map((d) => d.value));
   return (
@@ -106,13 +117,13 @@ export function Bars({ data, max, format }: { data: Array<{ label: string; value
             <span className="muted" style={{ fontSize: 12 }}>{d.label}</span>
             <span className="tnum" style={{ fontSize: 13, fontWeight: 650 }}>{format ? format(d.value) : d.value}</span>
           </div>
-          <div style={{ height: 9, borderRadius: 6, background: 'var(--panel-2)', overflow: 'hidden' }}>
+          <div style={{ height: 9, borderRadius: 6, background: 'var(--panel-3)', overflow: 'hidden' }}>
             <div
               style={{
                 height: '100%',
                 width: `${Math.min(100, (d.value / top) * 100)}%`,
                 borderRadius: 6,
-                background: d.color ?? 'var(--grad-primary)',
+                background: d.color ?? 'var(--primary)',
                 transition: 'width .7s cubic-bezier(.2,.9,.3,1)',
               }}
             />
@@ -123,34 +134,52 @@ export function Bars({ data, max, format }: { data: Array<{ label: string; value
   );
 }
 
-/* ----------------------------------------------------- stat kart */
+/* ----------------------------------------------------- stat card */
 export function StatCard({ label, value, icon, grad, hint, delay }: { label: string; value: ReactNode; icon?: string; grad?: string; hint?: string; delay?: string }) {
   return (
-    <div className={`card hover stat fade-in ${delay ?? ''}`}>
-      <div className="spread">
-        <span className="k">{label}</span>
-        {icon && <span className="icon" style={grad ? { background: grad } : undefined}>{icon}</span>}
-      </div>
-      <div className="v">{value}</div>
-      {hint && <div className="faint" style={{ fontSize: 11, marginTop: 6 }}>{hint}</div>}
-    </div>
+    <Card className={cn('fade-in transition-shadow hover:shadow-lg', delay)}>
+      <CardHeader className="grid-cols-[1fr_auto] items-center">
+        <CardTitle className="text-sm text-muted-foreground">{label}</CardTitle>
+        {icon && (
+          <span
+            className="grid size-9 place-items-center rounded-lg border bg-muted text-base"
+            style={grad ? { background: grad } : undefined}
+            aria-hidden="true"
+          >
+            {icon}
+          </span>
+        )}
+      </CardHeader>
+      <CardContent className="flex flex-col gap-1">
+        <div className="font-[var(--font-display)] text-2xl font-bold">{value}</div>
+        {hint && <div className="text-xs text-muted-foreground">{hint}</div>}
+      </CardContent>
+    </Card>
   );
 }
 
-/* ----------------------------------------------------- modal / onay */
-export function Modal({ title, children, onClose, className }: { title: string; children: ReactNode; onClose: () => void; className?: string }) {
-  // Radix Dialog (shadcn): focus-trap + ESC + arka plan scroll-lock + portal + dis-tiklama.
-  // Icerik uzunsa modal KENDI ICINDE kayar (DialogContent max-h + overflow-y-auto) — yukari/asagi sorunu cozulur.
-  // className ile genis modallar (orn. izin matrisi) max-w'yi gecersiz kilabilir.
+/* ----------------------------------------------------- modal / confirmation */
+export function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const onKeyDown = useOverlayFocus(ref, onClose);
+
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className={cn('max-w-[440px]', className)}>
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-        </DialogHeader>
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        ref={ref}
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onKeyDown={onKeyDown}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id={titleId} className="modal-title">{title}</h2>
         {children}
-      </DialogContent>
-    </Dialog>
+      </div>
+    </div>
   );
 }
 
@@ -167,36 +196,44 @@ export function Confirm({ title, message, confirmLabel, danger, onConfirm, onClo
     <Modal title={title} onClose={onClose}>
       <p className="muted" style={{ marginTop: 0 }}>{message}</p>
       <div className="row" style={{ justifyContent: 'flex-end', marginTop: 18 }}>
-        <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
         <Button variant={danger ? 'destructive' : 'default'} onClick={onConfirm} disabled={busy}>{confirmLabel}</Button>
       </div>
     </Modal>
   );
 }
 
-/* ----------------------------------------------------- marka (altin R monogram) */
-export function Brand({ size = 'md' }: { size?: 'md' | 'lg' }) {
-  const dot = size === 'lg' ? 34 : 26;
+/* ----------------------------------------------------- brand mark */
+export function Brand({
+  size = 'md',
+  brand,
+  className,
+}: {
+  size?: 'md' | 'lg';
+  brand?: Partial<RuntimeBrand> | null;
+  className?: string;
+}) {
+  const runtimeBrand = brand ? normalizeRuntimeBrand(brand) : null;
+  const name = runtimeBrand?.name ?? APP_NAME;
+  const brandStyle = runtimeBrand ? ({ '--brand-accent': runtimeBrand.primaryColor } as CSSProperties) : undefined;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-      <span
-        style={{
-          width: dot, height: dot, borderRadius: dot * 0.32, background: 'var(--foil)',
-          display: 'grid', placeItems: 'center', color: 'var(--on-gold)',
-          fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: dot * 0.56,
-          boxShadow: '0 8px 20px -8px rgba(212,175,55,.7)',
-        }}
-      >
-        {APP_MONOGRAM}
+    <span className={cn('brand-lockup', size === 'lg' && 'brand-lockup-lg', className)} style={brandStyle}>
+      <span className="brand-mark">
+        <Image
+          src="/brand/refearn-network-mark-v1.png"
+          alt=""
+          aria-hidden="true"
+          width={size === 'lg' ? 34 : 26}
+          height={size === 'lg' ? 34 : 26}
+          className="brand-mark-image"
+        />
       </span>
-      <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: size === 'lg' ? 22 : 17, letterSpacing: '-.01em' }}>
-        {APP_NAME}
-      </span>
+      <span className="brand-wordmark" translate="no">{name}</span>
     </span>
   );
 }
 
-/* ----------------------------------------------------- tema toggle (light/dark) */
+/* ----------------------------------------------------- theme toggle (light/dark) */
 export function ThemeToggle() {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   useEffect(() => {
@@ -206,73 +243,80 @@ export function ThemeToggle() {
   function toggle() {
     const next = theme === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
+    document.documentElement.style.colorScheme = next;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', next === 'light' ? '#f5f7fb' : '#0b1324');
     try {
       localStorage.setItem('refearn.theme', next);
     } catch {
-      /* yok say */
+      /* ignore storage failures */
     }
     setTheme(next);
   }
   return (
-    <button className="theme-toggle" onClick={toggle} aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
-      {theme === 'dark' ? '☾' : '☀'}
-    </button>
+    <Button
+      type="button"
+      variant="outline"
+      size="icon"
+      onClick={toggle}
+      aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+      title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+    >
+      {theme === 'dark' ? <Moon /> : <Sun />}
+    </Button>
   );
 }
 
 /* ----------------------------------------------------- toggle (switch) */
 export function Toggle({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
-  // shadcn/Radix Switch: acik durumda bg-success (eski tanimsiz --grad-emerald bug'i giderildi), a11y dahili.
   return (
-    <div className="spread" style={{ padding: 'var(--space-3) 0', borderTop: '1px solid var(--border)' }}>
-      <span style={{ fontSize: 'var(--text-md)' }}>{label}</span>
-      <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} aria-label={label} />
+    <div className="flex flex-col gap-3 py-3">
+      <Separator />
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm">{label}</span>
+        <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} aria-label={label} />
+      </div>
     </div>
   );
 }
 
-/* ----------------------------------------------------- yukleme iskeleti */
+/* ----------------------------------------------------- loading skeleton */
 export function Loading({ rows = 3 }: { rows?: number }) {
   return (
-    <div className="grid" role="status" aria-label="Loading">
+    <div className="grid" role="status" aria-live="polite" aria-atomic="true" aria-label="Loading">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="skeleton" style={{ height: 64 }} />
+        <Skeleton key={i} className="h-16 w-full" />
       ))}
     </div>
   );
 }
 
-/* ----------------------------------------------------- basit toast hook */
+/* ----------------------------------------------------- simple toast hook */
 export function useToast(): [string | null, (msg: string) => void] {
   const [msg, setMsg] = useState<string | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // unmount'ta zamanlayiciyi temizle (bayat setState / erken kapanma onlenir)
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   const show = (m: string) => {
     setMsg(m);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setMsg(null), 2800);
+    setTimeout(() => setMsg(null), 2800);
   };
   return [msg, show];
 }
 
-/* ----------------------------------------------------- sayfalama */
-export function Pagination({ page, pageSize, total, onPage }: { page: number; pageSize: number; total: number; onPage: (p: number) => void }) {
+
+/* ----------------------------------------------------- pagination and table preferences */
+export function Pagination({ page, pageSize, total, onPage }: { page: number; pageSize: number; total: number; onPage: (page: number) => void }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
   if (total <= 0 || pages <= 1) return null;
   const first = (page - 1) * pageSize + 1;
   const last = Math.min(page * pageSize, total);
   return (
     <div className="row no-print" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
-      <span className="faint tnum" style={{ fontSize: 12 }}>{first}–{last} / {total}</span>
-      <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page">‹</Button>
+      <span className="faint tnum" style={{ fontSize: 12 }}>{first}-{last} / {total}</span>
+      <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page">Previous</Button>
       <span className="tnum" style={{ fontSize: 12 }}>{page} / {pages}</span>
-      <Button variant="ghost" size="sm" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page">›</Button>
+      <Button variant="ghost" size="sm" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page">Next</Button>
     </div>
   );
 }
 
-/* ----------------------------------------------------- gelismis tablo: kolon tercihleri */
 export interface TableColumn { key: string; label: string; locked?: boolean }
 export type Density = 'comfortable' | 'compact';
 
@@ -280,13 +324,12 @@ interface TablePrefs {
   isVisible: (key: string) => boolean;
   toggle: (key: string) => void;
   density: Density;
-  setDensity: (d: Density) => void;
+  setDensity: (density: Density) => void;
   reset: () => void;
   columns: TableColumn[];
   hiddenCount: number;
 }
 
-/** Kolon goster/gizle + yogunluk; kullanici basina localStorage'da kalici (tableId anahtari). */
 export function useTablePrefs(tableId: string, columns: TableColumn[]): TablePrefs {
   const storeKey = `refearn.table.${tableId}`;
   const [hidden, setHidden] = useState<Set<string>>(new Set());
@@ -295,42 +338,55 @@ export function useTablePrefs(tableId: string, columns: TableColumn[]): TablePre
   useEffect(() => {
     try {
       const raw = localStorage.getItem(storeKey);
-      if (raw) {
-        const p = JSON.parse(raw) as { hidden?: string[]; density?: Density };
-        setHidden(new Set(p.hidden ?? []));
-        if (p.density) setDensityState(p.density);
-      }
-    } catch { /* yok say */ }
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { hidden?: string[]; density?: Density };
+      setHidden(new Set(parsed.hidden ?? []));
+      if (parsed.density) setDensityState(parsed.density);
+    } catch {
+      // User preferences are optional.
+    }
   }, [storeKey]);
 
-  const persist = (h: Set<string>, d: Density) => {
-    try { localStorage.setItem(storeKey, JSON.stringify({ hidden: [...h], density: d })); } catch { /* yok say */ }
+  const persist = (nextHidden: Set<string>, nextDensity: Density) => {
+    try { localStorage.setItem(storeKey, JSON.stringify({ hidden: [...nextHidden], density: nextDensity })); } catch { /* optional */ }
   };
   const toggle = (key: string) => {
-    setHidden((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); persist(n, density); return n; });
+    setHidden((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      persist(next, density);
+      return next;
+    });
   };
-  const setDensity = (d: Density) => { setDensityState(d); persist(hidden, d); };
-  const reset = () => { setHidden(new Set()); setDensityState('comfortable'); persist(new Set(), 'comfortable'); };
+  const setDensity = (next: Density) => { setDensityState(next); persist(hidden, next); };
+  const reset = () => { const next = new Set<string>(); setHidden(next); setDensityState('comfortable'); persist(next, 'comfortable'); };
 
   return {
     isVisible: (key) => !hidden.has(key),
-    toggle, density, setDensity, reset, columns,
-    hiddenCount: [...hidden].filter((k) => columns.some((c) => c.key === k && !c.locked)).length,
+    toggle,
+    density,
+    setDensity,
+    reset,
+    columns,
+    hiddenCount: [...hidden].filter((key) => columns.some((column) => column.key === key && !column.locked)).length,
   };
 }
 
-/** Kolon/yogunluk menusu (Popover). Kilitli kolonlar her zaman acik. */
 export function ColumnsMenu({ prefs }: { prefs: TablePrefs }) {
   return (
-    <Popover label={<>⚙ Columns</>} badge={prefs.hiddenCount} width={240}>
+    <Popover label={<>Columns</>} badge={prefs.hiddenCount} width={240}>
       <div className="grid" style={{ gap: 4 }}>
-        {prefs.columns.map((c) => {
-          const on = c.locked || prefs.isVisible(c.key);
+        {prefs.columns.map((column) => {
+          const visible = column.locked || prefs.isVisible(column.key);
           return (
-            <label key={c.key} onClick={(e) => { e.preventDefault(); if (!c.locked) prefs.toggle(c.key); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', borderRadius: 8, cursor: c.locked ? 'default' : 'pointer', fontSize: 13, opacity: c.locked ? 0.6 : 1 }}>
-              <span style={{ width: 14, height: 14, borderRadius: 4, display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 900, background: on ? 'var(--gold-500)' : 'transparent', border: on ? 'none' : '1.5px solid var(--border-strong)', color: 'var(--on-gold)' }}>{on ? '✓' : ''}</span>
-              {c.label}{c.locked && <span className="faint" style={{ fontSize: 10 }}>(fixed)</span>}
+            <label
+              key={column.key}
+              onClick={(event) => { event.preventDefault(); if (!column.locked) prefs.toggle(column.key); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', borderRadius: 8, cursor: column.locked ? 'default' : 'pointer', fontSize: 13, opacity: column.locked ? 0.6 : 1 }}
+            >
+              <span style={{ width: 14, height: 14, borderRadius: 4, display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 900, background: visible ? 'var(--gold-500)' : 'transparent', border: visible ? 'none' : '1.5px solid var(--border-strong)', color: 'var(--on-gold)' }}>{visible ? 'x' : ''}</span>
+              {column.label}{column.locked && <span className="faint" style={{ fontSize: 10 }}>(fixed)</span>}
             </label>
           );
         })}
@@ -346,14 +402,13 @@ export function ColumnsMenu({ prefs }: { prefs: TablePrefs }) {
   );
 }
 
-/* ----------------------------------------------------- siralanabilir th */
 export type SortDir = 'asc' | 'desc';
 export function SortableTh({ label, field, sort, dir, onSort, align }: {
   label: string;
   field: string;
   sort: string;
   dir: SortDir;
-  onSort: (field: string, dir: SortDir) => void;
+  onSort: (field: string, direction: SortDir) => void;
   align?: 'left' | 'right';
 }) {
   const active = sort === field;
@@ -365,7 +420,7 @@ export function SortableTh({ label, field, sort, dir, onSort, align }: {
       onClick={() => onSort(field, active && dir === 'desc' ? 'asc' : 'desc')}
     >
       {label}
-      {active && <span className="sort-ind">{dir === 'asc' ? '▲' : '▼'}</span>}
+      {active && <span className="sort-ind">{dir === 'asc' ? 'up' : 'down'}</span>}
     </th>
   );
 }

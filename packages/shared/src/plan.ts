@@ -9,12 +9,12 @@ export const planLevelSchema = z.object({
 export type PlanLevelInput = z.infer<typeof planLevelSchema>;
 
 /**
- * Plan dogrulamasi (SPEC 3.2) — API katmani kurali; ayni kural DB'de
- * constraint trigger ile ikinci kez zorlanir:
+ * Plan validation (SPEC 3.2): API-layer rule, enforced again in the database
+ * by a constraint trigger.
  * - SUM(level_rates) <= pool_rate
- * - tum oranlar >= 0
- * - level 0 (satici) zorunlu
- * - level'lar 0..depth-1 araliginda, bossuz ve tekrarsiz
+ * - all rates >= 0
+ * - level 0 (seller) is required
+ * - levels cover 0..depth-1 without gaps or duplicates
  */
 export const commissionPlanSchema = z
   .object({
@@ -29,19 +29,19 @@ export const commissionPlanSchema = z
     const seen = new Set<number>();
     for (const l of plan.levels) {
       if (seen.has(l.level)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `level ${l.level} tekrarlanmis`, path: ['levels'] });
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `level ${l.level} is duplicated`, path: ['levels'] });
       }
       seen.add(l.level);
     }
 
     if (!seen.has(0)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'level 0 (satici) zorunlu', path: ['levels'] });
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'level 0 (seller) is required', path: ['levels'] });
     }
 
     if (sorted.length !== plan.depth || sorted.some((l, i) => l.level !== i)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `levels 0..${plan.depth - 1} araligini bossuz kapsamali`,
+        message: `levels must cover 0..${plan.depth - 1} without gaps`,
         path: ['levels'],
       });
     }
@@ -50,7 +50,7 @@ export const commissionPlanSchema = z
     if (sum > plan.poolRateBps) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `seviye oranlari toplami (${sum} bps) havuz oranini (${plan.poolRateBps} bps) asamaz`,
+        message: `sum of level rates (${sum} bps) cannot exceed pool rate (${plan.poolRateBps} bps)`,
         path: ['levels'],
       });
     }

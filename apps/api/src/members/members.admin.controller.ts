@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Header, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Header, Headers, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, Res } from '@nestjs/common';
 import { MembershipStatus, Role } from '@prisma/client';
 import { Response } from 'express';
 import { z } from 'zod';
-import { CurrentUser, RequireMembership, Roles } from '../auth/auth.guard';
+import { CurrentUser, RequireMembership, RequirePermission, Roles } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
+import { parseIdempotencyKey } from '../common/idempotency-key';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { ActorContext } from '../common/actor';
 import { MembersAdminService } from './members.admin.service';
@@ -65,6 +66,7 @@ export class MembersAdminController {
   }
 
   @Roles(...STAFF)
+  @RequirePermission('members.view')
   @Get()
   list(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(listSchema)) q: z.infer<typeof listSchema>) {
     return this.members.list(user.tid as string, { ...q, status: q.status as MembershipStatus | undefined });
@@ -72,6 +74,7 @@ export class MembersAdminController {
 
   // DIKKAT: statik GET route'lar (tree, leaders, export.csv) ':id' route'undan ONCE tanimli kalmali.
   @Roles(...STAFF)
+  @RequirePermission('network.view')
   @Get('tree')
   tree(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(treeSchema)) q: z.infer<typeof treeSchema>) {
     return this.members.tree(user.tid as string, q.root);
@@ -115,13 +118,17 @@ export class MembersAdminController {
     return this.members.bulk(this.actor(user), { ...body, role: body.role as Role | undefined });
   }
 
-  // davet/pasiflestir/rol → admin+ (audit'li)
+  // Invites and membership status changes are admin+ only and audited.
   @Roles(...ADMIN)
+  @RequirePermission('invites.create')
   @HttpCode(200)
   @Post('invite')
-  invite(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(inviteSchema)) body: z.infer<typeof inviteSchema>) {
-    // act-as (platform admin) tokeninde mid=null; servis tenant owner'a fallback yapar
-    return this.members.invite(this.actor(user), user.mid ?? null, body);
+  invite(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(inviteSchema)) body: z.infer<typeof inviteSchema>,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
+    return this.members.invite(this.actor(user), user.mid as string, body, parseIdempotencyKey(idempotencyKey));
   }
 
   // manuel uye olustur (davet beklemeden) → admin+ (audit'li). Statik POST, ':id'den ONCE.
@@ -171,6 +178,7 @@ export class MembersAdminController {
   }
 
   @Roles(...ADMIN)
+  @RequirePermission('members.suspend')
   @HttpCode(200)
   @Post(':id/deactivate')
   deactivate(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
@@ -178,6 +186,7 @@ export class MembersAdminController {
   }
 
   @Roles(...ADMIN)
+  @RequirePermission('members.suspend')
   @HttpCode(200)
   @Post(':id/activate')
   activate(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {

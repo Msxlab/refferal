@@ -1,12 +1,35 @@
 'use client';
 
-import { FormEvent, useEffect, useId, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import { Loading, Toggle, useToast } from '@/components/ui';
-import { Card } from '@/components/ui/card';
+import { Loading, useToast } from '@/components/ui';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 
 interface Settings {
   name: string;
@@ -26,12 +49,68 @@ interface Settings {
 }
 
 const MATURATION = [
-  { v: 'on_approval', l: 'On approval — payable immediately' },
-  { v: 'on_delivery', l: 'On delivery — matures after delivery' },
-  { v: 'days_after_approval', l: 'N days after approval' },
-  { v: 'days_after_delivery', l: 'N days after delivery (return window)' },
-];
-const USES_DAYS = (r: string) => r === 'days_after_approval' || r === 'days_after_delivery';
+  { value: 'on_approval', label: 'On approval - payable immediately' },
+  { value: 'on_delivery', label: 'On delivery - matures after delivery' },
+  { value: 'days_after_approval', label: 'Days after approval' },
+  { value: 'days_after_delivery', label: 'Days after delivery (return window)' },
+] satisfies Array<{
+  value: Settings['maturationRule'];
+  label: string;
+}>;
+
+const POLICY_FIELDS = [
+  {
+    id: 'require-kyc-for-payout',
+    title: 'Verified payout profile',
+    description: 'Require a verified payout profile before paying members.',
+    key: 'requireKycForPayout',
+  },
+  {
+    id: 'require-payout-approval',
+    title: 'Payout maker-checker',
+    description: 'A second administrator must approve each payout run.',
+    key: 'requirePayoutApproval',
+  },
+  {
+    id: 'auto-request-payouts',
+    title: 'Automatic payout requests',
+    description: 'Create nightly payout requests when members meet the threshold; administrators still approve them.',
+    key: 'autoRequestPayouts',
+  },
+  {
+    id: 'require-separate-approver',
+    title: 'Separation of duties',
+    description: 'The seller cannot approve their own sale.',
+    key: 'requireSeparateApprover',
+  },
+  {
+    id: 'notify-new-member-name',
+    title: 'Show member name in join notifications',
+    description: 'Include the member name in admin-facing join alerts.',
+    key: 'notifyNewMemberName',
+  },
+  {
+    id: 'inactive-members-earn',
+    title: 'Inactive members keep earning commissions',
+    description: 'When enabled, inactive uplines remain eligible for commissions.',
+    key: 'inactiveMembersEarn',
+  },
+] satisfies Array<{
+  id: string;
+  title: string;
+  description: string;
+  key:
+    | 'requireKycForPayout'
+    | 'requirePayoutApproval'
+    | 'autoRequestPayouts'
+    | 'requireSeparateApprover'
+    | 'notifyNewMemberName'
+    | 'inactiveMembersEarn';
+}>;
+
+function usesMaturationDays(rule: Settings['maturationRule']) {
+  return rule === 'days_after_approval' || rule === 'days_after_delivery';
+}
 
 const TIMEZONES = [
   'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
@@ -39,7 +118,6 @@ const TIMEZONES = [
 ];
 
 export default function General() {
-  const uid = useId();
   const [s, setS] = useState<Settings | null>(null);
   const [error, setError] = useState('');
   const [toast, showToast] = useToast();
@@ -56,7 +134,7 @@ export default function General() {
     try {
       const res = await api.patch<Settings>('/admin/settings', {
         maturationRule: s.maturationRule,
-        maturationDays: USES_DAYS(s.maturationRule) ? Number(s.maturationDays ?? 0) : null,
+        maturationDays: usesMaturationDays(s.maturationRule) ? Number(s.maturationDays ?? 0) : null,
         payoutMinCents: Number(s.payoutMinCents),
         timezone: s.timezone,
         notifyNewMemberName: s.notifyNewMemberName,
@@ -68,79 +146,196 @@ export default function General() {
         autoRequestPayouts: s.autoRequestPayouts,
       });
       setS(res);
-      showToast('Settings saved ✓');
+      showToast('Settings saved');
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
   }
 
-  if (error && !s) return <div className="error">{error}</div>;
+  if (error && !s) {
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>Settings unavailable</AlertTitle>
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    );
+  }
   if (!s) return <Loading rows={4} />;
 
+  const maturationDays = Number(s.maturationDays ?? 0);
+  const invalidMaturationDays = usesMaturationDays(s.maturationRule) && (maturationDays < 0 || maturationDays > 365);
+  const timezones = TIMEZONES.includes(s.timezone) ? TIMEZONES : [s.timezone, ...TIMEZONES];
+
   return (
-    <form className="grid" onSubmit={save} style={{ gap: 18, maxWidth: 620 }}>
+    <form className="flex max-w-3xl flex-col gap-5" onSubmit={save}>
       <Card>
-        <strong style={{ fontSize: 14 }}>Workspace</strong>
-        <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 12 }}>
-          <ReadField label="Business name" value={s.name} />
-          <ReadField label="Workspace slug" value={s.slug} />
-          <ReadField label="Currency" value={s.currency} />
-          <div className="field" style={{ margin: 0 }}>
-            <Label htmlFor={`${uid}-tz`} className="mb-1.5 block">Time zone</Label>
-            <select id={`${uid}-tz`} value={s.timezone} onChange={(e) => setS({ ...s, timezone: e.target.value })}>
-              {(TIMEZONES.includes(s.timezone) ? TIMEZONES : [s.timezone, ...TIMEZONES]).map((tz) => (
-                <option key={tz} value={tz}>{tz}</option>
-              ))}
-            </select>
-          </div>
-        </div>
+        <CardHeader>
+          <CardTitle>Workspace</CardTitle>
+          <CardDescription>Core workspace identity and regional settings.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FieldGroup className="grid gap-4 md:grid-cols-2">
+            <Read id="general-name" label="Business name" value={s.name} />
+            <Read id="general-slug" label="Workspace slug" value={s.slug} />
+            <Read id="general-currency" label="Currency" value={s.currency} />
+
+            <Field>
+              <FieldLabel htmlFor="general-timezone">Time zone</FieldLabel>
+              <Select value={s.timezone} onValueChange={(timezone: string) => setS({ ...s, timezone })}>
+                <SelectTrigger id="general-timezone" className="w-full">
+                  <SelectValue placeholder="Select a time zone" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {timezones.map((tz) => (
+                      <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+          </FieldGroup>
+        </CardContent>
       </Card>
 
       <Card>
-        <strong style={{ fontSize: 14 }}>Commissions & payouts</strong>
-        <div className="field" style={{ marginTop: 12 }}>
-          <Label htmlFor={`${uid}-mat`} className="mb-1.5 block">Commission maturation rule</Label>
-          <select id={`${uid}-mat`} value={s.maturationRule} onChange={(e) => setS({ ...s, maturationRule: e.target.value as Settings['maturationRule'] })}>
-            {MATURATION.map((m) => <option key={m.v} value={m.v}>{m.l}</option>)}
-          </select>
-        </div>
-        {USES_DAYS(s.maturationRule) && (
-          <div className="field">
-            <Label htmlFor={`${uid}-days`} className="mb-1.5 block">Days (N){s.maturationRule === 'days_after_delivery' ? ' — return window' : ''}</Label>
-            <Input id={`${uid}-days`} type="number" min={0} max={365} value={s.maturationDays ?? 0} onChange={(e) => setS({ ...s, maturationDays: Number(e.target.value) })} />
-          </div>
-        )}
-        <div className="field">
-          <Label htmlFor={`${uid}-min`} className="mb-1.5 block">Payout threshold — currently {money(s.payoutMinCents, s.currency)}</Label>
-          <Input id={`${uid}-min`} type="number" min={0} step="0.01" value={Number(s.payoutMinCents) / 100} onChange={(e) => setS({ ...s, payoutMinCents: String(Math.round(Number(e.target.value) * 100)) })} />
-        </div>
+        <CardHeader>
+          <CardTitle>Commissions</CardTitle>
+          <CardDescription>Control when approved commission becomes payable.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="general-maturation-rule">Commission maturation rule</FieldLabel>
+              <Select
+                value={s.maturationRule}
+                onValueChange={(maturationRule: Settings['maturationRule']) => setS({ ...s, maturationRule })}
+              >
+                <SelectTrigger id="general-maturation-rule" className="w-full">
+                  <SelectValue placeholder="Select a rule" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {MATURATION.map((m) => (
+                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+
+            {usesMaturationDays(s.maturationRule) && (
+              <Field data-invalid={invalidMaturationDays}>
+                <FieldLabel htmlFor="general-maturation-days">
+                  {s.maturationRule === 'days_after_delivery' ? 'Days after delivery (return window)' : 'Days after approval'}
+                </FieldLabel>
+                <Input
+                  id="general-maturation-days"
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={s.maturationDays ?? 0}
+                  onChange={(e) => setS({ ...s, maturationDays: Number(e.target.value) })}
+                  aria-invalid={invalidMaturationDays}
+                />
+                <FieldDescription>Enter a value from 0 to 365 days.</FieldDescription>
+                {invalidMaturationDays && <FieldError>Days must be between 0 and 365.</FieldError>}
+              </Field>
+            )}
+
+            <Field>
+              <FieldLabel htmlFor="general-payout-threshold">Payout threshold</FieldLabel>
+              <Input
+                id="general-payout-threshold"
+                type="number"
+                min={0}
+                step="0.01"
+                value={Number(s.payoutMinCents) / 100}
+                onChange={(e) => setS({ ...s, payoutMinCents: String(Math.round(Number(e.target.value) * 100)) })}
+              />
+              <FieldDescription>
+                Members can request payouts after reaching {money(s.payoutMinCents, s.currency)}.
+              </FieldDescription>
+            </Field>
+          </FieldGroup>
+        </CardContent>
       </Card>
 
       <Card>
-        <strong style={{ fontSize: 14 }}>Policy & privacy</strong>
-        <div style={{ marginTop: 4 }}>
-          <Toggle label="Require a verified payout profile (KYC) before paying members" checked={s.requireKycForPayout} onChange={(v) => setS({ ...s, requireKycForPayout: v })} />
-          <Toggle label="Maker-checker — a payout run must be approved by a second admin (4-eyes)" checked={s.requirePayoutApproval} onChange={(v) => setS({ ...s, requirePayoutApproval: v })} />
-          <Toggle label="Auto-request payouts — nightly, create a check request for members who reach the threshold (admin still approves)" checked={s.autoRequestPayouts} onChange={(v) => setS({ ...s, autoRequestPayouts: v })} />
-          <Toggle label="Separation of duties — the seller can't approve their own sale (maker-checker)" checked={s.requireSeparateApprover} onChange={(v) => setS({ ...s, requireSeparateApprover: v })} />
-          <Toggle label="Show member name in join notifications" checked={s.notifyNewMemberName} onChange={(v) => setS({ ...s, notifyNewMemberName: v })} />
-          <Toggle label="Inactive members keep earning commissions" checked={s.inactiveMembersEarn} onChange={(v) => setS({ ...s, inactiveMembersEarn: v })} />
-          <Toggle label="Compression — skip inactive uplines (advanced)" checked={s.compressionEnabled} onChange={(v) => setS({ ...s, compressionEnabled: v })} />
-        </div>
+        <CardHeader>
+          <CardTitle>Policy & privacy</CardTitle>
+          <CardDescription>Operational safeguards for sale approval, notifications and inactive uplines.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FieldGroup>
+            {POLICY_FIELDS.map((field) => (
+              <SettingSwitch
+                key={field.id}
+                id={field.id}
+                title={field.title}
+                description={field.description}
+                checked={s[field.key]}
+                onCheckedChange={(checked) => setS({ ...s, [field.key]: checked })}
+              />
+            ))}
+
+            <SettingSwitch
+              id="compression-enabled"
+              title="Compression"
+              description="Skip inactive uplines when calculating eligible commission recipients."
+              checked={s.compressionEnabled}
+              onCheckedChange={(compressionEnabled) => setS({ ...s, compressionEnabled })}
+            />
+          </FieldGroup>
+        </CardContent>
       </Card>
 
-      {error && <div className="error">{error}</div>}
-      <div className="row"><Button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</Button></div>
+      {error && (
+        <Alert variant="destructive">
+          <AlertTitle>Settings could not be saved</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="flex justify-end">
+        <Button type="submit" disabled={busy || invalidMaturationDays}>
+          {busy ? 'Saving...' : 'Save changes'}
+        </Button>
+      </div>
       {toast && <div className="toast" role="status">{toast}</div>}
     </form>
   );
 }
 
-function ReadField({ label, value }: { label: string; value: string }) {
-  const id = useId();
+function Read({ id, label, value, description }: { id: string; label: string; value: string; description?: string }) {
   return (
-    <div className="field" style={{ margin: 0 }}>
-      <Label htmlFor={id} className="mb-1.5 block">{label}</Label>
-      <Input id={id} value={value} disabled />
-    </div>
+    <Field data-disabled>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Input id={id} value={value} readOnly disabled />
+      {description && <FieldDescription>{description}</FieldDescription>}
+    </Field>
+  );
+}
+
+function SettingSwitch({
+  id,
+  title,
+  description,
+  checked,
+  onCheckedChange,
+}: {
+  id: string;
+  title: string;
+  description: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <Field orientation="horizontal">
+      <FieldContent>
+        <FieldLabel htmlFor={id}>{title}</FieldLabel>
+        <FieldDescription>{description}</FieldDescription>
+      </FieldContent>
+      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
+    </Field>
   );
 }
 

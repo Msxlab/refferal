@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
+import { InvitesModule } from '../invites/invites.module';
 import { JwtModule } from '@nestjs/jwt';
 import { MembersAdminController } from './members.admin.controller';
 import { MembersAdminService } from './members.admin.service';
 import { MembershipsModule } from '../memberships/memberships.module';
 
 @Module({
-  imports: [JwtModule.register({}), MembershipsModule],
+  imports: [InvitesModule, JwtModule.register({}), MembershipsModule],
   controllers: [MembersAdminController],
   providers: [MembersAdminService],
   exports: [MembersAdminService],

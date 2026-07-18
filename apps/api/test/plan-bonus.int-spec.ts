@@ -15,7 +15,7 @@ describe('plan bonus layers (entegrasyon)', () => {
   beforeAll(async () => {
     prisma = new PrismaService();
     await prisma.$connect();
-    engine = new EngineService(prisma, new RanksService(prisma));
+    engine = new EngineService(prisma, undefined, new RanksService(prisma));
     settings = new SettingsService(prisma, new PlansService(prisma));
   });
   afterAll(async () => { await prisma.$disconnect(); });

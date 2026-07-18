@@ -1,18 +1,20 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InviteStatus, LedgerStatus, MembershipStatus, PayoutStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import { hash } from '@node-rs/argon2';
-import { InviteStatus, LedgerStatus, MembershipStatus, PayoutStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
-import { randomCode } from '../common/crypto';
 import { authConfig } from '../auth/auth.config';
 import { ARGON2_OPTS } from '../auth/auth.service';
 import { AccessTokenPayload } from '../auth/auth.types';
+import { auditFingerprint } from '../common/audit-redaction';
+import { randomCode } from '../common/crypto';
+import { csvCell } from '../common/csv';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
-import { MembershipsService } from '../memberships/memberships.service';
+import { TenantContextService } from '../prisma/tenant-context.service';
 import { ActorContext } from '../common/actor';
-import { csvCell } from '../common/csv';
+import { InvitesService } from '../invites/invites.service';
+import { MembershipsService } from '../memberships/memberships.service';
 
-// Admin'in atayabilecegi roller (owner devri ve platform_admin bu uctan YAPILMAZ)
 const ASSIGNABLE_ROLES: Role[] = [Role.tenant_admin, Role.tenant_staff, Role.member];
 
 export type MemberSort = 'joinedAt' | 'fullName' | 'depth';
@@ -26,6 +28,8 @@ export class MembersAdminService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly memberships: MembershipsService,
+    private readonly tenantContext: TenantContextService,
+    private readonly invites: InvitesService,
   ) {}
 
   /**
@@ -99,6 +103,7 @@ export class MembersAdminService {
     tenantId: string,
     q: { search?: string; status?: MembershipStatus; sort: MemberSort; dir: SortDir; page: number; pageSize: number },
   ) {
+    this.tenantContext.assertTenant(tenantId);
     const where = this.listWhere(tenantId, q);
     // varsayilan (joinedAt asc) onceki davranisla birebir ayni
     const orderBy: Prisma.MembershipOrderByWithRelationInput =
@@ -302,7 +307,13 @@ export class MembersAdminService {
   }
 
   /** Admin davet olusturur: sponsor (kod veya id) tenant icinde olmali; varsayilan = admin kendisi. */
-  async invite(actor: ActorContext, actorMembershipId: string | null, input: { sponsorReferralCode?: string; sponsorMembershipId?: string; email?: string }) {
+  async invite(
+    actor: ActorContext,
+    actorMembershipId: string | null,
+    input: { sponsorReferralCode?: string; sponsorMembershipId?: string; email?: string },
+    idempotencyKey?: string,
+  ) {
+    this.tenantContext.assertActor(actor);
     let sponsorId = await this.resolveActorSponsor(actor.tenantId, actorMembershipId);
     if (input.sponsorMembershipId || input.sponsorReferralCode) {
       const sponsor = await this.prisma.membership.findFirst({
@@ -312,34 +323,18 @@ export class MembersAdminService {
         },
         select: { id: true, status: true },
       });
-      if (!sponsor) throw new NotFoundException('sponsor uyeligi bu isletmede bulunamadi');
-      if (sponsor.status !== MembershipStatus.active) throw new BadRequestException('sponsor aktif degil');
+      if (!sponsor) throw new NotFoundException('sponsor membership was not found in this business');
+      if (sponsor.status !== MembershipStatus.active) throw new BadRequestException('sponsor is not active');
       sponsorId = sponsor.id;
     }
 
-    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: actor.tenantId } });
-    if (tenant.status !== TenantStatus.active) throw new BadRequestException('isletme aktif degil');
-
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        const invite = await this.prisma.invite.create({
-          data: {
-            tenantId: actor.tenantId,
-            inviterMembershipId: sponsorId,
-            code: randomCode(10),
-            email: input.email?.toLowerCase(),
-            expiresAt: new Date(Date.now() + authConfig.inviteTtlMs),
-          },
-          select: { id: true, code: true, email: true, expiresAt: true, status: true, inviterMembershipId: true },
-        });
-        await this.audit(actor, 'invite.create', invite.id, { sponsorId, email: invite.email });
-        return invite;
-      } catch (e) {
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') continue;
-        throw e;
-      }
-    }
-    throw new BadRequestException('davet kodu uretilemedi');
+    const invite = await this.invites.createForAdmin(actor, sponsorId, { email: input.email }, idempotencyKey);
+    const emailFingerprint = auditFingerprint(invite.email ?? undefined, 'email', authConfig.accessSecret());
+    await this.audit(actor, 'invite.create', invite.id, {
+      sponsorId,
+      ...(emailFingerprint ? { emailFingerprint } : {}),
+    });
+    return { ...invite, inviterMembershipId: sponsorId };
   }
 
   /**
@@ -624,10 +619,11 @@ export class MembersAdminService {
   }
 
   async setStatus(actor: ActorContext, membershipId: string, status: MembershipStatus) {
+    this.tenantContext.assertActor(actor);
     const m = await this.requireInTenant(actor.tenantId, membershipId);
-    // owner pasife alinamaz: tenant'i aktif owner'siz birakmayi onler (setRole owner-guard'i ile simetrik)
+    // The owner cannot be deactivated; this prevents an active tenant from losing its owner.
     if (m.role === Role.tenant_owner && status === MembershipStatus.inactive) {
-      throw new BadRequestException('owner uyeligi pasife alinamaz');
+      throw new BadRequestException('owner membership cannot be deactivated');
     }
     if (m.status === status) return { id: m.id, status };
     const updated = await this.prisma.membership.update({ where: { id: m.id }, data: { status } });
@@ -655,6 +651,7 @@ export class MembersAdminService {
     actor: ActorContext,
     input: { action: 'activate' | 'deactivate' | 'set_role'; ids: string[]; role?: Role; preview?: boolean },
   ) {
+    this.tenantContext.assertActor(actor);
     const rows = await this.prisma.membership.findMany({
       where: { id: { in: input.ids }, tenantId: actor.tenantId },
       select: { id: true, role: true, status: true },
@@ -708,6 +705,7 @@ export class MembersAdminService {
   }
 
   async setRole(actor: ActorContext, membershipId: string, role: Role) {
+    this.tenantContext.assertActor(actor);
     if (!ASSIGNABLE_ROLES.includes(role)) {
       throw new BadRequestException('bu rol bu uctan atanamaz');
     }
@@ -734,6 +732,7 @@ export class MembersAdminService {
    * (tek groupBy — node basina sorgu YOK). teamSize frontend'de hesaplanir.
    */
   async tree(tenantId: string, rootMembershipId?: string) {
+    this.tenantContext.assertTenant(tenantId);
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const month = monthKey(new Date(), tenant.timezone);
 
@@ -821,6 +820,7 @@ export class MembersAdminService {
 
   /** GDPR/KVKK DSAR (Dalga 3): uyenin tum kisisel verisini tek JSON'da derler (admin). */
   async exportData(tenantId: string, membershipId: string) {
+    this.tenantContext.assertTenant(tenantId);
     const m = await this.prisma.membership.findFirst({
       where: { id: membershipId, tenantId },
       include: { user: { select: { id: true, email: true, fullName: true, locale: true, emailVerifiedAt: true, createdAt: true } }, sponsor: { select: { referralCode: true } } },
@@ -854,7 +854,7 @@ export class MembersAdminService {
       where: { id: membershipId, tenantId },
       select: { id: true, role: true, status: true, isTeamLeader: true },
     });
-    if (!m) throw new NotFoundException('uyelik bu isletmede bulunamadi');
+    if (!m) throw new NotFoundException('membership was not found in this business');
     return m;
   }
 

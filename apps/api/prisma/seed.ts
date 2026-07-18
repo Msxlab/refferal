@@ -43,12 +43,12 @@ async function createMember(
 async function main(): Promise<void> {
   const existing = await prisma.tenant.findUnique({ where: { slug: 'oppein' } });
   if (existing) {
-    console.log('Seed zaten uygulanmis (oppein tenant mevcut), atlandi.');
+    console.log('Seed already applied (oppein tenant exists), skipped.');
     return;
   }
 
-  // Faz 1 MVP: tek aktif tenant — Oppein (SPEC 12).
-  // Axtra varsayilanlari: on_delivery, $1.000 payout esigi, America/New_York.
+  // Phase 1 MVP: one active tenant, Oppein (SPEC 12).
+  // Axtra defaults: on_delivery, $1,000 payout threshold, America/New_York.
   const tenant = await prisma.tenant.create({
     data: {
       slug: 'oppein',
@@ -78,16 +78,16 @@ async function main(): Promise<void> {
     await tx.commissionPlan.update({ where: { id: plan.id }, data: { finalized: true } });
   });
 
-  const password = await hash('Refearn-Demo-2026!', {
+  const password = await hash('Americana-Demo-2026!', {
     memoryCost: 19_456,
     timeCost: 2,
     parallelism: 1,
   });
 
-  // Ornek agac:
-  //   owner (kurucu)
-  //   └── alice ── bob ── carol ── dave ── erin   (5 seviyelik zincir: T1 manuel dogrulamasi)
-  //   └── frank                                    (ikinci kol)
+  // Sample tree:
+  //   owner (founder)
+  //   |-- alice -- bob -- carol -- dave -- erin (5-level chain for manual T1 checks)
+  //   `-- frank                                 (second branch)
   const owner = await createMember(tenant.id, 'owner@oppein.test', 'Oppein Owner', 'tenant_owner', password, 'OPPEIN');
   const alice = await createMember(tenant.id, 'alice@oppein.test', 'Alice Aydin', 'member', password, 'ALICE1', owner);
   const bob = await createMember(tenant.id, 'bob@oppein.test', 'Bob Berk', 'member', password, 'BOB1', alice);
@@ -96,8 +96,8 @@ async function main(): Promise<void> {
   await createMember(tenant.id, 'erin@oppein.test', 'Erin Efe', 'member', password, 'ERIN1', dave);
   await createMember(tenant.id, 'frank@oppein.test', 'Frank Firat', 'member', password, 'FRANK1', owner);
 
-  console.log('Seed tamam: oppein tenant + standart plan + 7 uyelik ornek agac.');
-  console.log('Tum kullanicilarin sifresi: Refearn-Demo-2026!');
+  console.log('Seed complete: oppein tenant, standard plan, and 7-member sample tree.');
+  console.log('All seeded users use password: Americana-Demo-2026!');
 }
 
 main()

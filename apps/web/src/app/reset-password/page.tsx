@@ -3,11 +3,24 @@
 import Link from 'next/link';
 import { FormEvent, Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { AlertCircle, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { Brand } from '@/components/ui';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+
+function LoadingCard() {
+  return (
+    <div className="center px-4">
+      <Card className="w-full max-w-[420px]">
+        <CardContent>Loading...</CardContent>
+      </Card>
+    </div>
+  );
+}
 
 function ResetPasswordInner() {
   const params = useSearchParams();
@@ -41,57 +54,82 @@ function ResetPasswordInner() {
   }
 
   return (
-    <div className="center">
-      <div className="fade-in" style={{ width: 420, maxWidth: '100%' }}>
-        <div style={{ textAlign: 'center', marginBottom: 22 }}>
+    <div className="center px-4">
+      <div className="fade-in flex w-full max-w-[420px] flex-col gap-5">
+        <div className="flex justify-center">
           <Brand size="lg" />
         </div>
-        <form className="card card-glow" onSubmit={onSubmit}>
-          <div className="eyebrow" style={{ marginBottom: 4 }}>Account security</div>
-          <h1 className="h1" style={{ marginBottom: 12 }}>{done ? 'Password updated' : 'Reset password'}</h1>
-          {done ? (
-            <>
-              <p className="muted" style={{ marginTop: 0 }}>Your password has been changed. Existing sessions were signed out.</p>
-              <Link className="btn block" href="/login" style={{ marginTop: 18 }}>Go to login</Link>
-            </>
-          ) : (
-            <>
-              {!token && <div className="error">Password reset token is missing.</div>}
-              <div className="field">
-                <Label htmlFor="reset-new" className="mb-1.5 block">New password</Label>
-                <Input
-                  id="reset-new"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  minLength={10}
-                  required
-                  autoFocus
-                  placeholder="At least 10 characters"
-                />
+        <Card>
+          <CardHeader>
+            <CardDescription>Account security</CardDescription>
+            <CardTitle className="text-2xl">{done ? 'Password updated' : 'Reset password'}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {done ? (
+              <div className="flex flex-col gap-5">
+                <Alert>
+                  <CheckCircle2 />
+                  <AlertDescription>Your password has been changed. Existing sessions were signed out.</AlertDescription>
+                </Alert>
+                <Button className="w-full" asChild>
+                  <Link href="/login">
+                    Go to login
+                    <ArrowRight data-icon="inline-end" />
+                  </Link>
+                </Button>
               </div>
-              <div className="field">
-                <Label htmlFor="reset-confirm" className="mb-1.5 block">Confirm new password</Label>
-                <Input
-                  id="reset-confirm"
-                  type="password"
-                  value={confirm}
-                  onChange={(e) => setConfirm(e.target.value)}
-                  minLength={10}
-                  required
-                  placeholder="Repeat your new password"
-                />
-              </div>
-              {error && <div className="error">{error}</div>}
-              <Button type="submit" className="mt-1.5 w-full" disabled={busy || !token}>
-                {busy ? 'Updating...' : 'Update password'}
-              </Button>
-              <div style={{ textAlign: 'center', marginTop: 14 }}>
-                <Link href="/login" className="faint" style={{ fontSize: 12 }}>Back to login</Link>
-              </div>
-            </>
-          )}
-        </form>
+            ) : (
+              <form className="flex flex-col gap-5" onSubmit={onSubmit}>
+                <FieldGroup>
+                  <Field data-invalid={!token || undefined}>
+                    <FieldLabel htmlFor="new-password">New password</FieldLabel>
+                    <Input
+                      id="new-password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      minLength={10}
+                      required
+                      autoFocus
+                      placeholder="At least 10 characters"
+                      aria-invalid={!token || undefined}
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="confirm-password">Confirm new password</FieldLabel>
+                    <Input
+                      id="confirm-password"
+                      type="password"
+                      value={confirm}
+                      onChange={(e) => setConfirm(e.target.value)}
+                      minLength={10}
+                      required
+                      placeholder="Repeat your new password"
+                    />
+                  </Field>
+                </FieldGroup>
+                {!token && (
+                  <Alert variant="destructive">
+                    <AlertCircle />
+                    <AlertDescription>Password reset token is missing.</AlertDescription>
+                  </Alert>
+                )}
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertCircle />
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+                <Button className="w-full" disabled={busy || !token}>
+                  {busy ? 'Updating...' : 'Update password'}
+                </Button>
+                <Button variant="link" asChild>
+                  <Link href="/login">Back to login</Link>
+                </Button>
+              </form>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
@@ -99,7 +137,7 @@ function ResetPasswordInner() {
 
 export default function ResetPasswordPage() {
   return (
-    <Suspense fallback={<div className="center"><div className="card">Loading...</div></div>}>
+    <Suspense fallback={<LoadingCard />}>
       <ResetPasswordInner />
     </Suspense>
   );

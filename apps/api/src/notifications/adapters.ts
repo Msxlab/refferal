@@ -23,8 +23,22 @@ export interface PushMessage {
   data?: Record<string, unknown>;
 }
 
+export interface PushResult {
+  invalidTokens?: string[];
+}
+
 export interface PushAdapter {
-  send(msg: PushMessage): Promise<void>;
+  send(msg: PushMessage): Promise<PushResult | void>;
+}
+
+function isProduction(): boolean {
+  return process.env.NODE_ENV === 'production';
+}
+
+export function redactSensitiveEmailText(text: string): string {
+  return text
+    .replace(/([?&]token=)[^\s&]+/gi, '$1[redacted]')
+    .replace(/(token\s*[:=]\s*)[^\s]+/gi, '$1[redacted]');
 }
 
 /**
@@ -37,7 +51,7 @@ export class SmtpEmailAdapter implements EmailAdapter {
   private readonly from: string;
 
   constructor() {
-    this.from = process.env.SMTP_FROM ?? 'Refearn <no-reply@refearn.local>';
+    this.from = process.env.SMTP_FROM ?? 'Americana Earn <no-reply@americana-earn.local>';
     if (process.env.SMTP_HOST) {
       this.transport = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
@@ -52,6 +66,9 @@ export class SmtpEmailAdapter implements EmailAdapter {
 
   async send(msg: EmailMessage): Promise<void> {
     if (!this.transport) {
+      if (isProduction()) {
+        throw new Error('email provider is not configured');
+      }
       this.logger.log('[DEV e-posta] SMTP yapilandirilmadi; bildirim gonderilmedi');
       return;
     }
@@ -66,8 +83,8 @@ export class SmtpEmailAdapter implements EmailAdapter {
 }
 
 /**
- * Transactional saglayici (HTTP API) — Resend uyumlu. Inbox teslimati icin SMTP'ye alternatif.
- * Self-hosted ilke korunur: yalniz e-posta gonderimi, kimlik/oturum dis serviste DEGIL (SPEC kilitli karar).
+ * Transactional provider over HTTP API, compatible with Resend. Alternative to SMTP for inbox delivery.
+ * Keeps the self-hosted boundary: only email delivery is external, not identity or sessions.
  */
 export class ResendEmailAdapter implements EmailAdapter {
   private readonly logger = new Logger('EmailAdapter');
@@ -76,13 +93,16 @@ export class ResendEmailAdapter implements EmailAdapter {
   private readonly endpoint: string;
 
   constructor() {
-    this.from = process.env.MAIL_FROM ?? process.env.SMTP_FROM ?? 'Refearn <no-reply@refearn.local>';
+    this.from = process.env.MAIL_FROM ?? process.env.SMTP_FROM ?? 'Americana Earn <no-reply@americana-earn.local>';
     this.apiKey = process.env.RESEND_API_KEY ?? '';
     this.endpoint = process.env.MAIL_API_URL ?? 'https://api.resend.com/emails';
   }
 
   async send(msg: EmailMessage): Promise<void> {
     if (!this.apiKey) {
+      if (isProduction()) {
+        throw new Error('email provider is not configured');
+      }
       this.logger.warn('[DEV e-posta] provider key yok; bildirim gonderilmedi');
       return;
     }
@@ -104,10 +124,10 @@ export class ResendEmailAdapter implements EmailAdapter {
 }
 
 /**
- * Esnek email adaptor secimi (DECISIONS — luxury tur 1):
- *   MAIL_PROVIDER=resend → ResendEmailAdapter (HTTP)
- *   MAIL_PROVIDER=smtp (veya SMTP_HOST tanimli) → SmtpEmailAdapter
- *   aksi halde → SmtpEmailAdapter (dev console fallback)
+ * Flexible email adapter selection:
+ *   MAIL_PROVIDER=resend -> ResendEmailAdapter (HTTP)
+ *   MAIL_PROVIDER=smtp or SMTP_HOST set -> SmtpEmailAdapter
+ *   otherwise -> SmtpEmailAdapter dev console fallback
  */
 export function createEmailAdapter(): EmailAdapter {
   const provider = (process.env.MAIL_PROVIDER ?? '').toLowerCase();
@@ -117,16 +137,16 @@ export function createEmailAdapter(): EmailAdapter {
   return new SmtpEmailAdapter();
 }
 
-/** Expo Push; token yoksa no-op. Gecersiz token'lari yutar (best-effort). */
+/** Expo Push; no-op when there are no tokens. Reports permanently invalid tokens. */
 export class ExpoPushAdapter implements PushAdapter {
   private readonly logger = new Logger('PushAdapter');
   private readonly expo = new Expo();
 
-  async send(msg: PushMessage): Promise<void> {
+  async send(msg: PushMessage): Promise<PushResult> {
     const valid = msg.tokens.filter((tok) => Expo.isExpoPushToken(tok));
     if (valid.length === 0) {
-      this.logger.debug(`[push] gecerli token yok (${msg.title})`);
-      return;
+      this.logger.debug(`[push] no valid token (${msg.title})`);
+      return {};
     }
     const messages: ExpoPushMessage[] = valid.map((to) => ({
       to,
@@ -136,8 +156,19 @@ export class ExpoPushAdapter implements PushAdapter {
       sound: 'default',
     }));
     const chunks = this.expo.chunkPushNotifications(messages);
+    const invalidTokens: string[] = [];
     for (const chunk of chunks) {
-      await this.expo.sendPushNotificationsAsync(chunk);
+      const tickets = await this.expo.sendPushNotificationsAsync(chunk);
+      tickets.forEach((ticket, index) => {
+        if (
+          ticket.status === 'error' &&
+          ticket.details?.error === 'DeviceNotRegistered' &&
+          typeof chunk[index]?.to === 'string'
+        ) {
+          invalidTokens.push(chunk[index].to as string);
+        }
+      });
     }
+    return { invalidTokens };
   }
 }

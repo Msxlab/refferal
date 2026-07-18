@@ -1,80 +1,180 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+import { AlertCircle } from 'lucide-react';
+import { api, ApiError } from '@/lib/api';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+
 /**
- * Bildirim olay × kanal matrisi (varsayilanlar, salt-okunur onizleme).
- * Tam duzenlenebilir tercih matrisi (task #7) gelen-kutusu ile birlikte baglanacak.
+ * Notification event-by-channel matrix with default read-only preview.
+ * The fully editable preference matrix will be connected with the inbox work.
  */
-import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+type ChannelKey = 'in_app' | 'email' | 'push';
 
-const CHANNELS = ['In-app', 'Email', 'Push'] as const;
-
-interface EventRow { event: string; who: string; def: [boolean, boolean, boolean] }
-
-const EVENTS: EventRow[] = [
-  { event: 'Sale approved', who: 'Seller + upline', def: [true, true, true] },
-  { event: 'Commission matured', who: 'Beneficiary', def: [true, true, true] },
-  { event: 'Payout sent', who: 'Member', def: [true, true, true] },
-  { event: 'New team member joined', who: 'Sponsor', def: [true, false, true] },
-  { event: 'Invitation accepted', who: 'Inviter', def: [true, false, false] },
-  { event: 'Email verification', who: 'New user', def: [false, true, false] },
-  { event: 'Password reset', who: 'Account owner', def: [false, true, false] },
-  { event: 'Security alert', who: 'Account owner', def: [true, true, false] },
+const CHANNELS: Array<{ key: ChannelKey; label: string }> = [
+  { key: 'in_app', label: 'In-app' },
+  { key: 'email', label: 'Email' },
+  { key: 'push', label: 'Push' },
 ];
 
+interface EventPreference {
+  template: string;
+  label: string;
+  description: string;
+  values: Record<ChannelKey, boolean>;
+  lockedChannels: ChannelKey[];
+}
+
+interface PreferencesResponse {
+  events: EventPreference[];
+}
+
 export default function Notifications() {
+  const [events, setEvents] = useState<EventPreference[]>([]);
+  const [saving, setSaving] = useState('');
+  const [error, setError] = useState('');
+
+  async function load() {
+    try {
+      const res = await api.get<PreferencesResponse>('/me/notification-preferences');
+      setEvents(res.events);
+    } catch (e) {
+      setError(String((e as ApiError).message));
+    }
+  }
+
+  useEffect(() => { void load(); }, []);
+
+  function toPreferences(rows: EventPreference[]) {
+    return Object.fromEntries(rows.map((row) => [row.template, row.values]));
+  }
+
+  async function toggle(template: string, channel: ChannelKey) {
+    const next = events.map((row) =>
+      row.template === template
+        ? { ...row, values: { ...row.values, [channel]: !row.values[channel] } }
+        : row,
+    );
+    setEvents(next);
+    setSaving(`${template}:${channel}`);
+    setError('');
+    try {
+      const res = await api.post<PreferencesResponse>('/me/notification-preferences', {
+        preferences: toPreferences(next),
+      });
+      setEvents(res.events);
+    } catch (e) {
+      setError(String((e as ApiError).message));
+      await load();
+    } finally {
+      setSaving('');
+    }
+  }
+
   return (
-    <div className="grid" style={{ gap: 18 }}>
-      <Card style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+    <div className="flex flex-col gap-5">
+      <div className="grid gap-3 md:grid-cols-3">
         <Stat label="Delivery" value="Transactional outbox" hint="At-least-once with retry & backoff" />
         <Stat label="Email transport" value="SMTP / provider" hint="Pluggable adapter (env-selected)" />
         <Stat label="Mobile push" value="Expo" hint="Per-device tokens" />
-      </Card>
+      </div>
 
-      <section>
-        <div style={{ marginBottom: 10 }}>
-          <strong style={{ fontSize: 15 }}>Event routing <Badge variant="secondary" className="ml-1.5 align-middle text-[10px]">Read-only defaults</Badge></strong>
-          <div className="faint" style={{ fontSize: 12 }}>Default channels per event (not editable yet). Per-member overrides arrive with the in-app inbox.</div>
-        </div>
-        <Card style={{ padding: 0, overflow: 'hidden' }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Event</th><th>Recipient</th>
-                {CHANNELS.map((c) => <th key={c} style={{ textAlign: 'center' }}>{c}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {EVENTS.map((e) => (
-                <tr key={e.event}>
-                  <td style={{ fontWeight: 600 }}>{e.event}</td>
-                  <td className="faint" style={{ fontSize: 12 }}>{e.who}</td>
-                  {e.def.map((on, i) => (
-                    <td key={i} style={{ textAlign: 'center' }}>
-                      <span style={{
-                        display: 'inline-block', width: 16, height: 16, borderRadius: 5,
-                        background: on ? 'var(--emerald)' : 'transparent',
-                        border: on ? 'none' : '1.5px solid var(--border-strong)',
-                        color: '#fff', fontSize: 11, fontWeight: 900, lineHeight: '16px',
-                      }}>{on ? '✓' : ''}</span>
-                    </td>
-                  ))}
-                </tr>
+      <Card>
+        <CardHeader>
+          <CardTitle>Event routing</CardTitle>
+          <CardDescription>
+            Per-account delivery preferences for supported notification events.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {error && (
+            <Alert variant="destructive">
+              <AlertCircle />
+              <AlertTitle>Notification preferences could not be saved</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Event</TableHead>
+                <TableHead>Purpose</TableHead>
+                {CHANNELS.map((c) => (
+                  <TableHead key={c.key} className="text-center">{c.label}</TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {events.map((e) => (
+                <TableRow key={e.template}>
+                  <TableCell className="font-medium">{e.label}</TableCell>
+                  <TableCell className="max-w-[360px] whitespace-normal text-muted-foreground">
+                    {e.description}
+                  </TableCell>
+                  {CHANNELS.map((channel) => {
+                    const locked = e.lockedChannels.includes(channel.key);
+                    const key = `${e.template}:${channel.key}`;
+                    const disabled = locked || saving === key;
+                    const on = e.values[channel.key];
+                    return (
+                      <TableCell
+                        key={channel.key}
+                        className="text-center"
+                      >
+                        <Switch
+                          size="sm"
+                          checked={on}
+                          disabled={disabled}
+                          aria-label={`${e.label} ${channel.label}`}
+                          title={locked ? 'Required for this event' : undefined}
+                          onCheckedChange={() => void toggle(e.template, channel.key)}
+                        />
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </Card>
-      </section>
+              {events.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-muted-foreground">
+                    Loading preferences...
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
 function Stat({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
-    <div style={{ flex: 1, minWidth: 160 }}>
-      <div className="faint" style={{ fontSize: 11 }}>{label}</div>
-      <div style={{ fontWeight: 700, fontSize: 14, marginTop: 3 }}>{value}</div>
-      <div className="faint" style={{ fontSize: 11, marginTop: 2 }}>{hint}</div>
-    </div>
+    <Card size="sm">
+      <CardHeader>
+        <CardDescription>{label}</CardDescription>
+        <CardTitle>{value}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="truncate text-sm text-muted-foreground" title={hint}>{hint}</p>
+      </CardContent>
+    </Card>
   );
 }

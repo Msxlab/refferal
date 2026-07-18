@@ -1,48 +1,63 @@
 import { InviteStatus, MembershipStatus, TenantStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { INVITE_DISCLAIMER_REGISTRY, INVITE_DISCLAIMER_VERSION } from './invite-consent';
 import { InvitesService } from './invites.service';
 
 describe('InvitesService public resolve contract', () => {
-  it('selects and returns only fields required by the public signup page', async () => {
+  it('selects and returns only the public signup state', async () => {
     const expiresAt = new Date('2026-08-01T12:00:00.000Z');
     const findUnique = jest.fn().mockResolvedValue({
-      code: 'PUBLIC1234',
       status: InviteStatus.active,
+      tenantId: 'tenant-1',
       expiresAt,
       email: null,
       tenant: {
         name: 'Privacy First Co',
-        slug: 'privacy-first',
         status: TenantStatus.active,
       },
       inviter: {
         status: MembershipStatus.active,
-        inviteMessage: 'Private welcome note',
-        user: { fullName: 'Private Person' },
       },
     });
-    const service = new InvitesService({ invite: { findUnique } } as unknown as PrismaService);
+    const findFirst = jest.fn().mockResolvedValue({
+      name: 'Growth Plan',
+      poolRateBps: 1_250,
+      depth: 4,
+      effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    const service = new InvitesService({
+      invite: { findUnique },
+      commissionPlan: { findFirst },
+    } as unknown as PrismaService);
 
     const result = await service.resolve('PUBLIC1234');
 
     expect(findUnique).toHaveBeenCalledWith({
       where: { code: 'PUBLIC1234' },
       select: {
-        code: true,
         status: true,
+        tenantId: true,
         expiresAt: true,
         email: true,
-        tenant: { select: { name: true, slug: true, status: true } },
+        tenant: { select: { name: true, status: true } },
         inviter: { select: { status: true } },
       },
     });
+    expect(findFirst).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant-1', effectiveFrom: { lte: expect.any(Date) } },
+      orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      select: { name: true, poolRateBps: true, depth: true, effectiveFrom: true },
+    });
     expect(result).toEqual({
-      code: 'PUBLIC1234',
-      valid: true,
-      tenantName: 'Privacy First Co',
-      tenantSlug: 'privacy-first',
-      expiresAt,
-      emailLocked: false,
+      state: 'valid',
+      tenant: { displayName: 'Privacy First Co' },
+      programSummary: expect.stringContaining('Growth Plan'),
+      disclaimer: {
+        version: INVITE_DISCLAIMER_VERSION,
+        locale: 'en',
+        body: INVITE_DISCLAIMER_REGISTRY[INVITE_DISCLAIMER_VERSION].en,
+      },
+      expiresAt: expiresAt.toISOString(),
     });
   });
 });

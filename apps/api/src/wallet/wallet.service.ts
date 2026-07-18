@@ -1,34 +1,112 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { LedgerStatus, LedgerType, MembershipStatus, SaleStatus } from '@prisma/client';
+import { LedgerStatus, LedgerType, MembershipStatus, PayoutStatus, SaleStatus } from '@prisma/client';
+import { publicBrandFromTenant } from '../common/branding';
 import { monthKey } from '../engine/month';
+import {
+  evaluatePayoutReadiness,
+  LegacyPayoutEligibilityReason,
+  legacyPayoutEligibilityReason,
+} from '../payouts/payout-readiness';
+import { PayoutComplianceService } from '../payouts/payout-compliance.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { TenantContextService } from '../prisma/tenant-context.service';
+
+function payoutEligibilityMessage(reason: LegacyPayoutEligibilityReason) {
+  switch (reason) {
+    case 'eligible':
+      return 'Payable balance is eligible for a payout request.';
+    case 'no_payable':
+      return 'No payable balance is available.';
+    case 'below_threshold':
+      return 'Payable balance is below the payout minimum.';
+    case 'email_unverified':
+      return 'Verify your email address before requesting a payout.';
+    case 'requested':
+      return 'A payout request is already open.';
+    case 'processing':
+      return 'A payout is already processing.';
+    case 'readiness_unavailable':
+      return 'Additional payout readiness checks are unavailable.';
+  }
+}
 
 /**
- * Uye cuzdan/ozet servisleri (SPEC 8/9). GIZLILIK: alt ekip icin yalnizca AGREGAT
- * (sayi + kendi ledger'i) doner; bireysel isim+satis eslesmesi member rolune ASLA donmez.
+ * Member wallet and summary services (SPEC 8/9). PRIVACY: downline data is aggregate-only
+ * (counts plus the caller's own ledger); individual name-to-sale matching is never returned to members.
  */
 @Injectable()
 export class WalletService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantContext: TenantContextService,
+    private readonly compliance: PayoutComplianceService,
+  ) {}
 
-  /**
-   * Bakiye = payable toplam (odenebilir). pending ve paid ayri gosterilir.
-   * type/status filtreleri YALNIZ ledger listesine uygulanir; balance her zaman tum kayitlardan.
-   */
+  async brand(tenantId: string) {
+    this.tenantContext.assertTenant(tenantId);
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({
+      where: { id: tenantId },
+      select: { name: true, branding: true },
+    });
+    return publicBrandFromTenant(tenant);
+  }
+  /** Balance is the payable total. Processing funds are visible but non-withdrawable. */
   async wallet(
     membershipId: string,
     tenantId: string,
     q: { page: number; pageSize: number; type?: LedgerType; status?: LedgerStatus },
   ) {
-    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
-    const grouped = await this.prisma.ledgerEntry.groupBy({
-      by: ['status'],
-      where: { beneficiaryMembershipId: membershipId, status: { not: LedgerStatus.reversed } },
-      _sum: { amountCents: true },
-    });
+    this.tenantContext.assertTenant(tenantId);
+    this.tenantContext.assertMembership(membershipId);
+    const [tenant, membership, grouped] = await Promise.all([
+      this.prisma.tenant.findUniqueOrThrow({
+        where: { id: tenantId },
+        select: { currency: true, payoutMinCents: true, timezone: true },
+      }),
+      this.prisma.membership.findFirst({
+        where: { id: membershipId, tenantId },
+        select: { user: { select: { emailVerifiedAt: true } } },
+      }),
+      this.prisma.ledgerEntry.groupBy({
+        by: ['status'],
+        where: { tenantId, beneficiaryMembershipId: membershipId, status: { not: LedgerStatus.reversed } },
+        _sum: { amountCents: true },
+      }),
+    ]);
+    if (!membership) throw new NotFoundException('membership not found');
+
     const bucket = (s: LedgerStatus) => grouped.find((g) => g.status === s)?._sum.amountCents ?? 0n;
+    const payableCents = bucket(LedgerStatus.payable);
+    const period = monthKey(new Date(), tenant.timezone);
+    const activePayouts = await this.prisma.payout.findMany({
+      where: {
+        tenantId,
+        membershipId,
+        period,
+        status: { in: [PayoutStatus.requested, PayoutStatus.processing] },
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, status: true },
+    });
+    // Match requestPayout's preference when historical corruption leaves multiple active rows.
+    const activePayout = activePayouts.find((payout) => payout.status === PayoutStatus.processing) ?? activePayouts[0] ?? null;
+    const readinessActivePayout = activePayout
+      ? { id: activePayout.id, status: activePayout.status === PayoutStatus.processing ? ('processing' as const) : ('requested' as const) }
+      : null;
+    const complianceInput = await this.compliance.readInput(this.prisma, tenantId, membershipId);
+    const payoutReadiness = evaluatePayoutReadiness({
+      emailVerified: membership.user.emailVerifiedAt !== null,
+      payableCents,
+      threshold: { amountCents: tenant.payoutMinCents, currency: tenant.currency },
+      activePayout: readinessActivePayout,
+      mfa: { requirement: 'unknown' },
+      manualChecks: complianceInput.manualChecks,
+      destination: complianceInput.destination,
+    });
+    const eligibilityReason = legacyPayoutEligibilityReason(payoutReadiness, readinessActivePayout);
 
     const ledgerWhere = {
+      tenantId,
       beneficiaryMembershipId: membershipId,
       ...(q.type ? { type: q.type } : {}),
       ...(q.status ? { status: q.status } : {}),
@@ -57,11 +135,18 @@ export class WalletService {
 
     return {
       currency: tenant.currency,
-      // Esik ilerleme cubugu icin: payable >= payoutMinCents olunca odeme istenebilir
       payoutMinCents: tenant.payoutMinCents.toString(),
+      payoutReadiness,
+      payoutEligibility: {
+        requestable: eligibilityReason === 'eligible',
+        reason: eligibilityReason,
+        message: payoutEligibilityMessage(eligibilityReason),
+        activePayout: activePayout ? { id: activePayout.id, status: activePayout.status } : null,
+      },
       balance: {
         pendingCents: bucket(LedgerStatus.pending).toString(),
-        payableCents: bucket(LedgerStatus.payable).toString(),
+        payableCents: payableCents.toString(),
+        processingCents: bucket(LedgerStatus.processing).toString(),
         paidCents: bucket(LedgerStatus.paid).toString(),
       },
       ledger: {
@@ -91,6 +176,8 @@ export class WalletService {
    * Ay anahtari tenant.timezone'a gore (engine monthKey ile ayni kural).
    */
   async earnings(membershipId: string, tenantId: string, months: number) {
+    this.tenantContext.assertTenant(tenantId);
+    this.tenantContext.assertMembership(membershipId);
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const anchor = monthKey(new Date(), tenant.timezone);
     const range = this.monthsBack(anchor, months);
@@ -133,6 +220,8 @@ export class WalletService {
 
   /** Aktivasyon checklist'i (#22): mevcut veriden turetilir, yeni tablo yok. */
   async onboarding(membershipId: string, userId: string, tenantId: string) {
+    this.tenantContext.assertTenant(tenantId);
+    this.tenantContext.assertMembership(membershipId);
     const [user, profile, invites, sales, devices] = await Promise.all([
       this.prisma.user.findUnique({ where: { id: userId }, select: { emailVerifiedAt: true } }),
       this.prisma.payoutProfile.findUnique({ where: { membershipId }, select: { id: true } }),
@@ -156,6 +245,8 @@ export class WalletService {
    * Baska uyenin adi/tutari ASLA donmez (mevcut gizlilik modeli). Bu ay toplam kazanca gore.
    */
   async leaderboard(membershipId: string, tenantId: string) {
+    this.tenantContext.assertTenant(tenantId);
+    this.tenantContext.assertMembership(membershipId);
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const month = monthKey(new Date(), tenant.timezone);
     const rows = await this.prisma.monthlySummary.groupBy({
@@ -177,6 +268,8 @@ export class WalletService {
 
   /** Ay ozeti + seviye dokumu (pending/payable/paid). */
   async dashboard(membershipId: string, tenantId: string, month?: string) {
+    this.tenantContext.assertTenant(tenantId);
+    this.tenantContext.assertMembership(membershipId);
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const targetMonth = month ?? monthKey(new Date(), tenant.timezone);
 
@@ -191,6 +284,7 @@ export class WalletService {
       level: r.level,
       pendingCents: r.pendingCents.toString(),
       payableCents: r.payableCents.toString(),
+      processingCents: r.processingCents.toString(),
       paidCents: r.paidCents.toString(),
     }));
     const sum = (pick: (r: (typeof rows)[number]) => bigint) => rows.reduce((a, r) => a + pick(r), 0n);
@@ -210,6 +304,7 @@ export class WalletService {
       totals: {
         pendingCents: sum((r) => r.pendingCents).toString(),
         payableCents: sum((r) => r.payableCents).toString(),
+        processingCents: sum((r) => r.processingCents).toString(),
         paidCents: sum((r) => r.paidCents).toString(),
       },
       levels,
@@ -217,17 +312,19 @@ export class WalletService {
   }
 
   /**
-   * Ekibim: seviye basina kisi sayisi (member_count + active_count). AGREGAT, isim YOK.
-   * team_stats gece job'i ile (henuz yok); MVP'de path uzerinden CANLI hesaplanir.
-   * Pencere plan derinligiyle sinirli (kayan pencere — daha derini gosterilmez).
+   * Team view: per-level member count and active count. Aggregate only; no names.
+   * team_stats can be filled by a nightly job later; MVP calculates live from path.
+   * The visible window is capped by plan depth; deeper levels are not shown.
    */
   async team(membershipId: string, tenantId: string) {
+    this.tenantContext.assertTenant(tenantId);
+    this.tenantContext.assertMembership(membershipId);
     const me = await this.prisma.membership.findFirst({
       where: { id: membershipId, tenantId },
       select: { path: true, depth: true },
     });
     if (!me) {
-      throw new NotFoundException('uyelik bulunamadi');
+      throw new NotFoundException('membership not found');
     }
 
     const plan = await this.prisma.commissionPlan.findFirst({
@@ -235,12 +332,12 @@ export class WalletService {
       orderBy: { effectiveFrom: 'desc' },
       select: { depth: true },
     });
-    const maxRelLevel = (plan?.depth ?? 1) - 1; // kendi (level 0) haric alt seviyeler
+    const maxRelLevel = (plan?.depth ?? 1) - 1; // excludes the caller at level 0
 
-    // Alt agac: ltree descendant operatoru (<@) ile <me.path> altindaki uyeler.
-    // LIKE yerine ltree kullaniyoruz; aksi halde etiketlerdeki '_' LIKE joker'i olurdu.
-    // depth'e gore grupla, goreli seviyeyi (depth - me.depth) JS'te hesapla — boylece
-    // SELECT/GROUP BY ifadelerinde parametre uyusmazligi olmaz. Pencere: maxRelLevel'e kadar.
+    // Subtree: ltree descendant operator (<@) for members below me.path.
+    // Use ltree instead of LIKE so '_' in labels is never treated as a wildcard.
+    // Group by absolute depth, then calculate relative level in JS.
+    // This avoids parameter mismatch in SELECT/GROUP BY expressions; window is capped at maxRelLevel.
     const maxDepth = me.depth + maxRelLevel;
     const rows = await this.prisma.$queryRaw<
       Array<{ depth: number; memberCount: bigint; activeCount: bigint }>
@@ -277,8 +374,10 @@ export class WalletService {
    * GIZLILIK: bu yuzey team()'den FARKLI — burada isim donebilir cunku uye onlari kendisi davet etti
    * (gizlilik kisiti DERIN downline icindir, direkt recruit'ler degil). 2+ seviye derin ASLA isimle
    * donmez; bunun icin team() agregati kullanilir. Tum sorgular SALT-OKUNUR (yerlesim/path'e dokunmaz).
-   */
+  */
   async recruits(membershipId: string, tenantId: string) {
+    this.tenantContext.assertTenant(tenantId);
+    this.tenantContext.assertMembership(membershipId);
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const month = monthKey(new Date(), tenant.timezone);
 

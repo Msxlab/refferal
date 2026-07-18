@@ -1,9 +1,12 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Header,
+  Headers,
   HttpCode,
   Param,
   ParseUUIDPipe,
@@ -13,14 +16,16 @@ import {
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Response } from 'express';
-import { CurrentUser, RequireMembership, Roles } from '../auth/auth.guard';
+import { CurrentUser, RequireMembership, RequirePermission, Roles } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
+import { parseIdempotencyKey } from '../common/idempotency-key';
+import { ALL_PERMISSIONS } from '../common/permissions';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { ActorContext } from '../common/actor';
 import { SalesService } from './sales.service';
 import {
-  bulkSchema,
-  BulkInput,
+  confirmBulkSchema,
+  ConfirmBulkInput,
   createSaleSchema,
   CreateSaleInput,
   deliverSchema,
@@ -31,6 +36,8 @@ import {
   ListMySalesInput,
   listSalesSchema,
   ListSalesInput,
+  previewBulkSchema,
+  PreviewBulkInput,
   salesFilterSchema,
   SalesFilterInput,
   selfCreateSaleSchema,
@@ -40,7 +47,7 @@ import {
 const STAFF = [Role.tenant_owner, Role.tenant_admin, Role.tenant_staff];
 const ADMIN = [Role.tenant_owner, Role.tenant_admin];
 
-/** Tenant yonetimi — satis (SPEC 8/9). Tum islemler aktif uyelik + rol ister. */
+/** Tenant sales management (SPEC 8/9). All actions require active membership and role checks. */
 @RequireMembership()
 @Controller('admin/sales')
 export class SalesController {
@@ -50,14 +57,23 @@ export class SalesController {
     return { userId: user.sub, tenantId: user.tid as string };
   }
 
-  // staff satis girebilir; payout/plan goremez (SPEC 4.2)
+  private assertPermission(user: RequestUser, permission: string): void {
+    if (user.role === Role.tenant_owner || user.role === Role.platform_admin) return;
+    if (!ALL_PERMISSIONS.includes(permission) || !user.perms?.includes(permission)) {
+      throw new ForbiddenException('you do not have permission for this action');
+    }
+  }
+
+  // Staff can create sales but cannot see payout or plan data (SPEC 4.2).
   @Roles(...STAFF)
+  @RequirePermission('sales.create')
   @Post()
   create(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(createSaleSchema)) body: CreateSaleInput) {
     return this.sales.create(this.actor(user), body);
   }
 
   @Roles(...STAFF)
+  @RequirePermission('sales.view')
   @Get()
   list(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(listSalesSchema)) q: ListSalesInput) {
     return this.sales.list(this.actor(user), q);
@@ -84,28 +100,51 @@ export class SalesController {
   }
 
   @Roles(...STAFF)
+  @RequirePermission('sales.import')
   @HttpCode(200)
   @Post('import')
   import(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(importSchema)) body: ImportInput) {
     return this.sales.importCsv(this.actor(user), body.csv, body.mapping, body.preview ?? false);
   }
 
-  // para etkileyen toplu aksiyon yalnizca admin+
+  // Money-impacting bulk actions are admin+ only.
+  @Roles(...ADMIN)
+  @HttpCode(200)
+  @Post('bulk/preview')
+  previewBulk(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(previewBulkSchema)) body: PreviewBulkInput,
+  ) {
+    this.assertPermission(user, body.action === 'approve' ? 'sales.approve' : 'sales.void');
+    return this.sales.previewBulk(this.actor(user), body);
+  }
+
   @Roles(...ADMIN)
   @HttpCode(200)
   @Post('bulk')
-  bulk(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(bulkSchema)) body: BulkInput) {
-    return this.sales.bulk(this.actor(user), body.action, body.ids);
+  bulk(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(confirmBulkSchema)) body: ConfirmBulkInput,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
+    const parsedIdempotencyKey = parseIdempotencyKey(idempotencyKey);
+    if (!parsedIdempotencyKey) throw new BadRequestException('Idempotency-Key is required');
+    const actor = this.actor(user);
+    const action = this.sales.reviewedBulkAction(actor, body.previewToken);
+    this.assertPermission(user, action === 'approve' ? 'sales.approve' : 'sales.void');
+    return this.sales.bulk(actor, body, parsedIdempotencyKey);
   }
 
   @Roles(...STAFF)
+  @RequirePermission('sales.view')
   @Get(':id')
   detail(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.sales.detail(this.actor(user), id);
   }
 
-  // para etkileyen aksiyonlar yalnizca admin+ (SPEC 4.2, audit'li)
+  // Money-impacting actions are admin+ only and audited (SPEC 4.2).
   @Roles(...ADMIN)
+  @RequirePermission('sales.approve')
   @HttpCode(200)
   @Post(':id/approve')
   approve(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
@@ -113,6 +152,7 @@ export class SalesController {
   }
 
   @Roles(...ADMIN)
+  @RequirePermission('sales.void')
   @HttpCode(200)
   @Post(':id/void')
   void(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
@@ -120,6 +160,7 @@ export class SalesController {
   }
 
   @Roles(...ADMIN)
+  @RequirePermission('sales.approve')
   @HttpCode(200)
   @Post(':id/deliver')
   deliver(

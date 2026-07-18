@@ -1,2 +1,2 @@
--- Entegrasyon testleri icin ayri veritabani (migration'lar test setup'inda uygulanir)
+-- Separate database for integration tests; migrations are applied by test setup.
 CREATE DATABASE refearn_test;

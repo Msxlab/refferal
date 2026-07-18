@@ -1,0 +1,8 @@
+[Unit]
+Description=Americana Earn backup restore drill
+Documentation=file:/opt/americana-earn/docker/ops/README.md
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/americana-earn
+ExecStart=/usr/bin/docker compose --profile app exec -T backup bash /restore-test.sh

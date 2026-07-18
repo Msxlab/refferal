@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { ALL_PERMISSIONS } from '../common/permissions';
 
 const permissionKey = z.string().refine((k) => ALL_PERMISSIONS.includes(k), {
-  message: 'bilinmeyen izin anahtari',
+  message: 'unknown permission key',
 });
 
 export const createRoleSchema = z.object({
@@ -28,7 +28,7 @@ export const updateRoleSchema = z.object({
 });
 export type UpdateRoleInput = z.infer<typeof updateRoleSchema>;
 
-// Atanabilir kaba katman: member yonetim yuzeyinde gorunmez; owner ataması ayri korunur.
+// Assignable coarse tier: member is hidden from the admin surface; owner assignment is guarded separately.
 export const assignRoleSchema = z.object({
   tier: z.enum(['tenant_admin', 'tenant_staff', 'member']).optional(),
   roleId: z.string().uuid().nullable().optional(),

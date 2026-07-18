@@ -16,7 +16,7 @@ export const earningsQuerySchema = z.object({
 export type EarningsQuery = z.infer<typeof earningsQuerySchema>;
 
 export const dashboardQuerySchema = z.object({
-  // YYYY-MM; verilmezse tenant timezone'una gore icinde bulunulan ay
+  // YYYY-MM; defaults to the current month in the tenant timezone when omitted.
   month: z
     .string()
     .regex(/^\d{4}-\d{2}$/)

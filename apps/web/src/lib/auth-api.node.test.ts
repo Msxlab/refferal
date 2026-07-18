@@ -8,6 +8,8 @@ import {
   ApiError,
   getActiveCompanyToken,
   getCsv,
+  login,
+  loginTwoFactor,
   postBlob,
   requestPasswordReset,
   setActiveCompanyToken,
@@ -468,6 +470,39 @@ test('password reset requests use the exact unauthenticated JSON endpoint', asyn
     assert.equal(new Headers(calls[0].init?.headers).get('Content-Type'), 'application/json');
     assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { email: 'member@example.test' });
     assert.equal(authorization(calls[0].init), null);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('MFA login preserves the server challenge token for the completion request', async () => {
+  const calls: Array<{ input: string; init?: RequestInit }> = [];
+  const restoreFetch = installFetch(async (input, init) => {
+    calls.push({ input: String(input), init });
+    if (String(input).endsWith('/auth/login')) {
+      return Response.json({
+        mfaRequired: true,
+        challengeToken: 'server-issued-challenge-token',
+        expiresAt: '2026-07-18T12:00:00.000Z',
+      });
+    }
+    if (String(input).endsWith('/auth/login/2fa')) return Response.json(makeSession());
+    throw new Error(`unexpected request: ${String(input)}`);
+  });
+
+  try {
+    const result = await login('member@example.test', 'correct-horse-battery-staple');
+
+    assert.ok('mfaRequired' in result && result.mfaRequired);
+    assert.equal(result.challengeToken, 'server-issued-challenge-token');
+    assert.equal(result.mfaToken, 'server-issued-challenge-token');
+    await loginTwoFactor(result.mfaToken, '123456');
+
+    assert.equal(calls.length, 2);
+    assert.deepEqual(JSON.parse(String(calls[1].init?.body)), {
+      challengeToken: 'server-issued-challenge-token',
+      code: '123456',
+    });
   } finally {
     restoreFetch();
   }
@@ -1282,7 +1317,6 @@ test('a malformed refresh Session normalizes to 401 and is never persisted or re
     browser.restore();
   }
 });
-
 test('refresh uses no-throw cleanup when setItem fails and normalizes to 401', async () => {
   const failures: StorageFailures = {};
   const browser = installBrowser(failures);

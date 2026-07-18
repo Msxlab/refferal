@@ -1,13 +1,13 @@
 import { z } from 'zod';
 
-// Tutarlar integer cent. JSON number int guvenli araligi cent icin fazlasiyla yeterli.
+// Amounts are integer cents. JSON safe integers are ample for cent values.
 const amountCents = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 
-// ISO tarih/datetime → Date
+// ISO date/datetime -> Date.
 const saleDate = z.coerce.date();
 
 export const createSaleSchema = z.object({
-  // satici ya membership id ya da referral kod ile belirtilir
+  // Seller can be identified by membership id or referral code.
   sellerMembershipId: z.string().uuid().optional(),
   sellerReferralCode: z.string().trim().min(3).max(32).optional(),
   amountCents,
@@ -15,7 +15,7 @@ export const createSaleSchema = z.object({
   customerRef: z.string().trim().max(200).optional(),
   externalRef: z.string().trim().max(200).optional(),
 }).refine((v) => v.sellerMembershipId || v.sellerReferralCode, {
-  message: 'sellerMembershipId veya sellerReferralCode gerekli',
+  message: 'sellerMembershipId or sellerReferralCode is required',
   path: ['sellerMembershipId'],
 });
 export type CreateSaleInput = z.infer<typeof createSaleSchema>;
@@ -23,12 +23,12 @@ export type CreateSaleInput = z.infer<typeof createSaleSchema>;
 // Ortak filtre seti: liste + summary + export ayni paramlari paylasir (page'siz).
 export const salesFilterSchema = z.object({
   status: z.enum(['draft', 'approved', 'void']).optional(),
-  // serbest arama: satici adi/kodu + customer_ref/external_ref
+  // Free search: seller name/code plus customer_ref/external_ref.
   q: z.string().trim().max(120).optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
-  minCents: z.coerce.number().int().min(0).optional(),
-  maxCents: z.coerce.number().int().min(0).optional(),
+  minCents: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+  maxCents: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
 });
 export type SalesFilterInput = z.infer<typeof salesFilterSchema>;
 
@@ -37,8 +37,61 @@ export const listSalesSchema = salesFilterSchema.extend({
   dir: z.enum(['asc', 'desc']).default('desc'),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
+}).strict().superRefine((value, ctx) => {
+  if (value.from && value.to && value.from > value.to) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['from'],
+      message: 'from must be before or equal to to',
+    });
+  }
+  if (value.minCents !== undefined && value.maxCents !== undefined && value.minCents > value.maxCents) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['minCents'],
+      message: 'minCents must be less than or equal to maxCents',
+    });
+  }
 });
 export type ListSalesInput = z.infer<typeof listSalesSchema>;
+
+export const bulkActionSchema = z.enum(['approve', 'void']);
+export type BulkAction = z.infer<typeof bulkActionSchema>;
+
+export const bulkScopeSchema = z.discriminatedUnion('mode', [
+  z.object({
+    mode: z.literal('selected'),
+    ids: z.array(z.string().uuid()).min(1).max(200),
+  }).strict(),
+  z.object({
+    mode: z.literal('all-results'),
+    filters: listSalesSchema,
+  }).strict(),
+]);
+export type BulkScope = z.infer<typeof bulkScopeSchema>;
+
+export const previewBulkSchema = z.object({
+  action: bulkActionSchema,
+  scope: bulkScopeSchema,
+}).strict();
+export type PreviewBulkInput = z.infer<typeof previewBulkSchema>;
+
+export const confirmBulkSchema = z.object({
+  scope: bulkScopeSchema,
+  previewToken: z.string().min(32).max(4096),
+}).strict();
+export type ConfirmBulkInput = z.infer<typeof confirmBulkSchema>;
+
+export type BulkPreviewTotal = { currency: string; amountCents: string };
+
+export type BulkPreview = {
+  previewToken: string;
+  expiresAt: string;
+  action: BulkAction;
+  eligibleCount: number;
+  excludedCount: number;
+  totals: BulkPreviewTotal[];
+};
 
 export const bulkSchema = z.object({
   action: z.enum(['approve', 'void', 'delete', 'deliver']),
@@ -67,8 +120,8 @@ export const deliverSchema = z.object({
 });
 export type DeliverInput = z.infer<typeof deliverSchema>;
 
-// CSV import sihirbazi: kolon eslemesi (baslik adlari) + preview (dry-run) destegi.
-// mapping verilmezse varsayilan basliklar kullanilir (referral_code, amount_cents, ...).
+// CSV import wizard: column mapping by header name plus preview dry-run support.
+// If mapping is omitted, amount is preferred; legacy amount_cents/cents still parse as integer cents.
 export const importMappingSchema = z.object({
   code: z.string().trim().min(1),
   amount: z.string().trim().min(1),

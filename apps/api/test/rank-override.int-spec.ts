@@ -13,7 +13,7 @@ describe('rank override bonus (entegrasyon)', () => {
     prisma = new PrismaService();
     await prisma.$connect();
     ranks = new RanksService(prisma);
-    engine = new EngineService(prisma, ranks);
+    engine = new EngineService(prisma, undefined, ranks);
   });
   afterAll(async () => { await prisma.$disconnect(); });
   beforeEach(async () => { await truncateAll(prisma); });

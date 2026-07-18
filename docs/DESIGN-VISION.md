@@ -1,113 +1,82 @@
-# Refearn — Luxury Redesign Vizyonu
+# Product Design Vision
 
-> Mevcut "jenerik mor-dark dashboard" terk edilir. Hedef: referans işini **satacak** kadar
-> premium bir B2B fintech SaaS. Light + Dark, tamamen İngilizce, modül-modül zengin.
+Americana Earn should read as a serious B2B commission platform: operational, premium, and trustworthy. The strongest product promise is not spectacle; it is that money, roles, and network activity are clear, auditable, and easy to operate.
 
-## 1. Tasarım Dili Kararı — "Obsidian & Champagne"
+## Direction: Obsidian And Champagne
 
-Tek-mor (#7c8bff) gradient + glassmorphism **tamamen bırakılır.** Yerine **monokrom-lüks +
-tek metalik altın aksan**: derin nötr-soğuk obsidyen yüzeyler üzerine sıcak şampanya altını.
-Altın yalnızca **"değer anlatan" yerde** — CTA, aktif nav, premium rozet, para vurgusu. Az ve değerli.
+The selected visual direction is a restrained fintech palette:
 
-**Materyal:** cam bulanıklığı (glassmorphism) yerine Linear/Stripe materyali — net yüzey + 1px
-hairline border + çok-katmanlı yumuşak gölge + çok hafif grain. Derinlik renkle (yüzey katmanı),
-gölgeyle değil. Dark'ta "light-from-top" üst-kenar aydınlatması.
+- Deep neutral surfaces for focus.
+- Champagne gold for brand, primary actions, and value-bearing moments.
+- Emerald for earned/paid money.
+- Amber for pending states.
+- Coral/rose for risk, reversal, and destructive action.
+- Sapphire for links and informational accents.
 
-**İki tam tema** (`data-theme="light|dark"`, FOUC'suz init, localStorage + prefers-color-scheme).
-İki katmanlı token: ham palet → semantik token. Bileşen asla ham hex kullanmaz (= white-label temeli).
+Avoid purple-heavy gradients, glassmorphism, decorative blobs, and oversized marketing-style cards inside the actual product. This is a work tool.
 
-### Ana token'lar
-```
-/* Marka — şampanya altını rampası */
---gold-200 #F0DCA8  --gold-400 #E4C266  --gold-500 #D4AF37 (marka)  --gold-600 #B8922E  --gold-800 #6B5414
-/* Obsidyen yüzey rampası (nötr-soğuk) */
---ink-950 #0A0B0F … --ink-800 #1D212C … --ink-300 #9AA1B4 … --ink-50 #F4F6FB
-/* Semantik (dark/light) */
---surface-base/1/2/3   --text (#E8EBF2 / #14161D)   --brand #D4AF37
-/* PARA semantiği (kritik) */
---money-positive #1D9E75   --money-pending #BA7517   --money-negative #D85A30 (coral, kırmızı değil)
-/* İkincil jewel aksan (link/info) */
---sapphire #3E63DD
-/* Data-viz 8 kategorik + MLM derinlik için sequential altın→bakır 5-stop */
-```
+## Product Surfaces
 
-**Tipografi:** Display (Satoshi/Geist) + Text (Inter) + Mono (Geist Mono). **Tüm para/metrik =
-tabular-nums** (zorunlu). **İkonografi:** emoji-glif → **Lucide** (1.5px stroke). **Hareket:**
-spring + count-up + stagger fade + skeleton; `prefers-reduced-motion` korunur. **Marka isareti:**
-ağdan türetilen monogram **R** + tek altın düğüm.
-
-İlham: Mercury · Ramp · Stripe · Linear · Vercel/Geist.
-
-## 2. Görsel Yönler (müşteri seçimi)
-
-| Yön | Palet | His |
+| Surface | Audience | Goal |
 |---|---|---|
-| **Obsidian & Champagne** ⭐ | Obsidyen yüzey + şampanya altın + sapphire | Mercury/Ramp sıcaklığı + Stripe disiplini; altın = "değer/ödül". Sakin, pahalı, güvenilir |
-| **Porcelain & Ink** | Light-öncelikli porselen/krem + mürekkep-siyah + zarif altın | Editoryal, ferah, "private banking / luxury brand"; Oppein estetiğine yakın |
-| **Onyx & Emerald** | Obsidyen + ikili aksan: zümrüt (kazanç) + altın (ödül) | Enerjik, "büyüme/fintech challenger"; gamification & trendler canlı |
+| Member app | Referral members | See earnings, wallet status, team growth, and invite tools |
+| Tenant admin | Business operators | Manage sales, members, payouts, plans, settings, audit, and reports |
+| Platform admin | SaaS owner | Monitor tenants, usage, health, support, limits, and billing readiness |
+| Public/auth | Visitors and invitees | Sign in, reset access, verify email, and join through invite links |
 
-## 3. Modül-modül yeni hâl + en kritik özellikler
+## Design Principles
 
-**Tasarım Sistemi + Tema + i18n (çapraz temel):** tokens.css tek-kaynak (light/dark), ThemeProvider,
-Lucide, EN-varsayılan `{en,tr}` i18n, paylaşılan **DataTable / Drawer / FilterBar / SavedViews / Chart**.
+- Money actions must feel deliberate and auditable.
+- Members should see only their own ledger and privacy-safe team summaries.
+- Admins should see enough operational context to act without guessing.
+- Platform admins need fast tenant comparison and drill-in.
+- Brand controls should be previewable before they affect invite/login/member surfaces.
+- English is the only runtime product language for now.
 
-**Dashboard:** global zaman aralığı + dönem karşılaştırma; sparkline-gömülü KPI'lar; geniş stacked-area
-zaman serisi (önceki dönem hayalet çizgisi); Top Performer; funnel (Davet→Kayıt→İlk Satış→Olgun); cohort; export.
+## High-Value Product Improvements
 
-**Satışlar:** gelişmiş FilterBar + **Saved Views** + checkbox **bulk** (toplu onay/void) + komisyon-dağılımlı
-**detay drawer** + **CSV import sihirbazı** (yükle→eşleştir→önizle→hata haritası→onayla).
+### Dashboard
+Add global date range, period comparison, top performers, invite funnel, revenue/commission trend, and export.
 
-**Üyeler:** CRM-benzeri zengin tablo (avatar/rol/durum/ekip-boyutu/kazanç) + sekmeli **profil drawer**
-(Genel/Satışlar/Ledger/Davetler/Audit) + toplu davet + toplu işlem.
+### Sales
+Keep the current table and drawer direction. Add stronger saved views, pagination, inline correction states, CSV formula protection, and status timeline.
 
-**Ödemeler:** dönem seçici + **seçimli toplu ödeme** + banka CSV preset'leri (SEPA/havale) + **payout talep
-kuyruğu** (approve/reject) + negatif-bakiye uyarı bandı + vergi (1099) özeti.
+### Members
+Move toward a CRM-style member profile drawer with tabs for profile, role, sales, ledger, invites, and audit.
 
-**Denetim:** filtrelenebilir zaman çizelgesi + insan-okur başlık + **before/after diff** + para-aksiyon filtresi.
+### Network
+The admin network should remain interactive with search, focus, expand, drawer details, and a table alternative. The member network should stay privacy-safe.
 
-**Raporlar (YENİ):** Komisyon / Vergi / Top-Performer / Ağaç-Sağlığı / Dönem-Kapanış — grafik + tablo + export.
+### Payouts
+Add payout request review, reject reasons, bank CSV presets, negative balance warnings, annual tax summary, and explicit bulk confirmation.
 
-**Ağaç (YENİ hâl):** girintili liste → **react-flow interaktif org-chart** (auto-layout, MiniMap, pan/zoom,
-ara→düğüme uç+highlight, lazy-expand, PNG/SVG export). Üye tarafında **gizlilik-korumalı radial "My Network"**
-(merkez "You", L1 isimli, L2+ agregat balon).
+### Audit
+Continue toward human-readable event titles, before/after diffs, actor joins, money-action filters, and export.
 
-**Davet (mükemmel, iki taraf):** markalı **luxury davet kartı** (QR+avatar+kod, PNG export) + sosyal paylaşım
-(WhatsApp/Telegram/Email/X) + **durum takibi** (Pending/Opened/Joined) + **funnel** (gönderildi→açıldı→kayıt) +
-admin davet leaderboard + hoşgeldin onboarding akışı.
+### Settings
+Settings should be a real operations center: General, Brand, Payments, Plans, People & Roles, Security, Notifications, Data & Backup, and eventually Developer/Billing.
 
-**Ekip Analitiği:** üye KPI şeridi + 12-haftalık büyüme trendi + gizlilikli yeni-katılım activity feed +
-rütbe ilerleme; admin alt-ağaç performans drill-down.
+### Brand Studio
+Brand management is core to making the system sellable. The admin should be able to set name, monogram, tagline, colors, and logo assets with live previews for login, invite, and member cards.
 
-**Gamification (YENİ):** rütbe Bronze→Diamond + kilometre taşı rozetleri + gizlilikli liderlik tablosu +
-rütbe-atlama kutlaması (push + confetti).
+### Commission Plan Editor
+The plan editor should make pool math obvious: level sliders, total validation, effective dates, version history, and a simulator for sample sales.
 
-**Cüzdan:** kazanç trend grafiği + seviye-kaynak dağılım donut + **pending→payable vade takvimi** (maturesAt
-zaten var) + payout durum timeline + PDF ekstre.
+### Notifications
+Use a channel matrix for in-app, email, and push. Add digest timing, quiet hours, and test-send controls.
 
-**Ayarlar Merkezi (boş→dolu):** sol kategori nav + route-bazlı + sticky "unsaved changes" guard. Bölümler:
-General / **Brand (white-label)** / **Commission Plan Editor + Simulator** / Payments / Localization /
-**Notifications matrisi** / **Security (2FA, oturum, API key)** / **Team & Roles (RBAC)** / Developer (webhooks) / Billing.
+### Security
+Finish MFA setup, recovery codes, active sessions, password policy, request-time role freshness for money endpoints, and RLS.
 
-**Brand & White-label Studyosu (YENİ):** logo (light/dark/favicon) + renk picker (WCAG AA uyarı) + **canlı
-önizleme** (login/üye-kart/davet anlık render) + custom domain + "Powered by Refearn" toggle. *Ürünü satılabilir
-yapan kritik bölüm — `tenant.branding` alanı zaten var, UI yok.*
+## Phasing
 
-**Komisyon Plan Editörü + Simülatör (YENİ):** görsel seviye/oran editörü (slider) + SUM≤pool canlı doğrulama +
-**canlı ağaç simülatörü** ("1000 satış simüle et" → dağıtım istatistikleri) + plan versiyonlama + şablonlar.
+| Phase | Focus |
+|---|---|
+| A | Design system, shadcn migration, English runtime, theme and brand foundation |
+| B | Admin operations: dashboard, sales, members, payouts, audit, reports |
+| C | Member experience: wallet, team, invite funnel, network, gamification, account |
+| D | Platform and monetization: tenant ops, billing, limits, developer tools, advanced security |
 
-**Platform Admin (YENİ yüzey):** tenant listesi (plan/MRR/sağlık) + güvenli **impersonation** + per-tenant
-limit/feature-flag + global sağlık panosu + paket matrisi.
+## Current State
 
-**Global UX:** **Cmd+K komut paleti** + global arama + **bildirim merkezi/zil** + tenant switcher + onboarding
-checklist + tutarlı empty-state + klavye kısayolları.
-
-## 4. Faz Planı
-
-| Faz | Kapsam | Efor |
-|---|---|---|
-| **A — Tasarım Sistemi + Tema + i18n** | tokens (light/dark), ThemeProvider, Lucide, EN-varsayılan i18n, paylaşılan DataTable/Drawer/FilterBar/Chart. **Diğer her şeyin temeli.** | ~2-3 hafta |
-| **B — Admin Operasyon** | Dashboard, Sales, Members, Payouts, Audit, Reports (yeni) | ~4-6 hafta |
-| **C — Üye + Ağaç + Davet + Gamification** | react-flow ağaç, radial network, luxury davet+funnel, ekip analitiği, cüzdan, rütbe | ~4-5 hafta |
-| **D — Platform + Ayarlar + Plan Editörü + White-label** | Settings Center, Brand studio, plan editörü+simülatör, platform admin, Cmd+K | ~5-7 hafta |
-
-> Efor solo-ajan hızında değil takım tahminidir; ben fazları sıralı, test-li commit'lerle teslim ederim.
+Phase A is mostly in place for the web runtime. The next best work is visual QA, docs cleanup, and then the highest-risk operational features: MFA onboarding, request-time revocation, RLS, and production-grade monitoring.

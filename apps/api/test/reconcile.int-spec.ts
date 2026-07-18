@@ -1,6 +1,8 @@
 import { PayoutMethod, PayoutStatus } from '@prisma/client';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { TenantContextService } from '../src/prisma/tenant-context.service';
 import { PayoutsService } from '../src/payouts/payouts.service';
+import { PayoutComplianceService } from '../src/payouts/payout-compliance.service';
 import { EngineService } from '../src/engine/engine.service';
 import { RanksService } from '../src/ranks/ranks.service';
 import { WebhooksService } from '../src/webhooks/webhooks.service';
@@ -18,11 +20,15 @@ describe('payout reconciliation (entegrasyon)', () => {
   beforeAll(async () => {
     prisma = new PrismaService();
     await prisma.$connect();
-    const engine = new EngineService(prisma, new RanksService(prisma));
+    const engine = new EngineService(prisma, undefined, new RanksService(prisma));
+    const tenantContext = new TenantContextService();
+    const compliance = new PayoutComplianceService(prisma, tenantContext);
     const secretCipher = new VersionedSecretCipher([new EnvAesGcmSecretCryptoProvider()]);
     payouts = new PayoutsService(
       prisma,
       engine,
+      tenantContext,
+      compliance,
       new WebhooksService(prisma),
       new EventsService(),
       new SanctionsService(prisma),

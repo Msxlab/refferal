@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { SentryExceptionFilter } from './common/sentry-exceptions.filter';
@@ -27,9 +27,11 @@ import { PeriodsModule } from './periods/periods.module';
 import { PlansModule } from './plans/plans.module';
 import { PlatformModule } from './platform/platform.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { TenantContextInterceptor } from './prisma/tenant-context.interceptor';
 import { RanksModule } from './ranks/ranks.module';
 import { RbacModule } from './rbac/rbac.module';
 import { ReportsModule } from './reports/reports.module';
+import { RecommendationsModule } from './recommendations/recommendations.module';
 import { SanctionsModule } from './sanctions/sanctions.module';
 import { SearchModule } from './search/search.module';
 import { SalesModule } from './sales/sales.module';
@@ -41,8 +43,8 @@ import { WalletModule } from './wallet/wallet.module';
 
 const isTest = process.env.NODE_ENV === 'test';
 
-// Global rate-limit (SPEC 10). MVP: in-memory (tek instance). Cok-instance icin
-// Redis store'a gecilir (DECISIONS). Testte skipIf ile kapali — mevcut testleri tetiklemesin.
+// Global rate limit (SPEC 10). MVP uses in-memory storage for a single instance.
+// Multi-instance deployments should move to a Redis store. Tests disable it with skipIf.
 const THROTTLE_TTL_MS = Number(process.env.THROTTLE_TTL_MS ?? 60_000);
 const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
 
@@ -52,7 +54,7 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
       throttlers: [{ ttl: THROTTLE_TTL_MS, limit: THROTTLE_LIMIT }],
       skipIf: () => isTest,
     }),
-    // Scheduler testte kapali: cron'un test DB'sinde tetiklenmesini/kayit cakismasini onler
+    // Scheduler is disabled in tests to prevent cron work and record collisions in the test database.
     ...(isTest ? [] : [ScheduleModule.forRoot(), SchedulerModule]),
     ObservabilityModule,
     SecretsModule,
@@ -72,6 +74,7 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
     PlansModule,
     MembersAdminModule,
     ReportsModule,
+    RecommendationsModule,
     NotificationsModule,
     SettingsModule,
     RbacModule,
@@ -91,6 +94,7 @@ const THROTTLE_LIMIT = Number(process.env.THROTTLE_LIMIT ?? 120);
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_INTERCEPTOR, useClass: TenantContextInterceptor },
     // Faz B4: 5xx/beklenmeyen hatalari Sentry'ye raporlar (yaniti degistirmez)
     { provide: APP_FILTER, useClass: SentryExceptionFilter },
   ],

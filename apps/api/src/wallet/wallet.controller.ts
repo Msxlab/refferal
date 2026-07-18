@@ -12,7 +12,7 @@ import {
   WalletQuery,
 } from './wallet.types';
 
-/** Uye yuzeyi (/app). Aktif uyelik gerekli; her zaman KENDI verisini doner. */
+/** Member surface (/app). Requires an active membership and only returns the caller's own data. */
 @RequireMembership()
 @Controller('app')
 export class WalletController {
@@ -24,6 +24,11 @@ export class WalletController {
     @Query(new ZodValidationPipe(dashboardQuerySchema)) q: DashboardQuery,
   ) {
     return this.wallet.dashboard(user.mid as string, user.tid as string, q.month);
+  }
+
+  @Get('brand')
+  brand(@CurrentUser() user: RequestUser) {
+    return this.wallet.brand(user.tid as string);
   }
 
   @Get('wallet')

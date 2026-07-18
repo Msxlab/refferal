@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
 import { Role } from '@prisma/client';
-import { CurrentUser, RequireMembership, Roles } from '../auth/auth.guard';
+import { CurrentUser, RequireMembership, RequirePermission, Roles } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
 import { ActorContext } from '../common/actor';
 import { ZodValidationPipe } from '../common/zod.pipe';
@@ -21,12 +21,14 @@ export class PlansController {
   }
 
   @Roles(...STAFF)
+  @RequirePermission('settings.plan')
   @Get()
   list(@CurrentUser() user: RequestUser) {
     return this.plans.list(user.tid as string);
   }
 
   @Roles(...STAFF)
+  @RequirePermission('settings.plan')
   @HttpCode(200)
   @Post('simulate')
   simulate(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(simulatePlanSchema)) body: SimulatePlanInput) {
@@ -34,6 +36,7 @@ export class PlansController {
   }
 
   @Roles(...ADMIN)
+  @RequirePermission('settings.plan')
   @HttpCode(200)
   @Post()
   create(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(createPlanSchema)) body: CreatePlanInput) {

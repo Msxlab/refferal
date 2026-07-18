@@ -20,17 +20,5 @@
     "prettier": "^3.5.3",
     "turbo": "^2.5.0",
     "typescript": "^5.8.3"
-  },
-  "pnpm": {
-    "overrides": {
-      "@types/react": "19.0.7",
-      "@types/react-dom": "19.0.3"
-    },
-    "onlyBuiltDependencies": [
-      "@node-rs/argon2",
-      "@prisma/client",
-      "@prisma/engines",
-      "prisma"
-    ]
   }
 }
