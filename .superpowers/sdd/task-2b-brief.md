@@ -45,3 +45,8 @@ Validate all DTOs with Zod. `scope=focused` requires `focusId`; `scope=full` mus
 - Run the focused API unit tests plus both `apps/api` TypeScript no-emit checks, Prisma validate/generate if local tooling allows, Prettier, and `git diff --check`.
 
 **Non-goals:** no member tree endpoint, no wallet UI, no web hierarchy UI, no drag/drop or sponsor mutation, no raw URL query logging fix (handled after endpoint wiring).
+
+### Controller clarification recorded during implementation
+
+- `network-context.initialPage.items` is a breadth-first, flattened graph page from the synthetic tenant root (full) or focused member (focused), through requested `depth`, with a global cap of 250 individual member nodes. `parentMembershipId` and `localTier` reconstruct edges. `initialPage.parentRef` identifies the root/focus scope key. Once a branch page or global node budget is exceeded, an exact-count cluster represents remaining direct children. `scope.loadedNodes` is individual nodes; `scope.representedNodes` includes exact cluster representation; `complete` means every in-scope node is loaded or represented by an exact cluster. Focus itself is `context.focus` at local Tier 1; its materialized children begin local Tier 2. The standalone children endpoint remains branch-local at 50 individual children.
+- Search body stays exactly `{ query, cursor? }`. For a supplied cursor, extract its untrusted canonical snapshot only to pass immediately into full HMAC/canonical/binding verification with parent scope key `search:${sha256(normalizedQuery)}`; no unverified value may reach a database query or audit log. An absent cursor creates a fresh snapshot.
