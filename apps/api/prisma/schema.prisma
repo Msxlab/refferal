@@ -449,6 +449,7 @@ model Membership {
   @@unique([tenantId, id], map: "memberships_tenant_id_id_uidx")
   @@unique([tenantId, referralCode])
   @@index([tenantId, sponsorMembershipId])
+  @@index([tenantId, sponsorMembershipId, joinedAt, id], map: "memberships_tenant_sponsor_joined_id_idx")
   @@index([tenantId, path])
   @@index([tenantId, depth, joinedAt, id], map: "memberships_tenant_depth_joined_id_idx")
   @@map("memberships")
