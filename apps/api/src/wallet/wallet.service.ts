@@ -1,7 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { LedgerStatus, LedgerType, MembershipStatus, PayoutStatus, SaleStatus } from '@prisma/client';
+import { ActorContext } from '../common/actor';
 import { publicBrandFromTenant } from '../common/branding';
 import { monthKey } from '../engine/month';
+import { NetworkHierarchyService } from '../members/network-hierarchy.service';
 import {
   evaluatePayoutReadiness,
   LegacyPayoutEligibilityReason,
@@ -10,6 +12,10 @@ import {
 import { PayoutComplianceService } from '../payouts/payout-compliance.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../prisma/tenant-context.service';
+import {
+  MemberTreeChildrenQuery,
+  MemberTreeDirectSearchInput,
+} from './wallet.types';
 
 function payoutEligibilityMessage(reason: LegacyPayoutEligibilityReason) {
   switch (reason) {
@@ -40,6 +46,7 @@ export class WalletService {
     private readonly prisma: PrismaService,
     private readonly tenantContext: TenantContextService,
     private readonly compliance: PayoutComplianceService,
+    private readonly hierarchy: NetworkHierarchyService,
   ) {}
 
   async brand(tenantId: string) {
@@ -50,6 +57,34 @@ export class WalletService {
     });
     return publicBrandFromTenant(tenant);
   }
+
+  /** Member-network hierarchy is delegated to the privacy-focused projection service. */
+  teamTree(actor: ActorContext, rootMembershipId: string) {
+    this.tenantContext.assertActor(actor);
+    this.tenantContext.assertMembership(rootMembershipId);
+    return this.hierarchy.memberContext(actor, { rootMembershipId });
+  }
+
+  teamTreeChildren(
+    actor: ActorContext,
+    rootMembershipId: string,
+    query: MemberTreeChildrenQuery,
+  ) {
+    this.tenantContext.assertActor(actor);
+    this.tenantContext.assertMembership(rootMembershipId);
+    return this.hierarchy.memberChildren(actor, { rootMembershipId, ...query });
+  }
+
+  teamTreeDirectSearch(
+    actor: ActorContext,
+    rootMembershipId: string,
+    input: MemberTreeDirectSearchInput,
+  ) {
+    this.tenantContext.assertActor(actor);
+    this.tenantContext.assertMembership(rootMembershipId);
+    return this.hierarchy.memberDirectSearch(actor, { rootMembershipId, ...input });
+  }
+
   /** Balance is the payable total. Processing funds are visible but non-withdrawable. */
   async wallet(
     membershipId: string,

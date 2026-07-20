@@ -185,7 +185,22 @@ export interface MemberAnonymousTier3Node extends MemberAnonymousNodeBase {
 
 export type MemberAnonymousNode =
   MemberAnonymousTier2Node | MemberAnonymousTier3Node;
-export type MemberVisibleNode = MemberDirectNode | MemberAnonymousNode;
+
+/** A server-authoritative collapsed sibling group at one visible anonymous tier. */
+export interface MemberVisibleClusterNode {
+  kind: "cluster";
+  clusterRef: OpaqueMemberNodeRef;
+  parentRef: OpaqueMemberNodeRef;
+  localTier: 2 | 3;
+  label: "Tier 2 members" | "Tier 3 members";
+  representedNodes: number;
+  canExpand: true;
+}
+
+export type MemberVisibleNode =
+  | MemberDirectNode
+  | MemberAnonymousNode
+  | MemberVisibleClusterNode;
 
 export interface BranchPage<TNode> {
   parentRef: string;
@@ -238,4 +253,11 @@ export interface MemberNetworkContext {
   self: MemberSelfNode;
   initialPage: BranchPage<MemberVisibleNode>;
   scope: MemberNetworkScope;
+}
+
+/** Direct-recruit search is deliberately separate from recursive tree pages. */
+export interface MemberDirectSearchPage {
+  items: MemberDirectNode[];
+  nextCursor: string | null;
+  snapshotAt: string;
 }

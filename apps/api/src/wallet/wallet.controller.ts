@@ -1,6 +1,7 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
 import { CurrentUser, RequireMembership } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
+import { ActorContext } from '../common/actor';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { WalletService } from './wallet.service';
 import {
@@ -8,6 +9,10 @@ import {
   DashboardQuery,
   earningsQuerySchema,
   EarningsQuery,
+  memberTreeChildrenQuerySchema,
+  MemberTreeChildrenQuery,
+  memberTreeDirectSearchSchema,
+  MemberTreeDirectSearchInput,
   walletQuerySchema,
   WalletQuery,
 } from './wallet.types';
@@ -17,6 +22,10 @@ import {
 @Controller('app')
 export class WalletController {
   constructor(private readonly wallet: WalletService) {}
+
+  private actor(user: RequestUser): ActorContext {
+    return { userId: user.sub, tenantId: user.tid as string };
+  }
 
   @Get('dashboard')
   dashboard(
@@ -43,6 +52,39 @@ export class WalletController {
     @Query(new ZodValidationPipe(earningsQuerySchema)) q: EarningsQuery,
   ) {
     return this.wallet.earnings(user.mid as string, user.tid as string, q.months);
+  }
+
+  // Keep all static hierarchy routes before the legacy `team` endpoint.
+  @Get('team/tree')
+  teamTree(@CurrentUser() user: RequestUser) {
+    return this.wallet.teamTree(this.actor(user), user.mid as string);
+  }
+
+  @Get('team/tree/children')
+  teamTreeChildren(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(memberTreeChildrenQuerySchema))
+    query: MemberTreeChildrenQuery,
+  ) {
+    return this.wallet.teamTreeChildren(
+      this.actor(user),
+      user.mid as string,
+      query,
+    );
+  }
+
+  @HttpCode(200)
+  @Post('team/tree/direct-search')
+  teamTreeDirectSearch(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(memberTreeDirectSearchSchema))
+    body: MemberTreeDirectSearchInput,
+  ) {
+    return this.wallet.teamTreeDirectSearch(
+      this.actor(user),
+      user.mid as string,
+      body,
+    );
   }
 
   @Get('team')

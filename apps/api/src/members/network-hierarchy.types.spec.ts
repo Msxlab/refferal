@@ -10,6 +10,7 @@ import {
   MemberAnonymousNode,
   MemberAnonymousTier2Node,
   MemberAnonymousTier3Node,
+  MemberVisibleClusterNode,
   MemberNetworkContext,
   MemberVisibleNode,
   NetworkStatus,
@@ -237,5 +238,30 @@ describe("network hierarchy DTO contracts", () => {
 
     expect(node.localTier).toBe(3);
     expect(node.canExpand).toBe(false);
+  });
+
+  it("keeps member overflow clusters opaque and scoped to one visible anonymous tier", () => {
+    const cluster: MemberVisibleClusterNode = {
+      kind: "cluster",
+      clusterRef: testOpaqueRef("tier-2-cluster", 4),
+      parentRef: opaqueDirectRef,
+      localTier: 2,
+      label: "Tier 2 members",
+      representedNodes: 3,
+      canExpand: true,
+    };
+    const forbidden = [
+      "membershipId",
+      "parentMembershipId",
+      "displayName",
+      "referralCode",
+      "performance",
+      "amountCents",
+    ];
+
+    expect(cluster.clusterRef).not.toMatch(/^[0-9a-f-]{36}$/i);
+    expect(cluster.localTier).toBe(2);
+    expect(cluster.label).toBe("Tier 2 members");
+    expect(forbidden.some((key) => key in cluster)).toBe(false);
   });
 });
