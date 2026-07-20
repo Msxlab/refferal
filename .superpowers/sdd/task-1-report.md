@@ -42,3 +42,28 @@ apps/api: tsc -p tsconfig.json --noEmit
 ## Commit
 
 This report is included in `feat: secure referral network financial access`; the final commit SHA is recorded in the task handoff.
+
+## Review follow-up
+
+- Classified `GET /admin/members/leaders` as a financial legacy projection because it returns group volume, group commission, and volume trend values.
+- Extended `RequirePermission` to accept one or more permissions while retaining the existing single-permission metadata shape for all existing decorators. The access guard now requires every declared permission; tenant owner and platform admin retain their existing all-permission bypass.
+- Applied the combined `network.view` and `network.financials.view` requirement to legacy `tree`, `tree-snapshot`, and `leaders` routes. A financial grant alone therefore cannot confer hierarchy access.
+- Updated the RBAC integration matrix to assert: network-only staff receive `403` for all three financial routes; financial-only staff receive `403`; staff holding both permissions receive `200`.
+
+### Follow-up verification
+
+Passed:
+
+```text
+apps/api: 3 focused unit suites, 8 tests passed
+apps/api: tsc -p tsconfig.json --noEmit
+```
+
+Attempted but blocked by local test infrastructure:
+
+```text
+apps/api: test/rbac.int-spec.ts
+Prisma migrate deploy reached refearn_test at localhost:5434, then failed with Schema engine error.
+```
+
+The integration suite was invoked with the bundled Node runtime on `PATH`; the remaining failure is the local Prisma schema engine/database setup rather than a missing Node executable.

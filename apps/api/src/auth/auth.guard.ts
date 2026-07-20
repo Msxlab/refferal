@@ -26,10 +26,10 @@ export const Public = (): CustomDecorator => SetMetadata(IS_PUBLIC_KEY, true);
 export const ROLES_KEY = 'roles';
 export const Roles = (...roles: Role[]): CustomDecorator => SetMetadata(ROLES_KEY, roles);
 
-/** Fine-grained permission key required by the route. owner/platform pass automatically. */
+/** Fine-grained permissions required by the route. owner/platform pass automatically. */
 export const PERMISSION_KEY = 'permission';
-export const RequirePermission = (permission: string): CustomDecorator =>
-  SetMetadata(PERMISSION_KEY, permission);
+export const RequirePermission = (...permissions: [string, ...string[]]): CustomDecorator =>
+  SetMetadata(PERMISSION_KEY, permissions.length === 1 ? permissions[0] : permissions);
 
 /** Cross-tenant platform surface: only isPlatformAdmin (plat claim) can access it. */
 export const PLATFORM_KEY = 'platformOnly';
@@ -76,7 +76,12 @@ export class AccessTokenGuard implements CanActivate {
     const requireMembership = this.reflector.getAllAndOverride<boolean>(REQUIRE_MEMBERSHIP_KEY, targets);
     const roles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, targets);
     const platformOnly = this.reflector.getAllAndOverride<boolean>(PLATFORM_KEY, targets);
-    const permission = this.reflector.getAllAndOverride<string>(PERMISSION_KEY, targets);
+    const permissionMetadata = this.reflector.getAllAndOverride<string | string[]>(PERMISSION_KEY, targets);
+    const permissions = permissionMetadata === undefined
+      ? []
+      : Array.isArray(permissionMetadata)
+        ? permissionMetadata
+        : [permissionMetadata];
     const mfaExempt = this.reflector.getAllAndOverride<boolean>(MFA_EXEMPT_KEY, targets);
     const accountSessionOnly = this.reflector.getAllAndOverride<boolean>(ACCOUNT_SESSION_ONLY_KEY, targets);
 
@@ -274,11 +279,11 @@ export class AccessTokenGuard implements CanActivate {
       this.enforceMfa(payload, userMfaEnabled, mfaEpoch, req);
     }
 
-    if (permission) {
+    if (permissions.length > 0) {
       const granted = !!payload.role && GOD_TIERS.has(payload.role);
-      if (!granted && !payload.perms?.includes(permission)) {
+      if (!granted && !permissions.every((permission) => payload.perms?.includes(permission))) {
         this.logger.warn(
-          `[security] perm_denied user=${payload.sub} role=${payload.role} need=${permission} ${req.method} ${req.url}`,
+          `[security] perm_denied user=${payload.sub} role=${payload.role} need=${permissions.join('|')} ${req.method} ${req.url}`,
         );
         throw new ForbiddenException('you do not have permission for this action');
       }

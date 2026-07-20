@@ -82,14 +82,14 @@ export class MembersAdminController {
 
   // DIKKAT: statik GET route'lar (tree, tree-snapshot, leaders, export.csv) ':id' route'undan ONCE tanimli kalmali.
   @Roles(...STAFF)
-  @RequirePermission('network.financials.view')
+  @RequirePermission('network.view', 'network.financials.view')
   @Get('tree')
   tree(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(treeSchema)) q: z.infer<typeof treeSchema>) {
     return this.members.tree(user.tid as string, q.root);
   }
 
   @Roles(...STAFF)
-  @RequirePermission('network.financials.view')
+  @RequirePermission('network.view', 'network.financials.view')
   @Get('tree-snapshot')
   treeSnapshot(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(treeSchema)) q: z.infer<typeof treeSchema>) {
     return this.members.treeSnapshot(user.tid as string, q.root);
@@ -97,7 +97,7 @@ export class MembersAdminController {
 
   // takim liderleri landing'i (canli grup ozetleriyle)
   @Roles(...STAFF)
-  @RequirePermission('network.view')
+  @RequirePermission('network.view', 'network.financials.view')
   @Get('leaders')
   leaders(@CurrentUser() user: RequestUser) {
     return this.members.leaders(user.tid as string);

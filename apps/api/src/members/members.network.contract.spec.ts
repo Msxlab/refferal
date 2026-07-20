@@ -31,11 +31,11 @@ describe('referral network permission and hierarchy contract', () => {
     expect(defaultPermissionsForTier('tenant_staff')).not.toContain('network.financials.view');
   });
 
-  it('requires the financial capability for legacy routes that return money', () => {
-    for (const route of ['tree', 'tree-snapshot']) {
+  it('requires both network capabilities for legacy routes that return money', () => {
+    for (const route of ['tree', 'tree-snapshot', 'leaders']) {
       expect(controller).toMatch(
         new RegExp(
-          `@Roles\\(\\.\\.\\.STAFF\\)\\s+@RequirePermission\\('network\\.financials\\.view'\\)\\s+@Get\\('${route}'\\)`,
+          `@Roles\\(\\.\\.\\.STAFF\\)\\s+@RequirePermission\\('network\\.view', 'network\\.financials\\.view'\\)\\s+@Get\\('${route}'\\)`,
         ),
       );
     }

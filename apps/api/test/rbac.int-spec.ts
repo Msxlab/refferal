@@ -360,25 +360,41 @@ describe('RBAC escalation guards (integration)', () => {
     await request(app.getHttpServer()).get('/v1/admin/members/tree').set('Authorization', `Bearer ${membersView}`).expect(403);
 
     const networkView = await actorWithPerms(tenant.id, actors[1], Role.tenant_staff, ['network.view']);
-    await request(app.getHttpServer()).get('/v1/admin/members/tree').set('Authorization', `Bearer ${networkView}`).expect(200);
+    await request(app.getHttpServer()).get('/v1/admin/members/tree').set('Authorization', `Bearer ${networkView}`).expect(403);
+    await request(app.getHttpServer()).get('/v1/admin/members/tree-snapshot').set('Authorization', `Bearer ${networkView}`).expect(403);
+    await request(app.getHttpServer()).get('/v1/admin/members/leaders').set('Authorization', `Bearer ${networkView}`).expect(403);
 
-    const adminInvite = await actorWithPerms(tenant.id, actors[2], Role.tenant_admin, ['invites.create']);
+    const financialOnly = await actorWithPerms(tenant.id, actors[2], Role.tenant_staff, ['network.financials.view']);
+    await request(app.getHttpServer()).get('/v1/admin/members/tree').set('Authorization', `Bearer ${financialOnly}`).expect(403);
+    await request(app.getHttpServer()).get('/v1/admin/members/leaders').set('Authorization', `Bearer ${financialOnly}`).expect(403);
+
+    const financialNetwork = await actorWithPerms(
+      tenant.id,
+      actors[3],
+      Role.tenant_staff,
+      ['network.view', 'network.financials.view'],
+    );
+    await request(app.getHttpServer()).get('/v1/admin/members/tree').set('Authorization', `Bearer ${financialNetwork}`).expect(200);
+    await request(app.getHttpServer()).get('/v1/admin/members/tree-snapshot').set('Authorization', `Bearer ${financialNetwork}`).expect(200);
+    await request(app.getHttpServer()).get('/v1/admin/members/leaders').set('Authorization', `Bearer ${financialNetwork}`).expect(200);
+
+    const adminInvite = await actorWithPerms(tenant.id, actors[4], Role.tenant_admin, ['invites.create']);
     await request(app.getHttpServer()).post('/v1/admin/members/invite').set('Authorization', `Bearer ${adminInvite}`).send({}).expect(200);
 
-    const adminSuspend = await actorWithPerms(tenant.id, actors[3], Role.tenant_admin, ['members.suspend']);
+    const adminSuspend = await actorWithPerms(tenant.id, actors[5], Role.tenant_admin, ['members.suspend']);
     await request(app.getHttpServer()).post(`/v1/admin/members/${seller.id}/deactivate`).set('Authorization', `Bearer ${adminSuspend}`).expect(200);
 
-    const dash = await actorWithPerms(tenant.id, actors[4], Role.tenant_staff, ['dashboard.view']);
+    const dash = await actorWithPerms(tenant.id, actors[6], Role.tenant_staff, ['dashboard.view']);
     await request(app.getHttpServer()).get('/v1/admin/dashboard').set('Authorization', `Bearer ${dash}`).expect(200);
     await request(app.getHttpServer()).get('/v1/admin/analytics').set('Authorization', `Bearer ${dash}`).expect(403);
 
-    const reports = await actorWithPerms(tenant.id, actors[5], Role.tenant_staff, ['reports.view']);
+    const reports = await actorWithPerms(tenant.id, actors[7], Role.tenant_staff, ['reports.view']);
     await request(app.getHttpServer()).get('/v1/admin/analytics').set('Authorization', `Bearer ${reports}`).expect(200);
 
-    const auditStaff = await actorWithPerms(tenant.id, actors[6], Role.tenant_staff, ['audit.view']);
+    const auditStaff = await actorWithPerms(tenant.id, actors[8], Role.tenant_staff, ['audit.view']);
     await request(app.getHttpServer()).get('/v1/admin/audit').set('Authorization', `Bearer ${auditStaff}`).expect(403);
 
-    const auditAdmin = await actorWithPerms(tenant.id, actors[7], Role.tenant_admin, ['audit.view']);
+    const auditAdmin = await actorWithPerms(tenant.id, actors[9], Role.tenant_admin, ['audit.view']);
     await request(app.getHttpServer()).get('/v1/admin/audit').set('Authorization', `Bearer ${auditAdmin}`).expect(200);
   });
 
