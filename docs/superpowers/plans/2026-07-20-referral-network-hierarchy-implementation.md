@@ -55,7 +55,7 @@
 - Modify: `apps/api/src/wallet/wallet.module.ts`
 - Modify: `apps/api/src/wallet/wallet.controller.ts`
 - Modify: `apps/api/prisma/schema.prisma`
-- Create: `apps/api/prisma/migrations/20260720000000_network_branch_cursor_index/migration.sql`
+- Create: `apps/api/prisma/migrations/20260720160000_network_branch_cursor_index/migration.sql`
 - Extend: `apps/api/src/members/members.network.contract.spec.ts`
 - Extend: `apps/api/test/network-tree.int-spec.ts`
 
