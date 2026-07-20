@@ -5,7 +5,7 @@
 | Task | Status | Owner | Verification | Notes |
 | --- | --- | --- | --- | --- |
 | 1. Restore and align admin shell | completed | map_value_flow_ui + root | 6 focused node tests + typecheck | Restored lost desktop selectors; added Obsidian token island, accessible cobalt-on-ink, 44 px targets, and Value flow naming. |
-| 2. Typed value-flow read model | review | root | 9 model node tests + typecheck | Reviewer time-scope findings fixed; awaiting final confirmation. |
+| 2. Typed value-flow read model | completed | root + map_value_flow_api | 9 model node tests + typecheck | Bigint-safe; reviewer confirmed truthful period boundaries and explicit partial-tree scope. |
 | 3. Data loading and URL state | pending | unassigned | contract test + typecheck | Initial independent requests run concurrently; detail is lazy. |
 | 4. Tree canvas and evidence dock | pending | unassigned | interaction QA + build | React Flow is dynamically imported. |
 | 5. Attention and responsive polish | pending | unassigned | desktop/tablet/mobile browser QA | Native controls and reduced motion required. |
