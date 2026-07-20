@@ -18,3 +18,15 @@
 - `apps/web/src/app/admin/layout.contract.node.test.ts`: 3 passed, 2 failed before implementation.
 - Root cause: merge commit `24c38f3` retained the premium admin layout and its contract test but dropped the desktop `.admin-shell` / `.admin-rail` style block that exists in working commit `cdfdca6`.
 - No production application files changed before this plan/progress record.
+
+## Referral network hierarchy
+
+| Task | Status | Owner | Verification | Notes |
+| --- | --- | --- | --- | --- |
+| 1. Security, permission, and route foundation | in progress | root | pending | Plan: `docs/superpowers/plans/2026-07-20-referral-network-hierarchy-implementation.md`; base reconciled with `origin/main` in merge commit `edb1e58`. |
+| 2. Server-authoritative hierarchy reads | pending | unassigned | pending | Signed snapshots, exact structural counts, cursor pages, and financial capability separation. |
+| 3. Member privacy projection | pending | unassigned | pending | Server-only Tier 1–3 projection, opaque refs, and privacy regression tests. |
+| 4. Shared web hierarchy primitives | pending | unassigned | pending | URL surface separation, accessible tree/list primitives, defensive formatting. |
+| 5. Admin Focus Cockpit and HQ | pending | unassigned | pending | Admin default hierarchy and shared HQ route. |
+| 6. Member web and Expo outline | pending | unassigned | pending | Privacy-safe web and native rendering. |
+| 7. Whole-branch verification and review | pending | unassigned | pending | Tests, browser/a11y/privacy checks, final review, push. |

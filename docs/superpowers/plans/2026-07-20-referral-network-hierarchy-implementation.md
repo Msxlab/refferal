@@ -35,15 +35,12 @@
 
 **Files:**
 - Modify: `apps/api/src/common/permissions.ts`
-- Modify: `apps/api/src/members/members.admin.controller.ts`
-- Modify: `apps/api/src/wallet/wallet.controller.ts`
 - Create: `apps/api/src/members/members.network.contract.spec.ts`
 - Create: `apps/api/src/wallet/wallet.team-tree.contract.spec.ts`
 
 1. Merge `origin/main` with a normal merge commit while the worktree is clean; do not reset or drop current branch commits.
 2. Add `network.financials.view` beside `network.view`; seed it for owner/admin and omit it from view-only/staff permissions unless explicitly assigned.
-3. Reserve static `/admin/members/network-*` routes before `:id`; validate all query DTOs with Zod and retain legacy financial tree routes with their new financial capability guard.
-4. Write source/contract tests first asserting: static routes precede `:id`, capability guard split, query caps, no member-tree query parameters, and no financial fields on the default hierarchy contract.
+3. Write source/contract tests first asserting the capability split, the legacy financial route guards, and the future hierarchy query caps/privacy field constraints. The static hierarchy route placement is implemented together with its service in Task 2.
 
 ## Task 2: Build server-authoritative admin hierarchy reads
 
@@ -67,7 +64,7 @@
 3. Fetch structural fields in bounded queries; calculate exact `directCount`/`subtreeCount` with grouped and ltree aggregate queries, not with a partially loaded in-memory tree. Materialize over-budget content as exact-count cluster nodes and paginate each branch with 50 children.
 4. Load sales/revenue/commission fields only when the controller supplies `includeFinancials=true`; avoid ledger and sale queries for callers without the permission. Move legacy `tree`/`tree-snapshot` behind `network.financials.view`, since they expose money and serve only Value Flow.
 5. Add the composite sibling traversal index `[tenantId, sponsorMembershipId, joinedAt, id]` through Prisma schema and a non-destructive SQL migration. Include a preflight integrity audit query; do not silently alter sponsorship data.
-6. Expose static controller methods using the new service and add a redacted audit event for search. Redact hierarchy search/ref/cursor values from auth and exception URL logs.
+6. Expose static `/admin/members/network-*` controller methods before `:id` using the new service, validate query/body DTOs with Zod, retain legacy financial tree routes with their financial capability guard, and add a redacted audit event for search. Redact hierarchy search/ref/cursor values from auth and exception URL logs.
 7. Test tenant isolation, invalid/expired/replayed tokens, no financial query/projection without the new capability, focus lineage, exact subtree counts beyond branch page size, cluster expansion, and list pagination exhaustiveness.
 
 ## Task 3: Build the immutable member privacy projection
