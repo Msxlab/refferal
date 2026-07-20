@@ -4,7 +4,7 @@ const en = {
   'nav.dashboard': 'Overview',
   'nav.sales': 'Sales',
   'nav.members': 'Members',
-  'nav.tree': 'Network',
+  'nav.tree': 'Value flow',
   'nav.campaigns': 'Campaigns',
   'nav.payouts': 'Payouts',
   'nav.checks': 'Checks',
