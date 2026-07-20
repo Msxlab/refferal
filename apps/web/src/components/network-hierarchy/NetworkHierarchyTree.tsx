@@ -15,6 +15,7 @@ interface Props {
   model: NetworkHierarchyModel;
   expandedKeys: ReadonlySet<string>;
   selectedKey?: string | null;
+  viewFinancials?: boolean;
   onSelect: (node: NetworkHierarchyNode, key: string) => void;
   onToggle?: (node: NetworkHierarchyNode, key: string, expanded: boolean) => void;
   ariaLabel?: string;
@@ -26,6 +27,7 @@ export function NetworkHierarchyTree({
   model,
   expandedKeys,
   selectedKey = null,
+  viewFinancials = false,
   onSelect,
   onToggle,
   ariaLabel = 'Referral network hierarchy',
@@ -81,7 +83,7 @@ export function NetworkHierarchyTree({
       const children = model.childrenByParent.get(key) ?? [];
       const expandable = isHierarchyNodeExpandable(node, children.length > 0);
       const expanded = expandable && expandedKeys.has(key);
-      const presentation = hierarchyNodePresentation(node);
+      const presentation = hierarchyNodePresentation(node, { viewFinancials });
       const index = nodeIndex.get(key) ?? 0;
       const groupId = `${idPrefix}-group-${index}`;
       return (
@@ -95,6 +97,7 @@ export function NetworkHierarchyTree({
                 aria-expanded={expanded}
                 aria-controls={groupId}
                 onClick={() => onToggle?.(node, key, !expanded)}
+                onKeyDown={(event) => handleKeyDown(event, node, key, expandable, expanded)}
               >
                 <ChevronRight aria-hidden="true" data-expanded={expanded || undefined} />
               </button>

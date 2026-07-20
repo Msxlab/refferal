@@ -11,13 +11,24 @@ import {
   isHierarchyNodeExpandable,
   // @ts-expect-error Node's native TypeScript runner requires an explicit extension.
 } from './network-hierarchy.model.ts';
+import {
+  parseAnonymousMemberInitials,
+  parseOpaqueMemberNodeRef,
+  // @ts-expect-error Node's native TypeScript runner requires an explicit extension.
+} from './types.ts';
 import type {
   AdminHierarchyClusterNode,
+  AdminHierarchyMemberNode,
   MemberAnonymousTier2Node,
   MemberAnonymousTier3Node,
   MemberDirectNode,
   MemberSelfNode,
 } from './types';
+
+const OPAQUE_SIGNATURE = 'MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE';
+const directRef = parseOpaqueMemberNodeRef(`ZGlyZWN0.${OPAQUE_SIGNATURE}`);
+const tierTwoRef = parseOpaqueMemberNodeRef(`dGllci0y.${OPAQUE_SIGNATURE}`);
+const tierThreeRef = parseOpaqueMemberNodeRef(`dGllci0z.${OPAQUE_SIGNATURE}`);
 
 const self: MemberSelfNode = {
   kind: 'self',
@@ -37,7 +48,7 @@ const self: MemberSelfNode = {
 };
 const direct: MemberDirectNode = {
   kind: 'direct',
-  nodeRef: 'direct-ref',
+  nodeRef: directRef,
   parentRef: 'self',
   localTier: 1,
   displayName: 'Morgan Lee',
@@ -56,10 +67,10 @@ const direct: MemberDirectNode = {
 };
 const tierTwo: MemberAnonymousTier2Node = {
   kind: 'anonymous',
-  nodeRef: 'tier-two-ref',
-  parentRef: 'direct-ref',
+  nodeRef: tierTwoRef,
+  parentRef: directRef,
   localTier: 2,
-  initials: 'AB',
+  initials: parseAnonymousMemberInitials('AB'),
   label: 'Tier 2 member',
   status: 'active',
   visibleChildCount: 1,
@@ -72,10 +83,10 @@ const tierTwo: MemberAnonymousTier2Node = {
 };
 const tierThree: MemberAnonymousTier3Node = {
   kind: 'anonymous',
-  nodeRef: 'tier-three-ref',
-  parentRef: 'tier-two-ref',
+  nodeRef: tierThreeRef,
+  parentRef: tierTwoRef,
   localTier: 3,
-  initials: 'CD',
+  initials: parseAnonymousMemberInitials('CD'),
   label: 'Tier 3 member',
   status: 'inactive',
   canExpand: false,
@@ -84,18 +95,18 @@ const tierThree: MemberAnonymousTier3Node = {
 
 test('indexes a flattened hierarchy once and expands through visible tiers', () => {
   const model = buildNetworkHierarchyModel([self, direct, tierTwo, tierThree]);
-  const rows = flattenVisibleHierarchy(model, new Set(['self', 'direct-ref', 'tier-two-ref']));
+  const rows = flattenVisibleHierarchy(model, new Set(['self', directRef, tierTwoRef]));
 
   assert.deepEqual(
     rows.map(({ key, depth }) => [key, depth]),
     [
       ['self', 0],
-      ['direct-ref', 1],
-      ['tier-two-ref', 2],
-      ['tier-three-ref', 3],
+      [directRef, 1],
+      [tierTwoRef, 2],
+      [tierThreeRef, 3],
     ],
   );
-  assert.equal(model.childrenByParent.get('direct-ref')?.[0], 'tier-two-ref');
+  assert.equal(model.childrenByParent.get(directRef)?.[0], tierTwoRef);
 });
 
 test('Tier 3 is terminal in both the type projection and render model', () => {
@@ -107,8 +118,8 @@ test('Tier 3 is terminal in both the type projection and render model', () => {
         tierThree,
         {
           ...tierTwo,
-          nodeRef: 'impossible-child',
-          parentRef: 'tier-three-ref',
+          nodeRef: parseOpaqueMemberNodeRef(`aW1wb3NzaWJsZQ.${OPAQUE_SIGNATURE}`),
+          parentRef: tierThreeRef,
         },
       ]),
     /Tier 3 member nodes are terminal/,
@@ -136,3 +147,62 @@ test('missing or malformed optional money never reaches string trim formatting',
   assert.equal(formatHierarchyMoney('not-cents'), 'Not available');
   assert.match(formatHierarchyMoney('125000', 'USD'), /1,250\.00/);
 });
+
+test('admin exact performance is capability-gated while member-safe summaries remain available', () => {
+  const admin: AdminHierarchyMemberNode = {
+    kind: 'member',
+    membershipId: 'member-1',
+    parentMembershipId: null,
+    displayName: 'Admin-visible member',
+    initials: 'AV',
+    referralCode: 'AV100',
+    status: 'active',
+    rank: null,
+    globalTier: 1,
+    localTier: 1,
+    directCount: 2,
+    subtreeCount: 4,
+    canExpand: true,
+    performance: { currency: 'USD', period: '2026-07', approvedSales: 3, teamVolumeCents: '125000' },
+  };
+
+  assert.equal(hierarchyNodePresentation(admin).performance, null);
+  assert.match(hierarchyNodePresentation(admin, { viewFinancials: true }).performance ?? '', /1,250\.00/);
+  assert.match(hierarchyNodePresentation(tierTwo).performance ?? '', /approved sales/);
+});
+
+if (false) {
+  const protectedTierTwo = tierTwo;
+  const protectedTierThree = tierThree;
+  const noRawUuidNodeRef: MemberAnonymousTier2Node = {
+    ...protectedTierTwo,
+    // @ts-expect-error Anonymous node references must be opaque signed references.
+    nodeRef: '550e8400-e29b-41d4-a716-446655440000',
+  };
+  const noEmailParentRef: MemberAnonymousTier2Node = {
+    ...protectedTierTwo,
+    // @ts-expect-error Anonymous parent references must be opaque signed references.
+    parentRef: 'member@example.com',
+  };
+  const noRawInitials: MemberAnonymousTier2Node = {
+    ...protectedTierTwo,
+    // @ts-expect-error Plain strings cannot bypass validated anonymous initials.
+    initials: 'AB',
+  };
+  const noNameNodeRef: MemberAnonymousTier3Node = {
+    ...protectedTierThree,
+    // @ts-expect-error Names cannot become opaque references.
+    nodeRef: 'Taylor Jordan',
+  };
+  const noRawUuidParentRef: MemberAnonymousTier3Node = {
+    ...protectedTierThree,
+    // @ts-expect-error Raw membership identifiers cannot become parent references.
+    parentRef: '550e8400-e29b-41d4-a716-446655440000',
+  };
+  const noEmailInitials: MemberAnonymousTier3Node = {
+    ...protectedTierThree,
+    // @ts-expect-error Emails cannot become anonymous initials.
+    initials: 'member@example.com',
+  };
+  void [noRawUuidNodeRef, noEmailParentRef, noRawInitials, noNameNodeRef, noRawUuidParentRef, noEmailInitials];
+}

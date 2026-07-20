@@ -7,6 +7,7 @@ import styles from './network-hierarchy.module.css';
 
 interface Props {
   selected: NetworkHierarchyNode | null;
+  viewFinancials?: boolean;
   onClose?: () => void;
   onFocus?: (membershipId: string) => void;
   onOpenMember?: (membershipId: string) => void;
@@ -21,7 +22,7 @@ function Fact({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-export function NetworkHierarchyInspector({ selected, onClose, onFocus, onOpenMember }: Props) {
+export function NetworkHierarchyInspector({ selected, viewFinancials = false, onClose, onFocus, onOpenMember }: Props) {
   if (!selected) {
     return (
       <aside className={styles.inspector} aria-label="Network member details">
@@ -67,7 +68,7 @@ export function NetworkHierarchyInspector({ selected, onClose, onFocus, onOpenMe
               <Fact label="Subtree members" value={selected.subtreeCount} />
               {selected.rank ? <Fact label="Rank" value={selected.rank} /> : null}
             </div>
-            {selected.performance ? (
+            {viewFinancials && selected.performance ? (
               <section className={styles.performancePanel} aria-label="Allowed performance details">
                 <span>{selected.performance.period}</span>
                 <Fact label="Approved sales" value={selected.performance.approvedSales} />

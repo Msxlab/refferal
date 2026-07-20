@@ -30,6 +30,11 @@ export interface HierarchyNodePresentation {
   status: 'active' | 'inactive' | 'cluster';
 }
 
+export interface HierarchyPresentationOptions {
+  /** Exact financial amounts on admin member nodes are capability-gated. */
+  viewFinancials?: boolean;
+}
+
 export function hierarchyNodeKey(node: NetworkHierarchyNode): string {
   switch (node.kind) {
     case 'member':
@@ -182,7 +187,10 @@ export function formatHierarchyMoney(cents: string | number | bigint | null | un
   }
 }
 
-export function hierarchyNodePresentation(node: NetworkHierarchyNode): HierarchyNodePresentation {
+export function hierarchyNodePresentation(
+  node: NetworkHierarchyNode,
+  { viewFinancials = false }: HierarchyPresentationOptions = {},
+): HierarchyNodePresentation {
   switch (node.kind) {
     case 'cluster':
       return {
@@ -197,9 +205,10 @@ export function hierarchyNodePresentation(node: NetworkHierarchyNode): Hierarchy
         title: node.displayName,
         eyebrow: `Local Tier ${node.localTier} · Global Tier ${node.globalTier}`,
         detail: `${node.referralCode} · ${node.directCount} direct · ${node.subtreeCount} in subtree`,
-        performance: node.performance
-          ? `${node.performance.approvedSales} approved · ${formatHierarchyMoney(node.performance.teamVolumeCents, node.performance.currency)} team volume`
-          : null,
+        performance:
+          viewFinancials && node.performance
+            ? `${node.performance.approvedSales} approved · ${formatHierarchyMoney(node.performance.teamVolumeCents, node.performance.currency)} team volume`
+            : null,
         status: node.status,
       };
     case 'self':

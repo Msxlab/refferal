@@ -14,6 +14,7 @@ interface Props {
   model: NetworkHierarchyModel;
   expandedKeys: ReadonlySet<string>;
   selectedKey?: string | null;
+  viewFinancials?: boolean;
   onSelect: (node: NetworkHierarchyNode, key: string) => void;
   onToggle?: (node: NetworkHierarchyNode, key: string, expanded: boolean) => void;
   ariaLabel?: string;
@@ -27,6 +28,7 @@ export function NetworkHierarchyList({
   model,
   expandedKeys,
   selectedKey = null,
+  viewFinancials = false,
   onSelect,
   onToggle,
   ariaLabel = 'Referral network list',
@@ -77,8 +79,7 @@ export function NetworkHierarchyList({
       </div>
       <ul className={styles.listRoot} role="list">
         {rows.map((row, index) => {
-          const presentation = hierarchyNodePresentation(row.node);
-          const controlsId = `${idPrefix}-branch-${index}`;
+          const presentation = hierarchyNodePresentation(row.node, { viewFinancials });
           return (
             <li key={row.key} className={styles.listItem}>
               <div
@@ -91,8 +92,8 @@ export function NetworkHierarchyList({
                     className={styles.disclosureButton}
                     aria-label={`${row.expanded ? 'Collapse' : 'Expand'} ${presentation.title}`}
                     aria-expanded={row.expanded}
-                    aria-controls={controlsId}
                     onClick={() => onToggle?.(row.node, row.key, !row.expanded)}
+                    onKeyDown={(event) => handleKeyDown(event, index)}
                   >
                     <ChevronRight aria-hidden="true" data-expanded={row.expanded || undefined} />
                   </button>
@@ -106,7 +107,6 @@ export function NetworkHierarchyList({
                   data-selected={selectedKey === row.key || undefined}
                   aria-pressed={selectedKey === row.key}
                   aria-expanded={row.expandable ? row.expanded : undefined}
-                  aria-controls={row.expandable ? controlsId : undefined}
                   onClick={() => onSelect(row.node, row.key)}
                   onKeyDown={(event) => handleKeyDown(event, index)}
                 >
@@ -126,11 +126,6 @@ export function NetworkHierarchyList({
                   </span>
                 </button>
               </div>
-              {row.expandable ? (
-                <span id={controlsId} className="sr-only" role="status">
-                  {row.expanded ? 'Branch expanded' : 'Branch collapsed'}
-                </span>
-              ) : null}
             </li>
           );
         })}
