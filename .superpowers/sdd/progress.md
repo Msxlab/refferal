@@ -23,7 +23,7 @@
 
 | Task | Status | Owner | Verification | Notes |
 | --- | --- | --- | --- | --- |
-| 1. Security, permission, and route foundation | in progress | root | pending | Plan: `docs/superpowers/plans/2026-07-20-referral-network-hierarchy-implementation.md`; base reconciled with `origin/main` in merge commit `edb1e58`. |
+| 1. Security, permission, and route foundation | completed | hierarchy_task1_impl + web_tree_plan | 20 focused API unit tests + API typecheck; RBAC integration attempted but local Prisma schema engine blocked migration | Commits `d8c708f`, `9901929`, `e8253db`; independent review approved after fixes. |
 | 2. Server-authoritative hierarchy reads | pending | unassigned | pending | Signed snapshots, exact structural counts, cursor pages, and financial capability separation. |
 | 3. Member privacy projection | pending | unassigned | pending | Server-only Tier 1–3 projection, opaque refs, and privacy regression tests. |
 | 4. Shared web hierarchy primitives | pending | unassigned | pending | URL surface separation, accessible tree/list primitives, defensive formatting. |
