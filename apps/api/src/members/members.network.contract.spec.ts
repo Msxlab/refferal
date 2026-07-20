@@ -18,6 +18,13 @@ describe("referral network permission and hierarchy contract", () => {
     ),
     "utf8",
   );
+  const hierarchyMigration = readFileSync(
+    join(
+      __dirname,
+      "../../prisma/migrations/20260720160000_network_branch_cursor_index/migration.sql",
+    ),
+    "utf8",
+  );
 
   it("separates the financial network capability from structural network access", () => {
     expect(ALL_PERMISSIONS).toEqual(
@@ -66,7 +73,9 @@ describe("referral network permission and hierarchy contract", () => {
       "network-cluster-children",
       "network-list",
     ]) {
-      const routePosition = controller.search(new RegExp(`\(["']${route}["']\)`));
+      const routePosition = controller.search(
+        new RegExp(`\(["']${route}["']\)`),
+      );
       expect(routePosition).toBeGreaterThan(0);
       expect(routePosition).toBeLessThan(dynamicRoute);
     }
@@ -117,7 +126,9 @@ describe("referral network permission and hierarchy contract", () => {
     expect(controller).toMatch(
       /hasEffectivePermission\(user, ["']network\.financials\.view["']\)/,
     );
-    expect(controller).toMatch(/hasEffectivePermission\(user, ["']members\.view["']\)/);
+    expect(controller).toMatch(
+      /hasEffectivePermission\(user, ["']members\.view["']\)/,
+    );
   });
 
   it("locks the approved future hierarchy caps and member privacy boundary without assuming its API exists", () => {
@@ -134,6 +145,25 @@ describe("referral network permission and hierarchy contract", () => {
     );
     expect(hierarchyDesign).toMatch(
       /Member endpoint'leri client'tan membership root kabul etmez/,
+    );
+  });
+
+  it("keeps the non-destructive hierarchy migration preflights, including orphan sponsors", () => {
+    expect(hierarchyMigration).toMatch(/LEFT JOIN memberships sponsor/);
+    expect(hierarchyMigration).toMatch(/sponsor\.id IS NULL/);
+    expect(hierarchyMigration).toMatch(/orphan sponsor exists/);
+    expect(hierarchyMigration).toMatch(
+      /CREATE INDEX "memberships_tenant_sponsor_joined_id_idx"/,
+    );
+    expect(
+      hierarchyMigration.indexOf("LEFT JOIN memberships sponsor"),
+    ).toBeLessThan(
+      hierarchyMigration.indexOf(
+        'CREATE INDEX "memberships_tenant_sponsor_joined_id_idx"',
+      ),
+    );
+    expect(hierarchyMigration).not.toMatch(
+      /\b(?:DELETE|UPDATE)\s+memberships\b/i,
     );
   });
 });

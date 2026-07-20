@@ -5,6 +5,19 @@ BEGIN
   IF EXISTS (
     SELECT 1
     FROM memberships child
+    LEFT JOIN memberships sponsor ON sponsor.id = child.sponsor_membership_id
+    WHERE child.sponsor_membership_id IS NOT NULL
+      AND sponsor.id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'network hierarchy preflight failed: orphan sponsor exists';
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM memberships child
     JOIN memberships sponsor ON sponsor.id = child.sponsor_membership_id
     WHERE child.sponsor_membership_id IS NOT NULL
       AND child.tenant_id <> sponsor.tenant_id

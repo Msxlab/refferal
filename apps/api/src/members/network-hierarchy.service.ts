@@ -12,7 +12,6 @@ import {
   createHierarchyReferenceToken,
   HIERARCHY_REFERENCE_TTL_MS,
   HIERARCHY_TOKEN_MAX_LENGTH,
-  NetworkSnapshotExpiredException,
   verifyHierarchyReferenceToken,
 } from "./network-hierarchy.tokens";
 import {
@@ -581,7 +580,7 @@ export class NetworkHierarchyService {
     const now = Date.now();
     if (snapshotMs > now) badRequest();
     if (now >= snapshotMs + HIERARCHY_REFERENCE_TTL_MS) {
-      throw new NetworkSnapshotExpiredException();
+      badRequest();
     }
   }
 
@@ -908,66 +907,112 @@ export class NetworkHierarchyService {
       ORDER BY m.depth ASC, m.joined_at ASC, m.id ASC`);
   }
 
-  private readContextMembers(
+  private async readContextMembers(
     tx: TransactionClient,
     tenantId: string,
     anchor: ScopeAnchor,
     depth: number,
     snapshotAt: string,
   ): Promise<MembershipRecord[]> {
-    const scopePredicate = anchor.focus
-      ? Prisma.sql`m.path::ltree <@ ${anchor.focus.path}::ltree AND m.id <> ${anchor.focus.id}::uuid`
-      : Prisma.sql`TRUE`;
-    const anchorPredicate = anchor.focus
-      ? Prisma.sql`r.sponsor_membership_id = ${anchor.focus.id}::uuid`
-      : Prisma.sql`r.sponsor_membership_id IS NULL`;
-    const localTier = anchor.focus
-      ? Prisma.sql`m.depth - ${anchor.focus.depth} + 1`
-      : Prisma.sql`m.depth + 1`;
+    const rows: MembershipRecord[] = [];
+    let localTier = anchor.focus ? 2 : 1;
+    let rootRound = !anchor.focus;
+    let frontier = anchor.focus ? [anchor.focus.id] : [];
+
+    while (
+      localTier <= depth &&
+      rows.length < ADMIN_CONTEXT_NODE_BUDGET &&
+      (rootRound || frontier.length > 0)
+    ) {
+      const remaining = ADMIN_CONTEXT_NODE_BUDGET - rows.length;
+      const levelRows = rootRound
+        ? await this.readContextRootLevel(tx, tenantId, snapshotAt, remaining)
+        : await this.readContextChildrenLevel(
+            tx,
+            tenantId,
+            frontier,
+            snapshotAt,
+            remaining,
+          );
+      const accepted = levelRows.slice(0, remaining);
+      rows.push(...accepted);
+      frontier = accepted.map((row) => row.id);
+      rootRound = false;
+      localTier += 1;
+    }
+
+    return rows;
+  }
+
+  private readContextRootLevel(
+    tx: TransactionClient,
+    tenantId: string,
+    snapshotAt: string,
+    remaining: number,
+  ): Promise<MembershipRecord[]> {
     return tx.$queryRaw<MembershipRecord[]>(Prisma.sql`
-      /* network-hierarchy:context-members */
-      WITH RECURSIVE scoped AS (
-        SELECT m.id, m.sponsor_membership_id, m.referral_code, m.path, m.depth,
-               m.status, m.joined_at, u.full_name,
-               ${localTier} AS local_tier,
-               row_number() OVER (
-                 PARTITION BY m.sponsor_membership_id
-                 ORDER BY m.joined_at ASC, m.id ASC
-               ) AS sibling_number
-        FROM memberships m
-        JOIN users u ON u.id = m.user_id
-        WHERE m.tenant_id = ${tenantId}::uuid
-          AND m.joined_at <= ${new Date(snapshotAt)}
-          AND ${scopePredicate}
-      ), walk AS (
-        SELECT r.* FROM scoped r
-        WHERE ${anchorPredicate}
-          AND r.local_tier <= ${depth}
-          AND r.sibling_number <= ${ADMIN_HIERARCHY_PAGE_SIZE}
-        UNION ALL
-        SELECT c.* FROM scoped c
-        JOIN walk p ON c.sponsor_membership_id = p.id
-        WHERE c.local_tier <= ${depth}
-          AND c.sibling_number <= ${ADMIN_HIERARCHY_PAGE_SIZE}
-      ), bounded AS (
-        SELECT * FROM walk
-        ORDER BY local_tier ASC, joined_at ASC, id ASC
-        LIMIT ${ADMIN_CONTEXT_NODE_BUDGET}
-      )
-      SELECT b.id::text AS "id",
-             b.sponsor_membership_id::text AS "sponsorMembershipId",
-             b.referral_code AS "referralCode", b.path, b.depth, b.status,
-             b.joined_at AS "joinedAt", b.full_name AS "fullName",
+      /* network-hierarchy:context-level */
+      SELECT m.id::text AS "id",
+             m.sponsor_membership_id::text AS "sponsorMembershipId",
+             m.referral_code AS "referralCode", m.path, m.depth, m.status,
+             m.joined_at AS "joinedAt", u.full_name AS "fullName",
              (SELECT count(*)::bigint FROM memberships c
                WHERE c.tenant_id = ${tenantId}::uuid
-                 AND c.sponsor_membership_id = b.id
+                 AND c.sponsor_membership_id = m.id
                  AND c.joined_at <= ${new Date(snapshotAt)}) AS "directCount",
              (SELECT (count(*) - 1)::bigint FROM memberships d
                WHERE d.tenant_id = ${tenantId}::uuid
-                 AND d.path::ltree <@ b.path::ltree
+                 AND d.path::ltree <@ m.path::ltree
                  AND d.joined_at <= ${new Date(snapshotAt)}) AS "subtreeCount"
-      FROM bounded b
-      ORDER BY b.local_tier ASC, b.joined_at ASC, b.id ASC`);
+      FROM memberships m
+      JOIN users u ON u.id = m.user_id
+      WHERE m.tenant_id = ${tenantId}::uuid
+        AND m.sponsor_membership_id IS NULL
+        AND m.joined_at <= ${new Date(snapshotAt)}
+      ORDER BY m.joined_at ASC, m.id ASC
+      LIMIT ${Math.min(ADMIN_HIERARCHY_PAGE_SIZE, remaining)}`);
+  }
+
+  private readContextChildrenLevel(
+    tx: TransactionClient,
+    tenantId: string,
+    parentIds: string[],
+    snapshotAt: string,
+    remaining: number,
+  ): Promise<MembershipRecord[]> {
+    const perParentLimit = Math.min(ADMIN_HIERARCHY_PAGE_SIZE, remaining);
+    const parents = Prisma.join(
+      parentIds.map((parentId) => Prisma.sql`(${parentId}::uuid)`),
+    );
+    return tx.$queryRaw<MembershipRecord[]>(Prisma.sql`
+      /* network-hierarchy:context-level */
+      WITH parents(parent_id) AS (VALUES ${parents})
+      SELECT child.id::text AS "id",
+             child.sponsor_membership_id::text AS "sponsorMembershipId",
+             child.referral_code AS "referralCode", child.path, child.depth,
+             child.status, child.joined_at AS "joinedAt",
+             child_user.full_name AS "fullName",
+             (SELECT count(*)::bigint FROM memberships direct_child
+               WHERE direct_child.tenant_id = ${tenantId}::uuid
+                 AND direct_child.sponsor_membership_id = child.id
+                 AND direct_child.joined_at <= ${new Date(snapshotAt)}) AS "directCount",
+             (SELECT (count(*) - 1)::bigint FROM memberships descendant
+               WHERE descendant.tenant_id = ${tenantId}::uuid
+                 AND descendant.path::ltree <@ child.path::ltree
+                 AND descendant.joined_at <= ${new Date(snapshotAt)}) AS "subtreeCount"
+      FROM parents parent
+      CROSS JOIN LATERAL (
+        SELECT m.*
+        FROM memberships m
+        WHERE m.tenant_id = ${tenantId}::uuid
+          AND m.sponsor_membership_id = parent.parent_id
+          AND m.joined_at <= ${new Date(snapshotAt)}
+        ORDER BY m.joined_at ASC, m.id ASC
+        LIMIT ${perParentLimit}
+      ) child
+      JOIN users child_user ON child_user.id = child.user_id
+      ORDER BY child.joined_at ASC, child.id ASC
+      LIMIT ${remaining}`);
   }
 
   private readContextBranchSummaries(

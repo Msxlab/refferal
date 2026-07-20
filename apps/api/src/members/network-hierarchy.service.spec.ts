@@ -1,6 +1,7 @@
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { MembershipStatus, Prisma } from "@prisma/client";
 import { ActorContext } from "../common/actor";
+import { NetworkSnapshotExpiredException } from "./network-hierarchy.tokens";
 import { NetworkHierarchyService } from "./network-hierarchy.service";
 
 const ACTOR: ActorContext = {
@@ -49,6 +50,7 @@ function harness(resolveRaw: RawResolver = () => []) {
       }),
     },
     membership: {
+      count: jest.fn().mockResolvedValue(0),
       findFirst: jest.fn().mockResolvedValue({
         id: ROOT_ID,
         sponsorMembershipId: null,
@@ -270,6 +272,72 @@ describe("NetworkHierarchyService", () => {
     });
   });
 
+  it("rejects an unsigned stale snapshot on initial child and list reads as generic bad requests", async () => {
+    const { service, prisma } = harness();
+    const staleSnapshotAt = "2026-07-20T11:44:59.999Z";
+
+    await expect(
+      service.adminChildren(ACTOR, {
+        parentRef: "tenant-root",
+        snapshotAt: staleSnapshotAt,
+        viewFinancials: false,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.adminChildren(ACTOR, {
+        parentRef: "tenant-root",
+        snapshotAt: staleSnapshotAt,
+        viewFinancials: false,
+      }),
+    ).rejects.not.toBeInstanceOf(NetworkSnapshotExpiredException);
+
+    await expect(
+      service.adminList(ACTOR, {
+        scope: "full",
+        snapshotAt: staleSnapshotAt,
+        viewFinancials: false,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("stops depth-five breadth-first materialization at the 250-member budget before another level read", async () => {
+    const rootRows = Array.from({ length: 50 }, (_, index) =>
+      memberRow(index + 1, { depth: 0 }),
+    );
+    const secondLevelRows = Array.from({ length: 200 }, (_, index) =>
+      memberRow(index + 51, {
+        depth: 1,
+        sponsorMembershipId: rootRows[Math.floor(index / 50)].id,
+      }),
+    );
+    let levelRead = 0;
+    const { service, tx } = harness((label) => {
+      if (label === "context-level") {
+        levelRead += 1;
+        return levelRead === 1 ? rootRows : secondLevelRows;
+      }
+      if (label === "context-branches") return [];
+      return [];
+    });
+    tx.membership.count.mockResolvedValue(10_000);
+
+    const context = await service.adminContext(ACTOR, {
+      scope: "full",
+      depth: 5,
+      viewFinancials: false,
+      openMember: false,
+    });
+
+    expect(context.scope.loadedNodes).toBe(250);
+    expect(context.initialPage.items).toHaveLength(250);
+    expect(levelRead).toBe(2);
+    expect(levelRead).toBeLessThanOrEqual(5);
+    expect(
+      tx.$queryRaw.mock.calls.map(([query]) => queryLabel(query)),
+    ).not.toEqual(expect.arrayContaining(["context-members"]));
+  });
+
   it("initializes context in repeatable read and reports exact focused coverage", async () => {
     const child = memberRow(2, {
       sponsorMembershipId: ROOT_ID,
@@ -277,11 +345,15 @@ describe("NetworkHierarchyService", () => {
       directCount: 0n,
       subtreeCount: 0n,
     });
+    let contextLevelRead = 0;
     const { service, prisma } = harness((label) => {
       if (label === "member-counts")
         return [{ directCount: 1n, subtreeCount: 1n }];
       if (label === "ancestors") return [];
-      if (label === "context-members") return [child];
+      if (label === "context-level") {
+        contextLevelRead += 1;
+        return contextLevelRead === 1 ? [child] : [];
+      }
       if (label === "context-branches")
         return [
           {
