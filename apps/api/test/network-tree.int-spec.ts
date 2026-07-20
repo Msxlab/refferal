@@ -55,26 +55,28 @@ describe('network tree analytics (entegrasyon)', () => {
 
   it('projects a member root through Tier 3 only and keeps descendants anonymous', async () => {
     const tenant = await createTenant(prisma);
-    const [root, tier1, tier2, tier3, tier4] = await createChain(
+    const [root, tier1, tier2, tier3] = await createChain(
       prisma,
       tenant.id,
-      5,
+      4,
     );
     const actor = { userId: root.userId, tenantId: tenant.id };
 
-    const context = await hierarchy.memberContext(actor, {
+    const contextBeforeTier4 = await hierarchy.memberContext(actor, {
       rootMembershipId: root.id,
     });
-    const direct = context.initialPage.items.find(
+    const directBeforeTier4 = contextBeforeTier4.initialPage.items.find(
       (item) => item.kind === 'direct',
     );
-    const anonymous = context.initialPage.items.filter(
+    const anonymous = contextBeforeTier4.initialPage.items.filter(
       (item) => item.kind === 'anonymous',
     );
-    if (!direct || direct.kind !== 'direct') throw new Error('missing Tier 1');
+    if (!directBeforeTier4 || directBeforeTier4.kind !== 'direct') {
+      throw new Error('missing Tier 1');
+    }
 
-    expect(context.sponsor).toBeNull();
-    expect(context.self.nodeRef).toBe('self');
+    expect(contextBeforeTier4.sponsor).toBeNull();
+    expect(contextBeforeTier4.self.nodeRef).toBe('self');
     expect(anonymous).toHaveLength(2);
     expect(anonymous).toEqual(
       expect.arrayContaining([
@@ -82,10 +84,80 @@ describe('network tree analytics (entegrasyon)', () => {
         expect.objectContaining({ localTier: 3, label: 'Tier 3 member', canExpand: false }),
       ]),
     );
-    const serialized = JSON.stringify(context);
-    expect(serialized).not.toContain(tier2.id);
-    expect(serialized).not.toContain(tier3.id);
-    expect(serialized).not.toContain(tier4.id);
+
+    const childrenBeforeTier4 = await hierarchy.memberChildren(actor, {
+      rootMembershipId: root.id,
+      parentRef: directBeforeTier4.nodeRef,
+      snapshotAt: contextBeforeTier4.scope.snapshotAt,
+    });
+    const searchBeforeTier4 = await hierarchy.memberDirectSearch(actor, {
+      rootMembershipId: root.id,
+      query: 'User',
+    });
+    const comparable = (value: unknown) =>
+      JSON.parse(
+        JSON.stringify(value, (key, nestedValue) =>
+          ['nodeRef', 'parentRef', 'clusterRef', 'snapshotAt'].includes(key)
+            ? undefined
+            : nestedValue,
+        ),
+      );
+
+    // Create and mutate the Tier 4 membership after taking the visible baseline.
+    // It even matches the direct-search text, so an unbounded search would surface it.
+    const [tier4] = await createChain(prisma, tenant.id, 1, tier3);
+    await Promise.all([
+      prisma.user.update({
+        where: { id: tier4.userId },
+        data: { fullName: 'User Tier Four Mutation' },
+      }),
+      prisma.membership.update({
+        where: { id: tier4.id },
+        data: { referralCode: 'TIER4-PRIVATE' },
+      }),
+    ]);
+    const contextAfterTier4Membership = await hierarchy.memberContext(actor, {
+      rootMembershipId: root.id,
+    });
+    const directAfterTier4Membership =
+      contextAfterTier4Membership.initialPage.items.find(
+        (item) => item.kind === 'direct',
+      );
+    if (
+      !directAfterTier4Membership ||
+      directAfterTier4Membership.kind !== 'direct'
+    ) {
+      throw new Error('missing Tier 1 after Tier 4 membership mutation');
+    }
+    const childrenAfterTier4Membership = await hierarchy.memberChildren(actor, {
+      rootMembershipId: root.id,
+      parentRef: directAfterTier4Membership.nodeRef,
+      snapshotAt: contextAfterTier4Membership.scope.snapshotAt,
+    });
+    const searchAfterTier4Membership = await hierarchy.memberDirectSearch(actor, {
+      rootMembershipId: root.id,
+      query: 'User',
+    });
+
+    expect(comparable(contextAfterTier4Membership)).toEqual(
+      comparable(contextBeforeTier4),
+    );
+    expect(comparable(childrenAfterTier4Membership)).toEqual(
+      comparable(childrenBeforeTier4),
+    );
+    expect(comparable(searchAfterTier4Membership)).toEqual(
+      comparable(searchBeforeTier4),
+    );
+    const serializedAfterMembership = JSON.stringify({
+      contextAfterTier4Membership,
+      childrenAfterTier4Membership,
+      searchAfterTier4Membership,
+    });
+    expect(serializedAfterMembership).not.toContain(tier2.id);
+    expect(serializedAfterMembership).not.toContain(tier3.id);
+    expect(serializedAfterMembership).not.toContain(tier4.id);
+    expect(serializedAfterMembership).not.toContain('User Tier Four Mutation');
+    expect(serializedAfterMembership).not.toContain('TIER4-PRIVATE');
 
     const saleDate = new Date();
     await prisma.sale.create({
@@ -102,31 +174,31 @@ describe('network tree analytics (entegrasyon)', () => {
     const afterTier4Sale = await hierarchy.memberContext(actor, {
       rootMembershipId: root.id,
     });
-    const afterDirect = afterTier4Sale.initialPage.items.find(
+    const directAfterTier4Sale = afterTier4Sale.initialPage.items.find(
       (item) => item.kind === 'direct',
     );
-    if (!afterDirect || afterDirect.kind !== 'direct') {
+    if (!directAfterTier4Sale || directAfterTier4Sale.kind !== 'direct') {
       throw new Error('missing Tier 1 after Tier 4 sale');
     }
-    expect(afterTier4Sale.self.performance).toEqual(context.self.performance);
-    expect(afterDirect.performance).toEqual(direct.performance);
-
-    const children = await hierarchy.memberChildren(actor, {
+    const childrenAfterTier4Sale = await hierarchy.memberChildren(actor, {
       rootMembershipId: root.id,
-      parentRef: direct.nodeRef,
-      snapshotAt: context.scope.snapshotAt,
+      parentRef: directAfterTier4Sale.nodeRef,
+      snapshotAt: afterTier4Sale.scope.snapshotAt,
     });
-    expect(children.items).toEqual([
-      expect.objectContaining({ kind: 'anonymous', localTier: 2 }),
-    ]);
-    expect(JSON.stringify(children)).not.toContain(tier2.id);
-
-    const search = await hierarchy.memberDirectSearch(actor, {
+    const searchAfterTier4Sale = await hierarchy.memberDirectSearch(actor, {
       rootMembershipId: root.id,
       query: 'User',
     });
-    expect(search.items).toHaveLength(1);
-    expect(search.items[0].referralCode).toBe(tier1.referralCode);
-    expect(JSON.stringify(search)).not.toContain(tier2.id);
+    expect(comparable(afterTier4Sale)).toEqual(comparable(contextBeforeTier4));
+    expect(comparable(childrenAfterTier4Sale)).toEqual(
+      comparable(childrenBeforeTier4),
+    );
+    expect(comparable(searchAfterTier4Sale)).toEqual(
+      comparable(searchBeforeTier4),
+    );
+    expect(searchAfterTier4Membership.items).toHaveLength(1);
+    expect(searchAfterTier4Membership.items[0].referralCode).toBe(
+      tier1.referralCode,
+    );
   });
 });
