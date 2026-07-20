@@ -62,6 +62,18 @@ Tier 2–3 performans gizliliği:
 - Finans akış şeması ile kişi ağacı aynı canvas üzerinde karıştırılmaz.
 - `surface=value-flow` bağımsız finansal akış diyagramıdır. `lens=performance` ise kişi ağacını korur ve yalnız node üzerindeki izinli performans alanlarını değiştirir.
 
+### 2.4 Onaylanan görsel referanslar
+
+Admin Focus Cockpit:
+
+![Admin Focus Cockpit](./assets/referral-tree-admin-focus-cockpit.png)
+
+Member Focus Tree:
+
+![Member Focus Tree](./assets/referral-tree-member-focus-tree.png)
+
+Görseller layout, hiyerarşi, shell, spacing ve interaction yönü için referanstır. Bu belgedeki daha yeni gizlilik kararları görseldeki örnek verilerin önüne geçer: member render'daki exact Tier 2+ para değerleri ve `Level 2+` etiketleri uygulanmayacak; Tier 2–3 performansı bantlanacak ve Tier 4+ hiçbir biçimde gösterilmeyecektir.
+
 ## 3. Hedefler ve başarı tanımı
 
 ### 3.1 Hedefler
