@@ -35,7 +35,7 @@ apps/api: tsc -p tsconfig.json --noEmit
 ## Self-review
 
 - Confirmed owner/admin receive the new permission through `ALL_PERMISSIONS`/`allExcept`, while analyst and support/staff do not receive it implicitly.
-- Confirmed only legacy financial tree endpoints changed; non-financial `leaders` and `network-health` retain `network.view`.
+- Confirmed the non-financial `network-health` route retains `network.view`; `leaders` is a financial projection and now requires both network permissions.
 - Confirmed no Task 2 hierarchy controller/service stubs or speculative TypeScript APIs were added.
 - Confirmed `git diff --check` passed.
 
@@ -67,3 +67,15 @@ Prisma migrate deploy reached refearn_test at localhost:5434, then failed with S
 ```
 
 The integration suite was invoked with the bundled Node runtime on `PATH`; the remaining failure is the local Prisma schema engine/database setup rather than a missing Node executable.
+
+### Final review follow-up
+
+- Updated the member detail authorization contract so its single-permission assertions remain string-based and its `leaders` assertion expects the combined permission array.
+- Added a database-free `AccessTokenGuard` unit test proving a legacy single-permission route still authorizes normally and a combined route rejects each partial grant while accepting both grants.
+
+Passed:
+
+```text
+apps/api: 4 focused unit suites, 20 tests passed
+apps/api: tsc -p tsconfig.json --noEmit
+```

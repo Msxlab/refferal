@@ -7,7 +7,6 @@ import { MembersAdminController } from './members.admin.controller';
 
 describe('members fine-grained authorization contract', () => {
   it.each([
-    ['leaders', 'network.view'],
     ['export', 'reports.export'],
     ['createManual', 'members.manage'],
     ['detail', 'members.view'],
@@ -19,6 +18,13 @@ describe('members fine-grained authorization contract', () => {
     ['impersonateEnd', 'settings.security'],
   ] as const)('%s requires %s', (method, permission) => {
     expect(Reflect.getMetadata(PERMISSION_KEY, MembersAdminController.prototype[method])).toBe(permission);
+  });
+
+  it('requires both structural and financial network permissions for leaders', () => {
+    expect(Reflect.getMetadata(PERMISSION_KEY, MembersAdminController.prototype.leaders)).toEqual([
+      'network.view',
+      'network.financials.view',
+    ]);
   });
 
   const user = (perms: string[]): RequestUser => ({
