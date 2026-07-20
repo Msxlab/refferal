@@ -40,6 +40,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { key: 'members.manage', label: 'Edit member details' },
       { key: 'members.suspend', label: 'Suspend / reactivate members' },
       { key: 'network.view', label: 'View referral network' },
+      { key: 'network.financials.view', label: 'View referral network financial performance' },
     ],
   },
   {
@@ -114,7 +115,9 @@ const allExcept = (...omit: string[]): string[] =>
   ALL_PERMISSIONS.filter((p) => !omit.includes(p));
 
 const viewOnly = (): string[] =>
-  ALL_PERMISSIONS.filter((p) => p.endsWith('.view') && p !== 'compliance.view');
+  ALL_PERMISSIONS.filter(
+    (p) => p.endsWith('.view') && p !== 'compliance.view' && p !== 'network.financials.view',
+  );
 
 /** System role definitions seeded for every tenant by RolesService.ensureSystemRoles. */
 export interface SystemRoleSeed {
