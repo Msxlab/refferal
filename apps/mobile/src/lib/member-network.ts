@@ -115,6 +115,14 @@ export class MemberNetworkPayloadError extends Error {
   }
 }
 
+/** A cursor page from a newer search snapshot must never be merged with the first page. */
+export class MemberNetworkSnapshotMismatchError extends MemberNetworkPayloadError {
+  constructor() {
+    super('The protected network search snapshot changed.');
+    this.name = 'MemberNetworkSnapshotMismatchError';
+  }
+}
+
 type JsonRecord = Record<string, unknown>;
 
 const OPAQUE_REFERENCE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/;
@@ -391,7 +399,7 @@ export function parseMemberDirectSearchPage(value: unknown, expectedSnapshot?: s
   only(candidate, ['items', 'nextCursor', 'snapshotAt'], 'directSearch');
   if (!Array.isArray(candidate.items)) invalid('directSearch.items');
   const snapshotAt = snapshot(candidate.snapshotAt, 'directSearch.snapshotAt');
-  if (expectedSnapshot && expectedSnapshot !== snapshotAt) invalid('directSearch.snapshotAt');
+  if (expectedSnapshot && expectedSnapshot !== snapshotAt) throw new MemberNetworkSnapshotMismatchError();
   const items = candidate.items.map((item, index) => {
     const parsed = parseMemberVisibleNode(item, `directSearch.items[${index}]`);
     if (parsed.kind !== 'direct') invalid('directSearch.items');

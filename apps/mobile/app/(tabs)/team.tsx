@@ -5,6 +5,7 @@ import { Button, Card, ErrorText, MutedText, Title } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
 import {
   MemberNetworkPayloadError,
+  MemberNetworkSnapshotMismatchError,
   mergeMemberDirectNodes,
   mergeMemberVisibleNodes,
   parseMemberBranchPage,
@@ -41,6 +42,8 @@ export default function TeamScreen() {
   const [branchContinuations, setBranchContinuations] = useState<Record<string, MemberNetworkContinuation>>({});
   const [busy, setBusy] = useState<Set<string>>(() => new Set());
   const [searchDraft, setSearchDraft] = useState('');
+  const [appliedSearchQuery, setAppliedSearchQuery] = useState<string | null>(null);
+  const [searchSnapshotAt, setSearchSnapshotAt] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<DirectNode[]>([]);
   const [searchCursor, setSearchCursor] = useState<OpaqueReference | null>(null);
   const [searchError, setSearchError] = useState('');
@@ -50,15 +53,22 @@ export default function TeamScreen() {
   const snapshotGeneration = useRef(0);
   const searchRequestGeneration = useRef(0);
 
-  const load = useCallback(async () => {
-    const generation = ++snapshotGeneration.current;
+  const invalidateDirectSearch = useCallback((clearDraft = false) => {
     searchRequestGeneration.current += 1;
-    setBusy(new Set());
-    setError('');
+    if (clearDraft) setSearchDraft('');
     setSearchResults([]);
     setSearchCursor(null);
+    setAppliedSearchQuery(null);
+    setSearchSnapshotAt(null);
     setSearchError('');
     setSearching(false);
+  }, []);
+
+  const load = useCallback(async () => {
+    const generation = ++snapshotGeneration.current;
+    invalidateDirectSearch();
+    setBusy(new Set());
+    setError('');
     try {
       const next = parseMemberNetworkContext(await api.get<unknown>('/app/team/tree'));
       if (snapshotGeneration.current !== generation) return;
@@ -74,7 +84,7 @@ export default function TeamScreen() {
     } catch (reason) {
       if (snapshotGeneration.current === generation) setError(errorMessage(reason));
     }
-  }, []);
+  }, [invalidateDirectSearch]);
 
   useEffect(() => {
     void load();
@@ -181,11 +191,21 @@ export default function TeamScreen() {
     [loadBranch],
   );
 
+  const updateSearchDraft = useCallback((value: string) => {
+    invalidateDirectSearch();
+    setSearchDraft(value);
+  }, [invalidateDirectSearch]);
+
   const submitDirectSearch = useCallback(
     async (cursor: OpaqueReference | null = null) => {
       const query = searchDraft.trim();
       if (query.length < 2) {
         setSearchError('Enter at least two characters to find a direct teammate.');
+        return;
+      }
+      const expectedSnapshot = cursor ? searchSnapshotAt ?? undefined : undefined;
+      if (cursor && (!expectedSnapshot || appliedSearchQuery !== query)) {
+        invalidateDirectSearch();
         return;
       }
       const generation = snapshotGeneration.current;
@@ -198,13 +218,20 @@ export default function TeamScreen() {
             '/app/team/tree/direct-search',
             cursor ? { query, cursor } : { query },
           ),
+          expectedSnapshot,
         );
         if (snapshotGeneration.current !== generation || searchRequestGeneration.current !== searchGeneration) return;
-        setSearchResults((current) => (cursor ? mergeMemberDirectNodes(current, page.items) : page.items));
+        if (cursor) {
+          setSearchResults((current) => mergeMemberDirectNodes(current, page.items));
+        } else {
+          setSearchResults(page.items);
+          setAppliedSearchQuery(query);
+          setSearchSnapshotAt(page.snapshotAt);
+        }
         setSearchCursor(page.nextCursor);
       } catch (reason) {
         if (snapshotGeneration.current !== generation || searchRequestGeneration.current !== searchGeneration) return;
-        if (isSnapshotExpired(reason)) {
+        if (isSnapshotExpired(reason) || reason instanceof MemberNetworkSnapshotMismatchError) {
           await load();
         } else {
           setSearchError(errorMessage(reason));
@@ -215,17 +242,12 @@ export default function TeamScreen() {
         }
       }
     },
-    [load, searchDraft],
+    [appliedSearchQuery, invalidateDirectSearch, load, searchDraft, searchSnapshotAt],
   );
 
   const clearDirectSearch = useCallback(() => {
-    searchRequestGeneration.current += 1;
-    setSearchDraft('');
-    setSearchResults([]);
-    setSearchCursor(null);
-    setSearchError('');
-    setSearching(false);
-  }, []);
+    invalidateDirectSearch(true);
+  }, [invalidateDirectSearch]);
 
   return (
     <ScrollView
@@ -252,7 +274,7 @@ export default function TeamScreen() {
             searchCursor={searchCursor}
             searching={searching}
             searchError={searchError}
-            onSearchDraftChange={setSearchDraft}
+            onSearchDraftChange={updateSearchDraft}
             onSearch={() => void submitDirectSearch()}
             onLoadMoreSearch={() => {
               if (searchCursor) void submitDirectSearch(searchCursor);

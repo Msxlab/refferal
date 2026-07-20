@@ -29,6 +29,7 @@ import type {
 import {
   type MemberNetworkContextPayload,
   MemberNetworkPayloadError,
+  MemberNetworkSnapshotMismatchError,
   parseMemberBranchPage,
   parseMemberDirectSearchPage,
   parseMemberNetworkContext,
@@ -156,6 +157,8 @@ export function MemberNetworkTreeContent() {
   const [selectedKey, setSelectedKey] = useState<string | null>('self');
   const [searchSelection, setSearchSelection] = useState<MemberDirectNode | null>(null);
   const [searchDraft, setSearchDraft] = useState('');
+  const [appliedSearchQuery, setAppliedSearchQuery] = useState<string | null>(null);
+  const [searchSnapshotAt, setSearchSnapshotAt] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<MemberDirectNode[]>([]);
   const [searchCursor, setSearchCursor] = useState<OpaqueMemberNodeRef | null>(null);
   const [searchError, setSearchError] = useState('');
@@ -225,16 +228,24 @@ export function MemberNetworkTreeContent() {
     return selectedKey && model ? model.nodesByKey.get(selectedKey) ?? null : null;
   }, [model, searchSelection, selectedKey]);
 
-  const refreshSnapshot = useCallback(() => {
-    requestGeneration.current += 1;
+  const invalidateDirectSearch = useCallback((clearDraft = false) => {
     searchRequestGeneration.current += 1;
-    setBusyKeys(new Set());
+    if (clearDraft) setSearchDraft('');
     setSearchResults([]);
     setSearchCursor(null);
+    setAppliedSearchQuery(null);
+    setSearchSnapshotAt(null);
     setSearchError('');
+    setSearchSelection(null);
     setSearching(false);
-    setReloadVersion((version) => version + 1);
   }, []);
+
+  const refreshSnapshot = useCallback(() => {
+    requestGeneration.current += 1;
+    invalidateDirectSearch();
+    setBusyKeys(new Set());
+    setReloadVersion((version) => version + 1);
+  }, [invalidateDirectSearch]);
 
   const loadBranch = useCallback(
     async ({
@@ -343,11 +354,21 @@ export function MemberNetworkTreeContent() {
     setSelectedKey(key);
   }, []);
 
+  const updateSearchDraft = useCallback((value: string) => {
+    invalidateDirectSearch();
+    setSearchDraft(value);
+  }, [invalidateDirectSearch]);
+
   const submitSearch = useCallback(
     async (cursor: OpaqueMemberNodeRef | null = null) => {
       const queryText = searchDraft.trim();
       if (queryText.length < 2) {
         setSearchError('Enter at least two characters to find a direct teammate.');
+        return;
+      }
+      const expectedSnapshot = cursor ? searchSnapshotAt ?? undefined : undefined;
+      if (cursor && (!expectedSnapshot || appliedSearchQuery !== queryText)) {
+        invalidateDirectSearch();
         return;
       }
       setSearching(true);
@@ -356,13 +377,19 @@ export function MemberNetworkTreeContent() {
       const searchGeneration = ++searchRequestGeneration.current;
       try {
         const raw = await api.post<unknown>('/app/team/tree/direct-search', cursor ? { query: queryText, cursor } : { query: queryText });
-        const page = parseMemberDirectSearchPage(raw);
+        const page = parseMemberDirectSearchPage(raw, expectedSnapshot);
         if (requestGeneration.current !== generation || searchRequestGeneration.current !== searchGeneration) return;
-        setSearchResults((current) => (cursor ? mergeDirectNodes(current, page.items) : page.items));
+        if (cursor) {
+          setSearchResults((current) => mergeDirectNodes(current, page.items));
+        } else {
+          setSearchResults(page.items);
+          setAppliedSearchQuery(queryText);
+          setSearchSnapshotAt(page.snapshotAt);
+        }
         setSearchCursor(page.nextCursor);
       } catch (reason) {
         if (requestGeneration.current !== generation || searchRequestGeneration.current !== searchGeneration) return;
-        if (isSnapshotExpired(reason)) {
+        if (isSnapshotExpired(reason) || reason instanceof MemberNetworkSnapshotMismatchError) {
           refreshSnapshot();
           return;
         }
@@ -371,7 +398,7 @@ export function MemberNetworkTreeContent() {
         if (requestGeneration.current === generation && searchRequestGeneration.current === searchGeneration) setSearching(false);
       }
     },
-    [refreshSnapshot, searchDraft],
+    [appliedSearchQuery, invalidateDirectSearch, refreshSnapshot, searchDraft, searchSnapshotAt],
   );
 
   if (loading && !context) return <TreeSkeleton />;
@@ -459,7 +486,7 @@ export function MemberNetworkTreeContent() {
             id="member-network-search"
             type="search"
             value={searchDraft}
-            onChange={(event) => setSearchDraft(event.target.value.slice(0, 120))}
+            onChange={(event) => updateSearchDraft(event.target.value.slice(0, 120))}
             placeholder="Search your direct teammates"
             autoComplete="off"
             spellCheck={false}
@@ -470,15 +497,7 @@ export function MemberNetworkTreeContent() {
               type="button"
               className={styles.clearSearch}
               aria-label="Clear direct teammate search"
-              onClick={() => {
-                searchRequestGeneration.current += 1;
-                setSearchDraft('');
-                setSearchResults([]);
-                setSearchCursor(null);
-                setSearchError('');
-                setSearchSelection(null);
-                setSearching(false);
-              }}
+              onClick={() => invalidateDirectSearch(true)}
             >
               <X aria-hidden="true" />
             </button>

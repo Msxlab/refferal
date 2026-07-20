@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   MemberNetworkPayloadError,
+  MemberNetworkSnapshotMismatchError,
   parseMemberDirectSearchPage,
   parseMemberNetworkContext,
   // @ts-expect-error Native Node needs an explicit runtime extension for this isolated contract test.
@@ -139,5 +140,20 @@ test('mobile direct search accepts only its named Tier 1 envelope', () => {
         snapshotAt: '2026-07-20T12:00:00.000Z',
       }),
     MemberNetworkPayloadError,
+  );
+});
+
+test('mobile direct search rejects a cursor page from a different snapshot', () => {
+  assert.throws(
+    () =>
+      parseMemberDirectSearchPage(
+        {
+          items: [directItem()],
+          nextCursor: null,
+          snapshotAt: '2026-07-20T12:01:00.000Z',
+        },
+        '2026-07-20T12:00:00.000Z',
+      ),
+    MemberNetworkSnapshotMismatchError,
   );
 });

@@ -31,3 +31,25 @@ test('mobile team outline consumes only the privacy-safe member tree and stops a
   assert.match(adapter, /if \(parsed\.kind !== 'direct'\) invalid\('directSearch\.items'\)/);
   assert.doesNotMatch(`${screen}\n${outline}\n${adapter}`, /Tier 4/);
 });
+
+test('mobile direct-search pagination stays bound to its applied query and first snapshot', () => {
+  const screen = readFileSync(new URL('../app/(tabs)/team.tsx', import.meta.url), 'utf8');
+  const draftUpdate = screen.slice(screen.indexOf('const updateSearchDraft'), screen.indexOf('const submitDirectSearch'));
+  const invalidation = screen.slice(screen.indexOf('const invalidateDirectSearch'), screen.indexOf('const load'));
+  const directSearch = screen.slice(screen.indexOf('const submitDirectSearch'), screen.indexOf('const clearDirectSearch'));
+
+  assert.match(screen, /const \[appliedSearchQuery, setAppliedSearchQuery\] = useState<string \| null>\(null\)/);
+  assert.match(screen, /const \[searchSnapshotAt, setSearchSnapshotAt\] = useState<string \| null>\(null\)/);
+  assert.match(draftUpdate, /invalidateDirectSearch\(\)/);
+  assert.match(invalidation, /searchRequestGeneration\.current \+= 1/);
+  assert.match(invalidation, /setSearchCursor\(null\)/);
+  assert.match(invalidation, /setAppliedSearchQuery\(null\)/);
+  assert.match(invalidation, /setSearchSnapshotAt\(null\)/);
+  assert.match(directSearch, /const expectedSnapshot = cursor \? searchSnapshotAt \?\? undefined : undefined/);
+  assert.match(directSearch, /if \(cursor && \(!expectedSnapshot \|\| appliedSearchQuery !== query\)\)/);
+  assert.match(directSearch, /parseMemberDirectSearchPage\([\s\S]*?expectedSnapshot,\s*\)/);
+  assert.match(directSearch, /setAppliedSearchQuery\(query\)/);
+  assert.match(directSearch, /setSearchSnapshotAt\(page\.snapshotAt\)/);
+  assert.match(directSearch, /reason instanceof MemberNetworkSnapshotMismatchError/);
+  assert.match(directSearch, /await load\(\)/);
+});

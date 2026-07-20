@@ -45,6 +45,14 @@ export class MemberNetworkPayloadError extends Error {
   }
 }
 
+/** A cursor page from a newer search snapshot must never be merged with the first page. */
+export class MemberNetworkSnapshotMismatchError extends MemberNetworkPayloadError {
+  constructor() {
+    super('The protected network search snapshot changed.');
+    this.name = 'MemberNetworkSnapshotMismatchError';
+  }
+}
+
 /** A runtime-validated branch keeps signed refs branded through the UI boundary. */
 export interface MemberBranchPage<TNode extends MemberVisibleNode = MemberVisibleNode> {
   parentRef: OpaqueMemberNodeRef;
@@ -380,7 +388,7 @@ export function parseMemberDirectSearchPage(
   if (!Array.isArray(candidate.items)) fail('directSearch.items', 'expected an array');
   const snapshotAt = canonicalSnapshot(candidate.snapshotAt, 'directSearch.snapshotAt');
   if (expectedSnapshotAt && snapshotAt !== expectedSnapshotAt) {
-    fail('directSearch.snapshotAt', 'must match the active search snapshot');
+    throw new MemberNetworkSnapshotMismatchError();
   }
   const items: MemberDirectNode[] = [];
   for (const [index, item] of candidate.items.entries()) {

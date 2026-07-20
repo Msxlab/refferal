@@ -41,3 +41,25 @@ test('member page no longer renders the legacy radial network or direct-recruit 
   assert.doesNotMatch(page, /RadialNetwork/);
   assert.doesNotMatch(page, /team\/recruits/);
 });
+
+test('member Focus Tree binds direct-search cursors to the applied query and first snapshot', async () => {
+  const source = await readFile(new URL('MemberNetworkTreeContent.tsx', directory), 'utf8');
+  const draftUpdate = source.slice(source.indexOf('const updateSearchDraft'), source.indexOf('const submitSearch'));
+  const invalidation = source.slice(source.indexOf('const invalidateDirectSearch'), source.indexOf('const refreshSnapshot'));
+  const directSearch = source.slice(source.indexOf('const submitSearch'), source.indexOf('if (loading && !context)'));
+
+  assert.match(source, /const \[appliedSearchQuery, setAppliedSearchQuery\] = useState<string \| null>\(null\)/);
+  assert.match(source, /const \[searchSnapshotAt, setSearchSnapshotAt\] = useState<string \| null>\(null\)/);
+  assert.match(draftUpdate, /invalidateDirectSearch\(\)/);
+  assert.match(invalidation, /searchRequestGeneration\.current \+= 1/);
+  assert.match(invalidation, /setSearchCursor\(null\)/);
+  assert.match(invalidation, /setAppliedSearchQuery\(null\)/);
+  assert.match(invalidation, /setSearchSnapshotAt\(null\)/);
+  assert.match(directSearch, /const expectedSnapshot = cursor \? searchSnapshotAt \?\? undefined : undefined/);
+  assert.match(directSearch, /if \(cursor && \(!expectedSnapshot \|\| appliedSearchQuery !== queryText\)\)/);
+  assert.match(directSearch, /parseMemberDirectSearchPage\(raw, expectedSnapshot\)/);
+  assert.match(directSearch, /setAppliedSearchQuery\(queryText\)/);
+  assert.match(directSearch, /setSearchSnapshotAt\(page\.snapshotAt\)/);
+  assert.match(directSearch, /reason instanceof MemberNetworkSnapshotMismatchError/);
+  assert.match(directSearch, /refreshSnapshot\(\)/);
+});

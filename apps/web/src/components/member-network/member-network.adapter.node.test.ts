@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   MemberNetworkPayloadError,
+  MemberNetworkSnapshotMismatchError,
   parseMemberDirectSearchPage,
   parseMemberNetworkContext,
 } from './member-network.adapter';
@@ -195,5 +196,21 @@ test('accepts the direct-search envelope only for named Tier 1 records', () => {
         snapshotAt: payload.initialPage.snapshotAt,
       }),
     MemberNetworkPayloadError,
+  );
+});
+
+test('rejects a direct-search cursor page from a different snapshot', () => {
+  const payload = safeContext();
+  assert.throws(
+    () =>
+      parseMemberDirectSearchPage(
+        {
+          items: [payload.initialPage.items[0]],
+          nextCursor: null,
+          snapshotAt: '2026-07-20T12:01:00.000Z',
+        },
+        payload.initialPage.snapshotAt,
+      ),
+    MemberNetworkSnapshotMismatchError,
   );
 });
