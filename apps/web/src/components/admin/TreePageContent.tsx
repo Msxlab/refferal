@@ -23,10 +23,12 @@ export function TreePageContent({
   tenantName,
   routeBase = '/admin/tree',
   memberRouteBase = '/admin/members',
+  companyRouteBase,
 }: {
   tenantName: string;
   routeBase?: string;
   memberRouteBase?: string;
+  companyRouteBase?: string;
 }) {
   return (
     <AdminNetworkHierarchyContent
@@ -34,6 +36,7 @@ export function TreePageContent({
       valueFlowCapabilities={valueFlowCapabilities()}
       routeBase={routeBase}
       memberRouteBase={memberRouteBase}
+      companyRouteBase={companyRouteBase}
     />
   );
 }

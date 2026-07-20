@@ -60,6 +60,8 @@ interface Props {
   routeBase?: string;
   /** Route used by the capability-gated Open member action. */
   memberRouteBase?: string;
+  /** Active-company root used to retain HQ context for internal value-flow links. */
+  companyRouteBase?: string;
 }
 
 type NodePage = BranchPage<AdminHierarchyNode>;
@@ -601,6 +603,7 @@ export function AdminNetworkHierarchyContent({
   valueFlowCapabilities,
   routeBase = '/admin/tree',
   memberRouteBase = '/admin/members',
+  companyRouteBase,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -637,6 +640,7 @@ export function AdminNetworkHierarchyContent({
           recentSales: valueFlowCapabilities.recentSales,
         }}
         routeBase={routeBase}
+        companyRouteBase={companyRouteBase}
       />
     );
   }

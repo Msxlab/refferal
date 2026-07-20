@@ -19,7 +19,7 @@ import { buildValueFlowWorkspace } from './value-flow.model';
 import { monthLabel } from './value-flow.format';
 import {
   buildValueFlowUrl,
-  ensureValueFlowSurfaceHref,
+  createValueFlowHrefResolver,
   parseValueFlowQuery,
   type ValueFlowQueryState,
 } from './value-flow.url';
@@ -35,6 +35,8 @@ interface Props {
   tenantName: string;
   /** Route that owns the current value-flow surface, including HQ drill-ins. */
   routeBase?: string;
+  /** Active-company route root used for safe internal admin navigation. */
+  companyRouteBase?: string;
   capabilities: {
     dashboard: boolean;
     network: boolean;
@@ -60,6 +62,7 @@ export function ReferralValueFlowContent({
   tenantName,
   capabilities,
   routeBase = '/admin/tree',
+  companyRouteBase,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -138,12 +141,9 @@ export function ReferralValueFlowContent({
     return () => { generation.current += 1; };
   }, [capabilities.plans, capabilities.recentSales, hasCoreAccess, reloadKey]);
 
-  const attentionItems = useMemo(
-    () => (workspace?.attention ?? []).map((item) => ({
-      ...item,
-      href: ensureValueFlowSurfaceHref(item.href, routeBase),
-    })),
-    [routeBase, workspace],
+  const resolveHref = useMemo(
+    () => createValueFlowHrefResolver(routeBase, companyRouteBase),
+    [companyRouteBase, routeBase],
   );
 
   if (!hasCoreAccess) {
@@ -282,20 +282,21 @@ export function ReferralValueFlowContent({
         {isCompact === false && (
           <aside ref={desktopInspectorRef} tabIndex={-1} className={styles.desktopInspector} aria-label="Attribution evidence">
             {activeView === 'table' && <a className={styles.inspectorReturn} href="#value-flow-hierarchy-table">Return to hierarchy table</a>}
-            <AttributionEvidencePanel workspace={workspace} selectedId={selectedId} tab={query.tab} canViewMemberDetails={capabilities.memberDetails} canViewSaleDetails={capabilities.recentSales} onTabChange={(tab) => updateQuery({ tab })} onSelect={(id) => updateQuery({ selected: id })} />
+            <AttributionEvidencePanel workspace={workspace} selectedId={selectedId} tab={query.tab} canViewMemberDetails={capabilities.memberDetails} canViewSaleDetails={capabilities.recentSales} resolveHref={resolveHref} onTabChange={(tab) => updateQuery({ tab })} onSelect={(id) => updateQuery({ selected: id })} />
           </aside>
         )}
       </div>
 
       <ValueFlowAttention
-        items={attentionItems}
+        items={workspace.attention}
         sources={{ todo: workspace.availability.todo, networkHealth: workspace.availability.networkHealth }}
+        resolveHref={resolveHref}
       />
 
       <Sheet open={isCompact === true && query.selected !== null} onOpenChange={(open) => { if (!open) updateQuery({ selected: null }); }}>
         <SheetContent side="bottom" className={styles.mobileInspector}>
           <SheetHeader className="sr-only"><SheetTitle>Attribution evidence</SheetTitle><SheetDescription>Verified referral and ledger details for the selected item.</SheetDescription></SheetHeader>
-          <AttributionEvidencePanel workspace={workspace} selectedId={selectedId} tab={query.tab} canViewMemberDetails={capabilities.memberDetails} canViewSaleDetails={capabilities.recentSales} onTabChange={(tab) => updateQuery({ tab })} onSelect={(id) => updateQuery({ selected: id })} />
+          <AttributionEvidencePanel workspace={workspace} selectedId={selectedId} tab={query.tab} canViewMemberDetails={capabilities.memberDetails} canViewSaleDetails={capabilities.recentSales} resolveHref={resolveHref} onTabChange={(tab) => updateQuery({ tab })} onSelect={(id) => updateQuery({ selected: id })} />
         </SheetContent>
       </Sheet>
     </div>

@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api, ApiError } from '@/lib/api';
 import { bps, dateShort, ledgerTypeLabel, levelLabel, money } from '@/lib/format';
 import { monthLabel } from './value-flow.format';
-import type { ValueFlowInspectorTab } from './value-flow.url';
+import { ensureValueFlowSurfaceHref, type ValueFlowHrefResolver, type ValueFlowInspectorTab } from './value-flow.url';
 import type { ValueFlowMember, ValueFlowNode, ValueFlowWorkspace } from './value-flow.types';
 import styles from './value-flow.module.css';
 
@@ -45,6 +45,7 @@ interface Props {
   tab: ValueFlowInspectorTab;
   canViewMemberDetails: boolean;
   canViewSaleDetails: boolean;
+  resolveHref?: ValueFlowHrefResolver;
   onTabChange: (tab: ValueFlowInspectorTab) => void;
   onSelect: (id: string) => void;
 }
@@ -66,7 +67,16 @@ function DetailState({ loading, error, retry }: { loading: boolean; error: strin
   );
 }
 
-export function AttributionEvidencePanel({ workspace, selectedId, tab, canViewMemberDetails, canViewSaleDetails, onTabChange, onSelect }: Props) {
+export function AttributionEvidencePanel({
+  workspace,
+  selectedId,
+  tab,
+  canViewMemberDetails,
+  canViewSaleDetails,
+  resolveHref = ensureValueFlowSurfaceHref,
+  onTabChange,
+  onSelect,
+}: Props) {
   const [member, setMember] = useState<MemberDetail | null>(null);
   const [sale, setSale] = useState<SaleDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -130,7 +140,7 @@ export function AttributionEvidencePanel({ workspace, selectedId, tab, canViewMe
           {memberSummary && !member && !loading && !error && <MemberFallback member={memberSummary} currency={workspace.asOf.currency} />}
           {detailRestricted && <p className={styles.accountingNote}>Additional record-level evidence is restricted for this role; the bounded snapshot summary remains available.</p>}
           {member && <MemberSummary detail={member} currency={workspace.asOf.currency} onSelect={onSelect} />}
-          {sale && <SaleSummary detail={sale} />}
+          {sale && <SaleSummary detail={sale} resolveHref={resolveHref} />}
         </TabsContent>
         <TabsContent value="activity" className={styles.inspectorBody}>
           <DetailState loading={loading} error={error} retry={retry} />
@@ -192,14 +202,14 @@ function MemberActivity({ detail, currency, onSelect }: { detail: MemberDetail; 
   return <div className={styles.evidenceList}>{detail.recentLedger.map((line) => <button type="button" key={line.id} onClick={() => onSelect(`sale:${line.saleId}`)}><span><strong>{ledgerTypeLabel(line.type)} · {levelLabel(line.level)}</strong><small>{dateShort(line.createdAt)} · {line.status}</small></span><b>{money(line.amountCents, currency)}</b></button>)}</div>;
 }
 
-function SaleSummary({ detail }: { detail: SaleDetail }) {
+function SaleSummary({ detail, resolveHref }: { detail: SaleDetail; resolveHref: ValueFlowHrefResolver }) {
   return (
     <>
       <div className={styles.factGrid}><Fact label="Sale amount" value={money(detail.amountCents, detail.currency)} /><Fact label="Status" value={detail.status} /><Fact label="Sale date" value={dateShort(detail.saleDate)} /><Fact label="Approved" value={dateShort(detail.approvedAt ?? null)} /></div>
       <Fact label="Seller" value={`${detail.sellerName} · ${detail.sellerReferralCode}`} />
       <Fact label="Customer reference" value={detail.customerRef || 'Not recorded'} />
       <Fact label="External reference" value={detail.externalRef || 'Not recorded'} />
-      <Button asChild variant="outline"><Link href="/admin/sales">Open sales register <ArrowUpRight aria-hidden="true" /></Link></Button>
+      <Button asChild variant="outline"><Link href={resolveHref('/admin/sales')}>Open sales register <ArrowUpRight aria-hidden="true" /></Link></Button>
     </>
   );
 }

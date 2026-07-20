@@ -2,18 +2,20 @@ import Link from 'next/link';
 import { AlertTriangle, ArrowRight, CircleAlert, ClipboardCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ValueFlowAttentionItem } from './value-flow.types';
-import { ensureValueFlowSurfaceHref } from './value-flow.url';
+import { ensureValueFlowSurfaceHref, type ValueFlowHrefResolver } from './value-flow.url';
 import styles from './value-flow.module.css';
 
 interface Props {
   items: ValueFlowAttentionItem[];
   sources: { todo: boolean; networkHealth: boolean };
+  resolveHref?: ValueFlowHrefResolver;
 }
 
-export function ValueFlowAttention({ items, sources }: Props) {
+export function ValueFlowAttention({ items, sources, resolveHref }: Props) {
   const available = sources.todo || sources.networkHealth;
   const complete = sources.todo && sources.networkHealth;
   const missing = [!sources.todo ? 'task data' : null, !sources.networkHealth ? 'network-health data' : null].filter(Boolean).join(' and ');
+  const resolvedItems = resolveHref ? items.map((item) => ({ ...item, href: resolveHref(item.href) })) : items;
   return (
     <section className={styles.attentionSection} aria-labelledby="value-flow-attention-heading">
       <div className={styles.sectionHeading}>
@@ -34,7 +36,7 @@ export function ValueFlowAttention({ items, sources }: Props) {
         <div className={styles.inlineEmpty}><ClipboardCheck aria-hidden="true" /><span>{complete ? 'No open tasks or network-health signals.' : 'No signals were found in the available source.'}</span></div>
       ) : (
         <div className={styles.attentionList} role="list">
-          {items.map((item) => (
+          {resolvedItems.map((item) => (
             <article key={item.id} className={styles.attentionRow} data-tone={item.tone} role="listitem">
               <span className={styles.attentionIcon} aria-hidden="true">
                 {item.tone === 'critical' || item.tone === 'warning' ? <AlertTriangle /> : <CircleAlert />}

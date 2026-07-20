@@ -13,6 +13,7 @@ export default function HqCompanyTreePage() {
       tenantName={name}
       routeBase={`/hq/c/${id}/tree`}
       memberRouteBase={`/hq/c/${id}/members`}
+      companyRouteBase={`/hq/c/${id}`}
     />
   );
 }

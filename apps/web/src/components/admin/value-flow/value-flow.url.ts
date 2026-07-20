@@ -3,6 +3,20 @@ export type ValueFlowInspectorTab = 'summary' | 'activity';
 export type ValueFlowSignal = 'no-sale';
 
 const DEFAULT_VALUE_FLOW_ROUTE_BASE = '/admin/tree';
+const COMPANY_ADMIN_ROUTE_SEGMENTS = new Set([
+  'audit',
+  'campaigns',
+  'checks',
+  'members',
+  'payouts',
+  'periods',
+  'sales',
+  'settings',
+  'tree',
+]);
+const COMPANY_ROUTE_BASE = /^\/hq\/c\/[^/?#]+$/;
+
+export type ValueFlowHrefResolver = (href: string) => string;
 
 export interface ValueFlowQueryState {
   view: ValueFlowView;
@@ -56,14 +70,37 @@ export function buildValueFlowUrl(
 export function ensureValueFlowSurfaceHref(
   href: string,
   routeBase = DEFAULT_VALUE_FLOW_ROUTE_BASE,
+  companyRouteBase?: string,
 ): string {
-  const [path, query = ''] = href.split('?', 2);
-  if (path !== DEFAULT_VALUE_FLOW_ROUTE_BASE && path !== routeBase) return href;
+  const hashIndex = href.indexOf('#');
+  const hash = hashIndex === -1 ? '' : href.slice(hashIndex);
+  const pathAndQuery = hashIndex === -1 ? href : href.slice(0, hashIndex);
+  const queryIndex = pathAndQuery.indexOf('?');
+  const path = queryIndex === -1 ? pathAndQuery : pathAndQuery.slice(0, queryIndex);
+  const query = queryIndex === -1 ? '' : pathAndQuery.slice(queryIndex + 1);
+  if (path !== DEFAULT_VALUE_FLOW_ROUTE_BASE && path !== routeBase) {
+    return resolveInternalAdminHref(href, companyRouteBase);
+  }
   const params = new URLSearchParams(query);
   params.set('surface', 'value-flow');
   for (const key of HIERARCHY_ONLY_KEYS) params.delete(key);
   params.delete('q');
   params.delete('search');
   const targetRouteBase = path === DEFAULT_VALUE_FLOW_ROUTE_BASE ? routeBase : path;
-  return `${targetRouteBase}?${params.toString()}`;
+  return `${targetRouteBase}?${params.toString()}${hash}`;
+}
+
+/** Rebase only routes that have an equivalent active-company HQ page. */
+export function resolveInternalAdminHref(href: string, companyRouteBase?: string): string {
+  if (!companyRouteBase || !COMPANY_ROUTE_BASE.test(companyRouteBase)) return href;
+  const match = href.match(/^\/admin\/([a-z-]+)(?=[?#]|$)/);
+  if (!match || !COMPANY_ADMIN_ROUTE_SEGMENTS.has(match[1])) return href;
+  return `${companyRouteBase}${href.slice('/admin'.length)}`;
+}
+
+export function createValueFlowHrefResolver(
+  routeBase = DEFAULT_VALUE_FLOW_ROUTE_BASE,
+  companyRouteBase?: string,
+): ValueFlowHrefResolver {
+  return (href) => ensureValueFlowSurfaceHref(href, routeBase, companyRouteBase);
 }

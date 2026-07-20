@@ -69,3 +69,41 @@ test('value-flow builders and attention links preserve a supplied HQ route base'
     '/hq/c/company-42/tree?view=table&signal=no-sale&surface=value-flow',
   );
 });
+
+test('HQ value-flow links map only known internal admin destinations', () => {
+  const routeBase = '/hq/c/company-42/tree';
+  const companyRouteBase = '/hq/c/company-42';
+
+  assert.equal(
+    ensureValueFlowSurfaceHref('/admin/tree?view=table&signal=no-sale', routeBase, companyRouteBase),
+    '/hq/c/company-42/tree?view=table&signal=no-sale&surface=value-flow',
+  );
+  assert.equal(
+    ensureValueFlowSurfaceHref('/admin/sales?status=draft#latest', routeBase, companyRouteBase),
+    '/hq/c/company-42/sales?status=draft#latest',
+  );
+  assert.equal(
+    ensureValueFlowSurfaceHref('/admin/payouts?tab=requests', routeBase, companyRouteBase),
+    '/hq/c/company-42/payouts?tab=requests',
+  );
+  assert.equal(
+    ensureValueFlowSurfaceHref('/admin/checks?state=open', routeBase, companyRouteBase),
+    '/hq/c/company-42/checks?state=open',
+  );
+  assert.equal(
+    ensureValueFlowSurfaceHref('https://example.com/admin/sales?status=draft', routeBase, companyRouteBase),
+    'https://example.com/admin/sales?status=draft',
+  );
+  assert.equal(
+    ensureValueFlowSurfaceHref('/admin/not-a-company-route?tab=unsafe', routeBase, companyRouteBase),
+    '/admin/not-a-company-route?tab=unsafe',
+  );
+  assert.equal(
+    ensureValueFlowSurfaceHref('/admin/sales/record-42', routeBase, companyRouteBase),
+    '/admin/sales/record-42',
+  );
+  assert.equal(
+    ensureValueFlowSurfaceHref('/admin/sales?status=draft'),
+    '/admin/sales?status=draft',
+  );
+});
