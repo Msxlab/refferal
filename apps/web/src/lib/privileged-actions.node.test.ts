@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { accessChangeConfirmation, tenantStatusConfirmation } from './privileged-actions';
+// @ts-expect-error Node's native TypeScript runner requires an explicit extension.
+import { accessChangeConfirmation, tenantStatusConfirmation } from './privileged-actions.ts';
 
 test('warns before elevating a teammate to an administrative tier', () => {
   const confirmation = accessChangeConfirmation({

@@ -9,7 +9,7 @@ test('buttons expose absolute 40–44px targets and restrained press feedback', 
   assert.match(source, /sm: "h-\[40px\]/);
   assert.match(source, /lg: "h-\[44px\]/);
   assert.match(source, /icon: "size-\[40px\]"/);
-  assert.match(source, /active:scale-\[0\.96\]/);
+  assert.match(source, /active:not-aria-\[haspopup\]:scale-\[0\.96\]/);
   assert.match(source, /motion-reduce:transition-none/);
   assert.doesNotMatch(source, /\btransition-all\b/);
 });
