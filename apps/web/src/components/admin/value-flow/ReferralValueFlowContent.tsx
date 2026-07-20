@@ -17,7 +17,12 @@ import { ValueFlowCanvasSkeleton, ValueFlowSkeleton } from './ValueFlowSkeleton'
 import { loadValueFlowSources, RequiredValueFlowSourceError } from './value-flow.loader';
 import { buildValueFlowWorkspace } from './value-flow.model';
 import { monthLabel } from './value-flow.format';
-import { buildValueFlowUrl, parseValueFlowQuery, type ValueFlowQueryState } from './value-flow.url';
+import {
+  buildValueFlowUrl,
+  ensureValueFlowSurfaceHref,
+  parseValueFlowQuery,
+  type ValueFlowQueryState,
+} from './value-flow.url';
 import type { ValueFlowWorkspace } from './value-flow.types';
 import styles from './value-flow.module.css';
 
@@ -28,6 +33,8 @@ const ReferralValueFlowCanvas = dynamic(() => import('./ReferralValueFlowCanvas'
 
 interface Props {
   tenantName: string;
+  /** Route that owns the current value-flow surface, including HQ drill-ins. */
+  routeBase?: string;
   capabilities: {
     dashboard: boolean;
     network: boolean;
@@ -49,7 +56,11 @@ function useMediaQuery(query: string) {
   return matches;
 }
 
-export function ReferralValueFlowContent({ tenantName, capabilities }: Props) {
+export function ReferralValueFlowContent({
+  tenantName,
+  capabilities,
+  routeBase = '/admin/tree',
+}: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const query = useMemo(() => parseValueFlowQuery(new URLSearchParams(searchParams.toString())), [searchParams]);
@@ -66,15 +77,15 @@ export function ReferralValueFlowContent({ tenantName, capabilities }: Props) {
   const hasCoreAccess = capabilities.dashboard && capabilities.network;
 
   const updateQuery = useCallback((next: Partial<ValueFlowQueryState>) => {
-    router.replace(buildValueFlowUrl(new URLSearchParams(searchParams.toString()), next), { scroll: false });
-  }, [router, searchParams]);
+    router.replace(buildValueFlowUrl(new URLSearchParams(searchParams.toString()), next, routeBase), { scroll: false });
+  }, [routeBase, router, searchParams]);
 
   useEffect(() => {
     const currentQuery = searchParams.toString();
-    const currentUrl = currentQuery ? `/admin/tree?${currentQuery}` : '/admin/tree';
-    const canonicalUrl = buildValueFlowUrl(new URLSearchParams(currentQuery), {});
+    const currentUrl = currentQuery ? `${routeBase}?${currentQuery}` : routeBase;
+    const canonicalUrl = buildValueFlowUrl(new URLSearchParams(currentQuery), {}, routeBase);
     if (canonicalUrl !== currentUrl) router.replace(canonicalUrl, { scroll: false });
-  }, [router, searchParams]);
+  }, [routeBase, router, searchParams]);
 
   const retry = useCallback(() => setReloadKey((value) => value + 1), []);
   const selectMember = useCallback((id: string) => {
@@ -127,6 +138,14 @@ export function ReferralValueFlowContent({ tenantName, capabilities }: Props) {
     return () => { generation.current += 1; };
   }, [capabilities.plans, capabilities.recentSales, hasCoreAccess, reloadKey]);
 
+  const attentionItems = useMemo(
+    () => (workspace?.attention ?? []).map((item) => ({
+      ...item,
+      href: ensureValueFlowSurfaceHref(item.href, routeBase),
+    })),
+    [routeBase, workspace],
+  );
+
   if (!hasCoreAccess) {
     return (
       <div className={styles.page}>
@@ -166,7 +185,6 @@ export function ReferralValueFlowContent({ tenantName, capabilities }: Props) {
   const unavailableLabels: Record<string, string> = {
     networkHealth: 'network health', todo: 'tasks', plans: 'plan rates', recentSales: 'recent sale evidence',
   };
-
   return (
     <div className={styles.page}>
       <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
@@ -269,7 +287,10 @@ export function ReferralValueFlowContent({ tenantName, capabilities }: Props) {
         )}
       </div>
 
-      <ValueFlowAttention items={workspace.attention} sources={{ todo: workspace.availability.todo, networkHealth: workspace.availability.networkHealth }} />
+      <ValueFlowAttention
+        items={attentionItems}
+        sources={{ todo: workspace.availability.todo, networkHealth: workspace.availability.networkHealth }}
+      />
 
       <Sheet open={isCompact === true && query.selected !== null} onOpenChange={(open) => { if (!open) updateQuery({ selected: null }); }}>
         <SheetContent side="bottom" className={styles.mobileInspector}>

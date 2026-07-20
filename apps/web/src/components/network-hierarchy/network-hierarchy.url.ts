@@ -3,6 +3,8 @@ export type NetworkHierarchyScope = 'full' | 'focused';
 export type NetworkHierarchyView = 'tree' | 'list';
 export type NetworkHierarchyLens = 'people' | 'performance';
 
+export const DEFAULT_ADMIN_NETWORK_HIERARCHY_ROUTE = '/admin/tree';
+
 export interface AdminNetworkHierarchyQueryState {
   surface: NetworkHierarchySurface;
   scope: NetworkHierarchyScope;
@@ -53,6 +55,7 @@ export function parseNetworkHierarchyQuery(params: URLSearchParams): AdminNetwor
 export function buildNetworkHierarchyUrl(
   current: URLSearchParams,
   next: Partial<Omit<AdminNetworkHierarchyQueryState, 'surface'>> = {},
+  routeBase = DEFAULT_ADMIN_NETWORK_HIERARCHY_ROUTE,
 ): string {
   const merged = { ...parseNetworkHierarchyQuery(current), ...next };
   const requestedFocus = safeReference(merged.focus);
@@ -70,27 +73,38 @@ export function buildNetworkHierarchyUrl(
   const selected = safeReference(merged.selected);
   if (selected) params.set('selected', selected);
 
-  return `/admin/tree?${params.toString()}`;
+  return `${routeBase}?${params.toString()}`;
 }
 
-export function buildHierarchySelectionUrl(current: URLSearchParams, selected: string | null): string {
-  return buildNetworkHierarchyUrl(current, { selected });
+export function buildHierarchySelectionUrl(
+  current: URLSearchParams,
+  selected: string | null,
+  routeBase = DEFAULT_ADMIN_NETWORK_HIERARCHY_ROUTE,
+): string {
+  return buildNetworkHierarchyUrl(current, { selected }, routeBase);
 }
 
-export function buildHierarchyFocusUrl(current: URLSearchParams, focus: string): string {
+export function buildHierarchyFocusUrl(
+  current: URLSearchParams,
+  focus: string,
+  routeBase = DEFAULT_ADMIN_NETWORK_HIERARCHY_ROUTE,
+): string {
   return buildNetworkHierarchyUrl(current, {
     scope: 'focused',
     focus,
     selected: focus,
-  });
+  }, routeBase);
 }
 
-export function buildWholeNetworkUrl(current: URLSearchParams): string {
+export function buildWholeNetworkUrl(
+  current: URLSearchParams,
+  routeBase = DEFAULT_ADMIN_NETWORK_HIERARCHY_ROUTE,
+): string {
   return buildNetworkHierarchyUrl(current, {
     scope: 'full',
     focus: null,
     selected: null,
-  });
+  }, routeBase);
 }
 
 export function parseMemberNetworkHierarchyQuery(params: URLSearchParams): MemberNetworkHierarchyQueryState {

@@ -8,5 +8,11 @@ export default function HqCompanyTreePage() {
   const { id } = useParams<{ id: string }>();
   const [name, setName] = useState('Refearn');
   useEffect(() => { api.get<{ name: string }>(`/platform/companies/${id}`).then((c) => setName(c.name)).catch(() => {}); }, [id]);
-  return <TreePageContent tenantName={name} />;
+  return (
+    <TreePageContent
+      tenantName={name}
+      routeBase={`/hq/c/${id}/tree`}
+      memberRouteBase={`/hq/c/${id}/members`}
+    />
+  );
 }

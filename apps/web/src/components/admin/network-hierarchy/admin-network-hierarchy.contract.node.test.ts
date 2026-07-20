@@ -5,7 +5,7 @@ import test from 'node:test';
 const directory = new URL('./', import.meta.url);
 
 async function sources() {
-  const [content, search, toolbar, hq, adapter, route, css] = await Promise.all([
+  const [content, search, toolbar, hq, adapter, route, css, valueFlow] = await Promise.all([
     readFile(new URL('AdminNetworkHierarchyContent.tsx', directory), 'utf8'),
     readFile(new URL('AdminNetworkSearch.tsx', directory), 'utf8'),
     readFile(new URL('AdminNetworkToolbar.tsx', directory), 'utf8'),
@@ -13,8 +13,9 @@ async function sources() {
     readFile(new URL('../TreePageContent.tsx', directory), 'utf8'),
     readFile(new URL('../../../app/admin/tree/page.tsx', directory), 'utf8'),
     readFile(new URL('admin-network-hierarchy.module.css', directory), 'utf8'),
+    readFile(new URL('../value-flow/ReferralValueFlowContent.tsx', directory), 'utf8'),
   ]);
-  return { content, search, toolbar, hq, adapter, route, css };
+  return { content, search, toolbar, hq, adapter, route, css, valueFlow };
 }
 
 test('admin hierarchy uses the bounded context and branch endpoints rather than legacy tree snapshots', async () => {
@@ -44,9 +45,9 @@ test('search stays ephemeral and uses only the POST body contract', async () => 
 
 test('selection and explicit local-root focus use distinct hierarchy URL actions', async () => {
   const { content } = await sources();
-  assert.match(content, /buildHierarchySelectionUrl\(currentParams\(\), key\)/);
-  assert.match(content, /buildHierarchyFocusUrl\(currentParams\(\), membershipId\)/);
-  assert.match(content, /buildWholeNetworkUrl\(currentParams\(\)\)/);
+  assert.match(content, /buildHierarchySelectionUrl\(currentParams\(\), key, routeBase\)/);
+  assert.match(content, /buildHierarchyFocusUrl\(currentParams\(\), membershipId, routeBase\)/);
+  assert.match(content, /buildWholeNetworkUrl\(currentParams\(\), routeBase\)/);
   assert.match(content, /const focusBranch = useCallback/);
   assert.match(content, /Local Tier 1 root/);
 });
@@ -83,4 +84,21 @@ test('cluster expansion replaces its bounded marker and the HQ entry point is a 
   assert.match(hq, /TreePageContent/);
   assert.match(adapter, /AdminNetworkHierarchyContent/);
   assert.match(route, /AdminNetworkHierarchyContent/);
+});
+
+test('HQ actions remain under the active company hierarchy route', async () => {
+  const { content, hq, adapter, valueFlow } = await sources();
+  assert.match(hq, /routeBase=\{`\/hq\/c\/\$\{id\}\/tree`\}/);
+  assert.match(hq, /memberRouteBase=\{`\/hq\/c\/\$\{id\}\/members`\}/);
+  assert.match(adapter, /routeBase=\{routeBase\}/);
+  assert.match(adapter, /memberRouteBase=\{memberRouteBase\}/);
+  assert.match(content, /buildNetworkHierarchyUrl\(currentParams\(\), \{ view \}, routeBase\)/);
+  assert.match(content, /buildNetworkHierarchyUrl\(currentParams\(\), \{ lens \}, routeBase\)/);
+  assert.match(content, /buildHierarchySelectionUrl\(currentParams\(\), key, routeBase\)/);
+  assert.match(content, /buildHierarchyFocusUrl\(currentParams\(\), membershipId, routeBase\)/);
+  assert.match(content, /buildWholeNetworkUrl\(currentParams\(\), routeBase\)/);
+  assert.match(content, /buildValueFlowUrl\(currentParams\(\), \{\}, routeBase\)/);
+  assert.match(valueFlow, /buildValueFlowUrl\(new URLSearchParams\(searchParams\.toString\(\)\), next, routeBase\)/);
+  assert.match(valueFlow, /href: ensureValueFlowSurfaceHref\(item\.href, routeBase\)/);
+  assert.match(valueFlow, /const attentionItems = useMemo\([\s\S]*?\n\n  if \(!hasCoreAccess\)/);
 });

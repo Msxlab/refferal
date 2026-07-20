@@ -19,6 +19,21 @@ function valueFlowCapabilities(): AdminValueFlowCapabilities {
  * HQ uses the same hierarchy cockpit as the tenant admin route. `can` reads
  * the active-company token, so calls made by this adapter remain company scoped.
  */
-export function TreePageContent({ tenantName }: { tenantName: string }) {
-  return <AdminNetworkHierarchyContent tenantName={tenantName} valueFlowCapabilities={valueFlowCapabilities()} />;
+export function TreePageContent({
+  tenantName,
+  routeBase = '/admin/tree',
+  memberRouteBase = '/admin/members',
+}: {
+  tenantName: string;
+  routeBase?: string;
+  memberRouteBase?: string;
+}) {
+  return (
+    <AdminNetworkHierarchyContent
+      tenantName={tenantName}
+      valueFlowCapabilities={valueFlowCapabilities()}
+      routeBase={routeBase}
+      memberRouteBase={memberRouteBase}
+    />
+  );
 }

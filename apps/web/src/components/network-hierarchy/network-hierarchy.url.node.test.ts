@@ -6,6 +6,7 @@ import {
   buildHierarchySelectionUrl,
   buildMemberNetworkHierarchyUrl,
   buildNetworkHierarchyUrl,
+  buildWholeNetworkUrl,
   parseNetworkHierarchyQuery,
   // @ts-expect-error Node's native TypeScript runner requires an explicit extension.
 } from './network-hierarchy.url.ts';
@@ -48,6 +49,44 @@ test('selection and focus cannot collide with value-flow selections', () => {
 
   const selected = buildHierarchySelectionUrl(new URLSearchParams(focused.split('?')[1]), 'member-99');
   assert.equal(selected, '/admin/tree?surface=hierarchy&scope=focused&focus=member-42&selected=member-99');
+});
+
+test('hierarchy actions preserve a supplied HQ route base while sanitizing URL state', () => {
+  const routeBase = '/hq/c/company-42/tree';
+  const focused = buildHierarchyFocusUrl(
+    new URLSearchParams('surface=value-flow&view=network&selected=stage%3Aqualified-sales&campaign=summer'),
+    'member-42',
+    routeBase,
+  );
+  assert.equal(
+    focused,
+    '/hq/c/company-42/tree?campaign=summer&surface=hierarchy&scope=focused&focus=member-42&selected=member-42',
+  );
+
+  const selected = buildHierarchySelectionUrl(
+    new URLSearchParams(focused.split('?')[1]),
+    'member-99',
+    routeBase,
+  );
+  assert.equal(
+    selected,
+    '/hq/c/company-42/tree?campaign=summer&surface=hierarchy&scope=focused&focus=member-42&selected=member-99',
+  );
+
+  const listPerformance = buildNetworkHierarchyUrl(
+    new URLSearchParams('campaign=summer'),
+    { view: 'list', lens: 'performance' },
+    routeBase,
+  );
+  assert.equal(
+    listPerformance,
+    '/hq/c/company-42/tree?campaign=summer&surface=hierarchy&view=list&lens=performance',
+  );
+
+  assert.equal(
+    buildWholeNetworkUrl(new URLSearchParams(focused.split('?')[1]), routeBase),
+    '/hq/c/company-42/tree?campaign=summer&surface=hierarchy',
+  );
 });
 
 test('member URLs keep selection, tenant search, and arbitrary focus out of the address bar', () => {

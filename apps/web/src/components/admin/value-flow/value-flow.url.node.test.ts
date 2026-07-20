@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 // @ts-expect-error Node's native TypeScript runner requires an explicit extension.
-import { buildValueFlowUrl, parseValueFlowQuery } from './value-flow.url.ts';
+import { buildValueFlowUrl, ensureValueFlowSurfaceHref, parseValueFlowQuery } from './value-flow.url.ts';
 
 test('parses supported view, search, selection, and inspector tab values', () => {
   assert.deepEqual(
@@ -52,4 +52,20 @@ test('removes hierarchy state and URL search text from the value-flow surface', 
   );
 
   assert.equal(url, '/admin/tree?surface=value-flow&campaign=summer&view=table');
+});
+
+test('value-flow builders and attention links preserve a supplied HQ route base', () => {
+  const routeBase = '/hq/c/company-42/tree';
+  assert.equal(
+    buildValueFlowUrl(
+      new URLSearchParams('scope=focused&focus=member-42&lens=performance&q=private&campaign=summer'),
+      { view: 'table' },
+      routeBase,
+    ),
+    '/hq/c/company-42/tree?campaign=summer&surface=value-flow&view=table',
+  );
+  assert.equal(
+    ensureValueFlowSurfaceHref('/admin/tree?view=table&q=private&signal=no-sale', routeBase),
+    '/hq/c/company-42/tree?view=table&signal=no-sale&surface=value-flow',
+  );
 });

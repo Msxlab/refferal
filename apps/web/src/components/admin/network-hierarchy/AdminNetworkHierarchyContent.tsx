@@ -56,6 +56,10 @@ export interface AdminValueFlowCapabilities {
 interface Props {
   tenantName: string;
   valueFlowCapabilities: AdminValueFlowCapabilities;
+  /** Route that owns the current hierarchy surface, including HQ drill-ins. */
+  routeBase?: string;
+  /** Route used by the capability-gated Open member action. */
+  memberRouteBase?: string;
 }
 
 type NodePage = BranchPage<AdminHierarchyNode>;
@@ -165,7 +169,17 @@ function LineageSignalRail({
   );
 }
 
-function NetworkCockpit({ tenantName, query }: { tenantName: string; query: AdminNetworkHierarchyQueryState }) {
+function NetworkCockpit({
+  tenantName,
+  query,
+  routeBase,
+  memberRouteBase,
+}: {
+  tenantName: string;
+  query: AdminNetworkHierarchyQueryState;
+  routeBase: string;
+  memberRouteBase: string;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [context, setContext] = useState<AdminNetworkContext | null>(null);
@@ -282,9 +296,9 @@ function NetworkCockpit({ tenantName, query }: { tenantName: string; query: Admi
 
   useEffect(() => {
     if (context && !context.capabilities.viewFinancials && query.lens === 'performance') {
-      router.replace(buildNetworkHierarchyUrl(currentParams(), { lens: 'people' }), { scroll: false });
+      router.replace(buildNetworkHierarchyUrl(currentParams(), { lens: 'people' }, routeBase), { scroll: false });
     }
-  }, [context, currentParams, query.lens, router]);
+  }, [context, currentParams, query.lens, routeBase, router]);
 
   const activeNodes = query.view === 'list' ? listNodes : treeNodes;
   const model = useMemo(() => buildNetworkHierarchyModel(activeNodes), [activeNodes]);
@@ -298,16 +312,16 @@ function NetworkCockpit({ tenantName, query }: { tenantName: string; query: Admi
 
   const updateView = useCallback(
     (view: NetworkHierarchyView) => {
-      router.push(buildNetworkHierarchyUrl(currentParams(), { view }), { scroll: false });
+      router.push(buildNetworkHierarchyUrl(currentParams(), { view }, routeBase), { scroll: false });
     },
-    [currentParams, router],
+    [currentParams, routeBase, router],
   );
 
   const updateLens = useCallback(
     (lens: NetworkHierarchyLens) => {
-      router.push(buildNetworkHierarchyUrl(currentParams(), { lens }), { scroll: false });
+      router.push(buildNetworkHierarchyUrl(currentParams(), { lens }, routeBase), { scroll: false });
     },
-    [currentParams, router],
+    [currentParams, routeBase, router],
   );
 
   const selectNode = useCallback(
@@ -319,18 +333,18 @@ function NetworkCockpit({ tenantName, query }: { tenantName: string; query: Admi
       }
       setTransientSelection(null);
       setSearchSelection(null);
-      router.push(buildHierarchySelectionUrl(currentParams(), key), { scroll: false });
+      router.push(buildHierarchySelectionUrl(currentParams(), key, routeBase), { scroll: false });
     },
-    [currentParams, router],
+    [currentParams, routeBase, router],
   );
 
   const selectSearchResult = useCallback(
     (member: AdminHierarchyMemberNode) => {
       setTransientSelection(null);
       setSearchSelection(member);
-      router.push(buildHierarchySelectionUrl(currentParams(), member.membershipId), { scroll: false });
+      router.push(buildHierarchySelectionUrl(currentParams(), member.membershipId, routeBase), { scroll: false });
     },
-    [currentParams, router],
+    [currentParams, routeBase, router],
   );
 
   const toggleNode = useCallback(
@@ -410,25 +424,25 @@ function NetworkCockpit({ tenantName, query }: { tenantName: string; query: Admi
   const closeInspector = useCallback(() => {
     setSearchSelection(null);
     setTransientSelection(null);
-    if (query.selected) router.push(buildHierarchySelectionUrl(currentParams(), null), { scroll: false });
-  }, [currentParams, query.selected, router]);
+    if (query.selected) router.push(buildHierarchySelectionUrl(currentParams(), null, routeBase), { scroll: false });
+  }, [currentParams, query.selected, routeBase, router]);
 
   const focusBranch = useCallback(
     (membershipId: string) => {
-      router.push(buildHierarchyFocusUrl(currentParams(), membershipId), { scroll: false });
+      router.push(buildHierarchyFocusUrl(currentParams(), membershipId, routeBase), { scroll: false });
     },
-    [currentParams, router],
+    [currentParams, routeBase, router],
   );
 
   const wholeNetwork = useCallback(() => {
-    router.push(buildWholeNetworkUrl(currentParams()), { scroll: false });
-  }, [currentParams, router]);
+    router.push(buildWholeNetworkUrl(currentParams(), routeBase), { scroll: false });
+  }, [currentParams, routeBase, router]);
 
   const openMember = useCallback(
     (membershipId: string) => {
-      router.push(`/admin/members?member=${encodeURIComponent(membershipId)}`);
+      router.push(`${memberRouteBase}?member=${encodeURIComponent(membershipId)}`);
     },
-    [router],
+    [memberRouteBase, router],
   );
 
   if (loading && !context) {
@@ -482,7 +496,7 @@ function NetworkCockpit({ tenantName, query }: { tenantName: string; query: Admi
         onWholeNetwork={wholeNetwork}
         onViewChange={updateView}
         onLensChange={updateLens}
-        onOpenValueFlow={context.capabilities.viewFinancials ? () => router.push(buildValueFlowUrl(currentParams(), {}), { scroll: false }) : undefined}
+        onOpenValueFlow={context.capabilities.viewFinancials ? () => router.push(buildValueFlowUrl(currentParams(), {}, routeBase), { scroll: false }) : undefined}
       />
 
       {notice ? (
@@ -525,6 +539,7 @@ function NetworkCockpit({ tenantName, query }: { tenantName: string; query: Admi
                 model={model}
                 expandedKeys={expandedKeys}
                 selectedKey={selectedKey}
+                showPerformance={showTreePerformance}
                 viewFinancials={showTreePerformance}
                 onSelect={selectNode}
                 onToggle={toggleNode}
@@ -538,6 +553,7 @@ function NetworkCockpit({ tenantName, query }: { tenantName: string; query: Admi
                 model={model}
                 expandedKeys={expandedKeys}
                 selectedKey={selectedKey}
+                showPerformance={showTreePerformance}
                 viewFinancials={showTreePerformance}
                 onSelect={selectNode}
                 onToggle={toggleNode}
@@ -559,6 +575,7 @@ function NetworkCockpit({ tenantName, query }: { tenantName: string; query: Admi
 
         <NetworkHierarchyInspector
           selected={selectedNode}
+          showPerformance={showTreePerformance}
           viewFinancials={showTreePerformance}
           onClose={closeInspector}
           onFocus={context.capabilities.focusBranch ? focusBranch : undefined}
@@ -579,7 +596,12 @@ function NetworkCockpit({ tenantName, query }: { tenantName: string; query: Admi
  * permission-gated financial surface so it cannot accidentally become the
  * admin's default network orientation screen.
  */
-export function AdminNetworkHierarchyContent({ tenantName, valueFlowCapabilities }: Props) {
+export function AdminNetworkHierarchyContent({
+  tenantName,
+  valueFlowCapabilities,
+  routeBase = '/admin/tree',
+  memberRouteBase = '/admin/members',
+}: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const paramString = searchParams.toString();
@@ -599,9 +621,9 @@ export function AdminNetworkHierarchyContent({ tenantName, valueFlowCapabilities
       (query.surface === 'value-flow' && !valueFlowCapabilities.financials) ||
       shouldCanonicalizeHierarchy
     ) {
-      router.replace(buildNetworkHierarchyUrl(new URLSearchParams(paramString)), { scroll: false });
+      router.replace(buildNetworkHierarchyUrl(new URLSearchParams(paramString), {}, routeBase), { scroll: false });
     }
-  }, [paramString, query.surface, requestedSurface, router, valueFlowCapabilities.financials]);
+  }, [paramString, query.surface, requestedSurface, routeBase, router, valueFlowCapabilities.financials]);
 
   if (query.surface === 'value-flow' && valueFlowCapabilities.financials) {
     return (
@@ -614,9 +636,10 @@ export function AdminNetworkHierarchyContent({ tenantName, valueFlowCapabilities
           plans: valueFlowCapabilities.plans,
           recentSales: valueFlowCapabilities.recentSales,
         }}
+        routeBase={routeBase}
       />
     );
   }
 
-  return <NetworkCockpit tenantName={tenantName} query={query} />;
+  return <NetworkCockpit tenantName={tenantName} query={query} routeBase={routeBase} memberRouteBase={memberRouteBase} />;
 }

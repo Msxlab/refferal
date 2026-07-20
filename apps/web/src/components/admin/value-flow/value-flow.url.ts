@@ -2,6 +2,8 @@ export type ValueFlowView = 'network' | 'table';
 export type ValueFlowInspectorTab = 'summary' | 'activity';
 export type ValueFlowSignal = 'no-sale';
 
+const DEFAULT_VALUE_FLOW_ROUTE_BASE = '/admin/tree';
+
 export interface ValueFlowQueryState {
   view: ValueFlowView;
   selected: string | null;
@@ -27,6 +29,7 @@ export function parseValueFlowQuery(params: URLSearchParams): ValueFlowQueryStat
 export function buildValueFlowUrl(
   current: URLSearchParams,
   next: Partial<ValueFlowQueryState>,
+  routeBase = DEFAULT_VALUE_FLOW_ROUTE_BASE,
 ): string {
   const merged = { ...parseValueFlowQuery(current), ...next };
   const params = new URLSearchParams(current);
@@ -47,16 +50,20 @@ export function buildValueFlowUrl(
   if (merged.signal) params.set('signal', merged.signal);
 
   const query = params.toString();
-  return query ? `/admin/tree?${query}` : '/admin/tree';
+  return query ? `${routeBase}?${query}` : routeBase;
 }
 
-export function ensureValueFlowSurfaceHref(href: string): string {
+export function ensureValueFlowSurfaceHref(
+  href: string,
+  routeBase = DEFAULT_VALUE_FLOW_ROUTE_BASE,
+): string {
   const [path, query = ''] = href.split('?', 2);
-  if (path !== '/admin/tree') return href;
+  if (path !== DEFAULT_VALUE_FLOW_ROUTE_BASE && path !== routeBase) return href;
   const params = new URLSearchParams(query);
   params.set('surface', 'value-flow');
   for (const key of HIERARCHY_ONLY_KEYS) params.delete(key);
   params.delete('q');
   params.delete('search');
-  return `/admin/tree?${params.toString()}`;
+  const targetRouteBase = path === DEFAULT_VALUE_FLOW_ROUTE_BASE ? routeBase : path;
+  return `${targetRouteBase}?${params.toString()}`;
 }
