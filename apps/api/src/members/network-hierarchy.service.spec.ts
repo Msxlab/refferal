@@ -338,6 +338,70 @@ describe("NetworkHierarchyService", () => {
     ).not.toEqual(expect.arrayContaining(["context-members"]));
   });
 
+  it("reserves the focus member slot when a focused context reaches the global budget", async () => {
+    const directChildren = Array.from({ length: 50 }, (_, index) =>
+      memberRow(index + 1, {
+        sponsorMembershipId: ROOT_ID,
+        depth: 1,
+        subtreeCount: 4n,
+      }),
+    );
+    const grandchildren = Array.from({ length: 200 }, (_, index) =>
+      memberRow(index + 51, {
+        sponsorMembershipId: directChildren[Math.floor(index / 4)].id,
+        depth: 2,
+      }),
+    );
+    let contextLevelRead = 0;
+    const { service } = harness((label) => {
+      if (label === "member-counts")
+        return [{ directCount: 50n, subtreeCount: 250n }];
+      if (label === "ancestors") return [];
+      if (label === "context-level") {
+        contextLevelRead += 1;
+        return contextLevelRead === 1 ? directChildren : grandchildren;
+      }
+      if (label === "context-branches")
+        return [
+          {
+            parentMembershipId: ROOT_ID,
+            directCount: 50n,
+            representedNodes: 250n,
+          },
+          ...directChildren.map((child) => ({
+            parentMembershipId: child.id,
+            directCount: 4n,
+            representedNodes: 4n,
+          })),
+        ];
+      return [];
+    });
+
+    const context = await service.adminContext(ACTOR, {
+      scope: "focused",
+      focusId: ROOT_ID,
+      depth: 5,
+      viewFinancials: false,
+      openMember: false,
+    });
+
+    expect(
+      context.initialPage.items.filter((item) => item.kind === "member"),
+    ).toHaveLength(249);
+    expect(context.scope.loadedNodes).toBeLessThanOrEqual(250);
+    expect(context.scope).toMatchObject({
+      loadedNodes: 250,
+      representedNodes: 251,
+      totalNodes: 251,
+      complete: true,
+    });
+    expect(context.initialPage.items.at(-1)).toMatchObject({
+      kind: "cluster",
+      parentMembershipId: directChildren.at(-1)!.id,
+      representedNodes: 1,
+    });
+  });
+
   it("initializes context in repeatable read and reports exact focused coverage", async () => {
     const child = memberRow(2, {
       sponsorMembershipId: ROOT_ID,

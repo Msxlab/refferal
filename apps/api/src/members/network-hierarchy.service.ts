@@ -277,6 +277,7 @@ export class NetworkHierarchyService {
         anchor,
         input.depth,
         snapshotAt,
+        ADMIN_CONTEXT_NODE_BUDGET - (anchor.focus ? 1 : 0),
       );
       const branchSummaries = await this.readContextBranchSummaries(
         tx,
@@ -913,6 +914,7 @@ export class NetworkHierarchyService {
     anchor: ScopeAnchor,
     depth: number,
     snapshotAt: string,
+    nodeBudget: number,
   ): Promise<MembershipRecord[]> {
     const rows: MembershipRecord[] = [];
     let localTier = anchor.focus ? 2 : 1;
@@ -921,10 +923,10 @@ export class NetworkHierarchyService {
 
     while (
       localTier <= depth &&
-      rows.length < ADMIN_CONTEXT_NODE_BUDGET &&
+      rows.length < nodeBudget &&
       (rootRound || frontier.length > 0)
     ) {
-      const remaining = ADMIN_CONTEXT_NODE_BUDGET - rows.length;
+      const remaining = nodeBudget - rows.length;
       const levelRows = rootRound
         ? await this.readContextRootLevel(tx, tenantId, snapshotAt, remaining)
         : await this.readContextChildrenLevel(
