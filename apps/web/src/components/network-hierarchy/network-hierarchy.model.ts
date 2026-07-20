@@ -1,6 +1,7 @@
 import type {
   AdminHierarchyClusterNode,
   MemberAnonymousNode,
+  MemberVisibleClusterNode,
   MemberPerformanceBand,
   NetworkHierarchyNode,
 } from './types';
@@ -52,8 +53,9 @@ export function hierarchyNodeKey(node: NetworkHierarchyNode): string {
 export function hierarchyParentKey(node: NetworkHierarchyNode): string | null {
   switch (node.kind) {
     case 'member':
-    case 'cluster':
       return node.parentMembershipId;
+    case 'cluster':
+      return 'parentMembershipId' in node ? node.parentMembershipId : node.parentRef;
     case 'self':
       return null;
     case 'direct':
@@ -142,7 +144,7 @@ export function exactTierClusterLabel(representedNodes: number, localTier: numbe
   return `+${count} Tier ${tier} ${count === 1 ? 'member' : 'members'}`;
 }
 
-export function displayClusterLabel(node: AdminHierarchyClusterNode): string {
+export function displayClusterLabel(node: AdminHierarchyClusterNode | MemberVisibleClusterNode): string {
   return exactTierClusterLabel(node.representedNodes, node.localTier);
 }
 

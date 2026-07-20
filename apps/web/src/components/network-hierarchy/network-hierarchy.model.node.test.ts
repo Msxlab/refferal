@@ -23,6 +23,7 @@ import type {
   MemberAnonymousTier3Node,
   MemberDirectNode,
   MemberSelfNode,
+  MemberVisibleClusterNode,
 } from './types';
 
 const OPAQUE_SIGNATURE = 'MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE';
@@ -139,6 +140,22 @@ test('cluster wording names one exact tier and never uses an ambiguous plus tier
   assert.equal(exactTierClusterLabel(3, 2), '+3 Tier 2 members');
   assert.equal(displayClusterLabel(cluster), '+3 Tier 2 members');
   assert.doesNotMatch(displayClusterLabel(cluster), /Tier 2\+/);
+});
+
+test('member clusters retain opaque references and can only represent Tier 2 or Tier 3', () => {
+  const cluster: MemberVisibleClusterNode = {
+    kind: 'cluster',
+    clusterRef: parseOpaqueMemberNodeRef(`Y2x1c3Rlcg.${OPAQUE_SIGNATURE}`),
+    parentRef: directRef,
+    localTier: 2,
+    label: 'Tier 2 members',
+    representedNodes: 3,
+    canExpand: true,
+  };
+  const model = buildNetworkHierarchyModel([self, direct, cluster]);
+
+  assert.equal(model.childrenByParent.get(directRef)?.[0], `cluster:${cluster.clusterRef}`);
+  assert.equal(displayClusterLabel(cluster), '+3 Tier 2 members');
 });
 
 test('missing or malformed optional money never reaches string trim formatting', () => {

@@ -34,6 +34,7 @@ test("builds the Node command with type stripping and the native test runner", a
 
   assert.deepEqual(buildNodeTestArgs(["one.node.test.ts", "two.node.test.cjs"]), [
     "--experimental-strip-types",
+    "--experimental-loader=./scripts/node-test-loader.mjs",
     "--no-warnings",
     "--test",
     "one.node.test.ts",

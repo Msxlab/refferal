@@ -175,9 +175,29 @@ export interface MemberAnonymousTier3Node extends MemberAnonymousNodeBase {
 }
 
 export type MemberAnonymousNode = MemberAnonymousTier2Node | MemberAnonymousTier3Node;
-export type MemberVisibleNode = MemberDirectNode | MemberAnonymousNode;
 
-export type NetworkHierarchyNode = AdminHierarchyNode | MemberSelfNode | MemberDirectNode | MemberAnonymousNode;
+/**
+ * A privacy-safe continuation group. Its signed references are intentionally
+ * opaque and it can only stand for one anonymous visible tier.
+ */
+export interface MemberVisibleClusterNode {
+  kind: 'cluster';
+  clusterRef: OpaqueMemberNodeRef;
+  parentRef: OpaqueMemberNodeRef;
+  localTier: 2 | 3;
+  label: 'Tier 2 members' | 'Tier 3 members';
+  representedNodes: number;
+  canExpand: true;
+}
+
+export type MemberVisibleNode = MemberDirectNode | MemberAnonymousNode | MemberVisibleClusterNode;
+
+export type NetworkHierarchyNode =
+  | AdminHierarchyNode
+  | MemberSelfNode
+  | MemberDirectNode
+  | MemberAnonymousNode
+  | MemberVisibleClusterNode;
 
 export interface BranchPage<TNode> {
   parentRef: string;

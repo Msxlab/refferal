@@ -34,7 +34,13 @@ export async function discoverNodeTests(rootDirectory) {
 }
 
 export function buildNodeTestArgs(testFiles) {
-  return ["--experimental-strip-types", "--no-warnings", "--test", ...testFiles];
+  return [
+    "--experimental-strip-types",
+    "--experimental-loader=./scripts/node-test-loader.mjs",
+    "--no-warnings",
+    "--test",
+    ...testFiles,
+  ];
 }
 
 async function main() {
