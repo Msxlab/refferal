@@ -4,10 +4,18 @@ import { test } from 'node:test';
 
 const directory = new URL('./', import.meta.url);
 
-test('/admin/tree provides a Suspense loading boundary around the value-flow route', async () => {
-  const source = await readFile(new URL('../../../app/admin/tree/page.tsx', directory), 'utf8');
-  assert.match(source, /<Suspense fallback={<ValueFlowSkeleton \/>}>/);
-  assert.match(source, /<ReferralValueFlowContent tenantName={tenantName} capabilities={capabilities} \/>/);
+test('/admin/tree defaults to the hierarchy cockpit and keeps Value Flow deliberately gated', async () => {
+  const [route, hierarchy] = await Promise.all([
+    readFile(new URL('../../../app/admin/tree/page.tsx', directory), 'utf8'),
+    readFile(new URL('../network-hierarchy/AdminNetworkHierarchyContent.tsx', directory), 'utf8'),
+  ]);
+  assert.match(route, /AdminNetworkHierarchyContent/);
+  assert.match(route, /financials: can\(s, 'network\.financials\.view'\)/);
+  assert.match(route, /<Suspense/);
+  assert.match(route, /<AdminNetworkHierarchyContent tenantName={tenantName} valueFlowCapabilities={valueFlowCapabilities} \/>/);
+  assert.doesNotMatch(route, /<ReferralValueFlowContent/);
+  assert.match(hierarchy, /query\.surface === 'value-flow' && valueFlowCapabilities\.financials/);
+  assert.match(hierarchy, /requestedSurface !== 'hierarchy'/);
 });
 
 test('the route content dynamically loads the canvas and guards asynchronous refreshes', async () => {
