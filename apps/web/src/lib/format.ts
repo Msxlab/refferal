@@ -3,7 +3,7 @@
  * Browser Number values lose precision above 2^53 - 1, while balances and
  * settlement totals are deliberately represented as cent strings by the API.
  */
-export function money(cents: string | number | bigint, currency = 'USD'): string {
+export function money(cents: string | number | bigint | null | undefined, currency = 'USD'): string {
   const raw = centsText(cents);
   const negative = raw.startsWith('-');
   const absolute = (negative ? raw.slice(1) : raw).replace(/^0+(?=\d)/, '') || '0';
@@ -32,13 +32,13 @@ export function money(cents: string | number | bigint, currency = 'USD'): string
   }
 }
 
-function centsText(cents: string | number | bigint): string {
+function centsText(cents: string | number | bigint | null | undefined): string {
   if (typeof cents === 'bigint') return cents.toString();
   if (typeof cents === 'number') {
     if (!Number.isFinite(cents)) return '0';
     return String(Math.trunc(cents));
   }
-  const value = cents.trim();
+  const value = typeof cents === 'string' ? cents.trim() : '';
   return /^-?\d+$/.test(value) ? value : '0';
 }
 

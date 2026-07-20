@@ -62,28 +62,27 @@ export function ReferralValueFlowContent({ tenantName, capabilities }: Props) {
   const desktopInspectorRef = useRef<HTMLElement>(null);
   const isCompact = useMediaQuery('(max-width: 1360px)');
   const prefersTableView = useMediaQuery('(max-width: 1180px)');
-  const [searchDraft, setSearchDraft] = useState(query.search);
+  const [searchDraft, setSearchDraft] = useState('');
   const hasCoreAccess = capabilities.dashboard && capabilities.network;
 
   const updateQuery = useCallback((next: Partial<ValueFlowQueryState>) => {
     router.replace(buildValueFlowUrl(new URLSearchParams(searchParams.toString()), next), { scroll: false });
   }, [router, searchParams]);
 
+  useEffect(() => {
+    const currentQuery = searchParams.toString();
+    const currentUrl = currentQuery ? `/admin/tree?${currentQuery}` : '/admin/tree';
+    const canonicalUrl = buildValueFlowUrl(new URLSearchParams(currentQuery), {});
+    if (canonicalUrl !== currentUrl) router.replace(canonicalUrl, { scroll: false });
+  }, [router, searchParams]);
+
   const retry = useCallback(() => setReloadKey((value) => value + 1), []);
   const selectMember = useCallback((id: string) => {
-    updateQuery({ selected: `member:${id}`, search: searchDraft });
+    updateQuery({ selected: `member:${id}` });
     if (isCompact === false) {
       window.requestAnimationFrame(() => desktopInspectorRef.current?.focus());
     }
-  }, [isCompact, searchDraft, updateQuery]);
-
-  useEffect(() => setSearchDraft(query.search), [query.search]);
-
-  useEffect(() => {
-    if (searchDraft === query.search) return;
-    const timer = window.setTimeout(() => updateQuery({ search: searchDraft }), 220);
-    return () => window.clearTimeout(timer);
-  }, [query.search, searchDraft, updateQuery]);
+  }, [isCompact, updateQuery]);
 
   useEffect(() => {
     if (!hasCoreAccess) {
@@ -235,8 +234,8 @@ export function ReferralValueFlowContent({ tenantName, capabilities }: Props) {
 
       <div className={styles.toolbar}>
         <div className={styles.viewSwitch} role="group" aria-label="Value-flow view">
-          <Button type="button" variant={activeView === 'network' ? 'default' : 'ghost'} onClick={() => updateQuery({ view: 'network', signal: null, search: searchDraft })} aria-pressed={activeView === 'network'}><Network aria-hidden="true" />Network</Button>
-          <Button type="button" variant={activeView === 'table' ? 'default' : 'ghost'} onClick={() => updateQuery({ view: 'table', search: searchDraft })} aria-pressed={activeView === 'table'}><List aria-hidden="true" />Table</Button>
+          <Button type="button" variant={activeView === 'network' ? 'default' : 'ghost'} onClick={() => updateQuery({ view: 'network', signal: null })} aria-pressed={activeView === 'network'}><Network aria-hidden="true" />Network</Button>
+          <Button type="button" variant={activeView === 'table' ? 'default' : 'ghost'} onClick={() => updateQuery({ view: 'table' })} aria-pressed={activeView === 'table'}><List aria-hidden="true" />Table</Button>
         </div>
         <label className={styles.searchField}>
           <Search aria-hidden="true" />
@@ -257,7 +256,7 @@ export function ReferralValueFlowContent({ tenantName, capabilities }: Props) {
       <div className={styles.workspaceGrid}>
         <section className={styles.primaryPanel} aria-label="Referral value-flow workspace">
           {activeView === 'network' ? (
-            <ReferralValueFlowCanvas workspace={workspace} selectedId={selectedId} search={searchDraft} onSelect={(id) => updateQuery({ selected: id, search: searchDraft })} />
+            <ReferralValueFlowCanvas workspace={workspace} selectedId={selectedId} search={searchDraft} onSelect={(id) => updateQuery({ selected: id })} />
           ) : (
             <ReferralHierarchyTable members={workspace.members} currency={workspace.asOf.currency} search={searchDraft} selectedId={query.selected} signal={query.signal} scope={workspace.treeScope} expectedNoSaleCount={expectedNoSaleCount} onSelect={selectMember} />
           )}
@@ -265,17 +264,17 @@ export function ReferralValueFlowContent({ tenantName, capabilities }: Props) {
         {isCompact === false && (
           <aside ref={desktopInspectorRef} tabIndex={-1} className={styles.desktopInspector} aria-label="Attribution evidence">
             {activeView === 'table' && <a className={styles.inspectorReturn} href="#value-flow-hierarchy-table">Return to hierarchy table</a>}
-            <AttributionEvidencePanel workspace={workspace} selectedId={selectedId} tab={query.tab} canViewMemberDetails={capabilities.memberDetails} canViewSaleDetails={capabilities.recentSales} onTabChange={(tab) => updateQuery({ tab, search: searchDraft })} onSelect={(id) => updateQuery({ selected: id, search: searchDraft })} />
+            <AttributionEvidencePanel workspace={workspace} selectedId={selectedId} tab={query.tab} canViewMemberDetails={capabilities.memberDetails} canViewSaleDetails={capabilities.recentSales} onTabChange={(tab) => updateQuery({ tab })} onSelect={(id) => updateQuery({ selected: id })} />
           </aside>
         )}
       </div>
 
       <ValueFlowAttention items={workspace.attention} sources={{ todo: workspace.availability.todo, networkHealth: workspace.availability.networkHealth }} />
 
-      <Sheet open={isCompact === true && query.selected !== null} onOpenChange={(open) => { if (!open) updateQuery({ selected: null, search: searchDraft }); }}>
+      <Sheet open={isCompact === true && query.selected !== null} onOpenChange={(open) => { if (!open) updateQuery({ selected: null }); }}>
         <SheetContent side="bottom" className={styles.mobileInspector}>
           <SheetHeader className="sr-only"><SheetTitle>Attribution evidence</SheetTitle><SheetDescription>Verified referral and ledger details for the selected item.</SheetDescription></SheetHeader>
-          <AttributionEvidencePanel workspace={workspace} selectedId={selectedId} tab={query.tab} canViewMemberDetails={capabilities.memberDetails} canViewSaleDetails={capabilities.recentSales} onTabChange={(tab) => updateQuery({ tab, search: searchDraft })} onSelect={(id) => updateQuery({ selected: id, search: searchDraft })} />
+          <AttributionEvidencePanel workspace={workspace} selectedId={selectedId} tab={query.tab} canViewMemberDetails={capabilities.memberDetails} canViewSaleDetails={capabilities.recentSales} onTabChange={(tab) => updateQuery({ tab })} onSelect={(id) => updateQuery({ selected: id })} />
         </SheetContent>
       </Sheet>
     </div>

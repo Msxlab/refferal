@@ -28,7 +28,9 @@ test('the route content dynamically loads the canvas and guards asynchronous ref
   assert.match(source, /autoComplete="off"/);
   assert.match(source, /spellCheck={false}/);
   assert.match(source, /prefersTableView = useMediaQuery\('\(max-width: 1180px\)'\)/);
-  assert.match(source, /selected: `member:\$\{id\}`, search: searchDraft/);
+  assert.match(source, /selected: `member:\$\{id\}`/);
+  assert.match(source, /const \[searchDraft, setSearchDraft\] = useState\(''\)/);
+  assert.doesNotMatch(source, /params\.get\('q'\)|updateQuery\(\{ search:/);
   assert.match(source, /role="status" aria-live="polite"/);
 });
 

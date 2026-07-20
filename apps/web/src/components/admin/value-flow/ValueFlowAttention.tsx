@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { AlertTriangle, ArrowRight, CircleAlert, ClipboardCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ValueFlowAttentionItem } from './value-flow.types';
+import { ensureValueFlowSurfaceHref } from './value-flow.url';
 import styles from './value-flow.module.css';
 
 interface Props {
@@ -44,7 +45,7 @@ export function ValueFlowAttention({ items, sources }: Props) {
               </div>
               <span className={styles.attentionCount}>{item.count}</span>
               <Button asChild variant="ghost" size="icon" className={styles.attentionAction}>
-                <Link href={item.href} aria-label={`Open ${item.title}`}><ArrowRight /></Link>
+                <Link href={ensureValueFlowSurfaceHref(item.href)} aria-label={`Open ${item.title}`}><ArrowRight /></Link>
               </Button>
             </article>
           ))}
