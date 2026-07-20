@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   MemberNetworkPayloadError,
+  parseMemberDirectSearchPage,
   parseMemberNetworkContext,
   // @ts-expect-error Native Node needs an explicit runtime extension for this isolated contract test.
 } from '../src/lib/member-network.ts';
@@ -48,6 +49,43 @@ function safeContext() {
   };
 }
 
+function directItem() {
+  return {
+    kind: 'direct',
+    nodeRef: ref('ZGlyZWN0'),
+    parentRef: 'self',
+    localTier: 1,
+    displayName: 'First Direct',
+    initials: 'FD',
+    referralCode: 'DIRECT-1',
+    status: 'active',
+    visibleDirectCount: 0,
+    visibleBranchCount: 0,
+    canExpand: false,
+    performance: {
+      currency: 'USD',
+      period: '2026-07',
+      approvedSales: 1,
+      visibleBranchVolumeCents: '10000',
+    },
+  };
+}
+
+function anonymousItem() {
+  return {
+    kind: 'anonymous',
+    nodeRef: ref('dGllci0y'),
+    parentRef: ref('ZGlyZWN0'),
+    localTier: 2,
+    initials: 'AB',
+    label: 'Tier 2 member',
+    status: 'active',
+    visibleChildCount: 0,
+    canExpand: false,
+    performanceBand: { suppressed: true, reason: 'noData' },
+  };
+}
+
 test('mobile adapter validates and then drops the self performance payload', () => {
   const context = parseMemberNetworkContext(safeContext());
   assert.equal(context.self.displayName, 'Viewer Member');
@@ -72,4 +110,34 @@ test('mobile adapter rejects unrecognized or malformed self performance data', (
     mutate(payload);
     assert.throws(() => parseMemberNetworkContext(payload), MemberNetworkPayloadError);
   }
+});
+
+test('mobile direct search accepts only its named Tier 1 envelope', () => {
+  const result = parseMemberDirectSearchPage({
+    items: [directItem()],
+    nextCursor: ref('Y3Vyc29y'),
+    snapshotAt: '2026-07-20T12:00:00.000Z',
+  });
+  assert.equal(result.items[0]?.kind, 'direct');
+  assert.equal(result.nextCursor, ref('Y3Vyc29y'));
+
+  assert.throws(
+    () =>
+      parseMemberDirectSearchPage({
+        parentRef: ref('c2VsZg'),
+        items: [directItem()],
+        nextCursor: null,
+        snapshotAt: '2026-07-20T12:00:00.000Z',
+      }),
+    MemberNetworkPayloadError,
+  );
+  assert.throws(
+    () =>
+      parseMemberDirectSearchPage({
+        items: [anonymousItem()],
+        nextCursor: null,
+        snapshotAt: '2026-07-20T12:00:00.000Z',
+      }),
+    MemberNetworkPayloadError,
+  );
 });

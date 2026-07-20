@@ -5,11 +5,14 @@ import { Button, Card, ErrorText, MutedText, Title } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
 import {
   MemberNetworkPayloadError,
+  mergeMemberDirectNodes,
   mergeMemberVisibleNodes,
   parseMemberBranchPage,
+  parseMemberDirectSearchPage,
   parseMemberNetworkContext,
   type AnonymousTierTwo,
   type ClusterNode,
+  type DirectNode,
   type NetworkContext,
   type OpaqueReference,
   type VisibleNode,
@@ -37,14 +40,25 @@ export default function TeamScreen() {
   const [rootContinuation, setRootContinuation] = useState<Pick<MemberNetworkContinuation, 'parentRef' | 'cursor'> | null>(null);
   const [branchContinuations, setBranchContinuations] = useState<Record<string, MemberNetworkContinuation>>({});
   const [busy, setBusy] = useState<Set<string>>(() => new Set());
+  const [searchDraft, setSearchDraft] = useState('');
+  const [searchResults, setSearchResults] = useState<DirectNode[]>([]);
+  const [searchCursor, setSearchCursor] = useState<OpaqueReference | null>(null);
+  const [searchError, setSearchError] = useState('');
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const snapshotGeneration = useRef(0);
+  const searchRequestGeneration = useRef(0);
 
   const load = useCallback(async () => {
     const generation = ++snapshotGeneration.current;
+    searchRequestGeneration.current += 1;
     setBusy(new Set());
     setError('');
+    setSearchResults([]);
+    setSearchCursor(null);
+    setSearchError('');
+    setSearching(false);
     try {
       const next = parseMemberNetworkContext(await api.get<unknown>('/app/team/tree'));
       if (snapshotGeneration.current !== generation) return;
@@ -167,6 +181,52 @@ export default function TeamScreen() {
     [loadBranch],
   );
 
+  const submitDirectSearch = useCallback(
+    async (cursor: OpaqueReference | null = null) => {
+      const query = searchDraft.trim();
+      if (query.length < 2) {
+        setSearchError('Enter at least two characters to find a direct teammate.');
+        return;
+      }
+      const generation = snapshotGeneration.current;
+      const searchGeneration = ++searchRequestGeneration.current;
+      setSearching(true);
+      setSearchError('');
+      try {
+        const page = parseMemberDirectSearchPage(
+          await api.post<unknown>(
+            '/app/team/tree/direct-search',
+            cursor ? { query, cursor } : { query },
+          ),
+        );
+        if (snapshotGeneration.current !== generation || searchRequestGeneration.current !== searchGeneration) return;
+        setSearchResults((current) => (cursor ? mergeMemberDirectNodes(current, page.items) : page.items));
+        setSearchCursor(page.nextCursor);
+      } catch (reason) {
+        if (snapshotGeneration.current !== generation || searchRequestGeneration.current !== searchGeneration) return;
+        if (isSnapshotExpired(reason)) {
+          await load();
+        } else {
+          setSearchError(errorMessage(reason));
+        }
+      } finally {
+        if (snapshotGeneration.current === generation && searchRequestGeneration.current === searchGeneration) {
+          setSearching(false);
+        }
+      }
+    },
+    [load, searchDraft],
+  );
+
+  const clearDirectSearch = useCallback(() => {
+    searchRequestGeneration.current += 1;
+    setSearchDraft('');
+    setSearchResults([]);
+    setSearchCursor(null);
+    setSearchError('');
+    setSearching(false);
+  }, []);
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.bg0 }}
@@ -187,6 +247,17 @@ export default function TeamScreen() {
             busyKeys={busy}
             rootContinuation={rootContinuation}
             branchContinuations={branchContinuations}
+            searchDraft={searchDraft}
+            searchResults={searchResults}
+            searchCursor={searchCursor}
+            searching={searching}
+            searchError={searchError}
+            onSearchDraftChange={setSearchDraft}
+            onSearch={() => void submitDirectSearch()}
+            onLoadMoreSearch={() => {
+              if (searchCursor) void submitDirectSearch(searchCursor);
+            }}
+            onClearSearch={clearDirectSearch}
             onToggleNode={onToggleNode}
             onLoadCluster={onLoadCluster}
             onLoadContinuation={onLoadContinuation}

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { Badge, Button, Card, MutedText } from '@/components/ui';
+import { Badge, Button, Card, ErrorText, Field, MutedText } from '@/components/ui';
 import {
   memberNodeKey,
   memberParentKey,
@@ -27,6 +27,15 @@ interface MemberNetworkOutlineProps {
   busyKeys: ReadonlySet<string>;
   rootContinuation: Pick<MemberNetworkContinuation, 'parentRef' | 'cursor'> | null;
   branchContinuations: Readonly<Record<string, MemberNetworkContinuation>>;
+  searchDraft: string;
+  searchResults: readonly DirectNode[];
+  searchCursor: OpaqueReference | null;
+  searching: boolean;
+  searchError: string;
+  onSearchDraftChange: (value: string) => void;
+  onSearch: () => void;
+  onLoadMoreSearch: () => void;
+  onClearSearch: () => void;
   onToggleNode: (node: DirectNode | AnonymousTierTwo, key: string, childCount: number) => void;
   onLoadCluster: (node: ClusterNode, key: string) => void;
   onLoadContinuation: (
@@ -193,6 +202,15 @@ export function MemberNetworkOutline({
   busyKeys,
   rootContinuation,
   branchContinuations,
+  searchDraft,
+  searchResults,
+  searchCursor,
+  searching,
+  searchError,
+  onSearchDraftChange,
+  onSearch,
+  onLoadMoreSearch,
+  onClearSearch,
   onToggleNode,
   onLoadCluster,
   onLoadContinuation,
@@ -238,6 +256,81 @@ export function MemberNetworkOutline({
             <Text style={{ color: colors.text, fontWeight: '800', marginTop: 2 }}>{context.self.displayName}</Text>
             <MutedText size={text.xs}>{context.self.referralCode}</MutedText>
           </View>
+        </View>
+      </Card>
+
+      <Card>
+        <View style={{ gap: space.s2 }}>
+          <View>
+            <Text style={{ color: colors.text, fontWeight: '800' }}>Find a direct teammate</Text>
+            <MutedText size={text.xs}>Search stays on this device and returns named Tier 1 teammates only.</MutedText>
+          </View>
+          <Field
+            label="Search your direct teammates"
+            value={searchDraft}
+            onChangeText={(value) => onSearchDraftChange(value.slice(0, 120))}
+            onSubmitEditing={onSearch}
+            placeholder="Name or referral code"
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
+          />
+          <View style={{ flexDirection: 'row', gap: space.s2 }}>
+            <View style={{ flex: 1 }}>
+              <Button title={searching ? 'Searching...' : 'Search'} busy={searching} onPress={onSearch} variant="ghost" />
+            </View>
+            {searchDraft || searchResults.length > 0 || searchError ? (
+              <View style={{ flex: 1 }}>
+                <Button title="Clear" onPress={onClearSearch} variant="ghost" />
+              </View>
+            ) : null}
+          </View>
+          {searchError ? <ErrorText>{searchError}</ErrorText> : null}
+          {searchResults.length > 0 ? (
+            <View accessibilityLabel="Direct teammate matches" style={{ gap: space.s2, marginTop: space.s1 }}>
+              {searchResults.map((member) => (
+                <View
+                  key={member.nodeRef}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: space.s3,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: radius.md,
+                    padding: space.s3,
+                    backgroundColor: colors.panel2,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 10,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: alpha(colors.primary, 0.12),
+                    }}
+                  >
+                    <Text style={{ color: colors.primary, fontSize: text.xs, fontWeight: '800' }}>{member.initials}</Text>
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text numberOfLines={1} style={{ color: colors.text, fontSize: text.sm, fontWeight: '700' }}>{member.displayName}</Text>
+                    <MutedText size={text.xs}>{member.referralCode}</MutedText>
+                  </View>
+                  <Badge value={member.status} />
+                </View>
+              ))}
+              {searchCursor ? (
+                <Button
+                  title={searching ? 'Searching...' : 'Load more direct teammates'}
+                  busy={searching}
+                  onPress={onLoadMoreSearch}
+                  variant="ghost"
+                />
+              ) : null}
+            </View>
+          ) : null}
         </View>
       </Card>
 

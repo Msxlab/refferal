@@ -1,6 +1,6 @@
 'use client';
 
-import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { Component, Fragment, type ErrorInfo, type ReactNode } from 'react';
 import styles from './member-network.module.css';
 
 interface Props {
@@ -9,13 +9,14 @@ interface Props {
 
 interface State {
   hasError: boolean;
+  retryVersion: number;
 }
 
 /** Keeps a malformed network response local to the member workspace. */
 export class MemberNetworkErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false };
+  state: State = { hasError: false, retryVersion: 0 };
 
-  static getDerivedStateFromError(): State {
+  static getDerivedStateFromError(): Pick<State, 'hasError'> {
     return { hasError: true };
   }
 
@@ -25,7 +26,7 @@ export class MemberNetworkErrorBoundary extends Component<Props, State> {
   }
 
   private retry = () => {
-    this.setState({ hasError: false });
+    this.setState((state) => ({ hasError: false, retryVersion: state.retryVersion + 1 }));
   };
 
   render() {
@@ -41,6 +42,8 @@ export class MemberNetworkErrorBoundary extends Component<Props, State> {
         </section>
       );
     }
-    return this.props.children;
+    // A changed fragment key unmounts the failed workspace and starts its
+    // snapshot-fetch effect again instead of only clearing the fallback UI.
+    return <Fragment key={this.state.retryVersion}>{this.props.children}</Fragment>;
   }
 }

@@ -9,6 +9,10 @@ test('mobile team outline consumes only the privacy-safe member tree and stops a
 
   assert.match(screen, /api\.get<unknown>\('\/app\/team\/tree'\)/);
   assert.match(screen, /\/app\/team\/tree\/children\?/);
+  assert.match(screen, /api\.post<unknown>\(\s*'\/app\/team\/tree\/direct-search'/);
+  assert.match(screen, /cursor \? \{ query, cursor \} : \{ query \}/);
+  assert.doesNotMatch(screen, /\/app\/team\/tree\/direct-search\?/);
+  assert.doesNotMatch(`${screen}\n${outline}`, /AsyncStorage|localStorage/);
   assert.doesNotMatch(screen, /api\.get<Team>\('\/app\/team'\)/);
   assert.match(screen, /<MemberNetworkOutline/);
   assert.match(screen, /const snapshotGeneration = useRef\(0\)/);
@@ -23,5 +27,7 @@ test('mobile team outline consumes only the privacy-safe member tree and stops a
   assert.match(adapter, /typeof decode !== 'function' \|\| typeof encode !== 'function'\) return true/);
   assert.match(adapter, /only\(selfPerformance, \['currency', 'period', 'visibleApprovedSales', 'visibleTeamVolumeCents'\], 'self\.performance'\)/);
   assert.match(adapter, /ISO_MONTH\.test\(requiredString\(selfPerformance\.period/);
+  assert.match(adapter, /only\(candidate, \['items', 'nextCursor', 'snapshotAt'\], 'directSearch'\)/);
+  assert.match(adapter, /if \(parsed\.kind !== 'direct'\) invalid\('directSearch\.items'\)/);
   assert.doesNotMatch(`${screen}\n${outline}\n${adapter}`, /Tier 4/);
 });

@@ -32,6 +32,8 @@ export interface HierarchyNodePresentation {
 }
 
 export interface HierarchyPresentationOptions {
+  /** Whether the current hierarchy lens may render any allowed performance facts. */
+  showPerformance?: boolean;
   /** Exact financial amounts on admin member nodes are capability-gated. */
   viewFinancials?: boolean;
 }
@@ -191,7 +193,7 @@ export function formatHierarchyMoney(cents: string | number | bigint | null | un
 
 export function hierarchyNodePresentation(
   node: NetworkHierarchyNode,
-  { viewFinancials = false }: HierarchyPresentationOptions = {},
+  { showPerformance = true, viewFinancials = false }: HierarchyPresentationOptions = {},
 ): HierarchyNodePresentation {
   switch (node.kind) {
     case 'cluster':
@@ -208,7 +210,7 @@ export function hierarchyNodePresentation(
         eyebrow: `Local Tier ${node.localTier} · Global Tier ${node.globalTier}`,
         detail: `${node.referralCode} · ${node.directCount} direct · ${node.subtreeCount} in subtree`,
         performance:
-          viewFinancials && node.performance
+          showPerformance && viewFinancials && node.performance
             ? `${node.performance.approvedSales} approved · ${formatHierarchyMoney(node.performance.teamVolumeCents, node.performance.currency)} team volume`
             : null,
         status: node.status,
@@ -218,7 +220,7 @@ export function hierarchyNodePresentation(
         title: node.displayName,
         eyebrow: 'You',
         detail: `${node.referralCode} · ${node.directCount} direct · ${node.visibleDownlineCount} visible`,
-        performance: node.performance
+        performance: showPerformance && node.performance
           ? `${node.performance.visibleApprovedSales} approved · ${formatHierarchyMoney(node.performance.visibleTeamVolumeCents, node.performance.currency)} visible volume`
           : null,
         status: node.status,
@@ -228,7 +230,7 @@ export function hierarchyNodePresentation(
         title: node.displayName,
         eyebrow: 'Tier 1 member',
         detail: `${node.referralCode} · ${node.visibleDirectCount} visible direct · ${node.visibleBranchCount} visible branch`,
-        performance: node.performance
+        performance: showPerformance && node.performance
           ? `${node.performance.approvedSales} approved · ${formatHierarchyMoney(node.performance.visibleBranchVolumeCents, node.performance.currency)} visible branch volume`
           : null,
         status: node.status,
@@ -238,7 +240,7 @@ export function hierarchyNodePresentation(
         title: `${node.initials} · ${node.label}`,
         eyebrow: `Tier ${node.localTier} · Anonymous`,
         detail: node.localTier === 3 ? 'Visible-depth limit' : `${node.visibleChildCount ?? 0} visible children`,
-        performance: performanceBandLabel(node.performanceBand),
+        performance: showPerformance ? performanceBandLabel(node.performanceBand) : null,
         status: node.status,
       };
   }

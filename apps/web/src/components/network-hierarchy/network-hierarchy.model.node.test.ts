@@ -165,7 +165,7 @@ test('missing or malformed optional money never reaches string trim formatting',
   assert.match(formatHierarchyMoney('125000', 'USD'), /1,250\.00/);
 });
 
-test('admin exact performance is capability-gated while member-safe summaries remain available', () => {
+test('People suppresses every performance fact while Performance preserves only allowed summaries', () => {
   const admin: AdminHierarchyMemberNode = {
     kind: 'member',
     membershipId: 'member-1',
@@ -183,9 +183,18 @@ test('admin exact performance is capability-gated while member-safe summaries re
     performance: { currency: 'USD', period: '2026-07', approvedSales: 3, teamVolumeCents: '125000' },
   };
 
-  assert.equal(hierarchyNodePresentation(admin).performance, null);
-  assert.match(hierarchyNodePresentation(admin, { viewFinancials: true }).performance ?? '', /1,250\.00/);
-  assert.match(hierarchyNodePresentation(tierTwo).performance ?? '', /approved sales/);
+  for (const node of [self, direct, tierTwo, admin]) {
+    assert.equal(hierarchyNodePresentation(node, { showPerformance: false, viewFinancials: true }).performance, null);
+  }
+
+  assert.match(hierarchyNodePresentation(self, { showPerformance: true }).performance ?? '', /1,250\.00/);
+  assert.match(hierarchyNodePresentation(direct, { showPerformance: true }).performance ?? '', /500\.00/);
+  assert.match(hierarchyNodePresentation(tierTwo, { showPerformance: true }).performance ?? '', /approved sales/);
+  assert.equal(hierarchyNodePresentation(admin, { showPerformance: true, viewFinancials: false }).performance, null);
+  assert.match(
+    hierarchyNodePresentation(admin, { showPerformance: true, viewFinancials: true }).performance ?? '',
+    /1,250\.00/,
+  );
 });
 
 if (false) {

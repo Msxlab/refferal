@@ -29,6 +29,9 @@ test('member error boundary isolates a malformed network payload instead of repl
   assert.match(source, /getDerivedStateFromError/);
   assert.match(source, /Try again/);
   assert.match(source, /children: ReactNode/);
+  assert.match(source, /retryVersion/);
+  assert.match(source, /<Fragment key=\{this\.state\.retryVersion\}>/);
+  assert.match(source, /retryVersion: state\.retryVersion \+ 1/);
 });
 
 test('member page no longer renders the legacy radial network or direct-recruit response', async () => {

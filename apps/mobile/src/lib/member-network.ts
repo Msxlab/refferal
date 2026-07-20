@@ -88,6 +88,13 @@ export interface BranchPage {
   snapshotAt: string;
 }
 
+/** Direct search has its own compact envelope; it is never a branch page. */
+export interface MemberDirectSearchPage {
+  items: DirectNode[];
+  nextCursor: OpaqueReference | null;
+  snapshotAt: string;
+}
+
 export interface NetworkContext {
   sponsor: SponsorNode | null;
   self: SelfNode;
@@ -378,6 +385,25 @@ export function parseMemberBranchPage(value: unknown, expectedSnapshot: string):
   return parsePage(value, 'branch', expectedSnapshot);
 }
 
+/** Decode the body-only direct teammate search response before mobile renders it. */
+export function parseMemberDirectSearchPage(value: unknown, expectedSnapshot?: string): MemberDirectSearchPage {
+  const candidate = object(value, 'directSearch');
+  only(candidate, ['items', 'nextCursor', 'snapshotAt'], 'directSearch');
+  if (!Array.isArray(candidate.items)) invalid('directSearch.items');
+  const snapshotAt = snapshot(candidate.snapshotAt, 'directSearch.snapshotAt');
+  if (expectedSnapshot && expectedSnapshot !== snapshotAt) invalid('directSearch.snapshotAt');
+  const items = candidate.items.map((item, index) => {
+    const parsed = parseMemberVisibleNode(item, `directSearch.items[${index}]`);
+    if (parsed.kind !== 'direct') invalid('directSearch.items');
+    return parsed;
+  });
+  return {
+    items,
+    nextCursor: candidate.nextCursor === null ? null : opaque(candidate.nextCursor, 'directSearch.nextCursor'),
+    snapshotAt,
+  };
+}
+
 export function memberNodeKey(node: VisibleNode | SelfNode): string {
   if (node.kind === 'self') return 'self';
   return node.kind === 'cluster' ? `cluster:${node.clusterRef}` : node.nodeRef;
@@ -397,5 +423,12 @@ export function mergeMemberVisibleNodes(
     if (memberNodeKey(node) !== removeKey) merged.set(memberNodeKey(node), node);
   }
   for (const node of incoming) merged.set(memberNodeKey(node), node);
+  return [...merged.values()];
+}
+
+export function mergeMemberDirectNodes(current: readonly DirectNode[], incoming: readonly DirectNode[]): DirectNode[] {
+  const merged = new Map<OpaqueReference, DirectNode>();
+  for (const node of current) merged.set(node.nodeRef, node);
+  for (const node of incoming) merged.set(node.nodeRef, node);
   return [...merged.values()];
 }

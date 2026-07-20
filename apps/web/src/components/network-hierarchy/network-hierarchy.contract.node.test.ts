@@ -58,15 +58,42 @@ test('the inspector narrows every discriminated node before rendering capability
 });
 
 test('exact admin performance is not projected without the explicit financial capability', async () => {
-  const [model, tree, list] = await Promise.all([
+  const [model, tree, list, inspector] = await Promise.all([
     readFile(new URL('network-hierarchy.model.ts', directory), 'utf8'),
     readFile(new URL('NetworkHierarchyTree.tsx', directory), 'utf8'),
     readFile(new URL('NetworkHierarchyList.tsx', directory), 'utf8'),
+    readFile(new URL('NetworkHierarchyInspector.tsx', directory), 'utf8'),
   ]);
-  assert.match(model, /\{ viewFinancials = false \}/);
-  assert.match(model, /viewFinancials && node\.performance/);
+  assert.match(model, /showPerformance = true, viewFinancials = false/);
+  assert.match(model, /showPerformance && viewFinancials && node\.performance/);
+  assert.match(tree, /showPerformance = true/);
+  assert.match(list, /showPerformance = true/);
+  assert.match(inspector, /showPerformance = true/);
+  assert.match(inspector, /showPerformance && viewFinancials && selected\.performance/);
   assert.match(tree, /viewFinancials = false/);
   assert.match(list, /viewFinancials = false/);
+});
+
+test('People lens removes performance facts from shared primitives while Performance is explicitly wired', async () => {
+  const [tree, list, inspector, member, admin, css] = await Promise.all([
+    readFile(new URL('NetworkHierarchyTree.tsx', directory), 'utf8'),
+    readFile(new URL('NetworkHierarchyList.tsx', directory), 'utf8'),
+    readFile(new URL('NetworkHierarchyInspector.tsx', directory), 'utf8'),
+    readFile(new URL('../member-network/MemberNetworkTreeContent.tsx', directory), 'utf8'),
+    readFile(new URL('../admin/network-hierarchy/AdminNetworkHierarchyContent.tsx', directory), 'utf8'),
+    readFile(new URL('network-hierarchy.module.css', directory), 'utf8'),
+  ]);
+
+  assert.match(tree, /data-performance=\{showPerformance \|\| undefined\}/);
+  assert.match(list, /\{showPerformance \? <span>Performance<\/span> : null\}/);
+  assert.doesNotMatch(list, /People lens/);
+  assert.match(inspector, /showPerformance && selected\.performance/);
+  assert.match(inspector, /showPerformance \? <Fact label="Performance"/);
+  assert.equal((member.match(/showPerformance=\{activeLens === 'performance'\}/g) ?? []).length, 3);
+  assert.equal((admin.match(/showPerformance=\{[^}]+\}/g) ?? []).length, 3);
+  assert.equal((admin.match(/viewFinancials=\{showTreePerformance\}/g) ?? []).length, 3);
+  assert.match(css, /\.nodeButton:not\(\[data-performance\]\)/);
+  assert.match(css, /\.listButton:not\(\[data-performance\]\)/);
 });
 
 test('value-flow attention navigation applies the explicit value-flow surface', async () => {

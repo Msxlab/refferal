@@ -7,6 +7,7 @@ import styles from './network-hierarchy.module.css';
 
 interface Props {
   selected: NetworkHierarchyNode | null;
+  showPerformance?: boolean;
   viewFinancials?: boolean;
   onClose?: () => void;
   onFocus?: (membershipId: string) => void;
@@ -22,7 +23,14 @@ function Fact({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-export function NetworkHierarchyInspector({ selected, viewFinancials = false, onClose, onFocus, onOpenMember }: Props) {
+export function NetworkHierarchyInspector({
+  selected,
+  showPerformance = true,
+  viewFinancials = false,
+  onClose,
+  onFocus,
+  onOpenMember,
+}: Props) {
   if (!selected) {
     return (
       <aside className={styles.inspector} aria-label="Network member details">
@@ -68,7 +76,7 @@ export function NetworkHierarchyInspector({ selected, viewFinancials = false, on
               <Fact label="Subtree members" value={selected.subtreeCount} />
               {selected.rank ? <Fact label="Rank" value={selected.rank} /> : null}
             </div>
-            {viewFinancials && selected.performance ? (
+            {showPerformance && viewFinancials && selected.performance ? (
               <section className={styles.performancePanel} aria-label="Allowed performance details">
                 <span>{selected.performance.period}</span>
                 <Fact label="Approved sales" value={selected.performance.approvedSales} />
@@ -83,9 +91,9 @@ export function NetworkHierarchyInspector({ selected, viewFinancials = false, on
                   />
                 ) : null}
               </section>
-            ) : (
+            ) : showPerformance ? (
               <p className={styles.mutedCopy}>Financial performance is not available for this role.</p>
-            )}
+            ) : null}
             {onFocus || onOpenMember ? (
               <div className={styles.inspectorActions}>
                 {onFocus ? (
@@ -128,7 +136,7 @@ export function NetworkHierarchyInspector({ selected, viewFinancials = false, on
               <Fact label="Status" value={selected.status} />
               <Fact label="Direct members" value={selected.directCount} />
               <Fact label="Visible downline" value={selected.visibleDownlineCount} />
-              {selected.performance ? (
+              {showPerformance && selected.performance ? (
                 <>
                   <Fact label="Approved sales" value={selected.performance.visibleApprovedSales} />
                   <Fact
@@ -151,7 +159,7 @@ export function NetworkHierarchyInspector({ selected, viewFinancials = false, on
               <Fact label="Status" value={selected.status} />
               <Fact label="Visible direct members" value={selected.visibleDirectCount} />
               <Fact label="Visible branch members" value={selected.visibleBranchCount} />
-              {selected.performance ? (
+              {showPerformance && selected.performance ? (
                 <>
                   <Fact label="Approved sales" value={selected.performance.approvedSales} />
                   <Fact
@@ -176,7 +184,7 @@ export function NetworkHierarchyInspector({ selected, viewFinancials = false, on
               {selected.localTier === 2 && selected.visibleChildCount !== undefined ? (
                 <Fact label="Visible children" value={selected.visibleChildCount} />
               ) : null}
-              <Fact label="Performance" value={performanceBandLabel(selected.performanceBand)} />
+              {showPerformance ? <Fact label="Performance" value={performanceBandLabel(selected.performanceBand)} /> : null}
             </div>
             {selected.localTier === 3 ? (
               <p className={styles.terminalNote}>

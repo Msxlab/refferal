@@ -14,6 +14,7 @@ interface Props {
   model: NetworkHierarchyModel;
   expandedKeys: ReadonlySet<string>;
   selectedKey?: string | null;
+  showPerformance?: boolean;
   viewFinancials?: boolean;
   onSelect: (node: NetworkHierarchyNode, key: string) => void;
   onToggle?: (node: NetworkHierarchyNode, key: string, expanded: boolean) => void;
@@ -28,6 +29,7 @@ export function NetworkHierarchyList({
   model,
   expandedKeys,
   selectedKey = null,
+  showPerformance = true,
   viewFinancials = false,
   onSelect,
   onToggle,
@@ -72,14 +74,14 @@ export function NetworkHierarchyList({
   if (rows.length === 0) return <p className={styles.emptyState}>{emptyLabel}</p>;
   return (
     <section className={styles.listFrame} aria-label={ariaLabel}>
-      <div className={styles.listHeader} aria-hidden="true">
+      <div className={styles.listHeader} data-performance={showPerformance || undefined} aria-hidden="true">
         <span>Member</span>
-        <span>Performance</span>
+        {showPerformance ? <span>Performance</span> : null}
         <span>Status</span>
       </div>
       <ul className={styles.listRoot} role="list">
         {rows.map((row, index) => {
-          const presentation = hierarchyNodePresentation(row.node, { viewFinancials });
+          const presentation = hierarchyNodePresentation(row.node, { showPerformance, viewFinancials });
           return (
             <li key={row.key} className={styles.listItem}>
               <div
@@ -105,6 +107,7 @@ export function NetworkHierarchyList({
                   type="button"
                   className={styles.listButton}
                   data-selected={selectedKey === row.key || undefined}
+                  data-performance={showPerformance || undefined}
                   aria-pressed={selectedKey === row.key}
                   aria-expanded={row.expandable ? row.expanded : undefined}
                   onClick={() => onSelect(row.node, row.key)}
@@ -120,7 +123,9 @@ export function NetworkHierarchyList({
                       <small>{presentation.detail}</small>
                     </span>
                   </span>
-                  <span className={styles.listPerformance}>{presentation.performance ?? 'People lens'}</span>
+                  {showPerformance ? (
+                    <span className={styles.listPerformance}>{presentation.performance ?? 'Not available'}</span>
+                  ) : null}
                   <span className={styles.status} data-status={presentation.status}>
                     {presentation.status === 'cluster' ? 'Group' : presentation.status}
                   </span>

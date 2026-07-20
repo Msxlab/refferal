@@ -15,6 +15,7 @@ interface Props {
   model: NetworkHierarchyModel;
   expandedKeys: ReadonlySet<string>;
   selectedKey?: string | null;
+  showPerformance?: boolean;
   viewFinancials?: boolean;
   onSelect: (node: NetworkHierarchyNode, key: string) => void;
   onToggle?: (node: NetworkHierarchyNode, key: string, expanded: boolean) => void;
@@ -27,6 +28,7 @@ export function NetworkHierarchyTree({
   model,
   expandedKeys,
   selectedKey = null,
+  showPerformance = true,
   viewFinancials = false,
   onSelect,
   onToggle,
@@ -83,7 +85,7 @@ export function NetworkHierarchyTree({
       const children = model.childrenByParent.get(key) ?? [];
       const expandable = isHierarchyNodeExpandable(node, children.length > 0);
       const expanded = expandable && expandedKeys.has(key);
-      const presentation = hierarchyNodePresentation(node, { viewFinancials });
+      const presentation = hierarchyNodePresentation(node, { showPerformance, viewFinancials });
       const index = nodeIndex.get(key) ?? 0;
       const groupId = `${idPrefix}-group-${index}`;
       return (
@@ -110,6 +112,7 @@ export function NetworkHierarchyTree({
               className={styles.nodeButton}
               data-selected={selectedKey === key || undefined}
               data-status={presentation.status}
+              data-performance={showPerformance || undefined}
               aria-pressed={selectedKey === key}
               aria-expanded={expandable ? expanded : undefined}
               aria-controls={expandable ? groupId : undefined}

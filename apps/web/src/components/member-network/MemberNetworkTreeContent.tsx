@@ -533,6 +533,7 @@ export function MemberNetworkTreeContent() {
               model={model}
               expandedKeys={expandedKeys}
               selectedKey={selectedKey}
+              showPerformance={activeLens === 'performance'}
               onSelect={selectNode}
               onToggle={toggleNode}
               ariaLabel="Your referral hierarchy"
@@ -544,6 +545,7 @@ export function MemberNetworkTreeContent() {
               model={model}
               expandedKeys={expandedKeys}
               selectedKey={selectedKey}
+              showPerformance={activeLens === 'performance'}
               onSelect={selectNode}
               onToggle={toggleNode}
               ariaLabel="Your referral hierarchy list"
@@ -601,6 +603,7 @@ export function MemberNetworkTreeContent() {
 
         <NetworkHierarchyInspector
           selected={selectedNode}
+          showPerformance={activeLens === 'performance'}
           onClose={() => {
             setSelectedKey(null);
             setSearchSelection(null);
