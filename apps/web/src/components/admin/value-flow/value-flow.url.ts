@@ -1,0 +1,50 @@
+export type ValueFlowView = 'network' | 'table';
+export type ValueFlowInspectorTab = 'summary' | 'activity';
+export type ValueFlowSignal = 'no-sale';
+
+export interface ValueFlowQueryState {
+  view: ValueFlowView;
+  search: string;
+  selected: string | null;
+  tab: ValueFlowInspectorTab;
+  signal: ValueFlowSignal | null;
+}
+
+const SELECTION = /^(?:member|sale|source|stage|rule|liability):[A-Za-z0-9._~-]+$/;
+
+export function parseValueFlowQuery(params: URLSearchParams): ValueFlowQueryState {
+  const view = params.get('view');
+  const tab = params.get('tab');
+  const selected = params.get('selected');
+  return {
+    view: view === 'table' ? 'table' : 'network',
+    search: (params.get('q') ?? '').trim(),
+    selected: selected && SELECTION.test(selected) ? selected : null,
+    tab: tab === 'activity' ? 'activity' : 'summary',
+    signal: params.get('signal') === 'no-sale' ? 'no-sale' : null,
+  };
+}
+
+export function buildValueFlowUrl(
+  current: URLSearchParams,
+  next: Partial<ValueFlowQueryState>,
+): string {
+  const merged = { ...parseValueFlowQuery(current), ...next };
+  const params = new URLSearchParams(current);
+  params.delete('view');
+  params.delete('q');
+  params.delete('selected');
+  params.delete('tab');
+  params.delete('signal');
+
+  const preserveExplicitNetwork = next.view === 'network'
+    || (next.view === undefined && current.get('view') === 'network');
+  if (merged.view !== 'network' || preserveExplicitNetwork) params.set('view', merged.view);
+  if (merged.search.trim()) params.set('q', merged.search.trim());
+  if (merged.selected && SELECTION.test(merged.selected)) params.set('selected', merged.selected);
+  if (merged.tab !== 'summary') params.set('tab', merged.tab);
+  if (merged.signal) params.set('signal', merged.signal);
+
+  const query = params.toString();
+  return query ? `/admin/tree?${query}` : '/admin/tree';
+}

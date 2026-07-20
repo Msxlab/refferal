@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Header, Headers, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Header, Headers, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, Res } from '@nestjs/common';
 import { MembershipStatus, Role } from '@prisma/client';
 import { Response } from 'express';
 import { z } from 'zod';
 import { CurrentUser, RequireMembership, RequirePermission, Roles } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
 import { parseIdempotencyKey } from '../common/idempotency-key';
+import { ALL_PERMISSIONS } from '../common/permissions';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { ActorContext } from '../common/actor';
 import { MembersAdminService } from './members.admin.service';
@@ -65,6 +66,13 @@ export class MembersAdminController {
     return { userId: user.sub, tenantId: user.tid as string };
   }
 
+  private assertPermission(user: RequestUser, permission: string): void {
+    if (user.role === Role.tenant_owner || user.role === Role.platform_admin) return;
+    if (!ALL_PERMISSIONS.includes(permission) || !user.perms?.includes(permission)) {
+      throw new ForbiddenException('you do not have permission for this action');
+    }
+  }
+
   @Roles(...STAFF)
   @RequirePermission('members.view')
   @Get()
@@ -72,7 +80,7 @@ export class MembersAdminController {
     return this.members.list(user.tid as string, { ...q, status: q.status as MembershipStatus | undefined });
   }
 
-  // DIKKAT: statik GET route'lar (tree, leaders, export.csv) ':id' route'undan ONCE tanimli kalmali.
+  // DIKKAT: statik GET route'lar (tree, tree-snapshot, leaders, export.csv) ':id' route'undan ONCE tanimli kalmali.
   @Roles(...STAFF)
   @RequirePermission('network.view')
   @Get('tree')
@@ -80,8 +88,16 @@ export class MembersAdminController {
     return this.members.tree(user.tid as string, q.root);
   }
 
+  @Roles(...STAFF)
+  @RequirePermission('network.view')
+  @Get('tree-snapshot')
+  treeSnapshot(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(treeSchema)) q: z.infer<typeof treeSchema>) {
+    return this.members.treeSnapshot(user.tid as string, q.root);
+  }
+
   // takim liderleri landing'i (canli grup ozetleriyle)
   @Roles(...STAFF)
+  @RequirePermission('network.view')
   @Get('leaders')
   leaders(@CurrentUser() user: RequestUser) {
     return this.members.leaders(user.tid as string);
@@ -89,12 +105,14 @@ export class MembersAdminController {
 
   // ag saglik panosu (pasif kume + satissiz aktif uye orani). Statik route — ':id'den ONCE.
   @Roles(...STAFF)
+  @RequirePermission('network.view')
   @Get('network-health')
   networkHealth(@CurrentUser() user: RequestUser) {
     return this.members.networkHealth(user.tid as string);
   }
 
   @Roles(...STAFF)
+  @RequirePermission('reports.export')
   @Get('export.csv')
   @Header('Content-Type', 'text/csv; charset=utf-8')
   @Header('Content-Disposition', 'attachment; filename="members.csv"')
@@ -115,6 +133,7 @@ export class MembersAdminController {
   @HttpCode(200)
   @Post('bulk')
   bulk(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(bulkSchema)) body: z.infer<typeof bulkSchema>) {
+    this.assertPermission(user, body.action === 'set_role' ? 'settings.roles' : 'members.suspend');
     return this.members.bulk(this.actor(user), { ...body, role: body.role as Role | undefined });
   }
 
@@ -133,15 +152,18 @@ export class MembersAdminController {
 
   // manuel uye olustur (davet beklemeden) → admin+ (audit'li). Statik POST, ':id'den ONCE.
   @Roles(...ADMIN)
+  @RequirePermission('members.manage')
   @HttpCode(200)
   @Post()
   createManual(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(createManualSchema)) body: z.infer<typeof createManualSchema>) {
+    if (body.role && body.role !== Role.member) this.assertPermission(user, 'settings.roles');
     // act-as (platform admin) tokeninde mid=null; servis tenant owner'a fallback yapar
     return this.members.createManual(this.actor(user), user.mid ?? null, { ...body, role: body.role as Role | undefined });
   }
 
   // 360 derece uye detayi (STAFF) — statik GET'lerden SONRA tanimli
   @Roles(...STAFF)
+  @RequirePermission('members.view')
   @Get(':id')
   detail(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.members.detail(user.tid as string, id);
@@ -149,6 +171,7 @@ export class MembersAdminController {
 
   // GDPR/KVKK DSAR: uyenin tum kisisel verisi (admin)
   @Roles(...ADMIN)
+  @RequirePermission('reports.export')
   @Get(':id/export')
   exportData(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.members.exportData(user.tid as string, id);
@@ -156,6 +179,7 @@ export class MembersAdminController {
 
   // profil duzenle (ad/e-posta) — yerlesime dokunmaz
   @Roles(...ADMIN)
+  @RequirePermission('members.manage')
   @Patch(':id')
   updateProfile(
     @CurrentUser() user: RequestUser,
@@ -167,6 +191,7 @@ export class MembersAdminController {
 
   // takim lideri isaretle/kaldir (yerlesimi degistirmez)
   @Roles(...ADMIN)
+  @RequirePermission('members.manage')
   @HttpCode(200)
   @Post(':id/leader')
   setLeader(
@@ -194,6 +219,7 @@ export class MembersAdminController {
   }
 
   @Roles(...ADMIN)
+  @RequirePermission('settings.roles')
   @HttpCode(200)
   @Post(':id/role')
   setRole(
@@ -206,6 +232,7 @@ export class MembersAdminController {
 
   // guvenli impersonation: salt-okunur kisa omurlu token (audit'li)
   @Roles(...ADMIN)
+  @RequirePermission('settings.security')
   @HttpCode(200)
   @Post(':id/impersonate')
   impersonate(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
@@ -213,6 +240,7 @@ export class MembersAdminController {
   }
 
   @Roles(...ADMIN)
+  @RequirePermission('settings.security')
   @HttpCode(200)
   @Post(':id/impersonate/end')
   impersonateEnd(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {

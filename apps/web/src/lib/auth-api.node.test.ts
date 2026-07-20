@@ -41,6 +41,7 @@ const authModule = requireForTest('./src/lib/auth.ts') as typeof import('./auth.
 const {
   activeMembership,
   applyTenantSwitch,
+  canForTenantRoles,
   clearSession,
   getSession,
   isImpersonating,
@@ -494,6 +495,48 @@ test('password reset requests use the exact unauthenticated JSON endpoint', asyn
   } finally {
     restoreFetch();
   }
+});
+
+test('authenticated JSON posts preserve an explicit idempotency header', async () => {
+  const browser = installBrowser();
+  await setSession(makeSession('access-token', 'refresh-token'));
+  const calls: Array<{ input: string; init?: RequestInit }> = [];
+  const restoreFetch = installFetch(async (input, init) => {
+    calls.push({ input: String(input), init });
+    return Response.json({ ok: true });
+  });
+
+  try {
+    await api.post(
+      '/admin/sales/bulk',
+      { scope: { mode: 'selected', ids: ['11111111-1111-4111-8111-111111111111'] }, previewToken: 'preview-token' },
+      { 'Idempotency-Key': 'bulk-action-11111111-1111-4111-8111-111111111111' },
+    );
+
+    assert.equal(calls.length, 1);
+    assert.equal(new Headers(calls[0].init?.headers).get('Idempotency-Key'), 'bulk-action-11111111-1111-4111-8111-111111111111');
+    assert.equal(new Headers(calls[0].init?.headers).get('Content-Type'), 'application/json');
+    assert.equal(authorization(calls[0].init), 'Bearer access-token');
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('role-aware capabilities deny admin routes to support and custom staff even when permission is present', () => {
+  assert.equal(typeof canForTenantRoles, 'function');
+  const support = makeSession(makeAccessToken({ role: 'tenant_staff', perms: ['members.manage', 'invites.create', 'sales.create'] }));
+  const customStaff = makeSession(makeAccessToken({ role: 'tenant_staff', perms: ['settings.security', 'sales.approve'] }));
+  const admin = makeSession(makeAccessToken({ role: 'tenant_admin', perms: ['members.manage', 'sales.approve'] }));
+
+  assert.equal(canForTenantRoles(support, 'members.manage', ['tenant_owner', 'tenant_admin']), false);
+  assert.equal(canForTenantRoles(support, 'invites.create', ['tenant_owner', 'tenant_admin']), false);
+  assert.equal(canForTenantRoles(customStaff, 'settings.security', ['tenant_owner', 'tenant_admin']), false);
+  assert.equal(canForTenantRoles(customStaff, 'sales.approve', ['tenant_owner', 'tenant_admin']), false);
+  assert.equal(canForTenantRoles(support, 'sales.create', ['tenant_owner', 'tenant_admin', 'tenant_staff']), true);
+  assert.equal(canForTenantRoles(admin, 'members.manage', ['tenant_owner', 'tenant_admin']), true);
+  assert.equal(canForTenantRoles(admin, 'sales.approve', ['tenant_owner', 'tenant_admin']), true);
+  assert.equal(canForTenantRoles(admin, 'settings.security', ['tenant_owner', 'tenant_admin']), false);
 });
 
 test('MFA login preserves the server challenge token for the completion request', async () => {

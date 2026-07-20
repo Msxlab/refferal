@@ -450,6 +450,7 @@ model Membership {
   @@unique([tenantId, referralCode])
   @@index([tenantId, sponsorMembershipId])
   @@index([tenantId, path])
+  @@index([tenantId, depth, joinedAt, id], map: "memberships_tenant_depth_joined_id_idx")
   @@map("memberships")
 }
 
@@ -620,6 +621,7 @@ model Sale {
 
   @@index([tenantId, status])
   @@index([tenantId, saleDate])
+  @@index([tenantId, status, summaryMonth, saleDate(sort: Desc)], map: "sales_tenant_status_summary_month_sale_date_idx")
   @@unique([tenantId, externalRef], map: "sales_tenant_external_ref_uidx")
   @@index([tenantId, commissionPlanId], map: "sales_tenant_id_commission_plan_id_idx")
   @@map("sales")

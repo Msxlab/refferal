@@ -14,6 +14,8 @@ import { TenantContextService } from '../prisma/tenant-context.service';
 import { ActorContext } from '../common/actor';
 import { InvitesService } from '../invites/invites.service';
 import { MembershipsService } from '../memberships/memberships.service';
+import { readNetworkHealth } from './members.network-health';
+import { readMemberTreeSnapshot } from './members.tree-snapshot';
 
 const ASSIGNABLE_ROLES: Role[] = [Role.tenant_admin, Role.tenant_staff, Role.member];
 
@@ -127,7 +129,7 @@ export class MembersAdminService {
     const [soldAgg, earnAgg] = ids.length
       ? await Promise.all([
           this.prisma.sale.groupBy({ by: ['sellerMembershipId'], where: { tenantId, status: SaleStatus.approved, sellerMembershipId: { in: ids } }, _sum: { amountCents: true } }),
-          this.prisma.ledgerEntry.groupBy({ by: ['beneficiaryMembershipId'], where: { tenantId, status: { in: [LedgerStatus.payable, LedgerStatus.paid] }, beneficiaryMembershipId: { in: ids } }, _sum: { amountCents: true } }),
+          this.prisma.ledgerEntry.groupBy({ by: ['beneficiaryMembershipId'], where: { tenantId, status: { in: [LedgerStatus.payable, LedgerStatus.processing, LedgerStatus.paid] }, beneficiaryMembershipId: { in: ids } }, _sum: { amountCents: true } }),
         ])
       : [[], []];
     const soldBy = new Map(soldAgg.map((s) => [s.sellerMembershipId, s._sum.amountCents ?? 0n]));
@@ -266,6 +268,7 @@ export class MembersAdminService {
         commission: {
           pendingCents: bucket(LedgerStatus.pending).toString(),
           payableCents: bucket(LedgerStatus.payable).toString(),
+          processingCents: bucket(LedgerStatus.processing).toString(),
           paidCents: bucket(LedgerStatus.paid).toString(),
         },
         invites: {
@@ -508,7 +511,7 @@ export class MembersAdminService {
                 AND s.seller_membership_id IN (SELECT id FROM sub)
             ), 0)::bigint AS vol_cents,
             COALESCE((
-              SELECT sum(ms.pending_cents + ms.payable_cents + ms.paid_cents)::bigint
+              SELECT sum(ms.pending_cents + ms.payable_cents + ms.processing_cents + ms.paid_cents)::bigint
               FROM monthly_summaries ms
               WHERE ms.tenant_id = l.tenant_id
                 AND ms.month = ${month}
@@ -563,59 +566,10 @@ export class MembersAdminService {
    * Tum sorgular salt-okunur (yerlesim/path'e dokunmaz).
    */
   async networkHealth(tenantId: string) {
-    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
-    const month = monthKey(new Date(), tenant.timezone);
-
-    // 1) durum dagilimi
-    const statusRows = await this.prisma.membership.groupBy({ by: ['status'], where: { tenantId }, _count: { _all: true } });
-    const members = statusRows.reduce((a, r) => a + r._count._all, 0);
-    const active = statusRows.find((r) => r.status === MembershipStatus.active)?._count._all ?? 0;
-    const inactive = members - active;
-
-    // 2) bu ay onayli satis yapan DISTINCT satici -> satissiz aktif uye orani (retention sinyali)
-    const sellers = await this.prisma.sale.findMany({
-      where: { tenantId, status: SaleStatus.approved, summaryMonth: month },
-      distinct: ['sellerMembershipId'],
-      select: { sellerMembershipId: true },
-    });
-    const noSaleCount = Math.max(0, active - sellers.length);
-    const noSaleActive = { count: noSaleCount, total: active, pct: active > 0 ? Math.round((noSaleCount / active) * 100) : 0 };
-
-    // 3) pasif kumeler: lider (isTeamLeader|root), ekibi var ama alt-agaci BU AY $0 satis
-    const leaders = await this.prisma.membership.findMany({
-      where: { tenantId, OR: [{ isTeamLeader: true }, { sponsorMembershipId: null }] },
-      orderBy: [{ depth: 'asc' }, { joinedAt: 'asc' }],
-      take: 200,
-      select: { id: true, referralCode: true, user: { select: { fullName: true } } },
-    });
-    let dormantClusters: Array<{ leaderId: string; leaderName: string; referralCode: string; teamSize: number }> = [];
-    if (leaders.length > 0) {
-      const leaderIds = leaders.map((l) => l.id);
-      // ekip boyu (kendisi haric) — tek ltree self-join
-      const teamRows = await this.prisma.$queryRaw<Array<{ id: string; team: bigint }>>(Prisma.sql`
-        SELECT l.id::text AS id, count(d.id)::bigint AS team
-        FROM memberships l
-        JOIN memberships d ON d.tenant_id = l.tenant_id AND d.path::ltree <@ l.path::ltree
-        WHERE l.tenant_id = ${tenantId}::uuid AND l.id::text IN (${Prisma.join(leaderIds)})
-        GROUP BY l.id`);
-      const teamById = new Map(teamRows.map((r) => [r.id, Math.max(0, Number(r.team) - 1)]));
-      // bu ay alt-agacta >=1 onayli satisi olan liderler
-      const soldRows = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-        SELECT DISTINCT l.id::text AS id
-        FROM memberships l
-        JOIN memberships d ON d.tenant_id = l.tenant_id AND d.path::ltree <@ l.path::ltree
-        JOIN sales s ON s.tenant_id = l.tenant_id AND s.seller_membership_id = d.id
-          AND s.status = ${SaleStatus.approved}::"SaleStatus" AND s.summary_month = ${month}
-        WHERE l.tenant_id = ${tenantId}::uuid AND l.id::text IN (${Prisma.join(leaderIds)})`);
-      const soldLeaderIds = new Set(soldRows.map((r) => r.id));
-      dormantClusters = leaders
-        .filter((l) => !soldLeaderIds.has(l.id) && (teamById.get(l.id) ?? 0) > 0)
-        .map((l) => ({ leaderId: l.id, leaderName: l.user.fullName, referralCode: l.referralCode, teamSize: teamById.get(l.id) ?? 0 }))
-        .sort((a, b) => b.teamSize - a.teamSize)
-        .slice(0, 20);
-    }
-
-    return { month, totals: { members, active, inactive }, noSaleActive, dormantClusters };
+    return this.prisma.$transaction(
+      (tx) => readNetworkHealth(tx, tenantId),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   async setStatus(actor: ActorContext, membershipId: string, status: MembershipStatus) {
@@ -758,23 +712,32 @@ export class MembersAdminService {
         _count: { _all: true },
         _sum: { amountCents: true },
       }),
-      // yasam-boyu kazanc (payable + paid) — isi haritasi + KPI + uye detayi icin
+      // yasam-boyu kazanilmis tutar (payable + processing + paid); pending henuz vested degil.
       this.prisma.ledgerEntry.groupBy({
         by: ['beneficiaryMembershipId'],
-        where: { tenantId, status: { in: [LedgerStatus.payable, LedgerStatus.paid] } },
+        where: {
+          tenantId,
+          status: { in: [LedgerStatus.payable, LedgerStatus.processing, LedgerStatus.paid] },
+        },
         _sum: { amountCents: true },
       }),
-      // BU AY komisyon (pending+payable+paid) — "canli aylik komisyon" (urunun cekirdek vaadi)
+      // BU AY komisyon (pending+payable+processing+paid) — "canli aylik komisyon".
       this.prisma.monthlySummary.groupBy({
         by: ['membershipId'],
         where: { tenantId, month },
-        _sum: { pendingCents: true, payableCents: true, paidCents: true },
+        _sum: { pendingCents: true, payableCents: true, processingCents: true, paidCents: true },
       }),
     ]);
     const bySeller = new Map(salesAgg.map((s) => [s.sellerMembershipId, s]));
     const byBenef = new Map(earnAgg.map((e) => [e.beneficiaryMembershipId, e._sum.amountCents ?? 0n]));
     const byMonthly = new Map(
-      monthlyAgg.map((g) => [g.membershipId, (g._sum.pendingCents ?? 0n) + (g._sum.payableCents ?? 0n) + (g._sum.paidCents ?? 0n)]),
+      monthlyAgg.map((g) => [
+        g.membershipId,
+        (g._sum.pendingCents ?? 0n)
+          + (g._sum.payableCents ?? 0n)
+          + (g._sum.processingCents ?? 0n)
+          + (g._sum.paidCents ?? 0n),
+      ]),
     );
 
     // teamSize (alt-agac kisi sayisi, kendisi haric) + subtreeRevenueCents (dugum + tum torunlarin
@@ -818,6 +781,17 @@ export class MembersAdminService {
     });
   }
 
+  /**
+   * Bounded tree read for visualization surfaces. The legacy tree() response stays unchanged;
+   * this endpoint makes truncation explicit and never aggregates outside the returned members.
+   */
+  async treeSnapshot(tenantId: string, rootMembershipId?: string) {
+    this.tenantContext.assertTenant(tenantId);
+    return this.prisma.$transaction(
+      (tx) => readMemberTreeSnapshot(tx, tenantId, rootMembershipId),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
   /** GDPR/KVKK DSAR (Dalga 3): uyenin tum kisisel verisini tek JSON'da derler (admin). */
   async exportData(tenantId: string, membershipId: string) {
     this.tenantContext.assertTenant(tenantId);

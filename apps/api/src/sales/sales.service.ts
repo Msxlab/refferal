@@ -78,6 +78,7 @@ function compareLexically(left: string, right: string): number {
 
 type SaleFilterInput = {
   status?: 'draft' | 'approved' | 'void';
+  summaryMonth?: string;
   q?: string;
   from?: Date | string;
   to?: Date | string;
@@ -88,6 +89,7 @@ type SaleFilterInput = {
 /** One tenant-bound filter builder keeps list and all-results bulk semantics aligned. */
 function saleWhereFromFilters(tenantId: string, filters: SaleFilterInput): Prisma.SaleWhereInput {
   const where: Prisma.SaleWhereInput = { tenantId, status: filters.status };
+  if (filters.summaryMonth) where.summaryMonth = filters.summaryMonth;
   if (filters.from || filters.to) {
     where.saleDate = {
       ...(filters.from ? { gte: new Date(filters.from) } : {}),
@@ -335,29 +337,34 @@ export class SalesService {
   async list(actor: ActorContext, q: ListSalesInput) {
     this.tenantContext.assertActor(actor);
     const where = this.buildWhere(actor.tenantId, q);
-    const orderBy = { [q.sort]: q.dir } as Prisma.SaleOrderByWithRelationInput;
+    const orderBy: Prisma.SaleOrderByWithRelationInput[] = [
+      { [q.sort]: q.dir },
+      { id: q.dir },
+    ];
 
-    const [total, rows] = await this.prisma.$transaction([
-      this.prisma.sale.count({ where }),
-      this.prisma.sale.findMany({
-        where,
-        orderBy,
-        skip: (q.page - 1) * q.pageSize,
-        take: q.pageSize,
-        include: { seller: { select: { referralCode: true, userId: true, user: { select: { fullName: true } } } } },
-      }),
-    ]);
-
-    // Satis basina DAGITILAN net komisyon (commission - reversal): sayfadaki id'ler icin tek groupBy.
-    // "Sattigi" (amountCents) ile "kazandirdigi" (commissionCents) yan yana gosterilebilsin (sold-vs-earned).
-    const saleIds = rows.map((s) => s.id);
-    const ledgerSums = saleIds.length
-      ? await this.prisma.ledgerEntry.groupBy({
-          by: ['saleId'],
-          where: { tenantId: actor.tenantId, saleId: { in: saleIds } },
-          _sum: { amountCents: true },
-        })
-      : [];
+    const [total, rows, ledgerSums] = await this.prisma.$transaction(async (tx) => {
+      const [snapshotTotal, snapshotRows] = await Promise.all([
+        tx.sale.count({ where }),
+        tx.sale.findMany({
+          where,
+          orderBy,
+          skip: (q.page - 1) * q.pageSize,
+          take: q.pageSize,
+          include: { seller: { select: { referralCode: true, userId: true, user: { select: { fullName: true } } } } },
+        }),
+      ]);
+      // Satis basina DAGITILAN net komisyon (commission - reversal): sayfadaki id'ler icin tek groupBy.
+      // "Sattigi" (amountCents) ile "kazandirdigi" (commissionCents) ayni DB snapshot'indan gelir.
+      const saleIds = snapshotRows.map((sale) => sale.id);
+      const snapshotLedgerSums = saleIds.length
+        ? await tx.ledgerEntry.groupBy({
+            by: ['saleId'],
+            where: { tenantId: actor.tenantId, saleId: { in: saleIds } },
+            _sum: { amountCents: true },
+          })
+        : [];
+      return [snapshotTotal, snapshotRows, snapshotLedgerSums] as const;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
     const commBySale = new Map(ledgerSums.map((g) => [g.saleId, g._sum.amountCents ?? 0n]));
 
     return {

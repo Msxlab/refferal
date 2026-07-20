@@ -81,12 +81,14 @@ export class SalesController {
 
   // DIKKAT: statik GET route'lar ':id'den ONCE tanimlanmali (yoksa 'summary' UUID sanilir → 400)
   @Roles(...STAFF)
+  @RequirePermission('sales.view')
   @Get('summary')
   summary(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(salesFilterSchema)) q: SalesFilterInput) {
     return this.sales.summary(this.actor(user), q);
   }
 
   @Roles(...STAFF)
+  @RequirePermission('sales.export')
   @Get('export.csv')
   @Header('Content-Type', 'text/csv; charset=utf-8')
   @Header('Content-Disposition', 'attachment; filename="sales.csv"')
@@ -173,6 +175,7 @@ export class SalesController {
 
   // hard delete yalnizca taslak icin; para etkileyen aksiyon gibi admin+ ve audit'li
   @Roles(...ADMIN)
+  @RequirePermission('sales.void')
   @Delete(':id')
   remove(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.sales.remove(this.actor(user), id);

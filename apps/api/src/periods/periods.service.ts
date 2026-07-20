@@ -15,6 +15,7 @@ export interface PeriodRow {
   revenueCents: string;
   pendingCents: string;
   payableCents: string;
+  processingCents: string;
   paidCents: string;
 }
 
@@ -33,7 +34,7 @@ export class PeriodsService {
       this.prisma.monthlySummary.groupBy({
         by: ['month'],
         where: { tenantId },
-        _sum: { pendingCents: true, payableCents: true, paidCents: true },
+        _sum: { pendingCents: true, payableCents: true, processingCents: true, paidCents: true },
       }),
       this.prisma.sale.groupBy({
         by: ['summaryMonth'],
@@ -66,6 +67,7 @@ export class PeriodsService {
           revenueCents: (revByMonth.get(period) ?? 0n).toString(),
           pendingCents: (s?._sum.pendingCents ?? 0n).toString(),
           payableCents: (s?._sum.payableCents ?? 0n).toString(),
+          processingCents: (s?._sum.processingCents ?? 0n).toString(),
           paidCents: (s?._sum.paidCents ?? 0n).toString(),
         };
       });

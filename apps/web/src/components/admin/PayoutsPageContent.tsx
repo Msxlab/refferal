@@ -31,6 +31,16 @@ interface FraudFlag {
   score: number; reasons: string[]; status: string; note: string | null; blocked: boolean;
 }
 
+export interface PayoutCapabilities {
+  payoutsView: boolean;
+  payoutsProcess: boolean;
+  payoutsExport: boolean;
+  complianceView: boolean;
+  complianceReview: boolean;
+  reportsView: boolean;
+  reportsExport: boolean;
+}
+
 const HISTORY_STATUS = ['', 'requested', 'processing', 'paid', 'failed'] as const;
 
 // payout/odeme durumu → Badge variant (globals.css .badge.{status} paletiyle birebir)
@@ -41,7 +51,7 @@ const payoutStatusVariant = (s: string): BadgeVariant =>
   : s === 'payable' ? 'payable'
   : 'pending'; // requested, processing, pending → amber
 
-export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
+export function PayoutsPageContent({ tenantName, capabilities }: { tenantName: string; capabilities: PayoutCapabilities }) {
   const [payable, setPayable] = useState<PayableList | null>(null);
   const [requests, setRequests] = useState<PayoutItem[] | null>(null);
   const [kyc, setKyc] = useState<KycProfile[]>([]);
@@ -80,20 +90,41 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
   }, [hStatus, hPeriod, hPage]);
 
   const loadCore = useCallback(async () => {
+    if (!capabilities.payoutsView) {
+      setPayable(null); setRequests(null); setClawbacks(null); setBatches([]); setSelected(new Set());
+      return;
+    }
     try {
-      const [p, r, k, f] = await Promise.all([
+      const [p, r] = await Promise.all([
         api.get<PayableList>('/admin/payouts/payable'),
         api.get<PayoutListResp>('/admin/payouts?status=requested&pageSize=100'),
+      ]);
+      setPayable(p); setRequests(r.items); setSelected(new Set());
+      if (capabilities.reportsView) {
+        api.get<{ totalOwedCents: string; members: { membershipId: string; name: string; referralCode: string; owedCents: string }[] }>('/admin/clawbacks').then(setClawbacks).catch(() => {});
+      } else {
+        setClawbacks(null);
+      }
+      api.get<Batch[]>('/admin/payouts/batches').then(setBatches).catch(() => {});
+    } catch (e) { setError(String((e as ApiError).message)); }
+  }, [capabilities.payoutsView, capabilities.reportsView]);
+
+  const loadCompliance = useCallback(async () => {
+    if (!capabilities.complianceView) {
+      setKyc([]); setFraud([]);
+      return;
+    }
+    try {
+      const [k, f] = await Promise.all([
         api.get<KycProfile[]>('/admin/payout-profiles?status=pending_review'),
         api.get<FraudFlag[]>('/admin/fraud?status=open'),
       ]);
-      setPayable(p); setRequests(r.items); setKyc(k); setFraud(f); setSelected(new Set());
-      api.get<{ totalOwedCents: string; members: { membershipId: string; name: string; referralCode: string; owedCents: string }[] }>('/admin/clawbacks').then(setClawbacks).catch(() => {});
-      api.get<Batch[]>('/admin/payouts/batches').then(setBatches).catch(() => {});
+      setKyc(k); setFraud(f);
     } catch (e) { setError(String((e as ApiError).message)); }
-  }, []);
+  }, [capabilities.complianceView]);
 
   async function decideBatch(id: string, action: 'approve' | 'reject') {
+    if (!capabilities.payoutsProcess) { setError('Payout processing permission is required.'); return; }
     if (busyId) return;
     setBusyId(id);
     try {
@@ -116,6 +147,7 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
   }
 
   async function runReconcile() {
+    if (!capabilities.payoutsProcess) { setError('Payout processing permission is required.'); return; }
     // "tutar[,referans]" satirlari — tutar dolar; cent'e cevir
     const rows = reconcileText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((line) => {
       const [amt, ...rest] = line.split(',');
@@ -132,29 +164,32 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
   }
 
   async function runFraudScan() {
+    if (!capabilities.complianceReview) { setError('Compliance review permission is required.'); return; }
     setScanning(true);
-    try { const r = await api.post<{ flagged: number; blocked: number }>('/admin/fraud/scan'); showToast(`Scan done — ${r.flagged} flagged, ${r.blocked} blocked`); await loadCore(); }
+    try { const r = await api.post<{ flagged: number; blocked: number }>('/admin/fraud/scan'); showToast(`Scan done — ${r.flagged} flagged, ${r.blocked} blocked`); await loadCompliance(); }
     catch (e) { setError(String((e as ApiError).message)); } finally { setScanning(false); }
   }
   async function decideFraud(membershipId: string, action: 'clear' | 'confirm') {
+    if (!capabilities.complianceReview) { setError('Compliance review permission is required.'); return; }
     if (action === 'confirm') {
       setReasonText('');
       setReasonModal({ title: 'Confirm fraud', label: 'Note (optional)', run: async (note) => {
-        await api.post(`/admin/fraud/${membershipId}/decide`, { action, ...(note.trim() ? { note: note.trim() } : {}) }); showToast('Confirmed'); await loadCore();
+        await api.post(`/admin/fraud/${membershipId}/decide`, { action, ...(note.trim() ? { note: note.trim() } : {}) }); showToast('Confirmed'); await loadCompliance();
       } });
       return;
     }
     if (busyId) return;
     setBusyId(membershipId);
-    try { await api.post(`/admin/fraud/${membershipId}/decide`, { action }); showToast('Cleared ✓'); await loadCore(); }
+    try { await api.post(`/admin/fraud/${membershipId}/decide`, { action }); showToast('Cleared ✓'); await loadCompliance(); }
     catch (e) { setError(String((e as ApiError).message)); } finally { setBusyId(null); }
   }
 
   async function decideKyc(membershipId: string, action: 'verify' | 'reject') {
+    if (!capabilities.complianceReview) { setError('Compliance review permission is required.'); return; }
     if (action === 'reject') {
       setReasonText('');
       setReasonModal({ title: 'Reject payout profile', label: 'Reason (optional)', run: async (reason) => {
-        await api.post(`/admin/payout-profiles/${membershipId}/decide`, { action, ...(reason.trim() ? { reason: reason.trim() } : {}) }); showToast('Payout profile rejected'); await loadCore();
+        await api.post(`/admin/payout-profiles/${membershipId}/decide`, { action, ...(reason.trim() ? { reason: reason.trim() } : {}) }); showToast('Payout profile rejected'); await loadCompliance();
       } });
       return;
     }
@@ -163,21 +198,24 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
     try {
       await api.post(`/admin/payout-profiles/${membershipId}/decide`, { action });
       showToast(action === 'verify' ? 'Payout profile verified ✓' : 'Payout profile rejected');
-      await loadCore();
+      await loadCompliance();
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusyId(null); }
   }
 
   const loadHistory = useCallback(async () => {
+    if (!capabilities.payoutsView) { setHistory(null); return; }
     try { setHistory(await api.get<PayoutListResp>(`/admin/payouts?${historyQuery}`)); }
     catch (e) { setError(String((e as ApiError).message)); }
-  }, [historyQuery]);
+  }, [capabilities.payoutsView, historyQuery]);
 
   useEffect(() => { void loadCore(); }, [loadCore]);
+  useEffect(() => { void loadCompliance(); }, [loadCompliance]);
   useEffect(() => { void loadHistory(); }, [loadHistory]);
 
-  async function refreshAll() { await Promise.all([loadCore(), loadHistory()]); }
+  async function refreshAll() { await Promise.all([loadCore(), loadCompliance(), loadHistory()]); }
 
   async function run(which: 'all' | 'selected') {
+    if (!capabilities.payoutsProcess) { setError('Payout processing permission is required.'); return; }
     setBusy(true); setError('');
     try {
       const body = which === 'selected' ? { method: 'csv', membershipIds: [...selected] } : { method: 'csv' };
@@ -191,6 +229,7 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
   }
 
   async function submitDecide() {
+    if (!capabilities.payoutsProcess) { setError('Payout processing permission is required.'); return; }
     if (!decide) return;
     setBusy(true);
     try {
@@ -202,7 +241,21 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
   }
 
   async function downloadExport() {
+    if (!capabilities.payoutsExport) { setError('Payout export permission is required.'); return; }
     try { await downloadCsv('/admin/payouts/export.csv', 'payouts.csv'); }
+    catch (e) { setError(String((e as ApiError).message)); }
+  }
+
+  async function downloadAch() {
+    if (!capabilities.payoutsExport) { setError('Payout export permission is required.'); return; }
+    try { await downloadCsv('/admin/payouts/ach.txt', 'payouts-ach.txt'); }
+    catch (e) { setError(String((e as ApiError).message)); }
+  }
+
+  async function downloadTaxForm() {
+    if (!capabilities.reportsExport) { setError('Report export permission is required.'); return; }
+    const year = new Date().getFullYear();
+    try { await downloadCsv(`/admin/tax/1099.csv?year=${year}`, `1099-nec-${year}.csv`); }
     catch (e) { setError(String((e as ApiError).message)); }
   }
 
@@ -217,6 +270,20 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
   const c = payable?.currency ?? 'USD';
   const totalPayable = payable?.members.reduce((a, m) => a + Number(m.netCents), 0) ?? 0;
   const selTotal = payable?.members.filter((m) => selected.has(m.membershipId)).reduce((a, m) => a + Number(m.netCents), 0) ?? 0;
+  const hasMoreActions = capabilities.payoutsProcess
+    || capabilities.payoutsExport
+    || capabilities.reportsExport
+    || (capabilities.complianceView && capabilities.complianceReview);
+
+  if (!capabilities.payoutsView) {
+    return (
+      <div>
+        <div className="eyebrow fade-in">{t('nav.payouts')}</div>
+        <h1 className="h1 fade-in">Payout Management</h1>
+        <div className="card muted fade-in delay-1" role="status">Payout viewing permission is required.</div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -233,31 +300,45 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
             <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>Min threshold: {payable ? money(payable.payoutMinCents, c) : '—'}</div>
           </div>
           <div className="row no-print">
-            {requests?.length ? (
-              <Button asChild>
-                <a href="#payout-requests">Review {requests.length} payout request{requests.length === 1 ? '' : 's'}</a>
-              </Button>
-            ) : (
-              <Button variant="success" onClick={() => setConfirmRun('all')} disabled={busy || !payable?.members.length}>{t('payouts.run')}</Button>
-            )}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" aria-label="More payout actions">More actions <span aria-hidden="true">▾</span></Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {requests?.length ? (
-                  <>
-                    <DropdownMenuItem onSelect={() => setConfirmRun('all')} disabled={busy || !payable?.members.length}>{t('payouts.run')}</DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                  </>
-                ) : null}
-                <DropdownMenuItem onSelect={() => { void downloadExport(); }}>⇩ {t('payouts.export')}</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => { void runFraudScan(); }} disabled={scanning}>{scanning ? 'Scanning…' : '⚠ Fraud scan'}</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => { const y = new Date().getFullYear(); downloadCsv(`/admin/tax/1099.csv?year=${y}`, `1099-nec-${y}.csv`).catch((e) => setError(String((e as ApiError).message))); }}>⇩ 1099-NEC</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => { downloadCsv('/admin/payouts/ach.txt', 'payouts-ach.txt').catch((e) => setError(String((e as ApiError).message))); }} title="Self-hosted bank file (NACHA) — upload to your bank">⇩ ACH file</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => { setReconcileOpen(true); setReconcileText(''); setReconcileResult(null); }} title="Match the bank statement against paid payouts">⇄ Reconcile</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {capabilities.payoutsProcess ? (
+              requests?.length ? (
+                <Button asChild>
+                  <a href="#payout-requests">Review {requests.length} payout request{requests.length === 1 ? '' : 's'}</a>
+                </Button>
+              ) : (
+                <Button variant="success" onClick={() => setConfirmRun('all')} disabled={busy || !payable?.members.length}>{t('payouts.run')}</Button>
+              )
+            ) : null}
+            {hasMoreActions ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" aria-label="More payout actions">More actions <span aria-hidden="true">▾</span></Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {capabilities.payoutsProcess && requests?.length ? (
+                    <>
+                      <DropdownMenuItem onSelect={() => setConfirmRun('all')} disabled={busy || !payable?.members.length}>{t('payouts.run')}</DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                    </>
+                  ) : null}
+                  {capabilities.payoutsExport ? (
+                    <>
+                      <DropdownMenuItem onSelect={() => { void downloadExport(); }}>⇩ {t('payouts.export')}</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => { void downloadAch(); }} title="Self-hosted bank file (NACHA) — upload to your bank">⇩ ACH file</DropdownMenuItem>
+                    </>
+                  ) : null}
+                  {capabilities.complianceView && capabilities.complianceReview ? (
+                    <DropdownMenuItem onSelect={() => { void runFraudScan(); }} disabled={scanning}>{scanning ? 'Scanning…' : '⚠ Fraud scan'}</DropdownMenuItem>
+                  ) : null}
+                  {capabilities.reportsExport ? (
+                    <DropdownMenuItem onSelect={() => { void downloadTaxForm(); }}>⇩ 1099-NEC</DropdownMenuItem>
+                  ) : null}
+                  {capabilities.payoutsProcess ? (
+                    <DropdownMenuItem onSelect={() => { setReconcileOpen(true); setReconcileText(''); setReconcileResult(null); }} title="Match the bank statement against paid payouts">⇄ Reconcile</DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
           </div>
         </div>
       </div>
@@ -269,19 +350,21 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
             <strong>Payout requests <Badge variant="pending" className="ml-1.5">{requests.length}</Badge></strong>
           </div>
           <table>
-            <thead><tr><th>Member</th><th>Period</th><th style={{ textAlign: 'right' }}>Requested</th><th className="no-print" style={{ textAlign: 'right' }}>Decision</th></tr></thead>
+            <thead><tr><th>Member</th><th>Period</th><th style={{ textAlign: 'right' }}>Requested</th>{capabilities.payoutsProcess ? <th className="no-print" style={{ textAlign: 'right' }}>Decision</th> : null}</tr></thead>
             <tbody>
               {requests.map((r) => (
                 <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => setDetailId(r.id)}>
                   <td>{r.fullName}<div className="faint" style={{ fontSize: 12 }}>{r.referralCode}</div></td>
                   <td>{r.period}</td>
                   <td className="tnum" style={{ textAlign: 'right', fontWeight: 650 }}>{money(r.totalCents, c)}</td>
-                  <td className="no-print" style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
-                    <div className="row" style={{ justifyContent: 'flex-end' }}>
-                      <Button variant="success" size="sm" onClick={() => { setDecideRef(''); setDecide({ p: r, action: 'approve' }); }}>Approve</Button>
-                      <Button variant="destructive" size="sm" onClick={() => { setDecideRef(''); setDecide({ p: r, action: 'reject' }); }}>Reject</Button>
-                    </div>
-                  </td>
+                  {capabilities.payoutsProcess ? (
+                    <td className="no-print" style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                      <div className="row" style={{ justifyContent: 'flex-end' }}>
+                        <Button variant="success" size="sm" onClick={() => { setDecideRef(''); setDecide({ p: r, action: 'approve' }); }}>Approve</Button>
+                        <Button variant="destructive" size="sm" onClick={() => { setDecideRef(''); setDecide({ p: r, action: 'reject' }); }}>Reject</Button>
+                      </div>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -296,19 +379,21 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
             <strong>Payout approvals (4-eyes) <Badge variant="pending" className="ml-1.5">{batches.length}</Badge></strong>
           </div>
           <table>
-            <thead><tr><th>Period</th><th>Members</th><th style={{ textAlign: 'right' }}>Estimate</th><th className="no-print" style={{ textAlign: 'right' }}>Decision</th></tr></thead>
+            <thead><tr><th>Period</th><th>Members</th><th style={{ textAlign: 'right' }}>Estimate</th>{capabilities.payoutsProcess ? <th className="no-print" style={{ textAlign: 'right' }}>Decision</th> : null}</tr></thead>
             <tbody>
               {batches.map((b) => (
                 <tr key={b.id}>
                   <td>{b.period}</td>
                   <td>{b.count}</td>
                   <td className="tnum" style={{ textAlign: 'right' }}>{money(b.estimateCents, c)}</td>
-                  <td className="no-print" style={{ textAlign: 'right' }}>
-                    <div className="row" style={{ justifyContent: 'flex-end' }}>
-                      <Button variant="success" size="sm" disabled={busyId === b.id} onClick={() => decideBatch(b.id, 'approve')}>Approve &amp; pay</Button>
-                      <Button variant="destructive" size="sm" disabled={busyId === b.id} onClick={() => decideBatch(b.id, 'reject')}>Reject</Button>
-                    </div>
-                  </td>
+                  {capabilities.payoutsProcess ? (
+                    <td className="no-print" style={{ textAlign: 'right' }}>
+                      <div className="row" style={{ justifyContent: 'flex-end' }}>
+                        <Button variant="success" size="sm" disabled={busyId === b.id} onClick={() => decideBatch(b.id, 'approve')}>Approve &amp; pay</Button>
+                        <Button variant="destructive" size="sm" disabled={busyId === b.id} onClick={() => decideBatch(b.id, 'reject')}>Reject</Button>
+                      </div>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -318,7 +403,7 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
       )}
 
       {/* ---- clawback / negatif bakiye ---- */}
-      {clawbacks && clawbacks.members.length > 0 && (
+      {capabilities.reportsView && clawbacks && clawbacks.members.length > 0 && (
         <div className="card fade-in delay-1" style={{ marginBottom: 16, borderColor: 'var(--rose)' }}>
           <div className="spread" style={{ marginBottom: 12 }}>
             <strong>Clawbacks — negative balances <Badge variant="destructive" className="ml-1.5">{clawbacks.members.length}</Badge></strong>
@@ -337,25 +422,27 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
       )}
 
       {/* ---- fraud inceleme kuyrugu ---- */}
-      {fraud.length > 0 && (
+      {capabilities.complianceView && fraud.length > 0 && (
         <div className="card fade-in delay-1" style={{ marginBottom: 16, borderColor: 'var(--rose)' }}>
           <div className="spread" style={{ marginBottom: 12 }}>
             <strong>Fraud review <Badge variant="destructive" className="ml-1.5">{fraud.length}</Badge></strong>
           </div>
           <table>
-            <thead><tr><th>Member</th><th>Score</th><th>Signals</th><th className="no-print" style={{ textAlign: 'right' }}>Decision</th></tr></thead>
+            <thead><tr><th>Member</th><th>Score</th><th>Signals</th>{capabilities.complianceReview ? <th className="no-print" style={{ textAlign: 'right' }}>Decision</th> : null}</tr></thead>
             <tbody>
               {fraud.map((f) => (
                 <tr key={f.membershipId}>
                   <td>{f.fullName}<div className="faint" style={{ fontSize: 12 }}>{f.referralCode}</div></td>
                   <td><Badge variant={f.blocked ? 'destructive' : 'pending'}>{f.score}{f.blocked ? ' · blocked' : ''}</Badge></td>
                   <td className="faint" style={{ fontSize: 12 }}>{f.reasons.join(', ')}</td>
-                  <td className="no-print" style={{ textAlign: 'right' }}>
-                    <div className="row" style={{ justifyContent: 'flex-end' }}>
-                      <Button variant="success" size="sm" disabled={busyId === f.membershipId} onClick={() => decideFraud(f.membershipId, 'clear')}>Clear</Button>
-                      <Button variant="destructive" size="sm" disabled={busyId === f.membershipId} onClick={() => decideFraud(f.membershipId, 'confirm')}>Confirm</Button>
-                    </div>
-                  </td>
+                  {capabilities.complianceReview ? (
+                    <td className="no-print" style={{ textAlign: 'right' }}>
+                      <div className="row" style={{ justifyContent: 'flex-end' }}>
+                        <Button variant="success" size="sm" disabled={busyId === f.membershipId} onClick={() => decideFraud(f.membershipId, 'clear')}>Clear</Button>
+                        <Button variant="destructive" size="sm" disabled={busyId === f.membershipId} onClick={() => decideFraud(f.membershipId, 'confirm')}>Confirm</Button>
+                      </div>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -364,13 +451,13 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
       )}
 
       {/* ---- KYC inceleme kuyrugu ---- */}
-      {kyc.length > 0 && (
+      {capabilities.complianceView && kyc.length > 0 && (
         <div className="card fade-in delay-1" style={{ marginBottom: 16, borderColor: 'var(--sky)' }}>
           <div className="spread" style={{ marginBottom: 12 }}>
             <strong>Payout profiles to review <Badge variant="payable" className="ml-1.5">{kyc.length}</Badge></strong>
           </div>
           <table>
-            <thead><tr><th>Member</th><th>Legal name</th><th>Tax ID</th><th>Bank</th><th className="no-print" style={{ textAlign: 'right' }}>Decision</th></tr></thead>
+            <thead><tr><th>Member</th><th>Legal name</th><th>Tax ID</th><th>Bank</th>{capabilities.complianceReview ? <th className="no-print" style={{ textAlign: 'right' }}>Decision</th> : null}</tr></thead>
             <tbody>
               {kyc.map((k) => (
                 <tr key={k.membershipId}>
@@ -378,12 +465,14 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
                   <td>{k.legalName}{k.sanctionsHit && <Badge variant="destructive" className="ml-1.5">⚠ sanctions</Badge>}</td>
                   <td className="tnum">{k.taxIdType.toUpperCase()} ••••{k.taxIdLast4}</td>
                   <td className="faint" style={{ fontSize: 12 }}>{k.bankName ? `${k.bankName} · ` : ''}{k.accountType} ••••{k.accountLast4} · {k.routingNumber}</td>
-                  <td className="no-print" style={{ textAlign: 'right' }}>
-                    <div className="row" style={{ justifyContent: 'flex-end' }}>
-                      <Button variant="success" size="sm" disabled={busyId === k.membershipId} onClick={() => decideKyc(k.membershipId, 'verify')}>Verify</Button>
-                      <Button variant="destructive" size="sm" disabled={busyId === k.membershipId} onClick={() => decideKyc(k.membershipId, 'reject')}>Reject</Button>
-                    </div>
-                  </td>
+                  {capabilities.complianceReview ? (
+                    <td className="no-print" style={{ textAlign: 'right' }}>
+                      <div className="row" style={{ justifyContent: 'flex-end' }}>
+                        <Button variant="success" size="sm" disabled={busyId === k.membershipId} onClick={() => decideKyc(k.membershipId, 'verify')}>Verify</Button>
+                        <Button variant="destructive" size="sm" disabled={busyId === k.membershipId} onClick={() => decideKyc(k.membershipId, 'reject')}>Reject</Button>
+                      </div>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -395,18 +484,18 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
       <div className="card fade-in delay-2" style={{ marginBottom: 16 }}>
         <div className="spread" style={{ marginBottom: 12 }}>
           <strong>{t('payouts.payable')}</strong>
-          {selected.size > 0 && <Button size="sm" className="no-print" disabled={busy} onClick={() => setConfirmRun('selected')}>Pay selected ({selected.size}) · {money(selTotal, c)}</Button>}
+          {capabilities.payoutsProcess && selected.size > 0 && <Button size="sm" className="no-print" disabled={busy} onClick={() => setConfirmRun('selected')}>Pay selected ({selected.size}) · {money(selTotal, c)}</Button>}
         </div>
         {!payable ? <Loading rows={2} /> : (
           <table>
             <thead><tr>
-              <th className="no-print" style={{ width: 30 }}><input type="checkbox" checked={selected.size > 0 && selected.size === payable.members.length} onChange={toggleAll} aria-label="Select all" /></th>
+              {capabilities.payoutsProcess ? <th className="no-print" style={{ width: 30 }}><input type="checkbox" checked={selected.size > 0 && selected.size === payable.members.length} onChange={toggleAll} aria-label="Select all" /></th> : null}
               <th>Member</th><th>Code</th><th style={{ textAlign: 'right' }}>Sold (mo)</th><th style={{ textAlign: 'right' }}>Net payable</th><th style={{ textAlign: 'right' }}>Eff. %</th>
             </tr></thead>
             <tbody>
               {payable.members.map((m) => (
                 <tr key={m.membershipId} style={{ background: selected.has(m.membershipId) ? 'var(--panel-2)' : undefined }}>
-                  <td className="no-print"><input type="checkbox" checked={selected.has(m.membershipId)} onChange={() => toggle(m.membershipId)} aria-label={`Select ${m.fullName}`} /></td>
+                  {capabilities.payoutsProcess ? <td className="no-print"><input type="checkbox" checked={selected.has(m.membershipId)} onChange={() => toggle(m.membershipId)} aria-label={`Select ${m.fullName}`} /></td> : null}
                   <td>{m.fullName}</td>
                   <td className="faint">{m.referralCode}</td>
                   <td className="tnum" style={{ textAlign: 'right', color: 'var(--muted)' }}>{Number(m.soldThisMonthCents) > 0 ? money(m.soldThisMonthCents, c) : '—'}</td>
@@ -414,7 +503,7 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
                   <td className="tnum faint" style={{ textAlign: 'right' }}>{Number(m.soldThisMonthCents) > 0 ? `%${((Number(m.netCents) / Number(m.soldThisMonthCents)) * 100).toFixed(1)}` : '—'}</td>
                 </tr>
               ))}
-              {payable.members.length === 0 && <tr><td colSpan={6} className="muted">No members above the threshold.</td></tr>}
+              {payable.members.length === 0 && <tr><td colSpan={capabilities.payoutsProcess ? 6 : 5} className="muted">No members above the threshold.</td></tr>}
             </tbody>
           </table>
         )}
@@ -452,7 +541,7 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
         {history && <Pagination page={history.page} pageSize={history.pageSize} total={history.total} onPage={setHPage} />}
       </div>
 
-      {confirmRun && (
+      {capabilities.payoutsProcess && confirmRun && (
         <Confirm
           title={confirmRun === 'all' ? 'Run payouts' : `Pay ${selected.size} selected`}
           message={confirmRun === 'all'
@@ -465,7 +554,7 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
         />
       )}
 
-      {decide && (
+      {capabilities.payoutsProcess && decide && (
         <Modal title={decide.action === 'approve' ? 'Approve request' : 'Reject request'} onClose={() => setDecide(null)}>
           <div style={{ width: 'min(440px, 88vw)' }}>
             <p className="muted" style={{ marginTop: 0 }}>
@@ -487,9 +576,9 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
         </Modal>
       )}
 
-      {detailId && <PayoutDrawer id={detailId} currency={c} tenantName={tenantName} onClose={() => setDetailId(null)} onChanged={refreshAll} onToast={showToast} />}
+      {detailId && <PayoutDrawer id={detailId} currency={c} tenantName={tenantName} canProcess={capabilities.payoutsProcess} onClose={() => setDetailId(null)} onChanged={refreshAll} onToast={showToast} />}
 
-      {reasonModal && (
+      {capabilities.complianceReview && reasonModal && (
         <Modal title={reasonModal.title} onClose={() => setReasonModal(null)}>
           <div style={{ width: 'min(420px, 100%)' }}>
             <div className="field">
@@ -504,7 +593,7 @@ export function PayoutsPageContent({ tenantName }: { tenantName: string }) {
         </Modal>
       )}
 
-      {reconcileOpen && (
+      {capabilities.payoutsProcess && reconcileOpen && (
         <Modal title="Bank reconciliation" onClose={() => setReconcileOpen(false)}>
           <div style={{ width: 'min(520px, 100%)' }}>
             <p className="muted" style={{ marginTop: 0 }}>
@@ -551,7 +640,7 @@ interface PayoutDetail {
   lines: PayoutLine[];
 }
 
-function PayoutDrawer({ id, currency, tenantName, onClose, onChanged, onToast }: { id: string; currency: string; tenantName: string; onClose: () => void; onChanged: () => void; onToast: (m: string) => void }) {
+function PayoutDrawer({ id, currency, tenantName, canProcess, onClose, onChanged, onToast }: { id: string; currency: string; tenantName: string; canProcess: boolean; onClose: () => void; onChanged: () => void; onToast: (m: string) => void }) {
   const [d, setD] = useState<PayoutDetail | null>(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -564,6 +653,7 @@ function PayoutDrawer({ id, currency, tenantName, onClose, onChanged, onToast }:
   useEffect(() => { load(); }, [load]);
 
   async function retry() {
+    if (!canProcess) { setErr('Payout processing permission is required.'); return; }
     setBusy(true);
     try { await api.post(`/admin/payouts/${id}/retry`); onToast('Retried — marked paid ✓'); setConfirmRetry(false); load(); onChanged(); }
     catch (e) { setErr(String((e as ApiError).message)); } finally { setBusy(false); }
@@ -578,7 +668,7 @@ function PayoutDrawer({ id, currency, tenantName, onClose, onChanged, onToast }:
       footer={d && (
         <>
           <Button variant="ghost" onClick={() => setPrinting(true)}>🖶 Print slip</Button>
-          {d.status === 'failed' && <Button disabled={busy} onClick={() => setConfirmRetry(true)}>Retry</Button>}
+          {canProcess && d.status === 'failed' && <Button disabled={busy} onClick={() => setConfirmRetry(true)}>Retry</Button>}
         </>
       )}
     >
@@ -615,7 +705,7 @@ function PayoutDrawer({ id, currency, tenantName, onClose, onChanged, onToast }:
         </div>
       )}
 
-      {confirmRetry && d && (
+      {canProcess && confirmRetry && d && (
         <Confirm title="Retry payout" message={`Re-run the failed payout of ${money(d.totalCents, currency)} to ${d.member.fullName}? Linked balance is marked paid.`} confirmLabel="Retry" busy={busy} onConfirm={retry} onClose={() => setConfirmRetry(false)} />
       )}
 

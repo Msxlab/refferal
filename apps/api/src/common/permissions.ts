@@ -101,6 +101,15 @@ export const ALL_PERMISSIONS: string[] = PERMISSION_GROUPS.flatMap((g) =>
   g.permissions.map((p) => p.key),
 );
 
+export function hasEffectivePermission(
+  principal: { role?: string | null; perms?: readonly string[] },
+  permission: string,
+): boolean {
+  return principal.role === 'tenant_owner'
+    || principal.role === 'platform_admin'
+    || principal.perms?.includes(permission) === true;
+}
+
 const allExcept = (...omit: string[]): string[] =>
   ALL_PERMISSIONS.filter((p) => !omit.includes(p));
 

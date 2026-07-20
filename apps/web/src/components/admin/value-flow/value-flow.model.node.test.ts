@@ -114,6 +114,7 @@ const networkHealth = {
   month: '2026-07',
   totals: { members: 3, active: 3, inactive: 0 },
   noSaleActive: { count: 1, total: 3, pct: 33 },
+  dormantScope: { complete: true, totalLeaders: 1, scannedLeaders: 1, matchedDormantInScan: 1, returnedDormant: 1, leaderLimit: 200, resultLimit: 20 },
   dormantClusters: [
     { leaderId: 'direct', leaderName: 'Morgan Lee', referralCode: 'DIRECT1', teamSize: 1 },
   ],
@@ -153,6 +154,7 @@ test('cent helpers reject malformed and unsafe numeric inputs', () => {
 test('workspace groups first-generation and extended network value without precision loss', () => {
   const workspace = buildValueFlowWorkspace({ dashboard, tree, plans, todo, networkHealth, recentSales });
 
+  assert.deepEqual(workspace.networkHealthScope, networkHealth.dormantScope);
   assert.equal(workspace.sources.direct.members, 2);
   assert.equal(workspace.sources.direct.sales, 3);
   assert.equal(workspace.sources.direct.revenueCents, '900719925474100300');
@@ -176,6 +178,26 @@ test('workspace separates configured commission rules from earned amounts', () =
   assert.ok(workspace.flow.nodes.some((node) => node.id === 'liability:in-payout'));
 });
 
+test('deep plans stay readable by summarizing configured levels after the first three', () => {
+  const deepPlans = {
+    ...plans,
+    plans: [{
+      ...plans.plans[0],
+      depth: 20,
+      levels: Array.from({ length: 20 }, (_, index) => ({ level: index + 1, rateBps: 100 })),
+    }],
+  };
+  const workspace = buildValueFlowWorkspace({ dashboard, tree, plans: deepPlans });
+  const ruleNodes = workspace.flow.nodes.filter(({ kind }) => kind === 'rule');
+  const ruleEdges = workspace.flow.edges.filter(({ kind }) => kind === 'rule');
+
+  assert.equal(ruleNodes.length, 4);
+  assert.equal(ruleEdges.length, 4);
+  assert.equal(ruleNodes.at(-1)?.title, 'Additional configured rates');
+  assert.equal(ruleNodes.at(-1)?.eyebrow, '17 more levels');
+  assert.equal(ruleNodes.at(-1)?.valueCents, undefined);
+});
+
 test('current-month commission is not drawn as the source of all-time outstanding balances', () => {
   const workspace = buildValueFlowWorkspace({ dashboard, tree, plans, todo, networkHealth, recentSales });
   const misleadingEdges = workspace.flow.edges.filter(
@@ -189,15 +211,47 @@ test('a selected subtree stays visibly partial and is not connected to tenant-wi
   const workspace = buildValueFlowWorkspace({
     dashboard,
     tree: tree.slice(1),
-    treeScope: { rootMembershipId: 'direct', complete: false },
+    treeScope: { rootMembershipId: 'direct', complete: false, total: 18, limit: 9 },
   });
 
-  assert.deepEqual(workspace.treeScope, { rootMembershipId: 'direct', complete: false });
+  assert.deepEqual(workspace.treeScope, { rootMembershipId: 'direct', complete: false, total: 18, limit: 9 });
   assert.equal(workspace.summary.traceCoverageBps, 7_500);
   assert.equal(
     workspace.flow.edges.some(
       (edge) => edge.source.startsWith('source:') && edge.target === 'stage:qualified-sales',
     ),
+    false,
+  );
+});
+
+test('a complete but unreconciled tree is never drawn as the source of tenant-wide sales', () => {
+  const workspace = buildValueFlowWorkspace({
+    dashboard: {
+      ...dashboard,
+      thisMonth: { ...dashboard.thisMonth, approvedSalesCount: dashboard.thisMonth.approvedSalesCount + 1 },
+    },
+    tree,
+  });
+
+  assert.equal(workspace.summary.traceReconciled, false);
+  assert.equal(
+    workspace.flow.edges.some((edge) => edge.source.startsWith('source:') && edge.target === 'stage:qualified-sales'),
+    false,
+  );
+});
+
+test('matching sale counts do not reconcile a hierarchy with different revenue', () => {
+  const workspace = buildValueFlowWorkspace({
+    dashboard: {
+      ...dashboard,
+      thisMonth: { ...dashboard.thisMonth, revenueCents: '1' },
+    },
+    tree,
+  });
+
+  assert.equal(workspace.summary.traceReconciled, false);
+  assert.equal(
+    workspace.flow.edges.some((edge) => edge.source.startsWith('source:') && edge.target === 'stage:qualified-sales'),
     false,
   );
 });

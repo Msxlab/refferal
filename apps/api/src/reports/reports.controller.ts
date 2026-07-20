@@ -4,6 +4,7 @@ import { Response } from 'express';
 import { z } from 'zod';
 import { CurrentUser, RequireMembership, RequirePermission, Roles } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
+import { hasEffectivePermission } from '../common/permissions';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { ReportsService } from './reports.service';
 
@@ -52,7 +53,21 @@ export class ReportsController {
   @Roles(...STAFF)
   @Get('todo')
   todo(@CurrentUser() user: RequestUser) {
-    return this.reports.todo(user.tid as string);
+    const canOpenAdminActions = user.role === Role.tenant_owner
+      || user.role === Role.tenant_admin
+      || user.role === Role.platform_admin;
+    return this.reports.todo(user.tid as string, {
+      salesApproval: canOpenAdminActions
+        && hasEffectivePermission(user, 'sales.approve')
+        && hasEffectivePermission(user, 'sales.view'),
+      payoutProcessing: canOpenAdminActions
+        && hasEffectivePermission(user, 'payouts.process')
+        && hasEffectivePermission(user, 'payouts.view'),
+      complianceReview: canOpenAdminActions
+        && hasEffectivePermission(user, 'compliance.view')
+        && hasEffectivePermission(user, 'compliance.review')
+        && hasEffectivePermission(user, 'payouts.view'),
+    });
   }
 
   /** Faz D3: kohort retention/churn raporu (katilim ayina gore). */
@@ -103,6 +118,7 @@ export class ReportsController {
 
   // clawback / negatif bakiye raporu (admin)
   @Roles(...ADMIN)
+  @RequirePermission('reports.view')
   @Get('clawbacks')
   clawbacks(@CurrentUser() user: RequestUser) {
     return this.reports.clawbacks(user.tid as string);
@@ -110,12 +126,14 @@ export class ReportsController {
 
   // 1099-NEC vergi raporu (admin)
   @Roles(...ADMIN)
+  @RequirePermission('reports.view')
   @Get('tax/1099')
   tax1099(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(yearSchema)) q: z.infer<typeof yearSchema>) {
     return this.reports.tax1099(user.tid as string, q.year);
   }
 
   @Roles(...ADMIN)
+  @RequirePermission('reports.export')
   @Get('tax/1099.csv')
   @Header('Content-Type', 'text/csv; charset=utf-8')
   @Header('Content-Disposition', 'attachment; filename="1099-nec.csv"')

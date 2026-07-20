@@ -185,7 +185,7 @@ export class WalletService {
     const rows = await this.prisma.monthlySummary.groupBy({
       by: ['month'],
       where: { tenantId, membershipId, month: { in: range } },
-      _sum: { pendingCents: true, payableCents: true, paidCents: true },
+      _sum: { pendingCents: true, payableCents: true, processingCents: true, paidCents: true },
       orderBy: { month: 'asc' },
     });
     const byMonth = new Map(rows.map((r) => [r.month, r._sum]));
@@ -194,13 +194,15 @@ export class WalletService {
       const s = byMonth.get(m);
       const pending = s?.pendingCents ?? 0n;
       const payable = s?.payableCents ?? 0n;
+      const processing = s?.processingCents ?? 0n;
       const paid = s?.paidCents ?? 0n;
       return {
         month: m,
         pendingCents: pending.toString(),
         payableCents: payable.toString(),
+        processingCents: processing.toString(),
         paidCents: paid.toString(),
-        totalCents: (pending + payable + paid).toString(),
+        totalCents: (pending + payable + processing + paid).toString(),
       };
     });
 
@@ -252,10 +254,16 @@ export class WalletService {
     const rows = await this.prisma.monthlySummary.groupBy({
       by: ['membershipId'],
       where: { tenantId, month },
-      _sum: { pendingCents: true, payableCents: true, paidCents: true },
+      _sum: { pendingCents: true, payableCents: true, processingCents: true, paidCents: true },
     });
     const totals = rows
-      .map((r) => ({ id: r.membershipId, total: (r._sum.pendingCents ?? 0n) + (r._sum.payableCents ?? 0n) + (r._sum.paidCents ?? 0n) }))
+      .map((r) => ({
+        id: r.membershipId,
+        total: (r._sum.pendingCents ?? 0n)
+          + (r._sum.payableCents ?? 0n)
+          + (r._sum.processingCents ?? 0n)
+          + (r._sum.paidCents ?? 0n),
+      }))
       .filter((t) => t.total > 0n)
       .sort((a, b) => (b.total > a.total ? 1 : b.total < a.total ? -1 : 0));
     const total = totals.length;
@@ -288,7 +296,10 @@ export class WalletService {
       paidCents: r.paidCents.toString(),
     }));
     const sum = (pick: (r: (typeof rows)[number]) => bigint) => rows.reduce((a, r) => a + pick(r), 0n);
-    const earnedThisMonth = sum((r) => r.pendingCents) + sum((r) => r.payableCents) + sum((r) => r.paidCents);
+    const earnedThisMonth = sum((r) => r.pendingCents)
+      + sum((r) => r.payableCents)
+      + sum((r) => r.processingCents)
+      + sum((r) => r.paidCents);
     const soldCents = soldThisMonth._sum.amountCents ?? 0n;
 
     return {

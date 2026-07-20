@@ -10,6 +10,8 @@ import type {
   ValueFlowWorkspace,
 } from './value-flow.types';
 
+const MAX_VISIBLE_PLAN_RULES = 3;
+
 const INTEGER_CENTS = /^-?\d+$/;
 
 export function normalizeCents(value: string | number | bigint): Cents {
@@ -56,7 +58,7 @@ function aggregateMembers(members: ValueFlowMember[]) {
   return {
     members: members.length,
     sales: members.reduce((total, member) => total + member.salesCount, 0),
-    revenueCents: addCents(...members.map((member) => member.revenueCents)),
+    revenueCents: members.reduce<Cents>((total, member) => addCents(total, member.revenueCents), '0'),
   };
 }
 
@@ -170,7 +172,8 @@ function buildFlowNodes(
   ];
 
   if (!activePlan) return nodes;
-  for (const [index, level] of activePlan.levels.entries()) {
+  const visibleLevels = activePlan.levels.slice(0, MAX_VISIBLE_PLAN_RULES);
+  for (const [index, level] of visibleLevels.entries()) {
     nodes.push({
       id: `rule:level-${level.level}`,
       kind: 'rule',
@@ -183,12 +186,25 @@ function buildFlowNodes(
       rateBps: level.rateBps,
     });
   }
+  const additionalLevels = activePlan.levels.length - visibleLevels.length;
+  if (additionalLevels > 0) {
+    nodes.push({
+      id: 'rule:additional-levels',
+      kind: 'rule',
+      column: 2,
+      lane: visibleLevels.length + 1,
+      eyebrow: `${additionalLevels} more level${additionalLevels === 1 ? '' : 's'}`,
+      title: 'Additional configured rates',
+      detail: `${activePlan.name} · version ${activePlan.version}`,
+      tone: 'neutral',
+    });
+  }
   return nodes;
 }
 
-function buildFlowEdges(activePlan: CommissionPlanApi | null, treeComplete: boolean): ValueFlowEdge[] {
+function buildFlowEdges(activePlan: CommissionPlanApi | null, sourcesReconciled: boolean): ValueFlowEdge[] {
   const edges: ValueFlowEdge[] = [
-    ...(treeComplete
+    ...(sourcesReconciled
       ? [
           { id: 'direct-to-sales', source: 'source:direct', target: 'stage:qualified-sales', kind: 'flow' as const },
           { id: 'extended-to-sales', source: 'source:extended', target: 'stage:qualified-sales', kind: 'flow' as const },
@@ -196,13 +212,22 @@ function buildFlowEdges(activePlan: CommissionPlanApi | null, treeComplete: bool
       : []),
     { id: 'sales-to-commission', source: 'stage:qualified-sales', target: 'stage:net-commission', kind: 'flow' },
   ];
-  for (const level of activePlan?.levels ?? []) {
+  const levels = activePlan?.levels ?? [];
+  for (const level of levels.slice(0, MAX_VISIBLE_PLAN_RULES)) {
     edges.push({
-      id: `commission-to-rule-${level.level}`,
-      source: 'stage:net-commission',
-      target: `rule:level-${level.level}`,
+      id: `rule-${level.level}-to-commission`,
+      source: `rule:level-${level.level}`,
+      target: 'stage:net-commission',
       kind: 'rule',
       label: `${level.rateBps / 100}%`,
+    });
+  }
+  if (levels.length > MAX_VISIBLE_PLAN_RULES) {
+    edges.push({
+      id: 'additional-rules-to-commission',
+      source: 'rule:additional-levels',
+      target: 'stage:net-commission',
+      kind: 'rule',
     });
   }
   return edges;
@@ -277,16 +302,26 @@ function normalizeRecentSales(input: BuildValueFlowInput): RecentSaleApi[] {
 
 export function buildValueFlowWorkspace(input: BuildValueFlowInput): ValueFlowWorkspace {
   const members = input.tree.map(normalizeMember);
-  const minimumDepth = members.length > 0 ? Math.min(...members.map(({ depth }) => depth)) : 0;
-  const directMembers = members.filter(({ depth }) => depth <= minimumDepth + 1);
-  const extendedMembers = members.filter(({ depth }) => depth > minimumDepth + 1);
+  const minimumDepth = members.reduce((minimum, member) => Math.min(minimum, member.depth), Number.POSITIVE_INFINITY);
+  const baseDepth = Number.isFinite(minimumDepth) ? minimumDepth : 0;
+  const directMembers = members.filter(({ depth }) => depth <= baseDepth + 1);
+  const extendedMembers = members.filter(({ depth }) => depth > baseDepth + 1);
   const sources = {
     direct: aggregateMembers(directMembers),
     extended: aggregateMembers(extendedMembers),
   };
   const activePlan = selectActivePlan(input);
   const tracedSales = sources.direct.sales + sources.extended.sales;
-  const treeScope = input.treeScope ?? { rootMembershipId: null, complete: true };
+  const tracedRevenueCents = addCents(sources.direct.revenueCents, sources.extended.revenueCents);
+  const treeScope = input.treeScope ?? {
+    rootMembershipId: null,
+    complete: true,
+    total: input.tree.length,
+    limit: input.tree.length,
+  };
+  const traceReconciled = treeScope.complete
+    && tracedSales === normalizeCount(input.dashboard.thisMonth.approvedSalesCount)
+    && tracedRevenueCents === normalizeCents(input.dashboard.thisMonth.revenueCents);
 
   return {
     asOf: {
@@ -301,12 +336,14 @@ export function buildValueFlowWorkspace(input: BuildValueFlowInput): ValueFlowWo
       networkHealth: input.networkHealth != null,
       recentSales: input.recentSales != null,
     },
+    networkHealthScope: input.networkHealth?.dormantScope ?? null,
     summary: {
       approvedSales: normalizeCount(input.dashboard.thisMonth.approvedSalesCount),
       qualifiedRevenueCents: normalizeCents(input.dashboard.thisMonth.revenueCents),
       netCommissionCents: normalizeCents(input.dashboard.thisMonth.commissionCents),
       effectiveRateBps: input.dashboard.thisMonth.effectiveRateBps,
       traceCoverageBps: ratioBps(tracedSales, input.dashboard.thisMonth.approvedSalesCount),
+      traceReconciled,
       openTasks: normalizeCount(input.todo?.total ?? 0),
       liabilities: {
         pendingCents: normalizeCents(input.dashboard.liability.pendingCents),
@@ -319,7 +356,7 @@ export function buildValueFlowWorkspace(input: BuildValueFlowInput): ValueFlowWo
     activePlan,
     flow: {
       nodes: buildFlowNodes(input, activePlan, sources),
-      edges: buildFlowEdges(activePlan, treeScope.complete),
+      edges: buildFlowEdges(activePlan, traceReconciled),
     },
     attention: buildAttention(input),
     recentSales: normalizeRecentSales(input),

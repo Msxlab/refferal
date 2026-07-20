@@ -378,7 +378,7 @@ h1, h2, h3, h4, h5, h6 { scroll-margin-top: 5rem; text-wrap: balance; }
   --grad-emerald: linear-gradient(135deg, var(--emerald), #2a9c7d);
   --on-gold: var(--on-primary);
   --shadow-glow: 0 0 0 1px color-mix(in srgb, var(--brand) 38%, transparent), 0 18px 42px -24px color-mix(in srgb, var(--brand) 44%, transparent);
-  --admin-rail-width: 272px;
+  --admin-rail-width: 256px;
   --admin-obsidian: #0b1020;
   --admin-obsidian-raised: #131c30;
   --admin-obsidian-hover: #17233b;
@@ -612,6 +612,7 @@ tr:last-child td { border-bottom: none; }
 }
 .admin-rail,
 .admin-mobile-sheet {
+  color-scheme: dark;
   --bg-0: var(--admin-obsidian);
   --bg-1: var(--admin-obsidian);
   --panel: var(--admin-obsidian-raised);
@@ -692,6 +693,7 @@ tr:last-child td { border-bottom: none; }
   overflow-y: auto;
   padding: 18px 12px;
   scrollbar-width: thin;
+  scrollbar-color: rgba(169, 184, 255, .32) transparent;
 }
 .admin-nav-section + .admin-nav-section { margin-top: 22px; }
 .admin-nav-section-label {

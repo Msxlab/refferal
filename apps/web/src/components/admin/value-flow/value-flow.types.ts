@@ -43,6 +43,15 @@ export interface ReferralTreeNodeApi {
   subtreeRevenueCents: Cents;
 }
 
+export interface ReferralTreeSnapshotApi {
+  items: ReferralTreeNodeApi[];
+  scope: {
+    complete: boolean;
+    total: number;
+    limit: number;
+  };
+}
+
 export interface CommissionPlanLevelApi {
   level: number;
   rateBps: number;
@@ -76,6 +85,15 @@ export interface NetworkHealthApi {
   month: string;
   totals: { members: number; active: number; inactive: number };
   noSaleActive: { count: number; total: number; pct: number };
+  dormantScope: {
+    complete: boolean;
+    totalLeaders: number;
+    scannedLeaders: number;
+    matchedDormantInScan: number;
+    returnedDormant: number;
+    leaderLimit: number;
+    resultLimit: number;
+  };
   dormantClusters: Array<{
     leaderId: string;
     leaderName: string;
@@ -159,21 +177,30 @@ export interface ValueFlowAttentionItem {
   entityId?: string;
 }
 
+export interface ValueFlowTreeScope {
+  rootMembershipId: string | null;
+  complete: boolean;
+  total: number;
+  limit: number;
+}
+
 export interface ValueFlowWorkspace {
   asOf: { month: string; currency: string; source: 'tenant-dashboard' };
-  treeScope: { rootMembershipId: string | null; complete: boolean };
+  treeScope: ValueFlowTreeScope;
   availability: {
     plans: boolean;
     todo: boolean;
     networkHealth: boolean;
     recentSales: boolean;
   };
+  networkHealthScope: NetworkHealthApi['dormantScope'] | null;
   summary: {
     approvedSales: number;
     qualifiedRevenueCents: Cents;
     netCommissionCents: Cents;
     effectiveRateBps: number;
     traceCoverageBps: number | null;
+    traceReconciled: boolean;
     openTasks: number;
     liabilities: {
       pendingCents: Cents;
@@ -195,7 +222,7 @@ export interface ValueFlowWorkspace {
 export interface BuildValueFlowInput {
   dashboard: DashboardApi;
   tree: ReferralTreeNodeApi[];
-  treeScope?: { rootMembershipId: string | null; complete: boolean };
+  treeScope?: ValueFlowTreeScope;
   plans?: CommissionPlansApi | null;
   todo?: TodoApi | null;
   networkHealth?: NetworkHealthApi | null;

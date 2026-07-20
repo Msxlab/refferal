@@ -67,7 +67,7 @@ test('mobile navigation delegates focus, escape and overlay dismissal to the exi
 });
 
 test('obsidian and cobalt ledger rail is responsive, calm and motion-safe', () => {
-  assert.match(globalStyles, /--admin-rail-width:\s*272px/);
+  assert.match(globalStyles, /--admin-rail-width:\s*256px/);
   assert.match(globalStyles, /--admin-obsidian:\s*#0b1020/i);
   assert.match(globalStyles, /--admin-cobalt:\s*#3157d5/i);
   assert.match(globalStyles, /--admin-cobalt-on-ink:\s*#a9b8ff/i);

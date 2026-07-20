@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { FraudStatus, Role } from '@prisma/client';
-import { CurrentUser, RequireMembership, Roles } from '../auth/auth.guard';
+import { CurrentUser, RequireMembership, RequirePermission, Roles } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { ActorContext } from '../common/actor';
@@ -20,17 +20,20 @@ export class FraudController {
     return { userId: user.sub, tenantId: user.tid as string };
   }
 
+  @RequirePermission('compliance.view')
   @Get()
   list(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(listFraudSchema)) q: ListFraudInput) {
     return this.fraud.list(user.tid as string, q.status as FraudStatus | undefined);
   }
 
+  @RequirePermission('compliance.review')
   @HttpCode(200)
   @Post('scan')
   scan(@CurrentUser() user: RequestUser) {
     return this.fraud.scan(user.tid as string);
   }
 
+  @RequirePermission('compliance.review')
   @HttpCode(200)
   @Post(':membershipId/decide')
   decide(

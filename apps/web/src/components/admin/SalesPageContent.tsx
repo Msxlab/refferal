@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { FormEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
 import { ColumnsMenu, Confirm, Loading, Modal, Pagination, SortableTh, SortDir, StatCard, MoneyCounter, TableColumn, useTablePrefs, useToast } from '@/components/ui';
@@ -40,7 +40,19 @@ interface Summary {
   deliveredCount: number;
   byStatus: Record<'draft' | 'approved' | 'void', { count: number; amountCents: string }>;
 }
-type Pending = { ids: string[]; action: 'approve' | 'void' | 'delete' | 'deliver' };
+type BulkAction = 'approve' | 'void';
+type BulkScope = { mode: 'selected'; ids: string[] };
+interface BulkPreview {
+  previewToken: string;
+  expiresAt: string;
+  action: BulkAction;
+  eligibleCount: number;
+  excludedCount: number;
+  totals: Array<{ currency: string; amountCents: string }>;
+}
+type Pending =
+  | { kind: 'single'; id: string; action: 'approve' | 'void' | 'delete' }
+  | ({ kind: 'bulk'; scope: BulkScope; idempotencyKey: string } & BulkPreview);
 
 interface Filters { status: string; q: string; from: string; to: string; minCents: string; maxCents: string }
 const EMPTY: Filters = { status: '', q: '', from: '', to: '', minCents: '', maxCents: '' };
@@ -70,6 +82,27 @@ const SALE_COLUMNS: TableColumn[] = [
   { key: 'date', label: 'Date' },
 ];
 
+function PermissionHint({ allowed, reason, children }: { allowed: boolean; reason: string; children: ReactNode }) {
+  const reasonId = useId();
+  if (allowed) return <>{children}</>;
+  return (
+    <>
+      <span className="inline-flex" tabIndex={0} aria-describedby={reasonId} title={reason}>
+        {children}
+      </span>
+      <span id={reasonId} className="sr-only">{reason}</span>
+    </>
+  );
+}
+
+export interface SalesPageCapabilities {
+  salesCreate: boolean;
+  salesImport: boolean;
+  salesExport: boolean;
+  salesApprove: boolean;
+  salesVoid: boolean;
+}
+
 /* tarih cipleri icin yerel gun anahtari (YYYY-MM-DD) */
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -88,7 +121,7 @@ function chipRange(key: ChipKey): { from: string; to: string } {
   };
 }
 
-export function SalesPageContent({ tenantName }: { tenantName: string }) {
+export function SalesPageContent({ tenantName, capabilities }: { tenantName: string; capabilities: SalesPageCapabilities }) {
   const uid = useId();
   const [list, setList] = useState<SalesList | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -190,6 +223,7 @@ export function SalesPageContent({ tenantName }: { tenantName: string }) {
 
   async function createSale(e: FormEvent) {
     e.preventDefault();
+    if (!capabilities.salesCreate) { setError('Sales creation permission is required.'); return; }
     setBusy(true); setError('');
     try {
       const dollars = parseFloat(amount);
@@ -208,18 +242,39 @@ export function SalesPageContent({ tenantName }: { tenantName: string }) {
     } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
   }
 
+  async function openBulk(action: BulkAction, ids: string[]) {
+    if (action === 'approve' && !capabilities.salesApprove) { setError('Sales approval permission is required.'); return; }
+    if (action === 'void' && !capabilities.salesVoid) { setError('Sales void permission is required.'); return; }
+    const scope: BulkScope = { mode: 'selected', ids };
+    setBusy(true); setError('');
+    try {
+      const preview = await api.post<BulkPreview>('/admin/sales/bulk/preview', { action, scope });
+      if (preview.eligibleCount === 0) {
+        setError('None of the selected sales are eligible for this action.');
+        return;
+      }
+      setConfirm({ kind: 'bulk', scope, idempotencyKey: crypto.randomUUID(), ...preview });
+    } catch (e) { setError(String((e as ApiError).message)); } finally { setBusy(false); }
+  }
+
   async function act(p: Pending) {
+    if (p.action === 'approve' && !capabilities.salesApprove) { setError('Sales approval permission is required.'); return; }
+    if ((p.action === 'void' || p.action === 'delete') && !capabilities.salesVoid) { setError('Sales void permission is required.'); return; }
     setBusy(true);
     try {
-      if (p.ids.length === 1 && (p.action === 'approve' || p.action === 'void')) {
-        await api.post(`/admin/sales/${p.ids[0]}/${p.action}`);
+      if (p.kind === 'single' && (p.action === 'approve' || p.action === 'void')) {
+        await api.post(`/admin/sales/${p.id}/${p.action}`);
         showToast(p.action === 'approve' ? 'Approved, commissions distributed ✓' : 'Voided');
-      } else if (p.ids.length === 1 && p.action === 'delete') {
-        await api.del(`/admin/sales/${p.ids[0]}`);
+      } else if (p.kind === 'single') {
+        await api.del(`/admin/sales/${p.id}`);
         showToast('Draft deleted');
       } else {
-        const res = await api.post<{ succeeded: number; failed: { id: string; reason: string }[] }>('/admin/sales/bulk', { action: p.action, ids: p.ids });
-        showToast(`${res.succeeded} ${p.action}${p.action === 'delete' ? 'd' : p.action === 'deliver' ? 'ed' : 'd'}${res.failed.length ? `, ${res.failed.length} skipped` : ''}`);
+        const res = await api.post<{ succeeded: number; failed: Array<{ id: string }> }>(
+          '/admin/sales/bulk',
+          { scope: p.scope, previewToken: p.previewToken },
+          { 'Idempotency-Key': p.idempotencyKey },
+        );
+        showToast(`${res.succeeded} ${p.action === 'approve' ? 'approved' : 'voided'}${res.failed.length ? `, ${res.failed.length} skipped` : ''}`);
       }
       setConfirm(null);
       await load();
@@ -227,11 +282,13 @@ export function SalesPageContent({ tenantName }: { tenantName: string }) {
   }
 
   async function deliver(id: string) {
+    if (!capabilities.salesApprove) { setError('Sales approval permission is required.'); return; }
     try { await api.post(`/admin/sales/${id}/deliver`, {}); showToast('Marked as delivered'); await load(); }
     catch (e) { setError(String((e as ApiError).message)); }
   }
 
   async function exportCsv() {
+    if (!capabilities.salesExport) { setError('Sales export permission is required.'); return; }
     try { await downloadCsv(`/admin/sales/export.csv${filterQuery ? `?${filterQuery}` : ''}`, 'sales.csv'); }
     catch (e) { setError(String((e as ApiError).message)); }
   }
@@ -268,7 +325,6 @@ export function SalesPageContent({ tenantName }: { tenantName: string }) {
 
   const selDrafts = useMemo(() => list?.items.filter((s) => selected.has(s.id) && s.status === 'draft').map((s) => s.id) ?? [], [list, selected]);
   const selVoidable = useMemo(() => list?.items.filter((s) => selected.has(s.id) && s.status !== 'void').map((s) => s.id) ?? [], [list, selected]);
-  const selDeliverable = useMemo(() => list?.items.filter((s) => selected.has(s.id) && s.status === 'approved' && !s.deliveredAt).map((s) => s.id) ?? [], [list, selected]);
   const activeFilters = filters.status || filters.q || filters.from || filters.to || filters.minCents || filters.maxCents;
   const advCount = [filters.status, filters.from, filters.to, filters.minCents, filters.maxCents].filter(Boolean).length;
   const cur = summary?.currency ?? 'USD';
@@ -281,14 +337,28 @@ export function SalesPageContent({ tenantName }: { tenantName: string }) {
           <h1 className="h1 fade-in">Sales Management</h1>
         </div>
         <div className="row fade-in no-print" style={{ gap: 8 }}>
-          <Button onClick={() => { setError(''); setCode(''); setSellerOpts([]); setSellerPicked(false); setNewDate(new Date().toLocaleDateString('en-CA')); setShowNew(true); }}>＋ New sale</Button>
+          <PermissionHint allowed={capabilities.salesCreate} reason="Requires sales creation permission">
+            <Button
+              disabled={!capabilities.salesCreate}
+              title={capabilities.salesCreate ? 'Record a sale' : undefined}
+              onClick={() => { setError(''); setCode(''); setSellerOpts([]); setSellerPicked(false); setNewDate(new Date().toLocaleDateString('en-CA')); setShowNew(true); }}
+            >＋ New sale</Button>
+          </PermissionHint>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" aria-label="More sales actions">More actions <span aria-hidden="true">▾</span></Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => setShowImport(true)}>⇪ Import</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => { void exportCsv(); }}>⇩ Export CSV</DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!capabilities.salesImport}
+                title={capabilities.salesImport ? 'Import sales from CSV' : 'Requires sales import permission'}
+                onSelect={() => setShowImport(true)}
+              >⇪ Import{!capabilities.salesImport ? ' — permission required' : ''}</DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!capabilities.salesExport}
+                title={capabilities.salesExport ? 'Export sales as CSV' : 'Requires sales export permission'}
+                onSelect={() => { void exportCsv(); }}
+              >⇩ Export CSV{!capabilities.salesExport ? ' — permission required' : ''}</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => printAfterDropdownCloses()}>🖶 Print</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -426,10 +496,10 @@ export function SalesPageContent({ tenantName }: { tenantName: string }) {
                   {cols.isVisible('date') && <td className="muted">{dateShort(s.saleDate)}</td>}
                   <td className="no-print" onClick={(e) => e.stopPropagation()}>
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
-                      {s.status === 'draft' && <Button size="sm" onClick={() => setConfirm({ ids: [s.id], action: 'approve' })}>{t('sales.approve')}</Button>}
-                      {s.status === 'approved' && !s.deliveredAt && <Button size="sm" variant="ghost" onClick={() => deliver(s.id)}>{t('sales.deliver')}</Button>}
-                      {s.status === 'draft' && <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setConfirm({ ids: [s.id], action: 'delete' })} aria-label="Delete draft">🗑</Button>}
-                      {s.status !== 'void' && <Button size="sm" variant="destructive" onClick={() => setConfirm({ ids: [s.id], action: 'void' })}>{t('sales.void')}</Button>}
+                      {capabilities.salesApprove && s.status === 'draft' && <Button size="sm" onClick={() => setConfirm({ kind: 'single', id: s.id, action: 'approve' })}>{t('sales.approve')}</Button>}
+                      {capabilities.salesApprove && s.status === 'approved' && !s.deliveredAt && <Button size="sm" variant="ghost" onClick={() => deliver(s.id)}>{t('sales.deliver')}</Button>}
+                      {capabilities.salesVoid && s.status === 'draft' && <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setConfirm({ kind: 'single', id: s.id, action: 'delete' })} aria-label="Delete draft">🗑</Button>}
+                      {capabilities.salesVoid && s.status !== 'void' && <Button size="sm" variant="destructive" onClick={() => setConfirm({ kind: 'single', id: s.id, action: 'void' })}>{t('sales.void')}</Button>}
                     </div>
                   </td>
                 </tr>
@@ -454,34 +524,38 @@ export function SalesPageContent({ tenantName }: { tenantName: string }) {
           <div className="bulkbar no-print">
             <strong style={{ fontSize: 13 }}>{selected.size} selected</strong>
             <span style={{ flex: 1 }} />
-            <Button size="sm" disabled={selDrafts.length === 0} onClick={() => setConfirm({ ids: selDrafts, action: 'approve' })}>Approve {selDrafts.length || ''}</Button>
-            <Button size="sm" variant="ghost" disabled={selDeliverable.length === 0} onClick={() => setConfirm({ ids: selDeliverable, action: 'deliver' })}>Deliver {selDeliverable.length || ''}</Button>
-            <Button size="sm" variant="destructive" disabled={selVoidable.length === 0} onClick={() => setConfirm({ ids: selVoidable, action: 'void' })}>Void {selVoidable.length || ''}</Button>
-            <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" disabled={selDrafts.length === 0} onClick={() => setConfirm({ ids: selDrafts, action: 'delete' })}>Delete {selDrafts.length || ''}</Button>
+            <PermissionHint allowed={capabilities.salesApprove} reason="Requires sales approval permission">
+              <Button size="sm" disabled={!capabilities.salesApprove || busy || selDrafts.length === 0} onClick={() => void openBulk('approve', selDrafts)}>Approve {selDrafts.length || ''}</Button>
+            </PermissionHint>
+            <PermissionHint allowed={capabilities.salesVoid} reason="Requires sales void permission">
+              <Button size="sm" variant="destructive" disabled={!capabilities.salesVoid || busy || selVoidable.length === 0} onClick={() => void openBulk('void', selVoidable)}>Void {selVoidable.length || ''}</Button>
+            </PermissionHint>
             <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>Clear</Button>
           </div>
         )}
       </Card>
 
       {confirm && (
-        <Confirm
-          title={
-            confirm.action === 'approve' ? `Approve ${confirm.ids.length} sale${confirm.ids.length > 1 ? 's' : ''}`
-            : confirm.action === 'void' ? `Void ${confirm.ids.length} sale${confirm.ids.length > 1 ? 's' : ''}`
-            : confirm.action === 'deliver' ? `Mark ${confirm.ids.length} as delivered`
-            : `Delete ${confirm.ids.length} draft${confirm.ids.length > 1 ? 's' : ''}`
-          }
-          message={
-            confirm.action === 'approve' ? 'On approval, commissions are distributed across the tree. This cannot be undone.'
-            : confirm.action === 'void' ? 'Voiding creates reversing entries and reduces balances.'
-            : confirm.action === 'deliver' ? 'Marks the selected approved sales as delivered.'
-            : 'Drafts are permanently deleted. Approved sales can only be voided, not deleted.'
-          }
-          confirmLabel={confirm.action === 'approve' ? t('sales.approve') : confirm.action === 'void' ? t('sales.void') : confirm.action === 'deliver' ? t('sales.deliver') : 'Delete'}
-          danger={confirm.action === 'void' || confirm.action === 'delete'}
-          busy={busy}
-          onConfirm={() => act(confirm)}
-          onClose={() => setConfirm(null)}
+          <Confirm
+            title={
+              confirm.kind === 'bulk'
+                ? `${confirm.action === 'approve' ? 'Approve' : 'Void'} ${confirm.eligibleCount} sale${confirm.eligibleCount === 1 ? '' : 's'}`
+                : confirm.action === 'approve' ? 'Approve sale'
+                : confirm.action === 'void' ? 'Void sale'
+                : 'Delete draft'
+            }
+            message={
+              confirm.kind === 'bulk'
+                ? `Review found ${confirm.eligibleCount} eligible sale${confirm.eligibleCount === 1 ? '' : 's'}${confirm.excludedCount ? ` and ${confirm.excludedCount} excluded` : ''}${confirm.totals.length ? `. Eligible total: ${confirm.totals.map((total) => money(total.amountCents, total.currency)).join(', ')}` : ''}. ${confirm.action === 'approve' ? 'Approval distributes commissions and cannot be undone.' : 'Voiding creates reversing entries and reduces balances.'}`
+                : confirm.action === 'approve' ? 'On approval, commissions are distributed across the tree. This cannot be undone.'
+                : confirm.action === 'void' ? 'Voiding creates reversing entries and reduces balances.'
+                : 'Drafts are permanently deleted. Approved sales can only be voided, not deleted.'
+            }
+            confirmLabel={confirm.action === 'approve' ? t('sales.approve') : confirm.action === 'void' ? t('sales.void') : 'Delete'}
+            danger={confirm.action === 'void' || confirm.action === 'delete'}
+            busy={busy}
+            onConfirm={() => void act(confirm)}
+            onClose={() => setConfirm(null)}
         />
       )}
 
@@ -539,9 +613,9 @@ export function SalesPageContent({ tenantName }: { tenantName: string }) {
         </Modal>
       )}
 
-      {showImport && <ImportWizard onClose={() => setShowImport(false)} onDone={(n) => { setShowImport(false); showToast(`${n} sales imported`); void load(); }} />}
+      {showImport && capabilities.salesImport && <ImportWizard onClose={() => setShowImport(false)} onDone={(n) => { setShowImport(false); showToast(`${n} sales imported`); void load(); }} />}
 
-      {detailId && <SaleDrawer id={detailId} tenantName={tenantName} onClose={() => setDetailId(null)} onChanged={load} onToast={showToast} />}
+      {detailId && <SaleDrawer id={detailId} tenantName={tenantName} capabilities={capabilities} onClose={() => setDetailId(null)} onChanged={load} onToast={showToast} />}
 
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
@@ -559,7 +633,7 @@ interface SaleDetail extends SaleItem {
   ledger: LedgerLine[];
 }
 
-function SaleDrawer({ id, tenantName, onClose, onChanged, onToast }: { id: string; tenantName: string; onClose: () => void; onChanged: () => void; onToast: (m: string) => void }) {
+function SaleDrawer({ id, tenantName, capabilities, onClose, onChanged, onToast }: { id: string; tenantName: string; capabilities: SalesPageCapabilities; onClose: () => void; onChanged: () => void; onToast: (m: string) => void }) {
   const [d, setD] = useState<SaleDetail | null>(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -572,6 +646,8 @@ function SaleDrawer({ id, tenantName, onClose, onChanged, onToast }: { id: strin
   useEffect(() => { load(); }, [load]);
 
   async function action(a: 'approve' | 'void' | 'deliver') {
+    if ((a === 'approve' || a === 'deliver') && !capabilities.salesApprove) { setErr('Sales approval permission is required.'); return; }
+    if (a === 'void' && !capabilities.salesVoid) { setErr('Sales void permission is required.'); return; }
     setBusy(true);
     try {
       await api.post(`/admin/sales/${id}/${a}`, a === 'deliver' ? {} : undefined);
@@ -580,6 +656,7 @@ function SaleDrawer({ id, tenantName, onClose, onChanged, onToast }: { id: strin
     } catch (e) { setErr(String((e as ApiError).message)); } finally { setBusy(false); }
   }
   async function remove() {
+    if (!capabilities.salesVoid) { setErr('Sales void permission is required.'); return; }
     setBusy(true);
     try { await api.del(`/admin/sales/${id}`); onToast('Draft deleted'); onChanged(); onClose(); }
     catch (e) { setErr(String((e as ApiError).message)); setBusy(false); }
@@ -595,10 +672,10 @@ function SaleDrawer({ id, tenantName, onClose, onChanged, onToast }: { id: strin
       footer={d && (
         <>
           <Button variant="ghost" disabled={busy} onClick={() => setPrinting(true)}>🖶 Print receipt</Button>
-          {d.status === 'draft' && <Button disabled={busy} onClick={() => action('approve')}>Approve</Button>}
-          {d.status === 'approved' && !d.deliveredAt && <Button variant="ghost" disabled={busy} onClick={() => action('deliver')}>Mark delivered</Button>}
-          {d.status === 'draft' && <Button variant="ghost" className="text-destructive hover:text-destructive" disabled={busy} onClick={() => setConfirmDel(true)}>Delete</Button>}
-          {d.status !== 'void' && <Button variant="destructive" disabled={busy} onClick={() => action('void')}>Void</Button>}
+          {capabilities.salesApprove && d.status === 'draft' && <Button disabled={busy} onClick={() => action('approve')}>Approve</Button>}
+          {capabilities.salesApprove && d.status === 'approved' && !d.deliveredAt && <Button variant="ghost" disabled={busy} onClick={() => action('deliver')}>Mark delivered</Button>}
+          {capabilities.salesVoid && d.status === 'draft' && <Button variant="ghost" className="text-destructive hover:text-destructive" disabled={busy} onClick={() => setConfirmDel(true)}>Delete</Button>}
+          {capabilities.salesVoid && d.status !== 'void' && <Button variant="destructive" disabled={busy} onClick={() => action('void')}>Void</Button>}
         </>
       )}
     >
