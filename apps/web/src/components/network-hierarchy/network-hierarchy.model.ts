@@ -147,6 +147,10 @@ export function exactTierClusterLabel(representedNodes: number, localTier: numbe
 }
 
 export function displayClusterLabel(node: AdminHierarchyClusterNode | MemberVisibleClusterNode): string {
+  if ('parentMembershipId' in node) {
+    const count = Number.isSafeInteger(node.representedNodes) && node.representedNodes > 0 ? node.representedNodes : 0;
+    return `+${count} more represented ${count === 1 ? 'member' : 'members'}`;
+  }
   return exactTierClusterLabel(node.representedNodes, node.localTier);
 }
 

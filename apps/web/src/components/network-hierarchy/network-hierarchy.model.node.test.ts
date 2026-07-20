@@ -127,19 +127,20 @@ test('Tier 3 is terminal in both the type projection and render model', () => {
   );
 });
 
-test('cluster wording names one exact tier and never uses an ambiguous plus tier', () => {
-  const cluster: AdminHierarchyClusterNode = {
+test('admin clusters describe the total omitted subtree while member clusters retain one exact tier', () => {
+  const adminCluster: AdminHierarchyClusterNode = {
     kind: 'cluster',
     clusterRef: 'cluster-ref',
     parentMembershipId: null,
-    label: 'untrusted label',
+    label: '8 more members',
     localTier: 2,
-    representedNodes: 3,
+    representedNodes: 8,
     canExpand: true,
   };
+
   assert.equal(exactTierClusterLabel(3, 2), '+3 Tier 2 members');
-  assert.equal(displayClusterLabel(cluster), '+3 Tier 2 members');
-  assert.doesNotMatch(displayClusterLabel(cluster), /Tier 2\+/);
+  assert.equal(displayClusterLabel(adminCluster), '+8 more represented members');
+  assert.doesNotMatch(displayClusterLabel(adminCluster), /Tier 2/);
 });
 
 test('member clusters retain opaque references and can only represent Tier 2 or Tier 3', () => {
