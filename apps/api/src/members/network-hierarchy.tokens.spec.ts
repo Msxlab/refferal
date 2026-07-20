@@ -10,8 +10,11 @@ import {
   HIERARCHY_TOKEN_DOMAIN,
   HIERARCHY_TOKEN_MAX_LENGTH,
   hierarchyMemberReferenceMatches,
+  NETWORK_SNAPSHOT_EXPIRED,
+  NetworkSnapshotExpiredException,
   verifyHierarchyReferenceToken,
 } from "./network-hierarchy.tokens";
+import type { OpaqueMemberNodeRef } from "./network-hierarchy.types";
 
 const ACTOR: ActorContext = {
   userId: "11111111-1111-4111-8111-111111111111",
@@ -74,7 +77,7 @@ describe("network hierarchy reference tokens", () => {
   );
 
   it("never places a raw membership UUID or name in a decodable member token payload", () => {
-    const token = createHierarchyMemberReferenceToken({
+    const token: OpaqueMemberNodeRef = createHierarchyMemberReferenceToken({
       actor: ACTOR,
       membershipId: MEMBERSHIP_ID,
       parentRef: PARENT_REF,
@@ -174,7 +177,47 @@ describe("network hierarchy reference tokens", () => {
     },
   );
 
-  it("rejects tampering and expiration with the same generic failure", () => {
+  it("returns a dedicated conflict only for a valid, bound token with an expired snapshot", () => {
+    const token = createHierarchyReferenceToken("cursor", {
+      actor: ACTOR,
+      parentRef: PARENT_REF,
+      snapshotAt: SNAPSHOT_AT,
+      subject: "cursor_subject",
+    });
+    const verify = (
+      candidate: string,
+      now: number,
+      actor: ActorContext = ACTOR,
+    ) =>
+      verifyHierarchyReferenceToken(
+        candidate,
+        {
+          kind: "cursor",
+          actor,
+          parentRef: PARENT_REF,
+          snapshotAt: SNAPSHOT_AT,
+        },
+        now,
+      );
+
+    let error: unknown;
+    try {
+      verify(token, Date.parse(EXPIRES_AT));
+    } catch (candidate) {
+      error = candidate;
+    }
+
+    expect(error).toBeInstanceOf(NetworkSnapshotExpiredException);
+    expect((error as NetworkSnapshotExpiredException).getStatus()).toBe(409);
+    expect(
+      (error as NetworkSnapshotExpiredException).getResponse(),
+    ).toMatchObject({
+      statusCode: 409,
+      code: NETWORK_SNAPSHOT_EXPIRED,
+    });
+  });
+
+  it("keeps tampered and replayed expired tokens on the generic bad-request path", () => {
     const token = createHierarchyReferenceToken("cursor", {
       actor: ACTOR,
       parentRef: PARENT_REF,
@@ -183,23 +226,25 @@ describe("network hierarchy reference tokens", () => {
     });
     const [encoded, signature] = token.split(".");
     const tampered = `${encoded.slice(0, -1)}${encoded.endsWith("A") ? "B" : "A"}.${signature}`;
-    const verify = (candidate: string, now: number) =>
+    const verify = (candidate: string, actor: ActorContext) =>
       verifyHierarchyReferenceToken(
         candidate,
         {
           kind: "cursor",
-          actor: ACTOR,
+          actor,
           parentRef: PARENT_REF,
           snapshotAt: SNAPSHOT_AT,
         },
-        now,
+        Date.parse(EXPIRES_AT),
       );
 
-    expect(() => verify(tampered, Date.parse(SNAPSHOT_AT))).toThrow(
-      "invalid hierarchy reference token",
+    expect(() => verify(tampered, ACTOR)).toThrow(BadRequestException);
+    expect(() => verify(tampered, ACTOR)).not.toThrow(
+      NetworkSnapshotExpiredException,
     );
-    expect(() => verify(token, Date.parse(EXPIRES_AT))).toThrow(
-      "invalid hierarchy reference token",
+    expect(() => verify(token, OTHER_VIEWER)).toThrow(BadRequestException);
+    expect(() => verify(token, OTHER_VIEWER)).not.toThrow(
+      NetworkSnapshotExpiredException,
     );
   });
 

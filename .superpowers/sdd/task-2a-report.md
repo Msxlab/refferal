@@ -70,3 +70,57 @@ None blocking. Cursor and cluster subjects intentionally accept bounded unpadded
 ## Commit
 
 Commit subject: `feat: add hierarchy contracts and opaque references`
+
+## Review follow-up: branded DTO boundary and snapshot expiry
+
+Status: ADDRESSED
+
+Two Important review findings were resolved in a follow-up commit:
+
+- Added unique-symbol `OpaqueMemberNodeRef` and `AnonymousMemberInitials` brands. Tier 2 and Tier 3 `nodeRef`, `parentRef`, and `initials` fields no longer accept a plain TypeScript `string`; direct-member `nodeRef` uses the same opaque brand so it can safely parent Tier 2 nodes.
+- Added public type guards and parsers. Opaque refs must be a bounded, structurally canonical two-section base64url token with a 32-byte signature; UUIDs, names, emails, and noncanonical base64url are rejected. Anonymous initials must be NFC-normalized and exactly two uppercase Unicode letters.
+- Changed `createHierarchyMemberReferenceToken` to return `OpaqueMemberNodeRef`, giving the service task a safe construction path without assertions.
+- Added exported `NetworkSnapshotExpiredException`, an HTTP 409 response carrying `code: 'NETWORK_SNAPSHOT_EXPIRED'`.
+- Moved expiry handling after signature verification, exact canonical payload validation, and complete kind/viewer/tenant/parent/snapshot binding validation. Tampered or replayed tokens remain the generic `BadRequestException` path even when checked after their nominal expiry.
+
+The follow-up expiry behavior supersedes the original report statement that all expired tokens use the generic bad-request error. Only a cryptographically valid, canonically encoded, correctly bound expired token receives the dedicated 409.
+
+### Follow-up TDD evidence
+
+RED was observed before each production change:
+
+```text
+types spec: missing brand/parser exports and plain string remained assignable to all eight checked privacy fields
+tokens spec: missing NETWORK_SNAPSHOT_EXPIRED and NetworkSnapshotExpiredException exports
+types edge-case spec: noncanonical one-character base64url payload was incorrectly accepted
+```
+
+GREEN after implementation and self-review:
+
+```text
+Jest unit project, focused hierarchy specs
+Test Suites: 2 passed, 2 total
+Tests:       20 passed, 20 total
+```
+
+```text
+tsc -p apps/api/tsconfig.json --noEmit
+Exit code: 0
+
+tsc -p apps/api/tsconfig.build.json --noEmit
+Exit code: 0
+
+Prettier check
+All matched files use Prettier code style!
+
+git diff --check
+Exit code: 0
+```
+
+### Follow-up scope and concerns
+
+- Modified only the Task 2A type/token implementation and focused specs, plus this report.
+- Added no routes, controllers, services, modules, database access, or UI changes.
+- No blocking concerns remain.
+
+Follow-up commit subject: `fix: harden hierarchy privacy and expiry contracts`

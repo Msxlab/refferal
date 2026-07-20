@@ -1,5 +1,71 @@
 export type NetworkStatus = "active" | "inactive";
 
+declare const opaqueMemberNodeRefBrand: unique symbol;
+declare const anonymousMemberInitialsBrand: unique symbol;
+
+/** A structurally canonical signed member reference, never a raw membership identifier. */
+export type OpaqueMemberNodeRef = string & {
+  readonly [opaqueMemberNodeRefBrand]: "OpaqueMemberNodeRef";
+};
+
+/** Exactly two canonical uppercase letters for a redacted Tier 2-3 identity. */
+export type AnonymousMemberInitials = string & {
+  readonly [anonymousMemberInitialsBrand]: "AnonymousMemberInitials";
+};
+
+const OPAQUE_MEMBER_NODE_REF_MAX_LENGTH = 2048;
+const OPAQUE_MEMBER_NODE_REF = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/;
+const ANONYMOUS_MEMBER_INITIALS = /^\p{Lu}{2}$/u;
+
+function isCanonicalBase64Url(value: string): boolean {
+  try {
+    const decoded = Buffer.from(value, "base64url");
+    return decoded.length > 0 && decoded.toString("base64url") === value;
+  } catch {
+    return false;
+  }
+}
+
+export function isOpaqueMemberNodeRef(
+  value: unknown,
+): value is OpaqueMemberNodeRef {
+  if (
+    typeof value !== "string" ||
+    value.length > OPAQUE_MEMBER_NODE_REF_MAX_LENGTH ||
+    !OPAQUE_MEMBER_NODE_REF.test(value)
+  ) {
+    return false;
+  }
+  const [payload, signature] = value.split(".");
+  return isCanonicalBase64Url(payload) && isCanonicalBase64Url(signature);
+}
+
+export function parseOpaqueMemberNodeRef(value: string): OpaqueMemberNodeRef {
+  if (!isOpaqueMemberNodeRef(value)) {
+    throw new TypeError("invalid opaque member node reference");
+  }
+  return value;
+}
+
+export function isAnonymousMemberInitials(
+  value: unknown,
+): value is AnonymousMemberInitials {
+  return (
+    typeof value === "string" &&
+    value.normalize("NFC") === value &&
+    ANONYMOUS_MEMBER_INITIALS.test(value)
+  );
+}
+
+export function parseAnonymousMemberInitials(
+  value: string,
+): AnonymousMemberInitials {
+  if (!isAnonymousMemberInitials(value)) {
+    throw new TypeError("invalid anonymous member initials");
+  }
+  return value;
+}
+
 export interface SyntheticTenantRootNode {
   kind: "tenantRoot";
   label: string;
@@ -69,7 +135,7 @@ export interface MemberSelfNode {
 
 export interface MemberDirectNode {
   kind: "direct";
-  nodeRef: string;
+  nodeRef: OpaqueMemberNodeRef;
   parentRef: "self";
   localTier: 1;
   displayName: string;
@@ -97,9 +163,9 @@ export type MemberPerformanceBand =
 
 interface MemberAnonymousNodeBase {
   kind: "anonymous";
-  nodeRef: string;
-  parentRef: string;
-  initials: string;
+  nodeRef: OpaqueMemberNodeRef;
+  parentRef: OpaqueMemberNodeRef;
+  initials: AnonymousMemberInitials;
   status: NetworkStatus;
   performanceBand: MemberPerformanceBand;
 }

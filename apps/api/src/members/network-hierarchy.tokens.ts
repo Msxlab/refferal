@@ -1,12 +1,28 @@
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, ConflictException } from "@nestjs/common";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { authConfig } from "../auth/auth.config";
 import { ActorContext } from "../common/actor";
 import { sha256 } from "../common/crypto";
+import {
+  parseOpaqueMemberNodeRef,
+  type OpaqueMemberNodeRef,
+} from "./network-hierarchy.types";
 
 export const HIERARCHY_TOKEN_DOMAIN = "referral-network-hierarchy:v1" as const;
 export const HIERARCHY_REFERENCE_TTL_MS = 15 * 60 * 1000;
 export const HIERARCHY_TOKEN_MAX_LENGTH = 2048;
+export const NETWORK_SNAPSHOT_EXPIRED = "NETWORK_SNAPSHOT_EXPIRED" as const;
+
+/** A valid, correctly bound hierarchy reference whose fixed snapshot window elapsed. */
+export class NetworkSnapshotExpiredException extends ConflictException {
+  constructor() {
+    super({
+      statusCode: 409,
+      code: NETWORK_SNAPSHOT_EXPIRED,
+      message: "network snapshot expired",
+    });
+  }
+}
 
 const HIERARCHY_SIGNATURE_LENGTH = 43;
 const HIERARCHY_SUBJECT_MAX_LENGTH = 512;
@@ -237,10 +253,10 @@ export function hierarchyMemberReferenceMatches(
 
 export function createHierarchyMemberReferenceToken(
   input: CreateHierarchyMemberReferenceInput,
-): string {
+): OpaqueMemberNodeRef {
   const subject = deriveHierarchyMemberReference(input);
-  return signHierarchyReferenceToken(
-    buildPayload("member", { ...input, subject }),
+  return parseOpaqueMemberNodeRef(
+    signHierarchyReferenceToken(buildPayload("member", { ...input, subject })),
   );
 }
 
@@ -362,10 +378,12 @@ export function verifyHierarchyReferenceToken(
     typedPayload.viewerUserId !== binding.actor.userId ||
     typedPayload.tenantId !== binding.actor.tenantId ||
     typedPayload.parentFingerprint !== expectedParentFingerprint ||
-    typedPayload.snapshotAt !== binding.snapshotAt ||
-    now >= Date.parse(typedPayload.expiresAt)
+    typedPayload.snapshotAt !== binding.snapshotAt
   ) {
     invalidToken();
+  }
+  if (now >= Date.parse(typedPayload.expiresAt)) {
+    throw new NetworkSnapshotExpiredException();
   }
   return typedPayload;
 }
