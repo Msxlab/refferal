@@ -9,9 +9,11 @@ describe('members tree snapshot route contract', () => {
 
   it('keeps the static route before :id and applies the tree authorization contract', () => {
     expect(controller).toMatch(
-      /@Roles\(\.\.\.STAFF\)\s+@RequirePermission\('network\.view', 'network\.financials\.view'\)\s+@Get\('tree-snapshot'\)/,
+      /@Roles\(\.\.\.STAFF\)\s+@RequirePermission\(["']network\.view["'], ["']network\.financials\.view["']\)\s+@Get\(["']tree-snapshot["']\)/,
     );
-    expect(controller.indexOf("@Get('tree-snapshot')")).toBeLessThan(controller.indexOf("@Get(':id')"));
+    expect(controller.search(/@Get\(["']tree-snapshot["']\)/)).toBeLessThan(
+      controller.search(/@Get\(["']:id["']\)/),
+    );
   });
 
   it('separates count from the bounded selection inside a repeatable-read snapshot', () => {

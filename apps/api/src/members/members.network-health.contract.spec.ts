@@ -4,7 +4,9 @@ import { join } from 'node:path';
 describe('network-health authorization and active-seller contract', () => {
   it('requires network.view before returning named cluster data', () => {
     const source = readFileSync(join(__dirname, 'members.admin.controller.ts'), 'utf8');
-    expect(source).toMatch(/@RequirePermission\('network\.view'\)\s+@Get\('network-health'\)/);
+    expect(source).toMatch(
+      /@RequirePermission\(["']network\.view["']\)\s+@Get\(["']network-health["']\)/,
+    );
   });
 
   it('counts distinct active sellers without materializing every seller id', () => {

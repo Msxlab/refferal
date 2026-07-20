@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { ExecutionContext } from '@nestjs/common';
+import { ExecutionContext, Logger } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { MembershipStatus, Role, TenantStatus } from '@prisma/client';
 import { AccessTokenGuard, RequirePermission } from './auth.guard';
@@ -18,6 +18,7 @@ describe('AccessTokenGuard combined permission contract', () => {
   async function canAccess(
     route: object,
     permissions: string[],
+    url = '/test',
   ): Promise<boolean> {
     const updatedAt = new Date('2026-07-20T00:00:00.000Z');
     const guard = new AccessTokenGuard(
@@ -52,7 +53,7 @@ describe('AccessTokenGuard combined permission contract', () => {
         },
       } as never,
     );
-    const request = { headers: { authorization: 'Bearer test-token' }, method: 'GET', url: '/test' };
+    const request = { headers: { authorization: 'Bearer test-token' }, method: 'GET', url };
     const context = {
       getHandler: () => route.constructor.prototype.handler,
       getClass: () => route.constructor,
@@ -74,5 +75,21 @@ describe('AccessTokenGuard combined permission contract', () => {
       'you do not have permission for this action',
     );
     await expect(canAccess(new CombinedPermissionRoute(), ['network.view', 'network.financials.view'])).resolves.toBe(true);
+  });
+
+  it('redacts hierarchy references from permission-denied security logs', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    await expect(
+      canAccess(
+        new CombinedPermissionRoute(),
+        ['network.view'],
+        '/v1/admin/members/network-children?parentRef=signed-parent&cursor=signed-cursor',
+      ),
+    ).rejects.toThrow('you do not have permission for this action');
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('GET /v1/admin/members/network-children'));
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('signed-parent'));
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('signed-cursor'));
+    warn.mockRestore();
   });
 });

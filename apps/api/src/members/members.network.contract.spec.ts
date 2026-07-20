@@ -49,14 +49,14 @@ describe("referral network permission and hierarchy contract", () => {
     for (const route of ["tree", "tree-snapshot", "leaders"]) {
       expect(controller).toMatch(
         new RegExp(
-          `@Roles\\(\\.\\.\\.STAFF\\)\\s+@RequirePermission\\('network\\.view', 'network\\.financials\\.view'\\)\\s+@Get\\('${route}'\\)`,
+          `@Roles\\(\\.\\.\\.STAFF\\)\\s+@RequirePermission\\(["']network\\.view["'], ["']network\\.financials\\.view["']\\)\\s+@Get\\(["']${route}["']\\)`,
         ),
       );
     }
   });
 
   it("declares every structural hierarchy route before the dynamic member route", () => {
-    const dynamicRoute = controller.indexOf("@Get(':id')");
+    const dynamicRoute = controller.search(/@Get\(["']:id["']\)/);
 
     expect(dynamicRoute).toBeGreaterThan(0);
     for (const route of [
@@ -66,7 +66,7 @@ describe("referral network permission and hierarchy contract", () => {
       "network-cluster-children",
       "network-list",
     ]) {
-      const routePosition = controller.indexOf(`('${route}')`);
+      const routePosition = controller.search(new RegExp(`\(["']${route}["']\)`));
       expect(routePosition).toBeGreaterThan(0);
       expect(routePosition).toBeLessThan(dynamicRoute);
     }
@@ -77,12 +77,12 @@ describe("referral network permission and hierarchy contract", () => {
       /const networkSearchSchema = z\.object\(\{[\s\S]*query: z\.string\(\)\.trim\(\)\.min\(2\)\.max\(120\)/,
     );
     expect(controller).toMatch(
-      /@Post\('network-search'\)[\s\S]*@Body\(new ZodValidationPipe\(networkSearchSchema\)\)/,
+      /@Post\(["']network-search["']\)[\s\S]*@Body\(new ZodValidationPipe\(networkSearchSchema\)\)/,
     );
-    expect(controller).not.toMatch(/@Get\('network-search'\)/);
+    expect(controller).not.toMatch(/@Get\(["']network-search["']\)/);
     const searchMethod = controller.slice(
       controller.indexOf("networkSearch("),
-      controller.indexOf("@Get('network-children')"),
+      controller.search(/@Get\(["']network-children["']\)/),
     );
     expect(searchMethod).toContain(
       "@Body(new ZodValidationPipe(networkSearchSchema))",
@@ -94,8 +94,8 @@ describe("referral network permission and hierarchy contract", () => {
     expect(controller).toMatch(
       /depth: z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(5\)\.default\(3\)/,
     );
-    expect(controller).toMatch(/scope === 'focused'.*focusId/s);
-    expect(controller).toMatch(/scope === 'full'.*focusId/s);
+    expect(controller).toMatch(/scope === ["']focused["'].*focusId/s);
+    expect(controller).toMatch(/scope === ["']full["'].*focusId/s);
     expect(controller).toMatch(/new Date\(value\)\.toISOString\(\) === value/);
     expect(controller).toMatch(/\.max\(HIERARCHY_TOKEN_MAX_LENGTH\)/);
   });
@@ -110,16 +110,14 @@ describe("referral network permission and hierarchy contract", () => {
     ]) {
       expect(controller).toMatch(
         new RegExp(
-          `@Roles\\(\\.\\.\\.STAFF\\)\\s+@RequirePermission\\('network\\.view'\\)[\\s\\S]{0,80}\\('${route}'\\)`,
+          `@Roles\\(\\.\\.\\.STAFF\\)\\s+@RequirePermission\\(["']network\\.view["']\\)[\\s\\S]{0,80}\\(["']${route}["']\\)`,
         ),
       );
     }
-    expect(controller).toContain(
-      "hasEffectivePermission(user, 'network.financials.view')",
+    expect(controller).toMatch(
+      /hasEffectivePermission\(user, ["']network\.financials\.view["']\)/,
     );
-    expect(controller).toContain(
-      "hasEffectivePermission(user, 'members.view')",
-    );
+    expect(controller).toMatch(/hasEffectivePermission\(user, ["']members\.view["']\)/);
   });
 
   it("locks the approved future hierarchy caps and member privacy boundary without assuming its API exists", () => {
