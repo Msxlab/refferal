@@ -55,10 +55,10 @@ export function render(template: string, payload: Record<string, unknown>, fallb
         body: `Payout status update for the ${payload.period} period (${money(payload.totalCents, currency)}).`,
       };
     case 'payout_auto_requested':
-      // Faz A3: esik dolunca otomatik talep acildi — para henuz cikmadi (onay bekler).
+      // Faz A3: threshold ve readiness tamamlaninca otomatik talep acilir; para henuz cikmaz.
       return {
-        subject: 'Your commission check is being prepared',
-        body: `Good news! Your balance reached the payout threshold, so a check for ${money(payload.totalCents, currency)} is being prepared for the ${payload.period} period. It's pending review and will be mailed to your address on file once approved. Make sure your mailing address is up to date in your account.`,
+        subject: 'Your payout request is ready for review',
+        body: `Good news! Your balance reached the payout threshold and your payout details are ready, so a payout request for ${money(payload.totalCents, currency)} was created for the ${payload.period} period. It is pending review; no funds have been released yet.`,
       };
     case 'team_member_joined':
       return {

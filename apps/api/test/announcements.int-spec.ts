@@ -31,8 +31,8 @@ describe('announcements (entegrasyon)', () => {
     const tenant = await createTenant(prisma);
     const [owner, member] = await createChain(prisma, tenant.id, 2);
     await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
-    const ownerTok = jwt.sign({ sub: owner.userId, mid: owner.id, tid: tenant.id, role: Role.tenant_owner } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
-    const memTok = jwt.sign({ sub: member.userId, mid: member.id, tid: tenant.id, role: Role.member } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
+    const ownerTok = jwt.sign({ sub: owner.userId, mid: owner.id, tid: tenant.id, role: Role.tenant_owner, authGeneration: 1 } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
+    const memTok = jwt.sign({ sub: member.userId, mid: member.id, tid: tenant.id, role: Role.member, authGeneration: 1 } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
 
     const created = await request(srv()).post('/v1/admin/announcements').set('Authorization', `Bearer ${ownerTok}`).send({ title: 'Welcome', body: 'Big news team!' }).expect(201);
 

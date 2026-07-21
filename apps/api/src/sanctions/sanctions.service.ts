@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { lockPayoutRiskState } from '../payouts/payout-risk-lock';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -25,15 +26,20 @@ export class SanctionsService {
 
   /** Listeyi yenile (MVP: yerlesik ornek). Donen: yuklenen kayit sayisi. */
   async refresh(): Promise<{ loaded: number }> {
-    for (const e of SAMPLE_OFAC) {
-      const normalizedName = normalizeName(e.name);
-      await this.prisma.sanctionsEntry.upsert({
-        where: { source_normalizedName: { source: 'OFAC', normalizedName } },
-        create: { name: e.name, normalizedName, source: 'OFAC', country: e.country },
-        update: { name: e.name, country: e.country },
-      });
-    }
-    return { loaded: SAMPLE_OFAC.length };
+    return this.prisma.$transaction(async (tx) => {
+      // Sanctions are global rather than tenant-bound, so they use the same
+      // global risk fence as dispatch and settlement eligibility checks.
+      await lockPayoutRiskState(tx);
+      for (const e of SAMPLE_OFAC) {
+        const normalizedName = normalizeName(e.name);
+        await tx.sanctionsEntry.upsert({
+          where: { source_normalizedName: { source: 'OFAC', normalizedName } },
+          create: { name: e.name, normalizedName, source: 'OFAC', country: e.country },
+          update: { name: e.name, country: e.country },
+        });
+      }
+      return { loaded: SAMPLE_OFAC.length };
+    });
   }
 
   async count(): Promise<number> {

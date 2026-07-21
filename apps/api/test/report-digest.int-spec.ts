@@ -34,7 +34,7 @@ describe('report digest (entegrasyon)', () => {
     await createPlan(prisma, tenant.id);
     const owner = await prisma.user.create({ data: { email: 'o@t.local', passwordHash: 'x', fullName: 'Owner', emailVerifiedAt: new Date() } });
     const m = await prisma.membership.create({ data: { tenantId: tenant.id, userId: owner.id, referralCode: 'OWN1', depth: 0, path: owner.id.replace(/-/g, '_'), role: Role.tenant_owner } });
-    const tok = jwt.sign({ sub: owner.id, mid: m.id, tid: tenant.id, role: Role.tenant_owner } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
+    const tok = jwt.sign({ sub: owner.id, mid: m.id, tid: tenant.id, role: Role.tenant_owner, authGeneration: 1 } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
     const auth = (r: request.Test) => r.set('Authorization', `Bearer ${tok}`);
 
     await auth(request(app.getHttpServer()).put('/v1/admin/report-subscription').send({ frequency: 'weekly', recipients: ['a@b.com', 'c@d.com'] })).expect(200);

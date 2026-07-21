@@ -1,7 +1,11 @@
 import { INestApplication } from '@nestjs/common';
-import { SaleStatus } from '@prisma/client';
+import { JwtService } from '@nestjs/jwt';
+import { Role, SaleStatus } from '@prisma/client';
 import { Test } from '@nestjs/testing';
+import request from 'supertest';
 import { AppModule } from '../src/app.module';
+import { authConfig } from '../src/auth/auth.config';
+import { AccessTokenPayload } from '../src/auth/auth.types';
 import { EngineService } from '../src/engine/engine.service';
 import { monthKey } from '../src/engine/month';
 import { MembersAdminService } from '../src/members/members.admin.service';
@@ -16,18 +20,35 @@ describe('network tree analytics (entegrasyon)', () => {
   let engine: EngineService;
   let members: MembersAdminService;
   let hierarchy: NetworkHierarchyService;
+  let jwt: JwtService;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
+    app.setGlobalPrefix('v1');
     await app.init();
     prisma = moduleRef.get(PrismaService);
     engine = moduleRef.get(EngineService);
     members = moduleRef.get(MembersAdminService);
     hierarchy = moduleRef.get(NetworkHierarchyService);
+    jwt = moduleRef.get(JwtService);
   });
   afterAll(async () => { await app.close(); });
   beforeEach(async () => { await truncateAll(prisma); });
+
+  function memberToken(membershipId: string, userId: string, tenantId: string): string {
+    const payload: AccessTokenPayload = {
+      sub: userId,
+      mid: membershipId,
+      tid: tenantId,
+      role: Role.member,
+      authGeneration: 1,
+    };
+    return jwt.sign(payload, {
+      secret: authConfig.accessSecret(),
+      expiresIn: authConfig.accessTtlSeconds,
+    });
+  }
 
   it('tree dugumleri joinedAt + earningsCents (payable+paid) tasir', async () => {
     const tenant = await createTenant(prisma); // on_approval → approve sonrasi payable
@@ -200,5 +221,44 @@ describe('network tree analytics (entegrasyon)', () => {
     expect(searchAfterTier4Membership.items[0].referralCode).toBe(
       tier1.referralCode,
     );
+  });
+
+  it('serves the authenticated member tree routes without disclosing deeper identities', async () => {
+    const tenant = await createTenant(prisma);
+    const [root, tier1, tier2, tier3, tier4] = await createChain(prisma, tenant.id, 5);
+    const token = memberToken(root.id, root.userId, tenant.id);
+    const auth = (requestBuilder: request.Test) => requestBuilder.set('Authorization', `Bearer ${token}`);
+
+    const tree = await auth(request(app.getHttpServer()).get('/v1/app/team/tree')).expect(200);
+    const direct = tree.body.initialPage.items.find((item: { kind: string }) => item.kind === 'direct');
+    expect(direct).toMatchObject({ localTier: 1, referralCode: tier1.referralCode });
+    expect(tree.body.scope.maxVisibleTier).toBe(3);
+
+    const children = await auth(
+      request(app.getHttpServer())
+        .get('/v1/app/team/tree/children')
+        .query({ parentRef: direct.nodeRef, snapshotAt: tree.body.scope.snapshotAt }),
+    ).expect(200);
+    expect(children.body.items).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'anonymous', localTier: 2 })]),
+    );
+
+    const search = await auth(
+      request(app.getHttpServer()).post('/v1/app/team/tree/direct-search'),
+    ).send({ query: 'User' }).expect(200);
+    expect(search.body.items).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'direct', referralCode: tier1.referralCode })]),
+    );
+
+    const serialized = JSON.stringify({ tree: tree.body, children: children.body, search: search.body });
+    for (const privateMember of [tier2, tier3, tier4]) {
+      expect(serialized).not.toContain(privateMember.referralCode);
+      expect(serialized).not.toContain(privateMember.userId);
+    }
+    await auth(
+      request(app.getHttpServer())
+        .get('/v1/app/team/tree/children')
+        .query({ parentRef: 'invalid', snapshotAt: tree.body.scope.snapshotAt }),
+    ).expect(400);
   });
 });

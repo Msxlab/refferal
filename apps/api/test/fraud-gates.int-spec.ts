@@ -130,7 +130,7 @@ describe('fraud gates (integration)', () => {
       .expect(200);
   });
 
-  it('B2: payout ONAYINDA (decide) fraud kapisi CANLI dogrulanir — talepten sonra flag`lanan uye odenmez', async () => {
+  it('B2: reviewed payout confirmation rechecks a live fraud flag after the member request', async () => {
     const tenant = await createTenant(prisma); // on_approval → payable
     await createPlan(prisma, tenant.id);
     const chain = await createChain(prisma, tenant.id, 6);
@@ -140,6 +140,7 @@ describe('fraud gates (integration)', () => {
 
     const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
     await engine.approveSale(sale.id);
+    await seedReadyPayoutCompliance(prisma, tenant.id, seller.id, owner.userId);
 
     // seller TEMIZ iken payout talebi acar → requested
     const sellerTok = token({ userId: seller.userId, membershipId: seller.id, tenantId: tenant.id, role: Role.member });
@@ -153,24 +154,84 @@ describe('fraud gates (integration)', () => {
     await prisma.fraudFlag.create({ data: { tenantId: tenant.id, membershipId: seller.id, score: 80, status: 'open' } });
 
     const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
-    // admin onaylamak isteyince CANLI fraud kapisi parayi durdurur → 403
-    await request(app.getHttpServer())
-      .post(`/v1/admin/payouts/${payoutId}/decide`)
+    // The signed batch review rechecks the live fraud gate and cannot reserve funds.
+    const scope = { mode: 'selected', membershipIds: [seller.id] };
+    const blockedPreview = await request(app.getHttpServer())
+      .post('/v1/admin/payouts/batches/preview')
       .set('Authorization', `Bearer ${ownerTok}`)
-      .send({ action: 'approve' })
-      .expect(403);
+      .send({ scope })
+      .expect(200);
+    expect(blockedPreview.body).toMatchObject({ eligibleCount: 0, excludedCount: 1, totals: [] });
+    const blockedConfirmation = await request(app.getHttpServer())
+      .post('/v1/admin/payouts/batches')
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ scope: blockedPreview.body.normalizedScope, previewToken: blockedPreview.body.previewToken })
+      .expect(200);
+    expect(blockedConfirmation.body).toMatchObject({
+      id: null,
+      status: null,
+      processingCount: 0,
+      skippedCount: 1,
+      skipped: [{ membershipId: seller.id, reason: 'payout_not_ready', netCents: '500000' }],
+    });
 
     // odeme hala requested (para cikmadi)
     const stillReq = await prisma.payout.findUniqueOrThrow({ where: { id: payoutId } });
     expect(stillReq.status).toBe('requested');
 
-    // flag temizlenince onay gecer → 200
+    // A new signed review after the flag is cleared can reserve the requested payout.
     await prisma.fraudFlag.update({ where: { membershipId: seller.id }, data: { status: 'cleared' } });
-    await request(app.getHttpServer())
-      .post(`/v1/admin/payouts/${payoutId}/decide`)
+    const clearedPreview = await request(app.getHttpServer())
+      .post('/v1/admin/payouts/batches/preview')
       .set('Authorization', `Bearer ${ownerTok}`)
-      .send({ action: 'approve' })
+      .send({ scope })
       .expect(200);
+    const approved = await request(app.getHttpServer())
+      .post('/v1/admin/payouts/batches')
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ scope: clearedPreview.body.normalizedScope, previewToken: clearedPreview.body.previewToken })
+      .expect(200);
+    expect(approved.body).toMatchObject({ status: 'processing', processingCount: 1 });
+    expect(approved.body.processing).toEqual(expect.arrayContaining([
+      expect.objectContaining({ membershipId: seller.id, payoutId }),
+    ]));
+  });
+
+  it('B2: settlement rechecks a fraud flag raised after a reviewed batch starts', async () => {
+    const tenant = await createTenant(prisma);
+    await createPlan(prisma, tenant.id);
+    const chain = await createChain(prisma, tenant.id, 2);
+    const [owner, seller] = chain;
+    await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
+    const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
+    await engine.approveSale(sale.id);
+    await seedReadyPayoutCompliance(prisma, tenant.id, seller.id, owner.userId);
+
+    const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
+    const scope = { mode: 'selected', membershipIds: [seller.id] };
+    const preview = await request(app.getHttpServer())
+      .post('/v1/admin/payouts/batches/preview')
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ scope })
+      .expect(200);
+    const started = await request(app.getHttpServer())
+      .post('/v1/admin/payouts/batches')
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ scope, previewToken: preview.body.previewToken })
+      .expect(200);
+
+    await prisma.fraudFlag.create({
+      data: { tenantId: tenant.id, membershipId: seller.id, score: 80, status: 'open' },
+    });
+    await request(app.getHttpServer())
+      .post(`/v1/admin/payouts/batches/${started.body.id}/settle`)
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ settlementReference: 'fraud-recheck', settlementEvidence: 'bank-confirmation' })
+      .expect(409);
+
+    const payout = await prisma.payout.findFirstOrThrow({ where: { batchId: started.body.id } });
+    expect(payout.status).toBe('processing');
+    expect(payout.paidAt).toBeNull();
   });
 
   it('davet cap: gunluk limit asilinca reddedilir', async () => {

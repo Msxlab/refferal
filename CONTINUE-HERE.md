@@ -1,113 +1,120 @@
-# Continue Here — Referral Network Hierarchy
+# Codex continuation handoff - read this first
 
-**Son güncelleme:** 2026-07-20
+Last updated: 2026-07-21
 
-Bu dosya bilgisayar veya Codex task değişiminde çalışmayı kaybetmeden devam ettirmek içindir.
+This repository is in an active release-hardening branch. Before editing, testing, rebasing, or deploying, read this entire file and then inspect `git status --short`. Preserve every existing change unless its intent is understood. Do not use `git reset --hard`, `git checkout --`, force-push, or delete test data/services.
 
-## Repository ve branch
+## Repository
 
-- GitHub: `https://github.com/Msxlab/refferal`
-- Çalışma branch'i: `codex/earnica-referral-value-flow`
-- Ana tasarım spec'i: [`docs/superpowers/specs/2026-07-20-referral-network-hierarchy-design.md`](docs/superpowers/specs/2026-07-20-referral-network-hierarchy-design.md)
-- Seçilen admin görseli: [`docs/superpowers/specs/assets/referral-tree-admin-focus-cockpit.png`](docs/superpowers/specs/assets/referral-tree-admin-focus-cockpit.png)
-- Seçilen üye görseli: [`docs/superpowers/specs/assets/referral-tree-member-focus-tree.png`](docs/superpowers/specs/assets/referral-tree-member-focus-tree.png)
+- GitHub: https://github.com/Msxlab/refferal
+- Working branch: `codex/earnica-referral-value-flow`
+- Active pull request: https://github.com/Msxlab/refferal/pull/8
+- Intended production URL: https://earn.oppeinnj.com/
+- Current production deployment is NOT confirmed. SSH authentication to the host was rejected; do not claim the app is live.
 
-Bu handoff yazılırken `origin/main`, PR #7 merge commit'iyle yerel base'in bir merge commit önündeydi. Branch'i silme, hard reset yapma veya başka branch üzerine zorla yazma. Uygulama başlamadan önce `origin/main` güvenli biçimde reconcile edilmeli ve conflict varsa davranış/test kanıtıyla çözülmelidir.
+## What has been completed
 
-## Tamamlananlar
+### Referral tree / product work
 
-### Git geçmişi
+- Admin hierarchy now supports a professional focus-tree workflow: select any member, make them Tier 1, inspect descendants, and retain full identity for admins.
+- Member tree is privacy bounded: one direct sponsor above, self as root, Tier 1 full identity, Tier 2-3 anonymized initials/performance summary, no Tier 4+ disclosure.
+- Tree pagination/query snapshot behavior was repaired in web and mobile. Existing focused checks passed: web 8/8, mobile 6/6, mobile typecheck.
+- Related tree/API contract, RBAC, privacy, and URL-redaction regression coverage was added.
 
-- `e5d5658` — referral value-flow planı.
-- `8f339c2` — Earnica admin shell düzeltmesi.
-- `70144b9` — referral value-flow model ve web bileşenleri.
-- `1e8411b` — web/native contract test onarımları.
-- `5b413b9` — referral value-flow workspace teslimi.
-- `671d1cb` — referral network hierarchy tasarım spesifikasyonu.
+### Security and payout hardening
 
-### İnceleme ve tasarım
+- JWT/session generation invalidation was strengthened for impersonation/act-as flows.
+- Tenant admin RBAC delegation was constrained to canonical allowed permissions.
+- Legacy direct payout approval, settlement, retry, and maker-checker mutation routes now fail closed instead of moving money without a signed reviewed batch.
+- Admin payout UI uses preview -> signed review -> start processing. A direct request approval opens the reviewed-batch confirmation instead of reserving money directly.
+- Manual payout readiness and runtime fraud/KYC/sanctions checks were added at request/reservation time.
+- Auto payout requests use the same safe request path and now have readiness, fraud, and concurrency coverage.
+- SSE was hardened: no access token in a URL, bearer-authenticated fetch streaming, owner/admin-only access, periodic + per-event membership/role/session revalidation, and staff does not mount the admin live indicator.
+- Payout settlement now publishes the canonical `payout.paid` live event and queues matching webhooks after a successful committed settlement.
+- Deployment documentation was improved for Caddy versus cPanel/Apache deployments and fail-closed proxy configuration.
 
-- Admin `/admin/tree`, üye `/app/team`, legacy `NetworkExplorer`, API tree snapshot, ltree sorguları, yetkiler, responsive ve erişilebilirlik incelendi.
-- Üç admin yönü üretildi; kullanıcı **Focus Cockpit** yönünü seçti.
-- Focus Cockpit'in gizlilik kontrollü member karşılığı üretildi ve seçildi.
-- Onaylanan görseller repository içine kopyalandı; yeni bilgisayarda da erişilebilir.
-- Detaylı tasarım spec'i yazıldı, self-review yapıldı ve commit edildi.
+### New payout dispatch checkpoint (important current work)
 
-## Kilitlenmiş ürün kararları
+A safer three-step lifecycle is being introduced:
 
-### Admin
+1. `processing`: money is reserved and may still be released.
+2. `dispatched`: an admin records the bank/provider hand-off with reference and evidence; compliance is checked at this irreversible checkpoint and the batch can no longer be released.
+3. `settled`: bank/provider settlement evidence marks the linked payouts and ledger rows paid.
 
-- Gerçek kişi hierarchy varsayılan yüzeydir; finansal Value flow ikincil surface olarak korunur.
-- Admin bütün ağı full identity ile görebilir.
-- Admin herhangi bir üyeyi seçebilir ve açık `Focus as Tier 1` aksiyonuyla yerel kök yapabilir.
-- Global tier ve şirket köküne kadar ancestor zinciri her zaman korunur.
-- Full network büyük tenant'larda cursor, exact branch counts ve cluster/progressive loading kullanır.
-- Identity, member detail ve financial capability'leri birbirinden ayrılır.
+Current implementation adds:
 
-### Üye
+- Prisma migration: `apps/api/prisma/migrations/20260721140000_payout_dispatch_checkpoint/`
+- `PayoutSettlementBatchStatus.dispatched` and dispatch metadata columns.
+- `POST /v1/admin/payouts/batches/:id/dispatch`
+- Admin UI controls for `Mark dispatched`, `Settle batch`, and safe `Release batch` only before dispatch.
+- A shared transaction-scoped PostgreSQL advisory lock for payout risk-state writers (fraud, KYC, sanctions) and payout reservation/dispatch so a new risk decision cannot commit between the final compliance read and payment dispatch.
 
-- Üye üzerinde yalnızca tek sponsor görünür.
-- Self sabit tree root'tur.
-- Tier 1 direkt üyeler tam isimlidir.
-- Tier 2–3 yalnız iki harf + anonim label + privacy-safe performans bandı gösterir.
-- Tier 3 terminaldir.
-- Tier 4+ node, edge, count, cluster, tooltip, search sonucu veya KPI olarak görünmez.
-- Aynı görünür tier'daki saklı kardeşler yalnız exact tier etiketiyle (`+N Tier 2 members`) açılabilir; `Tier 2+` kullanılmaz.
-- Member KPI'ları ve volume yalnız Tier 1–3 seller/activity kapsamından hesaplanır.
+This work was intentionally saved before the final full test pass. Treat it as in progress until the validation section below is complete.
 
-## Henüz yapılmayanlar
+## Remaining work, in order
 
-1. Kullanıcının yazılı spec'i inceleyip açıkça onaylaması.
-2. Onaydan sonra `writing-plans` skill'iyle ayrıntılı uygulama planının yazılması.
-3. **Faz A:** permission/DTO sınırı, integrity audit/constraint, API'ler, shared web tree, admin ve member web.
-4. Faz A API, security, web, accessibility, responsive, performance ve visual QA.
-5. **Faz B:** HQ tree konsolidasyonu ve Expo member team outline.
-6. Native VoiceOver/TalkBack, Dynamic Type ve contract testleri.
-7. `origin/main` ile güvenli final reconciliation, tam test matrisi, push ve gerekiyorsa PR güncellemesi.
+1. Run Prisma generation and apply migrations on a disposable/local test database. Do not migrate production until the test matrix is green.
+2. Finish adapting payout integration tests to the required lifecycle: `start -> dispatch -> settle`. In particular search for every direct `/settle` and `engine.settlePayoutBatch` call. Add dispatch first, except tests intentionally asserting that settlement before dispatch is rejected.
+3. Add/finish regression coverage for:
+   - dispatch rechecks fraud/KYC/sanctions and fails closed;
+   - a dispatched batch cannot be released/reopened;
+   - settlement after dispatch succeeds even if a risk flag changes later (no double-pay release path);
+   - payout event/webhook emits exactly once on a successful settlement and not on idempotent/no-op settlement;
+   - concurrent risk writer versus dispatch is serialized by the new advisory lock.
+4. Re-run API typecheck, focused payout/fraud/audit/event suites, web typecheck/contracts, then the full test matrix in serial groups. Integration tests share a database and call `truncateAll`; never run integration suites concurrently.
+5. Inspect `git diff --check`, review the final diff, commit, push this branch, wait for PR #8 checks, and merge only when checks are green.
+6. Production deploy remains blocked until the owner supplies valid SSH access for `server.oppeinnj.com` (the previously attempted local key was rejected). Do not guess credentials or report deployment as successful.
 
-## Bilinen mevcut sorunlar
+## Known test/verification state
 
-- Admin ekranı halen kişi ağacı yerine finansal Value flow'u ana canvas olarak gösteriyor.
-- Admin hierarchy tablosu flat ve ilk 50 satırla sınırlı.
-- Bir üyeye tıklamak mock/detail alanı eksik olduğunda `Cannot read properties of undefined (reading 'trim')` ile bütün sayfayı düşürebiliyor.
-- Mevcut admin tree snapshot 500 node ile bounded; cursor yok ve ancestor zinciri response'ta bulunmuyor.
-- Loaded window'dan türetilen takım/gelir değerleri eksik sonucu kesinmiş gibi gösterebilir.
-- Üye `/app/team` yalnız aggregate/radial görünüm sunuyor; self/sponsor/gerçek ilişkiler görünmüyor.
-- Üye API'si mevcut durumda plan depth'iyle aggregate veri döndürüyor; yeni Tier 1–3 redacted tree contract henüz uygulanmadı.
-- Legacy `NetworkExplorer` pointer-only node/row, eksik tab semantiği ve mobile overflow sorunları taşıyor.
-- Mevcut `network.view`, node finansallarını gereğinden geniş açıyor; yeni capability ayrımı henüz uygulanmadı.
+Verified earlier in this branch:
 
-## Yeni bilgisayarda devam
+- API unit suite: 32 suites / 166 tests passed before the newest dispatch checkpoint work.
+- Scheduler + notification focused suite: 31/31 passed before the newest checkpoint work.
+- SSE hardening focused checks: API guard 3/3, SSE integration 3/3, web typecheck/contracts 9/9.
+- `git diff --check` has passed after the broad changes.
+- API TypeScript typecheck passed after the dispatch checkpoint schema/client generation (2026-07-21).
+- Web TypeScript typecheck passed after the dispatch UI changes (2026-07-21).
 
-Yeni clone için:
+Not yet verified after the latest dispatch/schema work:
+
+- Full integration suite has not passed. A previous full-suite attempt was stopped; do not claim a full pass.
+- The direct-approval test migration agent updated `payouts.int-spec.ts`, `fraud-gates.int-spec.ts`, and `audit-remediation.int-spec.ts`, but its final focused run was interrupted by the checkpoint work.
+
+## Local validation commands
+
+Use the bundled Node runtime when `pnpm` is unavailable. Configure the test database/Redis/JWT environment from secure local values first. Example command shape:
+
+```powershell
+Set-Location apps/api
+$node = 'C:\Users\Mustafa\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe'
+& $node .\node_modules\prisma\build\index.js generate
+& $node .\node_modules\prisma\build\index.js migrate deploy
+& $node .\node_modules\typescript\bin\tsc -p tsconfig.json --noEmit
+& $node .\node_modules\jest\bin\jest.js --config jest.config.js --selectProjects unit --runInBand
+```
+
+For integration tests, set the test `DATABASE_URL`, `DATABASE_URL_TEST`, `REDIS_URL`, `JWT_ACCESS_SECRET`, and `NODE_ENV=test`, then run one suite/group at a time with `--selectProjects integration --runInBand`.
+
+## Clone / resume instructions
 
 ```powershell
 git clone https://github.com/Msxlab/refferal.git
 Set-Location refferal
-git fetch origin
-git switch --track origin/codex/earnica-referral-value-flow
-git status -sb
-```
-
-Repo zaten varsa:
-
-```powershell
 git fetch origin --prune
-git switch codex/earnica-referral-value-flow
-git pull --ff-only
-git status -sb
+git switch --track origin/codex/earnica-referral-value-flow
+git status --short
 ```
 
-Codex'te bu repository klasörünü aç ve şu mesajı gönder:
+Prompt a new Codex session with:
 
 ```text
-CONTINUE-HERE.md ile docs/superpowers/specs/2026-07-20-referral-network-hierarchy-design.md dosyalarını tamamen oku. Referral tree tasarım spec'ini onaylıyorum. Önce writing-plans süreciyle ayrıntılı uygulama planını oluştur; sonra plandaki Faz A ve Faz B'yi sırayla uygula. Mevcut kullanıcı değişikliklerini koru, origin/main'i hard reset etme ve her fazı ilgili testlerle doğrula.
+Read AGENTS.md and CONTINUE-HERE.md completely before doing anything. Resume the release-hardening work on codex/earnica-referral-value-flow. Preserve existing changes, finish the payout dispatch checkpoint and its test matrix, push PR #8 only after verification, and do not claim production deployment without verified SSH access.
 ```
 
-Spec'te değiştirmek istediğin bir nokta varsa “onaylıyorum” yerine değişikliği yaz; plan oluşturulmadan önce spec güncellenmelidir.
+## Safety notes
 
-## Güvenlik notu
-
-- `.env`, secret, credential veya token bu handoff dosyasına yazılmadı.
-- Eski bilgisayardaki `.env` dosyalarını GitHub'a yükleme. Yeni bilgisayarda güvenli kaynaktan yeniden kur.
-- GitHub CLI (`gh`) bu bilgisayarda kurulu değildi; branch push normal `git` ile yapılabilir, PR işlemleri yeni bilgisayarda `gh auth login` sonrasında veya GitHub web arayüzünden sürdürülebilir.
+- Do not put `.env`, passwords, tokens, or SSH private keys in Git.
+- Do not run destructive git operations or concurrently run integration tests.
+- Keep the PR branch prefix `codex/`.
+- If a new finding materially changes the payout lifecycle, update this file before handing off again.

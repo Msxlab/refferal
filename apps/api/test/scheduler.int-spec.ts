@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { LedgerStatus, LedgerType, MaturationRule, PayoutStatus, SaleStatus } from '@prisma/client';
+import { FraudStatus, LedgerStatus, LedgerType, MaturationRule, PayoutStatus, SaleStatus } from '@prisma/client';
 import { EngineService } from '../src/engine/engine.service';
 import { BackgroundJobStatusService } from '../src/health/background-job-status.service';
 import { RanksService } from '../src/ranks/ranks.service';
@@ -12,11 +12,10 @@ import { CampaignsService } from '../src/campaigns/campaigns.service';
 import { PayoutsService } from '../src/payouts/payouts.service';
 import { PayoutComplianceService } from '../src/payouts/payout-compliance.service';
 import { EventsService } from '../src/events/events.service';
-import { SanctionsService } from '../src/sanctions/sanctions.service';
 import { AlertsService } from '../src/observability/alerts.service';
 import { EnvAesGcmSecretCryptoProvider, VersionedSecretCipher } from '../src/common/secret-cipher';
 import { SchedulerService } from '../src/scheduler/scheduler.service';
-import { createChain, createPlan, createSale, createTenant, summaryTotals, truncateAll } from './helpers';
+import { createChain, createPlan, createSale, createTenant, seedReadyPayoutCompliance, summaryTotals, truncateAll } from './helpers';
 
 /**
  * Review finding (critical path): with on_delivery, markDelivered does not change status;
@@ -45,7 +44,6 @@ describe('scheduler - maturation job chain (integration)', () => {
       compliance,
       new WebhooksService(prisma),
       new EventsService(),
-      new SanctionsService(prisma),
       secretCipher,
     );
     scheduler = new SchedulerService(
@@ -199,15 +197,16 @@ describe('scheduler - maturation job chain (integration)', () => {
     return { tenant, seller };
   }
 
-  it('A3 auto-request: esigi gecen uyeye requested cek + email/in_app bildirim; idempotent', async () => {
+  it('A3 auto-request: ready threshold member receives requested manual payout + email/in_app notification; idempotent', async () => {
     const { tenant, seller } = await sellerWithPayable();
+    await seedReadyPayoutCompliance(prisma, tenant.id, seller.id, seller.userId);
 
     const r1 = await payouts.autoRequestPayouts();
     expect(r1.created).toBeGreaterThanOrEqual(1);
 
     const p = await prisma.payout.findFirst({ where: { tenantId: tenant.id, membershipId: seller.id } });
     expect(p?.status).toBe(PayoutStatus.requested); // PARA CIKMADI — onay bekler
-    expect(p?.method).toBe('check');
+    expect(p?.method).toBe('manual');
     expect(p?.totalCents).toBe(500_000n);
 
     const notifs = await prisma.notification.findMany({ where: { recipientMembershipId: seller.id, template: 'payout_auto_requested' } });
@@ -252,12 +251,45 @@ describe('scheduler - maturation job chain (integration)', () => {
     expect(r3.notified).toBe(0);
   });
 
-  it('A3 auto-request: posta adresi eksik uye atlanir (cek adres ister)', async () => {
-    const { seller } = await sellerWithPayable();
-    await prisma.membership.update({ where: { id: seller.id }, data: { mailingLine1: null } }); // adresi boz
+  it('A3 auto-request: missing manual readiness skips the member without creating a payout or notification', async () => {
+    const { tenant, seller } = await sellerWithPayable();
     const r = await payouts.autoRequestPayouts();
     expect(r.created).toBe(0);
-    expect(await prisma.payout.count({ where: { membershipId: seller.id } })).toBe(0);
+    expect(r.skipped).toBeGreaterThanOrEqual(1);
+    expect(await prisma.payout.count({ where: { tenantId: tenant.id, membershipId: seller.id } })).toBe(0);
+    expect(
+      await prisma.notification.count({ where: { tenantId: tenant.id, recipientMembershipId: seller.id, template: 'payout_auto_requested' } }),
+    ).toBe(0);
+  });
+
+  it('A3 auto-request: a new high-risk fraud flag blocks an otherwise ready member', async () => {
+    const { tenant, seller } = await sellerWithPayable();
+    await seedReadyPayoutCompliance(prisma, tenant.id, seller.id, seller.userId);
+    await prisma.fraudFlag.create({
+      data: { tenantId: tenant.id, membershipId: seller.id, score: 80, status: FraudStatus.open, reasons: ['scheduler regression'] },
+    });
+
+    const r = await payouts.autoRequestPayouts();
+
+    expect(r.created).toBe(0);
+    expect(r.skipped).toBeGreaterThanOrEqual(1);
+    expect(await prisma.payout.count({ where: { tenantId: tenant.id, membershipId: seller.id } })).toBe(0);
+    expect(
+      await prisma.notification.count({ where: { tenantId: tenant.id, recipientMembershipId: seller.id, template: 'payout_auto_requested' } }),
+    ).toBe(0);
+  });
+
+  it('A3 auto-request: concurrent runs create one canonical request and one notification pair', async () => {
+    const { tenant, seller } = await sellerWithPayable();
+    await seedReadyPayoutCompliance(prisma, tenant.id, seller.id, seller.userId);
+
+    const [first, second] = await Promise.all([payouts.autoRequestPayouts(), payouts.autoRequestPayouts()]);
+
+    expect(first.created + second.created).toBe(1);
+    expect(await prisma.payout.count({ where: { tenantId: tenant.id, membershipId: seller.id } })).toBe(1);
+    expect(
+      await prisma.notification.count({ where: { tenantId: tenant.id, recipientMembershipId: seller.id, template: 'payout_auto_requested' } }),
+    ).toBe(2);
   });
 });
 

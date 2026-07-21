@@ -12,7 +12,7 @@ import { getActiveCompanyToken, setActiveCompanyToken as clearActiveCompanyToken
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1';
 const AUTH_REFRESH_LOCK = 'refearn.auth.refresh';
 
-/** SSE/EventSource gibi fetch disi tuketiciler icin API kok adresi. */
+/** SSE gibi özel akış istemcileri için API kök adresi. */
 export const API_BASE = BASE;
 
 // HQ drill-in: sahip bir sirkete indiginde /admin/* cagrilari bu token'i kullanir.

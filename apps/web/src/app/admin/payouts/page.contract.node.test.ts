@@ -43,7 +43,7 @@ test('Finance payout reads remain independent from compliance reads', () => {
   assert.doesNotMatch(coreLoader, /payout-profiles|admin\/fraud/);
   assert.match(coreLoader, /if \(capabilities\.reportsView\) \{[\s\S]*?\/admin\/clawbacks/);
 
-  const complianceLoader = source.slice(complianceStart, source.indexOf('async function decideBatch', complianceStart));
+  const complianceLoader = source.slice(complianceStart, source.indexOf('const loadHistory', complianceStart));
   assert.match(complianceLoader, /if \(!capabilities\.complianceView\)/);
   assert.match(complianceLoader, /\/admin\/payout-profiles\?status=pending_review/);
   assert.match(complianceLoader, /\/admin\/fraud\?status=open/);
@@ -67,4 +67,23 @@ test('export and report sources are hidden and guarded by their exact capabiliti
   assert.match(source, /capabilities\.payoutsExport \? \([\s\S]*?ACH file/);
   assert.match(source, /capabilities\.reportsExport \? \([\s\S]*?1099-NEC/);
   assert.match(source, /capabilities\.reportsView && clawbacks/);
+});
+
+test('payout mutations follow the reviewed settlement lifecycle', () => {
+  assert.doesNotMatch(source, /\/admin\/payouts\/\$\{[^}]+\}\/decide/);
+  assert.doesNotMatch(source, /\/admin\/payouts\/\$\{[^}]+\}\/retry/);
+  assert.doesNotMatch(source, /\/admin\/payouts\/\$\{[^}]+\}\/approve/);
+  assert.doesNotMatch(source, /\/admin\/payouts\/run/);
+  assert.doesNotMatch(source, /\/admin\/payouts\/batches\/\$\{[^}]+\}\/(?:approve|reject)/);
+
+  assert.match(source, /\/admin\/payouts\/batches\/preview/);
+  assert.match(source, /['`]\/admin\/payouts\/batches['`]/);
+  assert.match(source, /membershipIds: \[decide\.p\.membershipId\]/);
+  assert.match(source, /\/admin\/payouts\/\$\{decide\.p\.id\}\/reject/);
+  assert.match(source, /\/admin\/payouts\/batches\/\$\{payout\.batchId\}\/dispatch/);
+  assert.match(source, /\/admin\/payouts\/batches\/\$\{payout\.batchId\}\/settle/);
+  assert.match(source, /\/admin\/payouts\/batches\/\$\{payout\.batchId\}\/fail/);
+  assert.match(source, /\/admin\/payouts\/members\/\$\{target\.membershipId\}\/readiness/);
+  assert.match(source, /\/admin\/payouts\/members\/\$\{target\.membershipId\}\/destination/);
+  assert.doesNotMatch(source, /Approve & mark paid|Retried|Retry payout|Approve & pay/);
 });

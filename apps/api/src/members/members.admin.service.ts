@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InviteStatus, LedgerStatus, MembershipStatus, PayoutStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import { hash } from '@node-rs/argon2';
@@ -8,6 +8,7 @@ import { AccessTokenPayload } from '../auth/auth.types';
 import { auditFingerprint } from '../common/audit-redaction';
 import { randomCode } from '../common/crypto';
 import { csvCell } from '../common/csv';
+import { ALL_PERMISSIONS, TIER_TO_SYSTEM_ROLE, defaultPermissionsForTier } from '../common/permissions';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../prisma/tenant-context.service';
@@ -18,6 +19,16 @@ import { readNetworkHealth } from './members.network-health';
 import { readMemberTreeSnapshot } from './members.tree-snapshot';
 
 const ASSIGNABLE_ROLES: Role[] = [Role.tenant_admin, Role.tenant_staff, Role.member];
+
+type RoleChangeAuthority = {
+  membershipId: string | null;
+  permissions: string[];
+};
+
+type TierRoleAssignment = {
+  roleId: string | null;
+  permissions: string[];
+};
 
 export type MemberSort = 'joinedAt' | 'fullName' | 'depth';
 export type SortDir = 'asc' | 'desc';
@@ -42,7 +53,10 @@ export class MembersAdminService {
   async impersonate(actor: ActorContext, membershipId: string) {
     const m = await this.prisma.membership.findFirst({
       where: { id: membershipId, tenantId: actor.tenantId },
-      include: { user: { select: { id: true, fullName: true, email: true } }, tenant: { select: { id: true, name: true } } },
+      include: {
+        user: { select: { id: true, fullName: true, email: true, authGeneration: true } },
+        tenant: { select: { id: true, name: true } },
+      },
     });
     if (!m) throw new NotFoundException('uyelik bu isletmede bulunamadi');
     if (m.role === Role.tenant_owner || m.role === Role.tenant_admin) {
@@ -57,6 +71,7 @@ export class MembersAdminService {
       tid: actor.tenantId,
       role: m.role,
       imp: actor.userId,
+      authGeneration: m.user.authGeneration,
     };
     const accessToken = await this.jwt.signAsync(payload, {
       secret: authConfig.accessSecret(),
@@ -353,6 +368,12 @@ export class MembersAdminService {
   ) {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: actor.tenantId } });
     if (tenant.status !== TenantStatus.active) throw new BadRequestException('isletme aktif degil');
+    const role = input.role && ASSIGNABLE_ROLES.includes(input.role) ? input.role : Role.member;
+    const tierAssignment = await this.tierRoleAssignmentFor(actor.tenantId, role);
+    if (role !== Role.member) {
+      const authority = await this.resolveRoleChangeAuthority(actor, actorMembershipId);
+      this.assertRoleGrantable(authority, tierAssignment.permissions);
+    }
 
     // asLeader=true ve sponsor verilmemisse: yeni KOK lider (agacin tepesinde, sponsorsuz).
     const asRoot = !!input.asLeader && !input.sponsorMembershipId && !input.sponsorReferralCode;
@@ -376,7 +397,6 @@ export class MembersAdminService {
     }
 
     const email = input.email.trim().toLowerCase();
-    const role = input.role && ASSIGNABLE_ROLES.includes(input.role) ? input.role : Role.member;
 
     const out = await this.prisma.$transaction(async (tx) => {
       let user = await tx.user.findUnique({ where: { email } });
@@ -390,13 +410,26 @@ export class MembersAdminService {
         const dup = await tx.membership.findFirst({ where: { tenantId: actor.tenantId, userId: user.id }, select: { id: true } });
         if (dup) throw new ConflictException('bu e-postali kullanici zaten bu isletmede uye');
       }
-      const membership = asRoot
+      const createdMembership = asRoot
         ? await this.memberships.createRoot(tx, { tenantId: actor.tenantId, userId: user.id, role, isTeamLeader: true })
         : await this.memberships.createUnder(tx, { tenantId: actor.tenantId, userId: user.id, sponsor: sponsor!, role });
+      const membership = createdMembership.roleId === tierAssignment.roleId
+        ? createdMembership
+        : await tx.membership.update({
+            where: { id: createdMembership.id },
+            data: { roleId: tierAssignment.roleId },
+          });
       return { membership, tempPassword, newUser: tempPassword !== null };
     }, { timeout: 15_000 });
 
-    await this.audit(actor, 'membership.create_manual', out.membership.id, { email, sponsorId: sponsor?.id ?? null, role, newUser: out.newUser, asLeader: asRoot });
+    await this.audit(actor, 'membership.create_manual', out.membership.id, {
+      email,
+      sponsorId: sponsor?.id ?? null,
+      role,
+      roleId: tierAssignment.roleId,
+      newUser: out.newUser,
+      asLeader: asRoot,
+    });
     return {
       id: out.membership.id,
       referralCode: out.membership.referralCode,
@@ -604,11 +637,25 @@ export class MembersAdminService {
   async bulk(
     actor: ActorContext,
     input: { action: 'activate' | 'deactivate' | 'set_role'; ids: string[]; role?: Role; preview?: boolean },
+    actorMembershipId?: string | null,
   ) {
     this.tenantContext.assertActor(actor);
+    const requestedRole = input.role;
+    if (input.action === 'set_role' && !requestedRole) {
+      throw new BadRequestException('rol gerekli');
+    }
+    if (requestedRole && !ASSIGNABLE_ROLES.includes(requestedRole)) {
+      throw new BadRequestException('bu rol bu uctan atanamaz');
+    }
+    const roleAuthority = input.action === 'set_role'
+      ? await this.resolveRoleChangeAuthority(actor, actorMembershipId)
+      : null;
+    const tierAssignment = input.action === 'set_role'
+      ? await this.tierRoleAssignmentFor(actor.tenantId, requestedRole!)
+      : null;
     const rows = await this.prisma.membership.findMany({
       where: { id: { in: input.ids }, tenantId: actor.tenantId },
-      select: { id: true, role: true, status: true },
+      select: { id: true, role: true, roleId: true, status: true },
     });
     const byId = new Map(rows.map((r) => [r.id, r]));
 
@@ -620,8 +667,9 @@ export class MembersAdminService {
         const m = byId.get(id);
         if (!m) { skipped.push({ id, reason: 'bulunamadi' }); continue; }
         if (input.action === 'set_role') {
-          if (m.role === Role.tenant_owner) { skipped.push({ id, reason: 'owner rolu degismez' }); continue; }
-          if (m.role === input.role) { skipped.push({ id, reason: 'zaten bu rolde' }); continue; }
+          const denied = this.roleChangeDeniedReason(roleAuthority!, m, tierAssignment!);
+          if (denied) { skipped.push({ id, reason: denied }); continue; }
+          if (m.role === requestedRole && m.roleId === tierAssignment!.roleId) { skipped.push({ id, reason: 'zaten bu rolde' }); continue; }
           willChange++;
         } else {
           const target = input.action === 'activate' ? MembershipStatus.active : MembershipStatus.inactive;
@@ -645,8 +693,7 @@ export class MembersAdminService {
     for (const id of input.ids) {
       try {
         if (input.action === 'set_role') {
-          if (!input.role) throw new Error('rol gerekli');
-          await this.setRole(actor, id, input.role);
+          await this.setRole(actor, id, requestedRole!, actorMembershipId, roleAuthority!, tierAssignment!);
         } else {
           await this.setStatus(actor, id, input.action === 'activate' ? MembershipStatus.active : MembershipStatus.inactive);
         }
@@ -658,25 +705,46 @@ export class MembersAdminService {
     return { action: input.action, succeeded: succeeded.length, failed };
   }
 
-  async setRole(actor: ActorContext, membershipId: string, role: Role) {
+  async setRole(
+    actor: ActorContext,
+    membershipId: string,
+    role: Role,
+    actorMembershipId?: string | null,
+    authority?: RoleChangeAuthority,
+    tierAssignment?: TierRoleAssignment,
+  ) {
     this.tenantContext.assertActor(actor);
     if (!ASSIGNABLE_ROLES.includes(role)) {
       throw new BadRequestException('bu rol bu uctan atanamaz');
     }
+    const roleAuthority = authority ?? await this.resolveRoleChangeAuthority(actor, actorMembershipId);
+    const assignment = tierAssignment ?? await this.tierRoleAssignmentFor(actor.tenantId, role);
     const m = await this.requireInTenant(actor.tenantId, membershipId);
-    if (m.role === Role.tenant_owner) {
-      throw new BadRequestException('owner rolu bu uctan degistirilemez');
-    }
-    const updated = await this.prisma.membership.update({ where: { id: m.id }, data: { role } });
+    this.assertRoleChangeAllowed(roleAuthority, m, assignment);
+    const roleId = assignment.roleId;
+    const changed = role !== m.role || roleId !== m.roleId;
+    const updated = await this.prisma.membership.update({ where: { id: m.id }, data: { role, roleId } });
     // rol degisiminde bu uyeligin canli API anahtarlarini iptal et -- saklanmis eski yetkiyle calismaya devam etmesin
-    if (role !== m.role) {
+    if (changed) {
       const revoked = await this.prisma.apiKey.updateMany({
         where: { tenantId: actor.tenantId, membershipId: m.id, revokedAt: null },
         data: { revokedAt: new Date() },
       });
-      if (revoked.count > 0) await this.audit(actor, 'apikey.revoke_cascade', m.id, { reason: 'role_change', from: m.role, to: role, count: revoked.count });
+      if (revoked.count > 0) {
+        await this.audit(actor, 'apikey.revoke_cascade', m.id, {
+          reason: 'role_change',
+          from: m.role,
+          to: role,
+          count: revoked.count,
+        });
+      }
     }
-    await this.audit(actor, 'membership.set_role', m.id, { from: m.role, to: role });
+    await this.audit(actor, 'membership.set_role', m.id, {
+      from: m.role,
+      to: role,
+      fromRoleId: m.roleId,
+      toRoleId: roleId,
+    });
     return { id: updated.id, role: updated.role };
   }
 
@@ -826,10 +894,106 @@ export class MembersAdminService {
   private async requireInTenant(tenantId: string, membershipId: string) {
     const m = await this.prisma.membership.findFirst({
       where: { id: membershipId, tenantId },
-      select: { id: true, role: true, status: true, isTeamLeader: true },
+      select: { id: true, role: true, roleId: true, status: true, isTeamLeader: true },
     });
     if (!m) throw new NotFoundException('membership was not found in this business');
     return m;
+  }
+
+  /** The legacy member-role endpoints must obey the same live permission ceiling as /admin/people. */
+  private async resolveRoleChangeAuthority(
+    actor: ActorContext,
+    actorMembershipId?: string | null,
+  ): Promise<RoleChangeAuthority> {
+    // A platform administrator acting as a tenant has no membership by design, but is minted as the tenant owner.
+    if (actorMembershipId === null) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: actor.userId },
+        select: { isPlatformAdmin: true },
+      });
+      if (!user?.isPlatformAdmin) {
+        throw new ForbiddenException('active membership not found');
+      }
+      return { membershipId: null, permissions: [...ALL_PERMISSIONS] };
+    }
+
+    const membership = await this.prisma.membership.findFirst({
+      where: {
+        tenantId: actor.tenantId,
+        userId: actor.userId,
+        ...(actorMembershipId ? { id: actorMembershipId } : {}),
+      },
+      select: {
+        id: true,
+        role: true,
+        status: true,
+        roleRef: { select: { permissions: true } },
+      },
+    });
+    if (!membership || membership.status !== MembershipStatus.active) {
+      throw new ForbiddenException('active membership not found');
+    }
+    if (membership.role === Role.tenant_owner || membership.role === Role.platform_admin) {
+      return { membershipId: membership.id, permissions: [...ALL_PERMISSIONS] };
+    }
+
+    const customRoleControlsPermissions =
+      membership.role === Role.tenant_admin || membership.role === Role.tenant_staff;
+    return {
+      membershipId: membership.id,
+      permissions: customRoleControlsPermissions
+        ? membership.roleRef?.permissions ?? defaultPermissionsForTier(membership.role)
+        : defaultPermissionsForTier(membership.role),
+    };
+  }
+
+  private assertRoleChangeAllowed(
+    authority: RoleChangeAuthority,
+    membership: { id: string; role: Role },
+    assignment: TierRoleAssignment,
+  ): void {
+    if (authority.membershipId === membership.id) {
+      throw new ForbiddenException('you cannot change your own role from this screen');
+    }
+    if (membership.role === Role.tenant_owner) {
+      throw new BadRequestException('owner rolu bu uctan degistirilemez');
+    }
+    this.assertRoleGrantable(authority, assignment.permissions);
+  }
+
+  private assertRoleGrantable(authority: RoleChangeAuthority, requestedPermissions: string[]): void {
+    const held = new Set(authority.permissions);
+    const escalating = requestedPermissions.filter((permission) => !held.has(permission));
+    if (escalating.length > 0) {
+      throw new ForbiddenException(`you cannot grant permissions you do not have: ${escalating.join(', ')}`);
+    }
+  }
+
+  private roleChangeDeniedReason(
+    authority: RoleChangeAuthority,
+    membership: { id: string; role: Role },
+    assignment: TierRoleAssignment,
+  ): string | null {
+    try {
+      this.assertRoleChangeAllowed(authority, membership, assignment);
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : 'bilinmeyen hata';
+    }
+  }
+
+  private async tierRoleAssignmentFor(tenantId: string, role: Role): Promise<TierRoleAssignment> {
+    if (role === Role.member) return { roleId: null, permissions: [] };
+    const key = TIER_TO_SYSTEM_ROLE[role];
+    if (!key) return { roleId: null, permissions: defaultPermissionsForTier(role) };
+    const systemRole = await this.prisma.tenantRole.findUnique({
+      where: { tenantId_key: { tenantId, key } },
+      select: { id: true, permissions: true },
+    });
+    return {
+      roleId: systemRole?.id ?? null,
+      permissions: [...new Set([...defaultPermissionsForTier(role), ...(systemRole?.permissions ?? [])])],
+    };
   }
 
   private async audit(actor: ActorContext, action: string, entityId: string, after: object) {

@@ -11,6 +11,8 @@ import { PayoutComplianceService } from './payout-compliance.service';
 import {
   decidePayoutSchema,
   DecidePayoutInput,
+  dispatchPayoutBatchSchema,
+  DispatchPayoutBatchInput,
   exportPayoutsSchema,
   ExportPayoutsInput,
   failPayoutBatchSchema,
@@ -134,7 +136,7 @@ export class AdminPayoutsController {
       ...payouts,
       items: payouts.items.map((payout) => ({
         ...payout,
-        presentation: withPayoutActionCandidates(payout.presentation, user),
+        presentation: withPayoutActionCandidates(payout.presentation, user, false, payout.batchStatus),
       })),
     };
   }
@@ -148,6 +150,17 @@ export class AdminPayoutsController {
     @Body(new ZodValidationPipe(settlePayoutBatchSchema)) body: SettlePayoutBatchInput,
   ) {
     return this.payouts.settleBatch(this.actor(user), id, body);
+  }
+
+  @HttpCode(200)
+  @Post('batches/:id/dispatch')
+  @RequirePermission('payouts.process')
+  dispatchBatch(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(dispatchPayoutBatchSchema)) body: DispatchPayoutBatchInput,
+  ) {
+    return this.payouts.dispatchBatch(this.actor(user), id, body);
   }
 
   @HttpCode(200)

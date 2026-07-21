@@ -76,8 +76,8 @@ describe('self-hosted ACH payout (entegrasyon)', () => {
     const tenant = await createTenant(prisma);
     const [owner, member] = await createChain(prisma, tenant.id, 2);
     await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
-    const memTok = jwt.sign({ sub: member.userId, mid: member.id, tid: tenant.id, role: Role.member } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
-    const ownerTok = jwt.sign({ sub: owner.userId, mid: owner.id, tid: tenant.id, role: Role.tenant_owner } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
+    const memTok = jwt.sign({ sub: member.userId, mid: member.id, tid: tenant.id, role: Role.member, authGeneration: 1 } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
+    const ownerTok = jwt.sign({ sub: owner.userId, mid: owner.id, tid: tenant.id, role: Role.tenant_owner, authGeneration: 1 } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
 
     // uye banka profilini girer (tam hesap sifreli saklanir)
     await request(app.getHttpServer()).put('/v1/app/payout-profile').set('Authorization', `Bearer ${memTok}`)
@@ -101,7 +101,7 @@ describe('self-hosted ACH payout (entegrasyon)', () => {
     const [owner, member] = await createChain(prisma, tenant.id, 2);
     await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
     const ownerTok = jwt.sign(
-      { sub: owner.userId, mid: owner.id, tid: tenant.id, role: Role.tenant_owner } as AccessTokenPayload,
+      { sub: owner.userId, mid: owner.id, tid: tenant.id, role: Role.tenant_owner, authGeneration: 1 } as AccessTokenPayload,
       { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds },
     );
     expect(LEGACY_ACCOUNT_FIXTURE).not.toMatch(/^v1\./);

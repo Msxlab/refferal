@@ -55,9 +55,9 @@ describe('auth + invitation flow (integration)', () => {
   });
 
   /** Test fixture: tenant + plan + root member + one invite from the root member. */
-  async function setupTenantWithInvite() {
+  async function setupTenantWithInvite(planOptions?: Parameters<typeof createPlan>[2]) {
     const tenant = await createTenant(prisma);
-    const plan = await createPlan(prisma, tenant.id);
+    const plan = await createPlan(prisma, tenant.id, planOptions);
     const [root] = await createChain(prisma, tenant.id, 1);
     const invite = await prisma.invite.create({
       data: {
@@ -164,36 +164,26 @@ describe('auth + invitation flow (integration)', () => {
     expect(res.body).not.toHaveProperty('emailLocked');
   });
 
-  it('public invite resolution uses the deterministic effective-plan tie-break', async () => {
-    const { tenant, plan: firstPlan, invite } = await setupTenantWithInvite();
-    const secondPlan = await createPlan(prisma, tenant.id);
-    const winner = firstPlan.id > secondPlan.id ? firstPlan : secondPlan;
-    const loser = firstPlan.id > secondPlan.id ? secondPlan : firstPlan;
-    const effectiveFrom = new Date('2026-01-01T00:00:00.000Z');
-    const createdAt = new Date('2026-01-02T00:00:00.000Z');
-
-    await prisma.$transaction([
-      prisma.tenant.update({ where: { id: tenant.id }, data: { name: 'Public Tie Tenant' } }),
-      prisma.commissionPlan.update({
-        where: { id: winner.id },
-        data: { name: 'Public UUID Winner', poolRateBps: 1750, depth: 4, effectiveFrom, createdAt },
-      }),
-      prisma.commissionPlan.update({
-        where: { id: loser.id },
-        data: { name: 'Public UUID Loser', poolRateBps: 1000, depth: 1, effectiveFrom, createdAt },
-      }),
-    ]);
+  it('public invite resolution uses the most recent effective plan', async () => {
+    const { tenant, invite } = await setupTenantWithInvite();
+    const winner = await createPlan(prisma, tenant.id, {
+      name: 'Public UUID Winner',
+      poolRateBps: 1750,
+      rates: [500, 500, 500, 250],
+      effectiveFrom: new Date('2026-01-02T00:00:00.000Z'),
+    });
+    await prisma.tenant.update({ where: { id: tenant.id }, data: { name: 'Public Tie Tenant' } });
 
     const res = await request(app.getHttpServer()).get(`/v1/invites/${invite.code}`).expect(200);
     const expected = createInviteConsentSnapshot({
       disclaimerVersion: INVITE_DISCLAIMER_VERSION,
       locale: 'en',
       tenantDisplayName: 'Public Tie Tenant',
-      plan: { name: 'Public UUID Winner', poolRateBps: 1750, depth: 4, effectiveFrom },
+      plan: { name: winner.name, poolRateBps: winner.poolRateBps, depth: winner.depth, effectiveFrom: winner.effectiveFrom },
       acceptedAt: new Date(),
     });
     expect(res.body).toMatchObject({ state: 'valid', programSummary: expected.programSummary });
-    expect(res.body.programSummary).not.toContain('Public UUID Loser');
+    expect(res.body.programSummary).not.toContain('Plan ');
   });
 
   it('public invite resolution returns privacy-minimal explicit non-valid states', async () => {
@@ -225,11 +215,7 @@ describe('auth + invitation flow (integration)', () => {
       data: { status: MembershipStatus.inactive },
     });
 
-    const noPlan = await setupTenantWithInvite();
-    await prisma.commissionPlan.update({
-      where: { id: noPlan.plan.id },
-      data: { effectiveFrom: new Date(Date.now() + 60_000) },
-    });
+    const noPlan = await setupTenantWithInvite({ effectiveFrom: new Date(Date.now() + 60_000) });
 
     const cases = [
       { code: 'NO_SUCH_INVITE_CODE', state: 'invalid' },
@@ -438,11 +424,7 @@ describe('auth + invitation flow (integration)', () => {
   });
 
   it('fails before acceptance side effects when no commission plan is effective', async () => {
-    const { invite, plan } = await setupTenantWithInvite();
-    await prisma.commissionPlan.update({
-      where: { id: plan.id },
-      data: { effectiveFrom: new Date(Date.now() + 60_000) },
-    });
+    const { invite } = await setupTenantWithInvite({ effectiveFrom: new Date(Date.now() + 60_000) });
     const countsBefore = await Promise.all([
       prisma.user.count(),
       prisma.membership.count(),
@@ -508,17 +490,12 @@ describe('auth + invitation flow (integration)', () => {
   });
 
   it('atomically persists the authoritative direct invite snapshot and ignores spoofed snapshot fields', async () => {
-    const { tenant, plan, root, invite } = await setupTenantWithInvite();
-    await prisma.tenant.update({ where: { id: tenant.id }, data: { name: 'Authoritative Tenant' } });
-    await prisma.commissionPlan.update({
-      where: { id: plan.id },
-      data: {
-        name: 'Precision Plan',
-        poolRateBps: 1234,
-        depth: 7,
-        effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
-      },
+    const { tenant, root, invite } = await setupTenantWithInvite({
+      name: 'Precision Plan',
+      poolRateBps: 1234,
+      rates: [200, 200, 200, 200, 200, 200, 34],
     });
+    await prisma.tenant.update({ where: { id: tenant.id }, data: { name: 'Authoritative Tenant' } });
     const expectedSummary =
       'Authoritative Tenant · Precision Plan: eligible, verified sales can reward up to 7 referral levels within a 12.34% commission pool.';
     const startedAt = new Date();
@@ -569,26 +546,15 @@ describe('auth + invitation flow (integration)', () => {
     expect(await prisma.inviteAcceptanceConsent.count({ where: { inviteId: invite.id } })).toBe(1);
   });
 
-  it('selects the higher UUID when effective commission plans tie on effective and creation time', async () => {
-    const { tenant, plan: firstPlan, invite } = await setupTenantWithInvite();
-    const secondPlan = await createPlan(prisma, tenant.id);
-    const higherIdPlan = firstPlan.id > secondPlan.id ? firstPlan : secondPlan;
-    const lowerIdPlan = firstPlan.id > secondPlan.id ? secondPlan : firstPlan;
-    const effectiveFrom = new Date('2026-01-01T00:00:00.000Z');
-    const createdAt = new Date('2026-01-02T00:00:00.000Z');
-
-    await prisma.$transaction([
-      prisma.tenant.update({ where: { id: tenant.id }, data: { name: 'Tie Break Tenant' } }),
-      prisma.commissionPlan.update({
-        where: { id: higherIdPlan.id },
-        data: { name: 'UUID Winner', poolRateBps: 2500, depth: 3, effectiveFrom, createdAt },
-      }),
-      prisma.commissionPlan.update({
-        where: { id: lowerIdPlan.id },
-        data: { name: 'UUID Loser', poolRateBps: 1000, depth: 2, effectiveFrom, createdAt },
-      }),
-    ]);
-    expect(higherIdPlan.id > lowerIdPlan.id).toBe(true);
+  it('persists the most recent effective plan in direct invite consent', async () => {
+    const { tenant, invite } = await setupTenantWithInvite();
+    await createPlan(prisma, tenant.id, {
+      name: 'UUID Winner',
+      poolRateBps: 2500,
+      rates: [1000, 800, 700],
+      effectiveFrom: new Date('2026-01-02T00:00:00.000Z'),
+    });
+    await prisma.tenant.update({ where: { id: tenant.id }, data: { name: 'Tie Break Tenant' } });
 
     await request(app.getHttpServer())
       .post('/v1/auth/register-by-invite')
@@ -1431,17 +1397,12 @@ describe('auth + invitation flow (integration)', () => {
       .send({ code: totpCode(setup.body.secret) })
       .expect(200);
 
-    const second = await setupTenantWithInvite();
-    await prisma.tenant.update({ where: { id: second.tenant.id }, data: { name: 'Accepted Tenant Name' } });
-    await prisma.commissionPlan.update({
-      where: { id: second.plan.id },
-      data: {
-        name: 'Accepted MFA Plan',
-        poolRateBps: 1250,
-        depth: 4,
-        effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
-      },
+    const second = await setupTenantWithInvite({
+      name: 'Accepted MFA Plan',
+      poolRateBps: 1250,
+      rates: [500, 300, 250, 200],
     });
+    await prisma.tenant.update({ where: { id: second.tenant.id }, data: { name: 'Accepted Tenant Name' } });
     const acceptedProgramSummary =
       'Accepted Tenant Name · Accepted MFA Plan: uygun ve doğrulanmış satışlar, %12.5 komisyon havuzu içinde en fazla 4 referans seviyesini ödüllendirebilir.';
     const joined = await request(app.getHttpServer())
@@ -1508,9 +1469,11 @@ describe('auth + invitation flow (integration)', () => {
     ).toBe(0);
 
     await prisma.tenant.update({ where: { id: second.tenant.id }, data: { name: 'Changed Tenant Name' } });
-    await prisma.commissionPlan.update({
-      where: { id: second.plan.id },
-      data: { name: 'Changed MFA Plan', poolRateBps: 2500, depth: 5 },
+    await createPlan(prisma, second.tenant.id, {
+      name: 'Changed MFA Plan',
+      poolRateBps: 2500,
+      rates: [750, 600, 500, 400, 250],
+      effectiveFrom: new Date('2026-01-02T00:00:00.000Z'),
     });
 
     await request(app.getHttpServer())
@@ -2329,7 +2292,10 @@ describe('auth + invitation flow (integration)', () => {
         recipientUserId: platform.id,
       }),
     );
-    const token = (notification.payload as { token: string }).token;
+    const token = decryptSecret(
+      (notification.payload as { tokenCiphertext: string }).tokenCiphertext,
+      authConfig.accessSecret(),
+    );
     const newPassword = 'Platform-Yeni-Sifre-2026!';
 
     await request(app.getHttpServer())

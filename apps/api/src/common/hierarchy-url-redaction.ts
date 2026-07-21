@@ -5,6 +5,7 @@
  */
 const ADMIN_NETWORK_PATH = /(?:^|\/)admin\/members\/network-[^/?#]+(?:\/|$)/;
 const MEMBER_TREE_PATH = /(?:^|\/)app\/team\/tree(?:\/|$)/;
+const QUERY_ACCESS_TOKEN = /(?:[?&](?:token|access_token)=)/i;
 
 function pathnameOf(requestUrl: string): string {
   const delimiter = requestUrl.search(/[?#]/);
@@ -15,5 +16,7 @@ export function redactHierarchyRequestUrl(requestUrl: string | undefined): strin
   if (!requestUrl) return requestUrl;
 
   const pathname = pathnameOf(requestUrl);
-  return ADMIN_NETWORK_PATH.test(pathname) || MEMBER_TREE_PATH.test(pathname) ? pathname : requestUrl;
+  return ADMIN_NETWORK_PATH.test(pathname) || MEMBER_TREE_PATH.test(pathname) || QUERY_ACCESS_TOKEN.test(requestUrl)
+    ? pathname
+    : requestUrl;
 }

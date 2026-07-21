@@ -7,7 +7,7 @@ import { AppModule } from '../src/app.module';
 import { authConfig } from '../src/auth/auth.config';
 import { AccessTokenPayload } from '../src/auth/auth.types';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { createChain, createTenant, truncateAll } from './helpers';
+import { createChain, createTenant, seedReadyPayoutCompliance, truncateAll } from './helpers';
 
 /** Dalga 2 #11 — fraud sinyal motoru: tarama + risk skoru + payout hold. */
 describe('fraud engine (entegrasyon)', () => {
@@ -27,7 +27,7 @@ describe('fraud engine (entegrasyon)', () => {
   beforeEach(async () => { await truncateAll(prisma); });
 
   function token(o: { userId: string; membershipId: string; tenantId: string; role: Role }): string {
-    const p: AccessTokenPayload = { sub: o.userId, mid: o.membershipId, tid: o.tenantId, role: o.role };
+    const p: AccessTokenPayload = { sub: o.userId, mid: o.membershipId, tid: o.tenantId, role: o.role, authGeneration: 1 };
     return jwt.sign(p, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
   }
   const srv = () => app.getHttpServer();
@@ -87,13 +87,25 @@ describe('fraud engine (entegrasyon)', () => {
     await prisma.ledgerEntry.create({ data: { tenantId: tenant.id, saleId: null, beneficiaryMembershipId: seller.id, level: 0, rateBpsUsed: 0, amountCents: 2_000_000n, type: LedgerType.adjustment, status: LedgerStatus.payable, summaryMonth: '2026-06' } });
     // manuel bloklu bayrak
     await prisma.fraudFlag.create({ data: { tenantId: tenant.id, membershipId: seller.id, score: 60, reasons: ['manual'], status: FraudStatus.open } });
+    await seedReadyPayoutCompliance(prisma, tenant.id, seller.id, owner.userId);
 
-    // uye talebi 400
-    await request(srv()).post('/v1/app/payout-requests').set('Authorization', `Bearer ${sellerTok}`).expect(400);
-    // admin run → bloklu uye atlanir (odenmez)
-    const run = await request(srv()).post('/v1/admin/payouts/run').set('Authorization', `Bearer ${ownerTok}`).send({ method: 'csv' }).expect(200);
-    expect(run.body.paidCount).toBe(0);
-    expect(run.body.skipped.some((s: { membershipId: string; reason: string }) => s.membershipId === seller.id && /fraud/.test(s.reason))).toBe(true);
+    // uye talebi fail-closed olur; daha onceki manual fraud onayi yeni bayragi atlayamaz.
+    await request(srv()).post('/v1/app/payout-requests').set('Authorization', `Bearer ${sellerTok}`).expect(403);
+    const scope = { mode: 'selected', membershipIds: [seller.id] };
+    const preview = await request(srv())
+      .post('/v1/admin/payouts/batches/preview')
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ scope })
+      .expect(200);
+    expect(preview.body.eligibleCount).toBe(0);
+    expect(preview.body.excludedCount).toBe(1);
+    const started = await request(srv())
+      .post('/v1/admin/payouts/batches')
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ scope, previewToken: preview.body.previewToken })
+      .expect(200);
+    expect(started.body.processingCount).toBe(0);
+    expect(await prisma.payout.count({ where: { tenantId: tenant.id } })).toBe(0);
 
     // clear → talep acilir
     await request(srv()).post(`/v1/admin/fraud/${seller.id}/decide`).set('Authorization', `Bearer ${ownerTok}`).send({ action: 'clear' }).expect(200);

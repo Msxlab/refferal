@@ -67,7 +67,7 @@ describe('period lock (entegrasyon)', () => {
         method: PayoutMethod.manual,
         actorUserId: actor.userId,
       }),
-    ).rejects.toThrow(/kilitli/);
+    ).rejects.toThrow(/period is locked/);
   });
 
   it('list: kapanis goruntusu kilitli donemi finansal ozetiyle dondurur', async () => {

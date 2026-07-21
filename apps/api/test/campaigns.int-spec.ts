@@ -7,7 +7,7 @@ import { AppModule } from '../src/app.module';
 import { authConfig } from '../src/auth/auth.config';
 import { AccessTokenPayload } from '../src/auth/auth.types';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { createChain, createPlan, createSale, createTenant, summaryTotals, truncateAll } from './helpers';
+import { createChain, createPlan, createSale, createTenant, seedReadyPayoutCompliance, summaryTotals, truncateAll } from './helpers';
 
 /**
  * Kampanya motoru (Dalga 2): canli siralama → finalize → bonus 'adjustment' (payable)
@@ -36,7 +36,7 @@ describe('campaigns (entegrasyon)', () => {
   });
 
   function token(opts: { userId: string; membershipId: string; tenantId: string; role: Role }): string {
-    const payload: AccessTokenPayload = { sub: opts.userId, mid: opts.membershipId, tid: opts.tenantId, role: opts.role };
+    const payload: AccessTokenPayload = { sub: opts.userId, mid: opts.membershipId, tid: opts.tenantId, role: opts.role, authGeneration: 1 };
     return jwt.sign(payload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
   }
 
@@ -101,13 +101,26 @@ describe('campaigns (entegrasyon)', () => {
     const sums = await summaryTotals(prisma, a.id);
     expect(sums.payable).toBe(500_000n);
 
-    // payout run bonus'u oder (LEFT JOIN ile satisa bagli olmayan satir da alinir)
-    const run = await request(app.getHttpServer())
-      .post('/v1/admin/payouts/run')
+    // Reviewed batch lifecycle also pays a bonus with no saleId: preview -> processing -> settlement evidence.
+    await seedReadyPayoutCompliance(prisma, tenant.id, a.id, owner.userId);
+    const scope = { mode: 'selected', membershipIds: [a.id] };
+    const preview = await request(app.getHttpServer())
+      .post('/v1/admin/payouts/batches/preview')
       .set('Authorization', `Bearer ${adminTok}`)
-      .send({ method: 'csv' })
+      .send({ scope })
       .expect(200);
-    expect(run.body.paidCount).toBe(1);
+    expect(preview.body.eligibleCount).toBe(1);
+    const started = await request(app.getHttpServer())
+      .post('/v1/admin/payouts/batches')
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ scope, previewToken: preview.body.previewToken })
+      .expect(200);
+    expect(started.body.status).toBe('processing');
+    await request(app.getHttpServer())
+      .post(`/v1/admin/payouts/batches/${started.body.id}/settle`)
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ settlementReference: 'campaign-bonus-settlement', settlementEvidence: 'bank-confirmation-2026-07' })
+      .expect(200);
 
     const paid = await prisma.ledgerEntry.findUnique({ where: { id: bonus!.id } });
     expect(paid!.status).toBe(LedgerStatus.paid);

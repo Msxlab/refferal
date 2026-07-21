@@ -132,6 +132,7 @@ enum PayoutStatus {
 
 enum PayoutSettlementBatchStatus {
   processing
+  dispatched
   settled
   failed
 }
@@ -833,6 +834,10 @@ model PayoutSettlementBatch {
   csvChecksum         String?           @map("csv_checksum")
   processingStartedAt DateTime          @default(now()) @map("processing_started_at")
   processingByUserId  String?           @map("processing_by_user_id") @db.Uuid
+  dispatchedAt        DateTime?         @map("dispatched_at")
+  dispatchedByUserId  String?           @map("dispatched_by_user_id") @db.Uuid
+  dispatchReference   String?           @map("dispatch_reference")
+  dispatchEvidence    String?           @map("dispatch_evidence")
   settledAt           DateTime?         @map("settled_at")
   settledByUserId     String?           @map("settled_by_user_id") @db.Uuid
   settlementReference String?           @map("settlement_reference")

@@ -542,8 +542,8 @@ describe('commission engine (integration)', () => {
       where: { saleId: sale.id },
       orderBy: { level: 'asc' },
     });
-    expect(entries.map((e) => e.level)).toEqual([0, 1, 2, 3, 4]);
-    expect(entries.map((e) => e.beneficiaryMembershipId)).toEqual([chain[5].id, chain[3].id, chain[2].id, chain[1].id, chain[0].id]);
-    expect(entries.map((e) => e.amountCents)).toEqual([500_000n, 200_000n, 150_000n, 100_000n, 50_000n]);
+    expect(entries.map((e) => e.level)).toEqual([0, 1, 2, 3]);
+    expect(entries.map((e) => e.beneficiaryMembershipId)).toEqual([chain[5].id, chain[3].id, chain[2].id, chain[1].id]);
+    expect(entries.map((e) => e.amountCents)).toEqual([500_000n, 200_000n, 150_000n, 100_000n]);
   });
 });

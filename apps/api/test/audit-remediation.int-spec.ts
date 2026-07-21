@@ -17,7 +17,7 @@ import { PeriodsService } from '../src/periods/periods.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { ReportsService } from '../src/reports/reports.service';
 import { SalesService } from '../src/sales/sales.service';
-import { createChain, createPlan, createSale, createTenant, truncateAll } from './helpers';
+import { createChain, createPlan, createSale, createTenant, seedReadyPayoutCompliance, truncateAll } from './helpers';
 
 /**
  * Denetim remediation regresyonu: her test, duzeltilen DAVRANISIN dogrulugunu kanitlar
@@ -59,7 +59,7 @@ describe('audit remediation (regresyon)', () => {
   beforeEach(async () => { await truncateAll(prisma); await prisma.sanctionsEntry.deleteMany(); await prisma.rankTier.deleteMany(); });
 
   const tok = (o: { userId: string; mid: string; tid: string; role: Role }) =>
-    jwt.sign({ sub: o.userId, mid: o.mid, tid: o.tid, role: o.role } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
+    jwt.sign({ sub: o.userId, mid: o.mid, tid: o.tid, role: o.role, authGeneration: 1 } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
 
   // ---- CRITICAL #1: pool-cap Model B (bonuslar havuz USTUNE, toplam tavan ALTINDA) ----
   it('pool-cap: bonuslar havuzun ustune odenir ama toplam dagitim tavani asilmaz', async () => {
@@ -86,7 +86,7 @@ describe('audit remediation (regresyon)', () => {
   });
 
   // ---- CRITICAL #2: kilitli donemde payout talebi onaylanamaz ----
-  it('period-lock: kilitli donemde decide(approve) reddedilir', async () => {
+  it('period-lock: kilitli donemde reviewed payout confirmation reddedilir', async () => {
     const tenant = await createTenant(prisma);
     await prisma.tenant.update({ where: { id: tenant.id }, data: { payoutMinCents: 1n } });
     await createPlan(prisma, tenant.id);
@@ -94,9 +94,16 @@ describe('audit remediation (regresyon)', () => {
     const sale = await createSale(prisma, tenant.id, seller.id, 1_000_000n, { saleDate: new Date('2026-06-15T12:00:00Z') });
     await engine.approveSale(sale.id);
     const actor: ActorContext = { userId: sponsor.userId, tenantId: tenant.id };
+    await seedReadyPayoutCompliance(prisma, tenant.id, seller.id, sponsor.userId);
     const req = await payouts.requestPayout(seller.id, tenant.id);
+    const scope = { mode: 'selected' as const, membershipIds: [seller.id] };
+    const preview = await payouts.previewBatch(actor, { scope });
     await periods.lock(actor, '2026-06');
-    await expect(payouts.decide(actor, req.id, { action: 'approve' })).rejects.toThrow(/kilitli/);
+    await expect(payouts.startBatch(actor, {
+      scope: preview.normalizedScope,
+      previewToken: preview.previewToken,
+    })).rejects.toThrow(/kilitli|period is locked/);
+    await expect(prisma.payout.findUniqueOrThrow({ where: { id: req.id } })).resolves.toMatchObject({ status: 'requested' });
   });
 
   // ---- CRITICAL #3: reconcile ayni payout'u iki kez temizlemez ----
@@ -117,9 +124,10 @@ describe('audit remediation (regresyon)', () => {
     const tenant = await createTenant(prisma);
     await prisma.tenant.update({ where: { id: tenant.id }, data: { payoutMinCents: 1n } });
     await createPlan(prisma, tenant.id);
-    const [, seller] = await createChain(prisma, tenant.id, 2);
+    const [sponsor, seller] = await createChain(prisma, tenant.id, 2);
     const sale = await createSale(prisma, tenant.id, seller.id, 1_000_000n);
     await engine.approveSale(sale.id);
+    await seedReadyPayoutCompliance(prisma, tenant.id, seller.id, sponsor.userId);
     const r1 = await payouts.requestPayout(seller.id, tenant.id);
     const r2 = await payouts.requestPayout(seller.id, tenant.id);
     expect(r2.id).toBe(r1.id);
@@ -134,7 +142,7 @@ describe('audit remediation (regresyon)', () => {
     await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
     await prisma.membership.update({ where: { id: admin.id }, data: { role: Role.tenant_admin } });
     const adminTok = jwt.sign(
-      { sub: admin.userId, mid: admin.id, tid: tenant.id, role: Role.tenant_admin, perms: ['dashboard.view', 'settings.view', 'settings.roles'] } as AccessTokenPayload,
+      { sub: admin.userId, mid: admin.id, tid: tenant.id, role: Role.tenant_admin, perms: ['dashboard.view', 'settings.view', 'settings.roles'], authGeneration: 1 } as AccessTokenPayload,
       { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds },
     );
     await request(app.getHttpServer())
@@ -180,6 +188,7 @@ describe('audit remediation (regresyon)', () => {
     await kyc.upsert(actor, seller.id, { legalName: 'Clean Person', country: 'US', taxIdType: 'ssn', taxId: '123456789', routingNumber: '021000021', accountType: 'checking', accountNumber: '000111222' });
     const prof = await prisma.payoutProfile.findUnique({ where: { membershipId: seller.id } });
     expect(prof!.sanctionsHit).toBe(false);
+    await seedReadyPayoutCompliance(prisma, tenant.id, seller.id, owner.userId);
     // ad SONRADAN listeye girer
     await prisma.sanctionsEntry.create({ data: { name: 'Clean Person', normalizedName: 'clean person', source: 'OFAC' } });
     // payout talebi CANLI tarama ile bloklanir
@@ -187,7 +196,7 @@ describe('audit remediation (regresyon)', () => {
   });
 
   // ---- HIGH: maker-checker — onaylanan snapshot'tan fazlasi odenmez ----
-  it('maker-checker: talep sonrasi bakiye artarsa decide(approve) reddedilir', async () => {
+  it('reviewed batch: preview sonrasi bakiye artarsa fresh review gerekir', async () => {
     const tenant = await createTenant(prisma);
     await prisma.tenant.update({ where: { id: tenant.id }, data: { payoutMinCents: 1n } });
     await createPlan(prisma, tenant.id);
@@ -195,11 +204,13 @@ describe('audit remediation (regresyon)', () => {
     const sale1 = await createSale(prisma, tenant.id, seller.id, 1_000_000n);
     await engine.approveSale(sale1.id);
     const actor: ActorContext = { userId: sponsor.userId, tenantId: tenant.id };
-    const req = await payouts.requestPayout(seller.id, tenant.id); // snapshot = sale1 komisyonu
+    await seedReadyPayoutCompliance(prisma, tenant.id, seller.id, sponsor.userId);
+    const preview = await payouts.previewBatch(actor, { scope: { mode: 'selected', membershipIds: [seller.id] } });
     // talepten SONRA yeni komisyon olgunlasir (bakiye artar)
     const sale2 = await createSale(prisma, tenant.id, seller.id, 5_000_000n);
     await engine.approveSale(sale2.id);
-    await expect(payouts.decide(actor, req.id, { action: 'approve' })).rejects.toThrow(/yenileyin|artti/);
+    await expect(payouts.startBatch(actor, { scope: preview.normalizedScope, previewToken: preview.previewToken }))
+      .rejects.toBeInstanceOf(ConflictException);
   });
 
   // ---- LOW: announcement markRead caprazl-tenant yazimi engellenir ----

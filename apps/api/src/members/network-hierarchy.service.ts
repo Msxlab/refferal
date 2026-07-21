@@ -1469,7 +1469,7 @@ export class NetworkHierarchyService {
              m.sponsor_membership_id::text AS "sponsorMembershipId",
              m.referral_code AS "referralCode", m.path, m.depth, m.status,
              m.joined_at AS "joinedAt", u.full_name AS "fullName",
-             ${localTier} AS "localTier"
+             (${localTier})::integer AS "localTier"
              ${structuralColumns}
       FROM parents parent
       CROSS JOIN LATERAL (
@@ -1531,7 +1531,7 @@ export class NetworkHierarchyService {
              m.sponsor_membership_id::text AS "sponsorMembershipId",
              m.referral_code AS "referralCode", m.path, m.depth, m.status,
              m.joined_at AS "joinedAt", u.full_name AS "fullName",
-             ${localTier} AS "localTier",
+             (${localTier})::integer AS "localTier",
              count(*) OVER ()::bigint AS "branchCount"
              ${structuralColumns}
       FROM memberships m

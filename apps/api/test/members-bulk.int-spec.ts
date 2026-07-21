@@ -6,6 +6,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { authConfig } from '../src/auth/auth.config';
 import { AccessTokenPayload } from '../src/auth/auth.types';
+import { defaultPermissionsForTier } from '../src/common/permissions';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createChain, createTenant, truncateAll } from './helpers';
 
@@ -27,7 +28,7 @@ describe('members bulk (entegrasyon)', () => {
   beforeEach(async () => { await truncateAll(prisma); });
 
   function token(o: { userId: string; membershipId: string; tenantId: string; role: Role }): string {
-    const p: AccessTokenPayload = { sub: o.userId, mid: o.membershipId, tid: o.tenantId, role: o.role };
+    const p: AccessTokenPayload = { sub: o.userId, mid: o.membershipId, tid: o.tenantId, role: o.role, authGeneration: 1 };
     return jwt.sign(p, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
   }
   const srv = () => app.getHttpServer();
@@ -55,5 +56,150 @@ describe('members bulk (entegrasyon)', () => {
       .send({ action: 'set_role', role: 'tenant_staff', ids: [m1.id, m2.id] }).expect(200);
     expect(applied.body.succeeded).toBe(2);
     expect((await prisma.membership.findUniqueOrThrow({ where: { id: m1.id } })).role).toBe(Role.tenant_staff);
+  });
+
+  it('limited admin rol tavanini asan veya kendi rolunu degistiren bulk islemlerini uygulamaz', async () => {
+    const tenant = await createTenant(prisma);
+    const [owner, admin, member] = await createChain(prisma, tenant.id, 3);
+    const limited = await prisma.tenantRole.create({
+      data: {
+        tenantId: tenant.id,
+        key: 'bulk_limited_admin',
+        name: 'Bulk limited admin',
+        permissions: ['settings.roles'],
+      },
+    });
+    await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
+    await prisma.membership.update({
+      where: { id: admin.id },
+      data: { role: Role.tenant_admin, roleId: limited.id },
+    });
+    const adminTok = token({
+      userId: admin.userId,
+      membershipId: admin.id,
+      tenantId: tenant.id,
+      role: Role.tenant_admin,
+    });
+
+    const preview = await request(srv())
+      .post('/v1/admin/members/bulk')
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ action: 'set_role', role: 'tenant_admin', ids: [member.id], preview: true })
+      .expect(200);
+    expect(preview.body.willChange).toBe(0);
+    expect(preview.body.skipped).toContainEqual(
+      expect.objectContaining({ id: member.id, reason: expect.stringContaining('cannot grant permissions') }),
+    );
+
+    const applied = await request(srv())
+      .post('/v1/admin/members/bulk')
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ action: 'set_role', role: 'tenant_admin', ids: [member.id] })
+      .expect(200);
+    expect(applied.body.succeeded).toBe(0);
+    expect(applied.body.failed).toContainEqual(
+      expect.objectContaining({ id: member.id, reason: expect.stringContaining('cannot grant permissions') }),
+    );
+
+    const self = await request(srv())
+      .post('/v1/admin/members/bulk')
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ action: 'set_role', role: 'tenant_staff', ids: [admin.id] })
+      .expect(200);
+    expect(self.body.succeeded).toBe(0);
+    expect(self.body.failed).toContainEqual(
+      expect.objectContaining({ id: admin.id, reason: expect.stringContaining('own role') }),
+    );
+
+    await expect(prisma.membership.findUniqueOrThrow({ where: { id: member.id } })).resolves.toMatchObject({ role: Role.member });
+    await expect(prisma.membership.findUniqueOrThrow({ where: { id: admin.id } })).resolves.toMatchObject({ role: Role.tenant_admin });
+  });
+
+  it('bulk tavanini secilen system tierin guncel izinleriyle hesaplar', async () => {
+    const tenant = await createTenant(prisma);
+    const [owner, admin, member] = await createChain(prisma, tenant.id, 3);
+    await prisma.tenantRole.create({
+      data: {
+        tenantId: tenant.id,
+        key: 'admin',
+        name: 'Administrator',
+        isSystem: true,
+        permissions: [...defaultPermissionsForTier(Role.tenant_admin), 'settings.data'],
+      },
+    });
+    await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
+    await prisma.membership.update({ where: { id: admin.id }, data: { role: Role.tenant_admin, roleId: null } });
+    const adminTok = token({
+      userId: admin.userId,
+      membershipId: admin.id,
+      tenantId: tenant.id,
+      role: Role.tenant_admin,
+    });
+
+    const preview = await request(srv())
+      .post('/v1/admin/members/bulk')
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ action: 'set_role', role: 'tenant_admin', ids: [member.id], preview: true })
+      .expect(200);
+    expect(preview.body.willChange).toBe(0);
+    expect(preview.body.skipped).toContainEqual(
+      expect.objectContaining({ id: member.id, reason: expect.stringContaining('settings.data') }),
+    );
+
+    const applied = await request(srv())
+      .post('/v1/admin/members/bulk')
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ action: 'set_role', role: 'tenant_admin', ids: [member.id] })
+      .expect(200);
+    expect(applied.body.succeeded).toBe(0);
+    expect(applied.body.failed).toContainEqual(
+      expect.objectContaining({ id: member.id, reason: expect.stringContaining('settings.data') }),
+    );
+  });
+
+  it('bulk preview same-tier stale custom role referansini system tier ile normalize edilecek degisiklik sayar', async () => {
+    const tenant = await createTenant(prisma);
+    const [owner, member] = await createChain(prisma, tenant.id, 2);
+    const systemAdmin = await prisma.tenantRole.create({
+      data: {
+        tenantId: tenant.id,
+        key: 'admin',
+        name: 'Administrator',
+        isSystem: true,
+        permissions: defaultPermissionsForTier(Role.tenant_admin),
+      },
+    });
+    const staleRole = await prisma.tenantRole.create({
+      data: {
+        tenantId: tenant.id,
+        key: 'stale_bulk_role',
+        name: 'Stale bulk role',
+        permissions: ['settings.data'],
+      },
+    });
+    await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
+    await prisma.membership.update({
+      where: { id: member.id },
+      data: { role: Role.tenant_admin, roleId: staleRole.id },
+    });
+    const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
+
+    const preview = await request(srv())
+      .post('/v1/admin/members/bulk')
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ action: 'set_role', role: 'tenant_admin', ids: [member.id], preview: true })
+      .expect(200);
+    expect(preview.body.willChange).toBe(1);
+
+    const applied = await request(srv())
+      .post('/v1/admin/members/bulk')
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ action: 'set_role', role: 'tenant_admin', ids: [member.id] })
+      .expect(200);
+    expect(applied.body.succeeded).toBe(1);
+    await expect(prisma.membership.findUniqueOrThrow({ where: { id: member.id } })).resolves.toMatchObject({
+      role: Role.tenant_admin,
+      roleId: systemAdmin.id,
+    });
   });
 });

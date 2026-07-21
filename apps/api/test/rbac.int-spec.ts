@@ -7,6 +7,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { authConfig } from '../src/auth/auth.config';
 import { AccessTokenPayload } from '../src/auth/auth.types';
+import { defaultPermissionsForTier } from '../src/common/permissions';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createChain, createPlan, createSale, createTenant, truncateAll } from './helpers';
 
@@ -250,7 +251,7 @@ describe('RBAC escalation guards (integration)', () => {
   });
 
   it('limited tenant admin cannot assign a default admin tier through legacy or canonical role paths', async () => {
-    const { tenant, admin, member } = await setup();
+    const { tenant, owner, admin, member } = await setup();
     const adminTok = token({ userId: admin.userId, membershipId: admin.id, tenantId: tenant.id, role: Role.tenant_admin, perms: ADMIN_PERMS });
 
     const legacy = await request(app.getHttpServer())
@@ -262,10 +263,110 @@ describe('RBAC escalation guards (integration)', () => {
       .set('Authorization', `Bearer ${adminTok}`)
       .send({ tier: 'tenant_admin' });
 
-    expect(legacy.status).toBe(404);
+    expect(legacy.status).toBe(403);
     expect(canonical.status).toBe(403);
     const updated = await prisma.membership.findUniqueOrThrow({ where: { id: member.id } });
     expect(updated.role).toBe(Role.member);
+
+    const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
+    await request(app.getHttpServer())
+      .patch(`/v1/admin/people/${member.id}/role`)
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ tier: 'tenant_admin' })
+      .expect(200);
+    await expect(prisma.membership.findUniqueOrThrow({ where: { id: member.id } })).resolves.toMatchObject({
+      role: Role.tenant_admin,
+    });
+  });
+
+  it('legacy tier assignment replaces a stale custom role reference with the selected system tier', async () => {
+    const tenant = await createTenant(prisma);
+    const [owner, admin, member] = await createChain(prisma, tenant.id, 3);
+    const systemAdmin = await prisma.tenantRole.create({
+      data: {
+        tenantId: tenant.id,
+        key: 'admin',
+        name: 'Administrator',
+        isSystem: true,
+        permissions: defaultPermissionsForTier(Role.tenant_admin),
+      },
+    });
+    const staleStrongRole = await prisma.tenantRole.create({
+      data: {
+        tenantId: tenant.id,
+        key: 'stale_strong',
+        name: 'Stale strong role',
+        permissions: ['settings.data'],
+      },
+    });
+    await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
+    await prisma.membership.update({ where: { id: admin.id }, data: { role: Role.tenant_admin, roleId: null } });
+    await prisma.membership.update({ where: { id: member.id }, data: { role: Role.member, roleId: staleStrongRole.id } });
+    const adminTok = token({ userId: admin.userId, membershipId: admin.id, tenantId: tenant.id, role: Role.tenant_admin });
+
+    await request(app.getHttpServer())
+      .post(`/v1/admin/members/${member.id}/role`)
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ role: 'tenant_admin' })
+      .expect(200);
+
+    const updated = await prisma.membership.findUniqueOrThrow({ where: { id: member.id } });
+    expect(updated.role).toBe(Role.tenant_admin);
+    expect(updated.roleId).toBe(systemAdmin.id);
+  });
+
+  it('legacy tier assignment respects the current system-role permissions, not only static defaults', async () => {
+    const tenant = await createTenant(prisma);
+    const [owner, admin, member] = await createChain(prisma, tenant.id, 3);
+    await prisma.tenantRole.create({
+      data: {
+        tenantId: tenant.id,
+        key: 'admin',
+        name: 'Administrator',
+        isSystem: true,
+        permissions: [...defaultPermissionsForTier(Role.tenant_admin), 'settings.data'],
+      },
+    });
+    await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
+    await prisma.membership.update({ where: { id: admin.id }, data: { role: Role.tenant_admin, roleId: null } });
+    const adminTok = token({ userId: admin.userId, membershipId: admin.id, tenantId: tenant.id, role: Role.tenant_admin });
+
+    const legacy = await request(app.getHttpServer())
+      .post(`/v1/admin/members/${member.id}/role`)
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ role: 'tenant_admin' });
+    const canonical = await request(app.getHttpServer())
+      .patch(`/v1/admin/people/${member.id}/role`)
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ tier: 'tenant_admin' });
+
+    expect(legacy.status).toBe(403);
+    expect(canonical.status).toBe(403);
+
+    await expect(prisma.membership.findUniqueOrThrow({ where: { id: member.id } })).resolves.toMatchObject({ role: Role.member });
+  });
+
+  it('canonical assignment cannot clear a custom role into a default tier the actor cannot grant', async () => {
+    const { tenant, admin, member } = await setup();
+    const limitedRole = await prisma.tenantRole.findUniqueOrThrow({
+      where: { tenantId_key: { tenantId: tenant.id, key: 'limited_admin' } },
+    });
+    await prisma.membership.update({
+      where: { id: member.id },
+      data: { role: Role.tenant_admin, roleId: limitedRole.id },
+    });
+    const adminTok = token({ userId: admin.userId, membershipId: admin.id, tenantId: tenant.id, role: Role.tenant_admin });
+
+    await request(app.getHttpServer())
+      .patch(`/v1/admin/people/${member.id}/role`)
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ roleId: null })
+      .expect(403);
+
+    await expect(prisma.membership.findUniqueOrThrow({ where: { id: member.id } })).resolves.toMatchObject({
+      role: Role.tenant_admin,
+      roleId: limitedRole.id,
+    });
   });
 
   it('stale access token cannot pass permission checks after a database role downgrade', async () => {

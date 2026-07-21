@@ -339,10 +339,14 @@ export class MembersAdminController {
       user,
       body.action === "set_role" ? "settings.roles" : "members.suspend",
     );
-    return this.members.bulk(this.actor(user), {
-      ...body,
-      role: body.role as Role | undefined,
-    });
+    return this.members.bulk(
+      this.actor(user),
+      {
+        ...body,
+        role: body.role as Role | undefined,
+      },
+      user.mid ?? null,
+    );
   }
 
   // Invites and membership status changes are admin+ only and audited.
@@ -471,7 +475,7 @@ export class MembersAdminController {
     @Param("id", ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(roleSchema)) body: z.infer<typeof roleSchema>,
   ) {
-    return this.members.setRole(this.actor(user), id, body.role as Role);
+    return this.members.setRole(this.actor(user), id, body.role as Role, user.mid ?? null);
   }
 
   // guvenli impersonation: salt-okunur kisa omurlu token (audit'li)

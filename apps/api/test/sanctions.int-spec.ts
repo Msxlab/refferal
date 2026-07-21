@@ -29,7 +29,7 @@ describe('sanctions / AML (entegrasyon)', () => {
   beforeEach(async () => { await truncateAll(prisma); await prisma.sanctionsEntry.deleteMany(); });
 
   function token(o: { userId: string; membershipId: string; tenantId: string; role: Role }): string {
-    const p: AccessTokenPayload = { sub: o.userId, mid: o.membershipId, tid: o.tenantId, role: o.role };
+    const p: AccessTokenPayload = { sub: o.userId, mid: o.membershipId, tid: o.tenantId, role: o.role, authGeneration: 1 };
     return jwt.sign(p, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
   }
   const srv = () => app.getHttpServer();

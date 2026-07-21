@@ -7,7 +7,6 @@ import { EngineService } from '../src/engine/engine.service';
 import { RanksService } from '../src/ranks/ranks.service';
 import { WebhooksService } from '../src/webhooks/webhooks.service';
 import { EventsService } from '../src/events/events.service';
-import { SanctionsService } from '../src/sanctions/sanctions.service';
 import { ActorContext } from '../src/common/actor';
 import { EnvAesGcmSecretCryptoProvider, VersionedSecretCipher } from '../src/common/secret-cipher';
 import { createChain, createTenant, truncateAll } from './helpers';
@@ -31,7 +30,6 @@ describe('payout reconciliation (entegrasyon)', () => {
       compliance,
       new WebhooksService(prisma),
       new EventsService(),
-      new SanctionsService(prisma),
       secretCipher,
     );
   });

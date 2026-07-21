@@ -7,6 +7,9 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../prisma/tenant-context.service';
+import { fraudPayoutBlock } from '../fraud/fraud.types';
+import { kycPayoutBlock } from '../kyc/kyc.types';
+import { normalizeName } from '../sanctions/sanctions.service';
 import {
   PayoutComplianceDecisionInput,
   PayoutComplianceKeyInput,
@@ -137,6 +140,60 @@ export class PayoutComplianceService {
       }),
       destination,
     };
+  }
+
+  /**
+   * Manual decisions are necessary but cannot make a newly detected fraud or sanctions hit safe.
+   * This recheck is deliberately transaction-friendly so request, reservation, and settlement can
+   * all fail closed against the most recent risk state.
+   */
+  async runtimePayoutBlock(
+    client: ComplianceClient,
+    tenantId: string,
+    membershipId: string,
+  ): Promise<string | null> {
+    const [tenant, membership, fraudFlag, payoutProfile] = await Promise.all([
+      client.tenant.findUnique({
+        where: { id: tenantId },
+        select: { requireKycForPayout: true },
+      }),
+      client.membership.findFirst({
+        where: { id: membershipId, tenantId },
+        select: { user: { select: { fullName: true } } },
+      }),
+      client.fraudFlag.findUnique({
+        where: { membershipId },
+        select: { status: true, score: true },
+      }),
+      client.payoutProfile.findUnique({
+        where: { membershipId },
+        select: { legalName: true, sanctionsHit: true, status: true, lastChangedAt: true },
+      }),
+    ]);
+
+    if (!tenant || !membership) return 'payout recipient is no longer available';
+
+    const fraudBlock = fraudPayoutBlock(fraudFlag);
+    if (fraudBlock) return fraudBlock;
+
+    if (tenant.requireKycForPayout) {
+      const kycBlock = kycPayoutBlock(payoutProfile);
+      if (kycBlock) return kycBlock;
+    }
+
+    if (payoutProfile?.sanctionsHit) return 'sanctions match — compliance review required';
+    const names = [...new Set([payoutProfile?.legalName, membership.user.fullName].filter(Boolean))] as string[];
+    if (names.length === 0) return null;
+
+    const entries = await client.sanctionsEntry.findMany({ select: { normalizedName: true } });
+    const hit = names.some((name) => {
+      const tokens = new Set(normalizeName(name).split(' ').filter(Boolean));
+      return entries.some((entry) => {
+        const entryTokens = entry.normalizedName.split(' ').filter(Boolean);
+        return entryTokens.length > 0 && entryTokens.every((token) => tokens.has(token));
+      });
+    });
+    return hit ? 'sanctions match — compliance review required' : null;
   }
 
   isReady(input: PayoutComplianceReadinessInput, evaluatedAt = new Date()): boolean {

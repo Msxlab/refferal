@@ -57,7 +57,7 @@ describe('compliance: 1099 + DSAR (entegrasyon)', () => {
       actorUserId: owner.userId,
     });
 
-    const tok = jwt.sign({ sub: owner.userId, mid: owner.id, tid: tenant.id, role: Role.tenant_owner } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
+    const tok = jwt.sign({ sub: owner.userId, mid: owner.id, tid: tenant.id, role: Role.tenant_owner, authGeneration: 1 } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
     const auth = (r: request.Test) => r.set('Authorization', `Bearer ${tok}`);
     const year = new Date().getFullYear();
 

@@ -21,6 +21,10 @@ describe('hierarchy request URL redaction', () => {
     expect(redactHierarchyRequestUrl(requestUrl)).toBe(requestUrl);
   });
 
+  it('redacts query-string access tokens on non-hierarchy routes', () => {
+    expect(redactHierarchyRequestUrl('/v1/events/stream?token=signed-access-token')).toBe('/v1/events/stream');
+  });
+
   it('preserves an absent URL', () => {
     expect(redactHierarchyRequestUrl(undefined)).toBeUndefined();
   });

@@ -33,7 +33,7 @@ describe('search (entegrasyon)', () => {
     const code = (await prisma.membership.findUniqueOrThrow({ where: { id: seller.id } })).referralCode;
     await prisma.sale.create({ data: { tenantId: tenant.id, sellerMembershipId: seller.id, amountCents: 50000n, saleDate: new Date(), customerRef: 'ACME-Corp', status: SaleStatus.approved } });
 
-    const p: AccessTokenPayload = { sub: owner.userId, mid: owner.id, tid: tenant.id, role: Role.tenant_owner };
+    const p: AccessTokenPayload = { sub: owner.userId, mid: owner.id, tid: tenant.id, role: Role.tenant_owner, authGeneration: 1 };
     const tok = jwt.sign(p, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
     const auth = (r: request.Test) => r.set('Authorization', `Bearer ${tok}`);
 

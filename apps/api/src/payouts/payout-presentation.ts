@@ -1,7 +1,7 @@
 export type PayoutState = 'requested' | 'processing' | 'settled' | 'rejected' | 'failed';
 export type PayoutMethodPresentation = 'ach' | 'check';
 export type HoldOwner = 'workspace-admin' | 'earnica-support' | 'external-provider' | 'system-policy';
-export type PayoutActionCandidate = 'approve-request' | 'reject-request' | 'settle-batch' | 'fail-batch';
+export type PayoutActionCandidate = 'approve-request' | 'reject-request' | 'dispatch-batch' | 'settle-batch' | 'fail-batch';
 
 export interface PayoutActionCandidatePrincipal {
   mid: string | null;
@@ -81,6 +81,7 @@ function activeTenantCandidates(
   presentation: PayoutPresentation,
   principal: PayoutActionCandidatePrincipal,
   memberResponse: boolean,
+  batchStatus?: string | null,
 ): PayoutPresentation['actionCandidates'] {
   if (
     typeof principal.mid !== 'string' ||
@@ -104,7 +105,15 @@ function activeTenantCandidates(
     return { authority: 'active-tenant', mutations: ['approve-request', 'reject-request'] };
   }
   if (presentation.state === 'processing') {
-    return { authority: 'active-tenant', mutations: ['settle-batch', 'fail-batch'] };
+    // The default retains a safe action model for old snapshot-only callers;
+    // live admin responses always provide the actual settlement-batch status.
+    if ((batchStatus ?? 'processing') === 'dispatched') {
+      return { authority: 'active-tenant', mutations: ['settle-batch'] };
+    }
+    if ((batchStatus ?? 'processing') === 'processing') {
+      return { authority: 'active-tenant', mutations: ['dispatch-batch', 'fail-batch'] };
+    }
+    return { authority: 'active-tenant', mutations: [] };
   }
   return { authority: 'active-tenant', mutations: [] };
 }
@@ -114,8 +123,9 @@ export function withPayoutActionCandidates(
   presentation: PayoutPresentation,
   principal: PayoutActionCandidatePrincipal,
   memberResponse = false,
+  batchStatus?: string | null,
 ): PayoutPresentation {
-  return { ...presentation, actionCandidates: activeTenantCandidates(presentation, principal, memberResponse) };
+  return { ...presentation, actionCandidates: activeTenantCandidates(presentation, principal, memberResponse, batchStatus) };
 }
 
 /** Maps only persisted legacy snapshot evidence; it intentionally never infers a payment rail. */

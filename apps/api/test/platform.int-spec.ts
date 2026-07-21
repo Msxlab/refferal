@@ -225,7 +225,7 @@ describe('platform companies (integration)', () => {
     await request(srv).patch(`/v1/platform/companies/${tenant.id}/status`).set('Authorization', `Bearer ${platTok}`).send({ status: 'active' }).expect(200);
     expect((await prisma.tenant.findUniqueOrThrow({ where: { id: tenant.id } })).status).toBe('active');
 
-    const audit = await prisma.auditLog.count({ where: { tenantId: tenant.id, action: { startsWith: 'platform.tenant_' } } });
+    const audit = await prisma.auditLog.count({ where: { tenantId: tenant.id, action: { in: ['tenant.suspend', 'tenant.reactivate'] } } });
     expect(audit).toBe(2);
   });
 });
