@@ -23,6 +23,7 @@ export type CreateSaleInput = z.infer<typeof createSaleSchema>;
 // Ortak filtre seti: liste + summary + export ayni paramlari paylasir (page'siz).
 export const salesFilterSchema = z.object({
   status: z.enum(['draft', 'approved', 'void']).optional(),
+  summaryMonth: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(),
   // Free search: seller name/code plus customer_ref/external_ref.
   q: z.string().trim().max(120).optional(),
   from: z.coerce.date().optional(),

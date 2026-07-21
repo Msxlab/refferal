@@ -27,6 +27,7 @@ import {
   PayoutComplianceService,
   PayoutComplianceSnapshot,
 } from '../payouts/payout-compliance.service';
+import { lockPayoutRiskState } from '../payouts/payout-risk-lock';
 import { evaluatePayoutReadiness } from '../payouts/payout-readiness';
 import { RanksService } from '../ranks/ranks.service';
 import { monthKey } from './month';
@@ -507,6 +508,9 @@ export class EngineService {
   }> {
     const compliance = this.requirePayoutCompliance();
     return this.tx(async (tx) => {
+      // Hold the same fence used by fraud/KYC/sanctions writers while the
+      // reviewed selection is evaluated and (when confirmed) reserved.
+      await lockPayoutRiskState(tx);
       const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: params.tenantId } });
       const requestedTargets =
         params.scope.mode === 'selected' ? [...new Set(params.scope.membershipIds)].sort() : [];
@@ -725,6 +729,12 @@ export class EngineService {
         if (recipients.length !== 1) {
           throw new ConflictException('payout recipient changed while the batch was being reserved');
         }
+        const runtimeBlock = await compliance.runtimePayoutBlock(tx, params.tenantId, membershipId);
+        if (runtimeBlock) {
+          if (params.requestedPayoutId) throw new ForbiddenException(runtimeBlock);
+          skipped.push({ membershipId, reason: 'payout_not_ready', netCents });
+          continue;
+        }
         const complianceInput = await compliance.readInput(tx, params.tenantId, membershipId);
         const readiness = evaluatePayoutReadiness({
           emailVerified: recipients[0].emailVerifiedAt !== null,
@@ -915,39 +925,58 @@ export class EngineService {
     });
   }
 
-  /** Settles an already reserved batch only after provider/bank evidence is supplied. */
-  async settlePayoutBatch(params: {
+  /**
+   * Records the irreversible hand-off to the bank/provider.  Compliance is
+   * checked here, immediately before the transfer is sent, rather than later
+   * at settlement when a late block must never make already-sent money
+   * releasable again.
+   */
+  async dispatchPayoutBatch(params: {
     tenantId: string;
     batchId: string;
-    settlementReference: string;
-    settlementEvidence: string;
+    dispatchReference: string;
+    dispatchEvidence: string;
     actorUserId?: string;
-  }): Promise<{ batchId: string; settled: boolean; alreadySettled: boolean; payoutCount: number }> {
+  }): Promise<{ batchId: string; dispatched: boolean; alreadyDispatched: boolean; payoutCount: number }> {
     const compliance = this.requirePayoutCompliance();
-    const settlementReference = params.settlementReference.trim();
-    const settlementEvidence = params.settlementEvidence.trim();
-    if (!settlementReference || !settlementEvidence) {
-      throw new BadRequestException('settlement reference and evidence are required');
+    const dispatchReference = params.dispatchReference.trim();
+    const dispatchEvidence = params.dispatchEvidence.trim();
+    if (!dispatchReference || !dispatchEvidence) {
+      throw new BadRequestException('dispatch reference and evidence are required');
     }
     return this.tx(async (tx) => {
       const batchRows = await tx.$queryRaw<
-        Array<{ id: string; status: PayoutSettlementBatchStatus; period: string; method: PayoutMethod }>
+        Array<{
+          id: string;
+          status: PayoutSettlementBatchStatus;
+          dispatchedAt: Date | null;
+          period: string;
+        }>
       >`
-        SELECT id, status, period, method
+        SELECT id,
+               status,
+               dispatched_at AS "dispatchedAt",
+               period
         FROM payout_settlement_batches
         WHERE id = ${params.batchId}::uuid
           AND tenant_id = ${params.tenantId}::uuid
         FOR UPDATE`;
       if (batchRows.length === 0) throw new NotFoundException('payout batch not found');
       const batch = batchRows[0];
-      if (batch.status === PayoutSettlementBatchStatus.settled) {
-        const count = await tx.payout.count({ where: { batchId: batch.id, status: PayoutStatus.paid } });
-        return { batchId: batch.id, settled: false, alreadySettled: true, payoutCount: count };
+      if (
+        batch.status === PayoutSettlementBatchStatus.dispatched ||
+        (batch.status === PayoutSettlementBatchStatus.settled && batch.dispatchedAt !== null)
+      ) {
+        const count = await tx.payout.count({
+          where: { batchId: batch.id, status: { in: [PayoutStatus.processing, PayoutStatus.paid] } },
+        });
+        return { batchId: batch.id, dispatched: false, alreadyDispatched: true, payoutCount: count };
       }
       if (batch.status !== PayoutSettlementBatchStatus.processing) {
-        throw new ConflictException('only processing payout batches can be settled');
+        throw new ConflictException('only processing payout batches can be dispatched');
       }
 
+      await lockPayoutRiskState(tx);
       const payoutMemberships = await tx.$queryRaw<Array<{ membershipId: string }>>`
         SELECT DISTINCT membership_id AS "membershipId"
         FROM payouts
@@ -957,11 +986,10 @@ export class EngineService {
         await compliance.lockMembership(tx, params.tenantId, membershipId);
       }
       const payouts = await tx.$queryRaw<
-        Array<{ id: string; membershipId: string; totalCents: bigint; complianceSnapshot: Prisma.JsonValue | null }>
+        Array<{ id: string; membershipId: string; complianceSnapshot: Prisma.JsonValue | null }>
       >`
         SELECT id,
                membership_id AS "membershipId",
-               total_cents AS "totalCents",
                compliance_snapshot AS "complianceSnapshot"
         FROM payouts
         WHERE batch_id = ${batch.id}::uuid
@@ -969,6 +997,13 @@ export class EngineService {
         FOR UPDATE`;
       if (payouts.length === 0) throw new ConflictException('processing batch has no payouts');
       for (const payout of payouts) {
+        const runtimeBlock = await compliance.runtimePayoutBlock(tx, params.tenantId, payout.membershipId);
+        if (runtimeBlock) {
+          throw new ConflictException({
+            message: 'payout_compliance_changed',
+            code: 'payout_compliance_changed',
+          });
+        }
         const current = await compliance.readInput(tx, params.tenantId, payout.membershipId);
         const recheck = compliance.recheckSnapshot(payout.complianceSnapshot, current);
         if (recheck === 'recheck_required') {
@@ -984,31 +1019,81 @@ export class EngineService {
           });
         }
       }
-      const items = await tx.$queryRaw<
-        Array<{ id: string; payoutId: string; membershipId: string; month: string; level: number; amountCents: bigint; status: LedgerStatus; batchId: string | null }>
+      const items = await this.lockPayoutBatchItems(tx, batch.id);
+      this.assertIntactPayoutBatchItems(batch.id, payouts, items);
+
+      const now = new Date();
+      const marked = await tx.payoutSettlementBatch.updateMany({
+        where: { id: batch.id, status: PayoutSettlementBatchStatus.processing },
+        data: {
+          status: PayoutSettlementBatchStatus.dispatched,
+          dispatchedAt: now,
+          dispatchedByUserId: params.actorUserId ?? null,
+          dispatchReference,
+          dispatchEvidence,
+        },
+      });
+      if (marked.count !== 1) throw new ConflictException('payout batch changed while dispatching');
+      for (const payout of payouts) {
+        await this.audit(tx, params.tenantId, params.actorUserId, 'payout.dispatched', payout.id, { status: 'processing' }, {
+          batchId: batch.id,
+          dispatchReference,
+          dispatchEvidence,
+        });
+      }
+      await this.audit(tx, params.tenantId, params.actorUserId, 'payout_batch.dispatched', batch.id, { status: 'processing' }, {
+        dispatchReference,
+        dispatchEvidence,
+        payoutCount: payouts.length,
+        entryCount: items.length,
+      });
+      return { batchId: batch.id, dispatched: true, alreadyDispatched: false, payoutCount: payouts.length };
+    });
+  }
+
+  /** Settles a dispatched batch only after provider/bank settlement evidence is supplied. */
+  async settlePayoutBatch(params: {
+    tenantId: string;
+    batchId: string;
+    settlementReference: string;
+    settlementEvidence: string;
+    actorUserId?: string;
+  }): Promise<{ batchId: string; settled: boolean; alreadySettled: boolean; payoutCount: number }> {
+    const settlementReference = params.settlementReference.trim();
+    const settlementEvidence = params.settlementEvidence.trim();
+    if (!settlementReference || !settlementEvidence) {
+      throw new BadRequestException('settlement reference and evidence are required');
+    }
+    return this.tx(async (tx) => {
+      const batchRows = await tx.$queryRaw<
+        Array<{ id: string; status: PayoutSettlementBatchStatus; period: string }>
       >`
-        SELECT bi.ledger_entry_id AS "id",
-               bi.payout_id AS "payoutId",
-               bi.membership_id AS "membershipId",
-               bi.month,
-               bi.level,
-               bi.amount_cents AS "amountCents",
-               le.status,
-               le.payout_batch_id AS "batchId"
-        FROM payout_settlement_batch_items bi
-        JOIN ledger_entries le ON le.id = bi.ledger_entry_id
-        WHERE bi.batch_id = ${batch.id}::uuid
-        ORDER BY bi.ledger_entry_id
-        FOR UPDATE OF le`;
-      if (
-        items.length === 0 ||
-        items.some((item) => item.status !== LedgerStatus.processing || item.batchId !== batch.id)
-      ) {
-        throw new ConflictException('processing ledger set is no longer intact');
+        SELECT id, status, period
+        FROM payout_settlement_batches
+        WHERE id = ${params.batchId}::uuid
+          AND tenant_id = ${params.tenantId}::uuid
+        FOR UPDATE`;
+      if (batchRows.length === 0) throw new NotFoundException('payout batch not found');
+      const batch = batchRows[0];
+      if (batch.status === PayoutSettlementBatchStatus.settled) {
+        const count = await tx.payout.count({ where: { batchId: batch.id, status: PayoutStatus.paid } });
+        return { batchId: batch.id, settled: false, alreadySettled: true, payoutCount: count };
       }
-      if (payouts.some((payout) => !items.some((item) => item.payoutId === payout.id))) {
-        throw new ConflictException('processing payout set is no longer intact');
+      if (batch.status !== PayoutSettlementBatchStatus.dispatched) {
+        throw new ConflictException('only dispatched payout batches can be settled');
       }
+
+      const payouts = await tx.$queryRaw<Array<{ id: string; membershipId: string; totalCents: bigint }>>`
+        SELECT id,
+               membership_id AS "membershipId",
+               total_cents AS "totalCents"
+        FROM payouts
+        WHERE batch_id = ${batch.id}::uuid
+        ORDER BY membership_id, id
+        FOR UPDATE`;
+      if (payouts.length === 0) throw new ConflictException('dispatched batch has no payouts');
+      const items = await this.lockPayoutBatchItems(tx, batch.id);
+      this.assertIntactPayoutBatchItems(batch.id, payouts, items);
 
       const now = new Date();
       const paidPayouts = await tx.payout.updateMany({
@@ -1042,6 +1127,10 @@ export class EngineService {
       });
 
       await this.moveBatchSummary(tx, params.tenantId, items, 'settle');
+      const tenant = await tx.tenant.findUniqueOrThrow({
+        where: { id: params.tenantId },
+        select: { currency: true },
+      });
       for (const payout of payouts) {
         await tx.notification.create({
           data: {
@@ -1054,7 +1143,7 @@ export class EngineService {
               batchId: batch.id,
               totalCents: payout.totalCents.toString(),
               period: batch.period,
-              currency: (await tx.tenant.findUniqueOrThrow({ where: { id: params.tenantId }, select: { currency: true } })).currency,
+              currency: tenant.currency,
             },
           },
         });
@@ -1064,7 +1153,7 @@ export class EngineService {
           settlementEvidence,
         });
       }
-      await this.audit(tx, params.tenantId, params.actorUserId, 'payout_batch.settled', batch.id, { status: 'processing' }, {
+      await this.audit(tx, params.tenantId, params.actorUserId, 'payout_batch.settled', batch.id, { status: 'dispatched' }, {
         settlementReference,
         settlementEvidence,
         payoutCount: payouts.length,
@@ -1072,6 +1161,50 @@ export class EngineService {
       });
       return { batchId: batch.id, settled: true, alreadySettled: false, payoutCount: payouts.length };
     });
+  }
+
+  private async lockPayoutBatchItems(tx: Tx, batchId: string) {
+    return tx.$queryRaw<
+      Array<{
+        id: string;
+        payoutId: string;
+        membershipId: string;
+        month: string;
+        level: number;
+        amountCents: bigint;
+        status: LedgerStatus;
+        batchId: string | null;
+      }>
+    >`
+      SELECT bi.ledger_entry_id AS "id",
+             bi.payout_id AS "payoutId",
+             bi.membership_id AS "membershipId",
+             bi.month,
+             bi.level,
+             bi.amount_cents AS "amountCents",
+             le.status,
+             le.payout_batch_id AS "batchId"
+      FROM payout_settlement_batch_items bi
+      JOIN ledger_entries le ON le.id = bi.ledger_entry_id
+      WHERE bi.batch_id = ${batchId}::uuid
+      ORDER BY bi.ledger_entry_id
+      FOR UPDATE OF le`;
+  }
+
+  private assertIntactPayoutBatchItems(
+    batchId: string,
+    payouts: Array<{ id: string }>,
+    items: Array<{ status: LedgerStatus; batchId: string | null; payoutId: string }>,
+  ): void {
+    if (
+      items.length === 0 ||
+      items.some((item) => item.status !== LedgerStatus.processing || item.batchId !== batchId)
+    ) {
+      throw new ConflictException('processing ledger set is no longer intact');
+    }
+    if (payouts.some((payout) => !items.some((item) => item.payoutId === payout.id))) {
+      throw new ConflictException('processing payout set is no longer intact');
+    }
   }
 
   private requirePayoutCompliance(): PayoutComplianceService {
@@ -1102,6 +1235,11 @@ export class EngineService {
       if (batch.status === PayoutSettlementBatchStatus.failed) {
         const count = await tx.payout.count({ where: { batchId: batch.id, status: PayoutStatus.failed } });
         return { batchId: batch.id, failed: false, alreadyFailed: true, payoutCount: count };
+      }
+      if (batch.status === PayoutSettlementBatchStatus.dispatched) {
+        throw new ConflictException(
+          'dispatched payout batches cannot be released; reconcile the actual payment outcome instead',
+        );
       }
       if (batch.status !== PayoutSettlementBatchStatus.processing) {
         throw new ConflictException('settled payout batches cannot be failed');

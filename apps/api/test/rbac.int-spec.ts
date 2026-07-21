@@ -7,6 +7,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { authConfig } from '../src/auth/auth.config';
 import { AccessTokenPayload } from '../src/auth/auth.types';
+import { defaultPermissionsForTier } from '../src/common/permissions';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createChain, createPlan, createSale, createTenant, truncateAll } from './helpers';
 
@@ -250,7 +251,7 @@ describe('RBAC escalation guards (integration)', () => {
   });
 
   it('limited tenant admin cannot assign a default admin tier through legacy or canonical role paths', async () => {
-    const { tenant, admin, member } = await setup();
+    const { tenant, owner, admin, member } = await setup();
     const adminTok = token({ userId: admin.userId, membershipId: admin.id, tenantId: tenant.id, role: Role.tenant_admin, perms: ADMIN_PERMS });
 
     const legacy = await request(app.getHttpServer())
@@ -262,10 +263,110 @@ describe('RBAC escalation guards (integration)', () => {
       .set('Authorization', `Bearer ${adminTok}`)
       .send({ tier: 'tenant_admin' });
 
-    expect(legacy.status).toBe(404);
+    expect(legacy.status).toBe(403);
     expect(canonical.status).toBe(403);
     const updated = await prisma.membership.findUniqueOrThrow({ where: { id: member.id } });
     expect(updated.role).toBe(Role.member);
+
+    const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
+    await request(app.getHttpServer())
+      .patch(`/v1/admin/people/${member.id}/role`)
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ tier: 'tenant_admin' })
+      .expect(200);
+    await expect(prisma.membership.findUniqueOrThrow({ where: { id: member.id } })).resolves.toMatchObject({
+      role: Role.tenant_admin,
+    });
+  });
+
+  it('legacy tier assignment replaces a stale custom role reference with the selected system tier', async () => {
+    const tenant = await createTenant(prisma);
+    const [owner, admin, member] = await createChain(prisma, tenant.id, 3);
+    const systemAdmin = await prisma.tenantRole.create({
+      data: {
+        tenantId: tenant.id,
+        key: 'admin',
+        name: 'Administrator',
+        isSystem: true,
+        permissions: defaultPermissionsForTier(Role.tenant_admin),
+      },
+    });
+    const staleStrongRole = await prisma.tenantRole.create({
+      data: {
+        tenantId: tenant.id,
+        key: 'stale_strong',
+        name: 'Stale strong role',
+        permissions: ['settings.data'],
+      },
+    });
+    await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
+    await prisma.membership.update({ where: { id: admin.id }, data: { role: Role.tenant_admin, roleId: null } });
+    await prisma.membership.update({ where: { id: member.id }, data: { role: Role.member, roleId: staleStrongRole.id } });
+    const adminTok = token({ userId: admin.userId, membershipId: admin.id, tenantId: tenant.id, role: Role.tenant_admin });
+
+    await request(app.getHttpServer())
+      .post(`/v1/admin/members/${member.id}/role`)
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ role: 'tenant_admin' })
+      .expect(200);
+
+    const updated = await prisma.membership.findUniqueOrThrow({ where: { id: member.id } });
+    expect(updated.role).toBe(Role.tenant_admin);
+    expect(updated.roleId).toBe(systemAdmin.id);
+  });
+
+  it('legacy tier assignment respects the current system-role permissions, not only static defaults', async () => {
+    const tenant = await createTenant(prisma);
+    const [owner, admin, member] = await createChain(prisma, tenant.id, 3);
+    await prisma.tenantRole.create({
+      data: {
+        tenantId: tenant.id,
+        key: 'admin',
+        name: 'Administrator',
+        isSystem: true,
+        permissions: [...defaultPermissionsForTier(Role.tenant_admin), 'settings.data'],
+      },
+    });
+    await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
+    await prisma.membership.update({ where: { id: admin.id }, data: { role: Role.tenant_admin, roleId: null } });
+    const adminTok = token({ userId: admin.userId, membershipId: admin.id, tenantId: tenant.id, role: Role.tenant_admin });
+
+    const legacy = await request(app.getHttpServer())
+      .post(`/v1/admin/members/${member.id}/role`)
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ role: 'tenant_admin' });
+    const canonical = await request(app.getHttpServer())
+      .patch(`/v1/admin/people/${member.id}/role`)
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ tier: 'tenant_admin' });
+
+    expect(legacy.status).toBe(403);
+    expect(canonical.status).toBe(403);
+
+    await expect(prisma.membership.findUniqueOrThrow({ where: { id: member.id } })).resolves.toMatchObject({ role: Role.member });
+  });
+
+  it('canonical assignment cannot clear a custom role into a default tier the actor cannot grant', async () => {
+    const { tenant, admin, member } = await setup();
+    const limitedRole = await prisma.tenantRole.findUniqueOrThrow({
+      where: { tenantId_key: { tenantId: tenant.id, key: 'limited_admin' } },
+    });
+    await prisma.membership.update({
+      where: { id: member.id },
+      data: { role: Role.tenant_admin, roleId: limitedRole.id },
+    });
+    const adminTok = token({ userId: admin.userId, membershipId: admin.id, tenantId: tenant.id, role: Role.tenant_admin });
+
+    await request(app.getHttpServer())
+      .patch(`/v1/admin/people/${member.id}/role`)
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ roleId: null })
+      .expect(403);
+
+    await expect(prisma.membership.findUniqueOrThrow({ where: { id: member.id } })).resolves.toMatchObject({
+      role: Role.tenant_admin,
+      roleId: limitedRole.id,
+    });
   });
 
   it('stale access token cannot pass permission checks after a database role downgrade', async () => {
@@ -360,25 +461,41 @@ describe('RBAC escalation guards (integration)', () => {
     await request(app.getHttpServer()).get('/v1/admin/members/tree').set('Authorization', `Bearer ${membersView}`).expect(403);
 
     const networkView = await actorWithPerms(tenant.id, actors[1], Role.tenant_staff, ['network.view']);
-    await request(app.getHttpServer()).get('/v1/admin/members/tree').set('Authorization', `Bearer ${networkView}`).expect(200);
+    await request(app.getHttpServer()).get('/v1/admin/members/tree').set('Authorization', `Bearer ${networkView}`).expect(403);
+    await request(app.getHttpServer()).get('/v1/admin/members/tree-snapshot').set('Authorization', `Bearer ${networkView}`).expect(403);
+    await request(app.getHttpServer()).get('/v1/admin/members/leaders').set('Authorization', `Bearer ${networkView}`).expect(403);
 
-    const adminInvite = await actorWithPerms(tenant.id, actors[2], Role.tenant_admin, ['invites.create']);
+    const financialOnly = await actorWithPerms(tenant.id, actors[2], Role.tenant_staff, ['network.financials.view']);
+    await request(app.getHttpServer()).get('/v1/admin/members/tree').set('Authorization', `Bearer ${financialOnly}`).expect(403);
+    await request(app.getHttpServer()).get('/v1/admin/members/leaders').set('Authorization', `Bearer ${financialOnly}`).expect(403);
+
+    const financialNetwork = await actorWithPerms(
+      tenant.id,
+      actors[3],
+      Role.tenant_staff,
+      ['network.view', 'network.financials.view'],
+    );
+    await request(app.getHttpServer()).get('/v1/admin/members/tree').set('Authorization', `Bearer ${financialNetwork}`).expect(200);
+    await request(app.getHttpServer()).get('/v1/admin/members/tree-snapshot').set('Authorization', `Bearer ${financialNetwork}`).expect(200);
+    await request(app.getHttpServer()).get('/v1/admin/members/leaders').set('Authorization', `Bearer ${financialNetwork}`).expect(200);
+
+    const adminInvite = await actorWithPerms(tenant.id, actors[4], Role.tenant_admin, ['invites.create']);
     await request(app.getHttpServer()).post('/v1/admin/members/invite').set('Authorization', `Bearer ${adminInvite}`).send({}).expect(200);
 
-    const adminSuspend = await actorWithPerms(tenant.id, actors[3], Role.tenant_admin, ['members.suspend']);
+    const adminSuspend = await actorWithPerms(tenant.id, actors[5], Role.tenant_admin, ['members.suspend']);
     await request(app.getHttpServer()).post(`/v1/admin/members/${seller.id}/deactivate`).set('Authorization', `Bearer ${adminSuspend}`).expect(200);
 
-    const dash = await actorWithPerms(tenant.id, actors[4], Role.tenant_staff, ['dashboard.view']);
+    const dash = await actorWithPerms(tenant.id, actors[6], Role.tenant_staff, ['dashboard.view']);
     await request(app.getHttpServer()).get('/v1/admin/dashboard').set('Authorization', `Bearer ${dash}`).expect(200);
     await request(app.getHttpServer()).get('/v1/admin/analytics').set('Authorization', `Bearer ${dash}`).expect(403);
 
-    const reports = await actorWithPerms(tenant.id, actors[5], Role.tenant_staff, ['reports.view']);
+    const reports = await actorWithPerms(tenant.id, actors[7], Role.tenant_staff, ['reports.view']);
     await request(app.getHttpServer()).get('/v1/admin/analytics').set('Authorization', `Bearer ${reports}`).expect(200);
 
-    const auditStaff = await actorWithPerms(tenant.id, actors[6], Role.tenant_staff, ['audit.view']);
+    const auditStaff = await actorWithPerms(tenant.id, actors[8], Role.tenant_staff, ['audit.view']);
     await request(app.getHttpServer()).get('/v1/admin/audit').set('Authorization', `Bearer ${auditStaff}`).expect(403);
 
-    const auditAdmin = await actorWithPerms(tenant.id, actors[7], Role.tenant_admin, ['audit.view']);
+    const auditAdmin = await actorWithPerms(tenant.id, actors[9], Role.tenant_admin, ['audit.view']);
     await request(app.getHttpServer()).get('/v1/admin/audit').set('Authorization', `Bearer ${auditAdmin}`).expect(200);
   });
 

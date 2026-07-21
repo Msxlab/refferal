@@ -443,4 +443,17 @@ describe('notification relay (integration)', () => {
       expect(`${message.subject}\n${message.body}`).not.toContain('failure-must-not-leak');
     }
   });
+
+  it('describes an automatic request as a readiness-gated payout, not a mailed check', () => {
+    const message = render('payout_auto_requested', {
+      totalCents: '100000',
+      period: '2026-06',
+      payoutId: 'payout-1',
+    });
+
+    expect(message.subject).toBe('Your payout request is ready for review');
+    expect(message.body).toContain('payout details are ready');
+    expect(message.body).toContain('no funds have been released yet');
+    expect(message.body).not.toMatch(/check|mail/i);
+  });
 });

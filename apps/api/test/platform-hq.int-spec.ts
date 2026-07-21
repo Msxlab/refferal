@@ -41,6 +41,7 @@ describe('platform HQ (entegrasyon)', () => {
     expect(claims.tid).toBe(tenant.id);
     expect(claims.role).toBe('tenant_owner');
     expect(claims.plat).toBe(true);
+    expect(claims.authGeneration).toBe(1);
     const audit = await prisma.auditLog.count({ where: { tenantId: tenant.id, action: 'platform.act_as' } });
     expect(audit).toBe(1);
   });

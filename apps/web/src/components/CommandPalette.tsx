@@ -16,7 +16,7 @@ const NAV: { label: string; path: string }[] = [
   { label: 'Go to Overview', path: '/admin' },
   { label: 'Go to Sales', path: '/admin/sales' },
   { label: 'Go to Members', path: '/admin/members' },
-  { label: 'Go to Network', path: '/admin/tree' },
+  { label: 'Go to Value flow', path: '/admin/tree' },
   { label: 'Go to Campaigns', path: '/admin/campaigns' },
   { label: 'Go to Payouts', path: '/admin/payouts' },
   { label: 'Go to Audit', path: '/admin/audit' },

@@ -379,7 +379,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             {tenantName}
           </span>
           <div className="admin-global-actions" role="group" aria-label="Workspace utilities">
-            <LiveIndicator />
+            {!isStaff && <LiveIndicator />}
             <NotificationBell />
             <ThemeToggle />
           </div>

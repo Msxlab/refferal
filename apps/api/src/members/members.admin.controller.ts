@@ -1,103 +1,320 @@
-import { Body, Controller, Get, Header, Headers, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, Res } from '@nestjs/common';
-import { MembershipStatus, Role } from '@prisma/client';
-import { Response } from 'express';
-import { z } from 'zod';
-import { CurrentUser, RequireMembership, RequirePermission, Roles } from '../auth/auth.guard';
-import { RequestUser } from '../auth/auth.types';
-import { parseIdempotencyKey } from '../common/idempotency-key';
-import { ZodValidationPipe } from '../common/zod.pipe';
-import { ActorContext } from '../common/actor';
-import { MembersAdminService } from './members.admin.service';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Header,
+  Headers,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  Res,
+} from "@nestjs/common";
+import { MembershipStatus, Role } from "@prisma/client";
+import { Response } from "express";
+import { z } from "zod";
+import {
+  CurrentUser,
+  RequireMembership,
+  RequirePermission,
+  Roles,
+} from "../auth/auth.guard";
+import { RequestUser } from "../auth/auth.types";
+import { parseIdempotencyKey } from "../common/idempotency-key";
+import { ALL_PERMISSIONS, hasEffectivePermission } from "../common/permissions";
+import { ZodValidationPipe } from "../common/zod.pipe";
+import { ActorContext } from "../common/actor";
+import { MembersAdminService } from "./members.admin.service";
+import { NetworkHierarchyService } from "./network-hierarchy.service";
+import { HIERARCHY_TOKEN_MAX_LENGTH } from "./network-hierarchy.tokens";
 
 const ADMIN = [Role.tenant_owner, Role.tenant_admin];
 const STAFF = [Role.tenant_owner, Role.tenant_admin, Role.tenant_staff];
 
 const listSchema = z.object({
   search: z.string().trim().max(120).optional(),
-  status: z.enum(['active', 'inactive']).optional(),
+  status: z.enum(["active", "inactive"]).optional(),
   // varsayilanlar onceki davranisi korur (joinedAt asc)
-  sort: z.enum(['joinedAt', 'fullName', 'depth']).default('joinedAt'),
-  dir: z.enum(['asc', 'desc']).default('asc'),
+  sort: z.enum(["joinedAt", "fullName", "depth"]).default("joinedAt"),
+  dir: z.enum(["asc", "desc"]).default("asc"),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
 const exportSchema = z.object({
   search: z.string().trim().max(120).optional(),
-  status: z.enum(['active', 'inactive']).optional(),
+  status: z.enum(["active", "inactive"]).optional(),
 });
 const bulkSchema = z
   .object({
-    action: z.enum(['activate', 'deactivate', 'set_role']),
+    action: z.enum(["activate", "deactivate", "set_role"]),
     ids: z.array(z.string().uuid()).min(1).max(200),
-    role: z.enum(['tenant_admin', 'tenant_staff', 'member']).optional(),
+    role: z.enum(["tenant_admin", "tenant_staff", "member"]).optional(),
     preview: z.boolean().optional(),
   })
-  .refine((v) => v.action !== 'set_role' || !!v.role, { message: 'set_role icin rol gerekli', path: ['role'] });
+  .refine((v) => v.action !== "set_role" || !!v.role, {
+    message: "set_role icin rol gerekli",
+    path: ["role"],
+  });
 const inviteSchema = z.object({
   sponsorReferralCode: z.string().trim().min(3).max(32).optional(),
   sponsorMembershipId: z.string().uuid().optional(),
   email: z.string().trim().toLowerCase().email().max(254).optional(),
 });
-const roleSchema = z.object({ role: z.enum(['tenant_admin', 'tenant_staff', 'member']) });
+const roleSchema = z.object({
+  role: z.enum(["tenant_admin", "tenant_staff", "member"]),
+});
 const createManualSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
   email: z.string().trim().toLowerCase().email().max(254),
   sponsorReferralCode: z.string().trim().min(3).max(32).optional(),
   sponsorMembershipId: z.string().uuid().optional(),
-  role: z.enum(['tenant_admin', 'tenant_staff', 'member']).optional(),
+  role: z.enum(["tenant_admin", "tenant_staff", "member"]).optional(),
   tempPassword: z.string().min(10).max(128).optional(),
   // sponsor verilmediginde true ise: yeni KOK takim lideri (agacin tepesinde)
   asLeader: z.boolean().optional(),
 });
 const treeSchema = z.object({ root: z.string().uuid().optional() });
+const hierarchyScopeFields = {
+  scope: z.enum(["full", "focused"]),
+  focusId: z.string().uuid().optional(),
+};
+const requireMatchingHierarchyFocus = (
+  value: { scope: "full" | "focused"; focusId?: string },
+  context: z.RefinementCtx,
+) => {
+  if (value.scope === "focused" && !value.focusId) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["focusId"],
+      message: "focused scope requires focusId",
+    });
+  }
+  if (value.scope === "full" && value.focusId) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["focusId"],
+      message: "full scope does not accept focusId",
+    });
+  }
+};
+const canonicalSnapshot = z
+  .string()
+  .max(40)
+  .refine(
+    (value) =>
+      !Number.isNaN(Date.parse(value)) &&
+      new Date(value).toISOString() === value,
+    "snapshotAt must be a canonical ISO timestamp",
+  );
+const opaqueHierarchyReference = z
+  .string()
+  .min(1)
+  .max(HIERARCHY_TOKEN_MAX_LENGTH)
+  .regex(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/);
+const hierarchyParentRef = z.union([
+  z.literal("tenant-root"),
+  z.string().uuid(),
+]);
+const networkContextSchema = z
+  .object({
+    ...hierarchyScopeFields,
+    depth: z.coerce.number().int().min(1).max(5).default(3),
+  })
+  .superRefine(requireMatchingHierarchyFocus);
+const networkSearchSchema = z.object({
+  query: z.string().trim().min(2).max(120),
+  cursor: opaqueHierarchyReference.optional(),
+});
+const networkChildrenSchema = z.object({
+  parentRef: hierarchyParentRef,
+  focusId: z.string().uuid().optional(),
+  cursor: opaqueHierarchyReference.optional(),
+  snapshotAt: canonicalSnapshot,
+});
+const networkClusterChildrenSchema = z.object({
+  parentRef: hierarchyParentRef,
+  focusId: z.string().uuid().optional(),
+  clusterRef: opaqueHierarchyReference,
+  snapshotAt: canonicalSnapshot,
+});
+const networkListSchema = z
+  .object({
+    ...hierarchyScopeFields,
+    cursor: opaqueHierarchyReference.optional(),
+    snapshotAt: canonicalSnapshot,
+  })
+  .superRefine(requireMatchingHierarchyFocus);
 const leaderSchema = z.object({ isTeamLeader: z.boolean() });
-const updateProfileSchema = z.object({
-  fullName: z.string().trim().min(2).max(120).optional(),
-  email: z.string().trim().toLowerCase().email().max(254).optional(),
-}).refine((v) => v.fullName !== undefined || v.email !== undefined, { message: 'en az bir alan gerekli' });
+const updateProfileSchema = z
+  .object({
+    fullName: z.string().trim().min(2).max(120).optional(),
+    email: z.string().trim().toLowerCase().email().max(254).optional(),
+  })
+  .refine((v) => v.fullName !== undefined || v.email !== undefined, {
+    message: "en az bir alan gerekli",
+  });
 
 @RequireMembership()
-@Controller('admin/members')
+@Controller("admin/members")
 export class MembersAdminController {
-  constructor(private readonly members: MembersAdminService) {}
+  constructor(
+    private readonly members: MembersAdminService,
+    private readonly hierarchy: NetworkHierarchyService,
+  ) {}
 
   private actor(user: RequestUser): ActorContext {
     return { userId: user.sub, tenantId: user.tid as string };
   }
 
-  @Roles(...STAFF)
-  @RequirePermission('members.view')
-  @Get()
-  list(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(listSchema)) q: z.infer<typeof listSchema>) {
-    return this.members.list(user.tid as string, { ...q, status: q.status as MembershipStatus | undefined });
+  private assertPermission(user: RequestUser, permission: string): void {
+    if (user.role === Role.tenant_owner || user.role === Role.platform_admin)
+      return;
+    if (
+      !ALL_PERMISSIONS.includes(permission) ||
+      !user.perms?.includes(permission)
+    ) {
+      throw new ForbiddenException(
+        "you do not have permission for this action",
+      );
+    }
   }
 
-  // DIKKAT: statik GET route'lar (tree, leaders, export.csv) ':id' route'undan ONCE tanimli kalmali.
+  private hierarchyCapabilities(user: RequestUser) {
+    return {
+      viewFinancials: hasEffectivePermission(user, "network.financials.view"),
+      openMember: hasEffectivePermission(user, "members.view"),
+    };
+  }
+
   @Roles(...STAFF)
-  @RequirePermission('network.view')
-  @Get('tree')
-  tree(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(treeSchema)) q: z.infer<typeof treeSchema>) {
+  @RequirePermission("members.view")
+  @Get()
+  list(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(listSchema)) q: z.infer<typeof listSchema>,
+  ) {
+    return this.members.list(user.tid as string, {
+      ...q,
+      status: q.status as MembershipStatus | undefined,
+    });
+  }
+
+  @Roles(...STAFF)
+  @RequirePermission("network.view")
+  @Get("network-context")
+  networkContext(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(networkContextSchema))
+    q: z.infer<typeof networkContextSchema>,
+  ) {
+    return this.hierarchy.adminContext(this.actor(user), {
+      ...q,
+      ...this.hierarchyCapabilities(user),
+    });
+  }
+
+  @Roles(...STAFF)
+  @RequirePermission("network.view")
+  @HttpCode(200)
+  @Post("network-search")
+  networkSearch(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(networkSearchSchema))
+    body: z.infer<typeof networkSearchSchema>,
+  ) {
+    return this.hierarchy.adminSearch(this.actor(user), {
+      ...body,
+      viewFinancials: this.hierarchyCapabilities(user).viewFinancials,
+    });
+  }
+
+  @Roles(...STAFF)
+  @RequirePermission("network.view")
+  @Get("network-children")
+  networkChildren(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(networkChildrenSchema))
+    q: z.infer<typeof networkChildrenSchema>,
+  ) {
+    return this.hierarchy.adminChildren(this.actor(user), {
+      ...q,
+      viewFinancials: this.hierarchyCapabilities(user).viewFinancials,
+    });
+  }
+
+  @Roles(...STAFF)
+  @RequirePermission("network.view")
+  @Get("network-cluster-children")
+  networkClusterChildren(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(networkClusterChildrenSchema))
+    q: z.infer<typeof networkClusterChildrenSchema>,
+  ) {
+    return this.hierarchy.adminClusterChildren(this.actor(user), {
+      ...q,
+      viewFinancials: this.hierarchyCapabilities(user).viewFinancials,
+    });
+  }
+
+  @Roles(...STAFF)
+  @RequirePermission("network.view")
+  @Get("network-list")
+  networkList(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(networkListSchema))
+    q: z.infer<typeof networkListSchema>,
+  ) {
+    return this.hierarchy.adminList(this.actor(user), {
+      ...q,
+      viewFinancials: this.hierarchyCapabilities(user).viewFinancials,
+    });
+  }
+
+  // DIKKAT: statik GET route'lar (tree, tree-snapshot, leaders, export.csv) ':id' route'undan ONCE tanimli kalmali.
+  @Roles(...STAFF)
+  @RequirePermission("network.view", "network.financials.view")
+  @Get("tree")
+  tree(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(treeSchema)) q: z.infer<typeof treeSchema>,
+  ) {
     return this.members.tree(user.tid as string, q.root);
+  }
+
+  @Roles(...STAFF)
+  @RequirePermission("network.view", "network.financials.view")
+  @Get("tree-snapshot")
+  treeSnapshot(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(treeSchema)) q: z.infer<typeof treeSchema>,
+  ) {
+    return this.members.treeSnapshot(user.tid as string, q.root);
   }
 
   // takim liderleri landing'i (canli grup ozetleriyle)
   @Roles(...STAFF)
-  @Get('leaders')
+  @RequirePermission("network.view", "network.financials.view")
+  @Get("leaders")
   leaders(@CurrentUser() user: RequestUser) {
     return this.members.leaders(user.tid as string);
   }
 
   // ag saglik panosu (pasif kume + satissiz aktif uye orani). Statik route — ':id'den ONCE.
   @Roles(...STAFF)
-  @Get('network-health')
+  @RequirePermission("network.view")
+  @Get("network-health")
   networkHealth(@CurrentUser() user: RequestUser) {
     return this.members.networkHealth(user.tid as string);
   }
 
   @Roles(...STAFF)
-  @Get('export.csv')
-  @Header('Content-Type', 'text/csv; charset=utf-8')
-  @Header('Content-Disposition', 'attachment; filename="members.csv"')
+  @RequirePermission("reports.export")
+  @Get("export.csv")
+  @Header("Content-Type", "text/csv; charset=utf-8")
+  @Header("Content-Disposition", 'attachment; filename="members.csv"')
   async export(
     @CurrentUser() user: RequestUser,
     @Query(new ZodValidationPipe(exportSchema)) q: z.infer<typeof exportSchema>,
@@ -113,109 +330,174 @@ export class MembersAdminController {
   // toplu aktive/pasiflestir → admin+ (her uye ayri audit'li, kismi basari)
   @Roles(...ADMIN)
   @HttpCode(200)
-  @Post('bulk')
-  bulk(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(bulkSchema)) body: z.infer<typeof bulkSchema>) {
-    return this.members.bulk(this.actor(user), { ...body, role: body.role as Role | undefined });
+  @Post("bulk")
+  bulk(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(bulkSchema)) body: z.infer<typeof bulkSchema>,
+  ) {
+    this.assertPermission(
+      user,
+      body.action === "set_role" ? "settings.roles" : "members.suspend",
+    );
+    return this.members.bulk(
+      this.actor(user),
+      {
+        ...body,
+        role: body.role as Role | undefined,
+      },
+      user.mid ?? null,
+    );
   }
 
   // Invites and membership status changes are admin+ only and audited.
   @Roles(...ADMIN)
-  @RequirePermission('invites.create')
+  @RequirePermission("invites.create")
   @HttpCode(200)
-  @Post('invite')
+  @Post("invite")
   invite(
     @CurrentUser() user: RequestUser,
-    @Body(new ZodValidationPipe(inviteSchema)) body: z.infer<typeof inviteSchema>,
-    @Headers('idempotency-key') idempotencyKey?: string,
+    @Body(new ZodValidationPipe(inviteSchema))
+    body: z.infer<typeof inviteSchema>,
+    @Headers("idempotency-key") idempotencyKey?: string,
   ) {
-    return this.members.invite(this.actor(user), user.mid as string, body, parseIdempotencyKey(idempotencyKey));
+    return this.members.invite(
+      this.actor(user),
+      user.mid as string,
+      body,
+      parseIdempotencyKey(idempotencyKey),
+    );
   }
 
   // manuel uye olustur (davet beklemeden) → admin+ (audit'li). Statik POST, ':id'den ONCE.
   @Roles(...ADMIN)
+  @RequirePermission("members.manage")
   @HttpCode(200)
   @Post()
-  createManual(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(createManualSchema)) body: z.infer<typeof createManualSchema>) {
+  createManual(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(createManualSchema))
+    body: z.infer<typeof createManualSchema>,
+  ) {
+    if (body.role && body.role !== Role.member)
+      this.assertPermission(user, "settings.roles");
     // act-as (platform admin) tokeninde mid=null; servis tenant owner'a fallback yapar
-    return this.members.createManual(this.actor(user), user.mid ?? null, { ...body, role: body.role as Role | undefined });
+    return this.members.createManual(this.actor(user), user.mid ?? null, {
+      ...body,
+      role: body.role as Role | undefined,
+    });
   }
 
   // 360 derece uye detayi (STAFF) — statik GET'lerden SONRA tanimli
   @Roles(...STAFF)
-  @Get(':id')
-  detail(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+  @RequirePermission("members.view")
+  @Get(":id")
+  detail(
+    @CurrentUser() user: RequestUser,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
     return this.members.detail(user.tid as string, id);
   }
 
   // GDPR/KVKK DSAR: uyenin tum kisisel verisi (admin)
   @Roles(...ADMIN)
-  @Get(':id/export')
-  exportData(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+  @RequirePermission("reports.export")
+  @Get(":id/export")
+  exportData(
+    @CurrentUser() user: RequestUser,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
     return this.members.exportData(user.tid as string, id);
   }
 
   // profil duzenle (ad/e-posta) — yerlesime dokunmaz
   @Roles(...ADMIN)
-  @Patch(':id')
+  @RequirePermission("members.manage")
+  @Patch(":id")
   updateProfile(
     @CurrentUser() user: RequestUser,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(updateProfileSchema)) body: z.infer<typeof updateProfileSchema>,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(updateProfileSchema))
+    body: z.infer<typeof updateProfileSchema>,
   ) {
     return this.members.updateProfile(this.actor(user), id, body);
   }
 
   // takim lideri isaretle/kaldir (yerlesimi degistirmez)
   @Roles(...ADMIN)
+  @RequirePermission("members.manage")
   @HttpCode(200)
-  @Post(':id/leader')
+  @Post(":id/leader")
   setLeader(
     @CurrentUser() user: RequestUser,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(leaderSchema)) body: z.infer<typeof leaderSchema>,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(leaderSchema))
+    body: z.infer<typeof leaderSchema>,
   ) {
     return this.members.setLeader(this.actor(user), id, body.isTeamLeader);
   }
 
   @Roles(...ADMIN)
-  @RequirePermission('members.suspend')
+  @RequirePermission("members.suspend")
   @HttpCode(200)
-  @Post(':id/deactivate')
-  deactivate(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.members.setStatus(this.actor(user), id, MembershipStatus.inactive);
+  @Post(":id/deactivate")
+  deactivate(
+    @CurrentUser() user: RequestUser,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    return this.members.setStatus(
+      this.actor(user),
+      id,
+      MembershipStatus.inactive,
+    );
   }
 
   @Roles(...ADMIN)
-  @RequirePermission('members.suspend')
+  @RequirePermission("members.suspend")
   @HttpCode(200)
-  @Post(':id/activate')
-  activate(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.members.setStatus(this.actor(user), id, MembershipStatus.active);
+  @Post(":id/activate")
+  activate(
+    @CurrentUser() user: RequestUser,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    return this.members.setStatus(
+      this.actor(user),
+      id,
+      MembershipStatus.active,
+    );
   }
 
   @Roles(...ADMIN)
+  @RequirePermission("settings.roles")
   @HttpCode(200)
-  @Post(':id/role')
+  @Post(":id/role")
   setRole(
     @CurrentUser() user: RequestUser,
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param("id", ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(roleSchema)) body: z.infer<typeof roleSchema>,
   ) {
-    return this.members.setRole(this.actor(user), id, body.role as Role);
+    return this.members.setRole(this.actor(user), id, body.role as Role, user.mid ?? null);
   }
 
   // guvenli impersonation: salt-okunur kisa omurlu token (audit'li)
   @Roles(...ADMIN)
+  @RequirePermission("settings.security")
   @HttpCode(200)
-  @Post(':id/impersonate')
-  impersonate(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+  @Post(":id/impersonate")
+  impersonate(
+    @CurrentUser() user: RequestUser,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
     return this.members.impersonate(this.actor(user), id);
   }
 
   @Roles(...ADMIN)
+  @RequirePermission("settings.security")
   @HttpCode(200)
-  @Post(':id/impersonate/end')
-  impersonateEnd(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+  @Post(":id/impersonate/end")
+  impersonateEnd(
+    @CurrentUser() user: RequestUser,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
     return this.members.impersonateEnd(this.actor(user), id);
   }
 }

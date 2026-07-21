@@ -6,7 +6,8 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3000",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "node scripts/run-node-tests.mjs"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.7",

@@ -100,8 +100,8 @@ export class SchedulerService {
   }
 
   /**
-   * Gece (06:00): esigi gecen uyelere OTOMATIK 'requested' cek talebi ac + uyeye bildir (Faz A3).
-   * PARA CIKMAZ — admin onayi (decide) hala sart. Tenant.autoRequestPayouts kapaliysa atlanir.
+   * Gece (06:00): esigi gecen ve readiness'i tam uyelere otomatik `requested` payout talebi acip bildirir.
+   * Para cikmaz; idari onay ve settlement hala ayri akistir. Tenant.autoRequestPayouts kapaliysa atlanir.
    */
   @Cron(CronExpression.EVERY_DAY_AT_6AM, { name: 'auto-request-payouts' })
   async autoRequestPayouts(): Promise<void> {
@@ -110,7 +110,7 @@ export class SchedulerService {
     this.autoRequestRunning = true;
     await this.runJob('auto-request-payouts', async () => {
       const { created, skipped } = await this.payouts.autoRequestPayouts();
-      if (created > 0) this.logger.log(`otomatik cek talebi: ${created} acildi, ${skipped} atlandi`);
+      if (created > 0) this.logger.log(`otomatik payout talebi: ${created} acildi, ${skipped} atlandi`);
     });
     this.autoRequestRunning = false;
   }

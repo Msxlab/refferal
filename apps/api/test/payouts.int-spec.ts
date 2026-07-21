@@ -28,6 +28,9 @@ import {
   truncateAll,
 } from './helpers';
 
+const jsonForAssertion = (value: unknown) =>
+  JSON.stringify(value, (_key, nested) => (typeof nested === 'bigint' ? nested.toString() : nested));
+
 describe('payout presentation (pure contract)', () => {
   const createdAt = new Date('2026-06-01T10:00:00.000Z');
   const processingAt = new Date('2026-06-02T10:00:00.000Z');
@@ -371,7 +374,7 @@ describe('payouts (integration)', () => {
       version: 2,
       expiresAt: null,
     });
-    expect(JSON.stringify(audits)).not.toMatch(/providerReference|stale_attempt/);
+    expect(jsonForAssertion(audits)).not.toMatch(/providerReference|stale_attempt/);
   });
 
   it('derives safe labels and makes parallel destination first writes and replacements atomic and secret-free', async () => {
@@ -495,7 +498,7 @@ describe('payouts (integration)', () => {
       verifiedAt: replacementWinner.verifiedAt,
       version: 2,
     });
-    expect(JSON.stringify(audits)).not.toMatch(/providerReference|provider-(first|replacement)-secret|raw bank account|routing text/);
+    expect(jsonForAssertion(audits)).not.toMatch(/providerReference|provider-(first|replacement)-secret|raw bank account|routing text/);
   });
 
   it('rejects invalid payout compliance fields and accepts current fixed ISO currency codes', async () => {
@@ -2207,7 +2210,136 @@ describe('payouts (integration)', () => {
     expect(await prisma.payout.count({ where: { tenantId: tenant.id, membershipId: seller.id } })).toBe(1);
   });
 
-  it('enforces compliance for preview, legacy run, approve-request, and stores only a redacted snapshot', async () => {
+  it('legacy direct decision cannot settle a request outside a reviewed payout batch', async () => {
+    const { tenant, seller, owner } = await scenario();
+    const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
+    const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
+    await new EngineService(prisma).approveSale(sale.id);
+    const requested = await createRequestedPayout(tenant.id, seller.id, 500_000n);
+
+    const response = await request(app.getHttpServer())
+      .post(`/v1/admin/payouts/${requested.id}/decide`)
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ action: 'approve' })
+      .expect(409);
+
+    expect(response.body.message).toContain('reviewed payout batch');
+    await expect(prisma.payout.findUniqueOrThrow({ where: { id: requested.id } })).resolves.toMatchObject({
+      status: PayoutStatus.requested,
+      paidAt: null,
+    });
+    expect(await prisma.ledgerEntry.count({ where: { beneficiaryMembershipId: seller.id, status: LedgerStatus.payable } })).toBe(1);
+    expect(await prisma.ledgerEntry.count({ where: { beneficiaryMembershipId: seller.id, status: LedgerStatus.paid } })).toBe(0);
+  });
+
+  it('legacy direct request approval cannot reserve funds without a reviewed payout batch', async () => {
+    const { tenant, seller, owner } = await scenario();
+    const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
+    const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
+    await new EngineService(prisma).approveSale(sale.id);
+    await seedReadyPayoutCompliance(prisma, tenant.id, seller.id, owner.userId);
+    const requested = await createRequestedPayout(tenant.id, seller.id, 500_000n);
+
+    const response = await request(app.getHttpServer())
+      .post(`/v1/admin/payouts/${requested.id}/approve`)
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .send({ method: 'manual' })
+      .expect(409);
+
+    expect(response.body.message).toContain('reviewed payout batch');
+    await expect(prisma.payout.findUniqueOrThrow({ where: { id: requested.id } })).resolves.toMatchObject({
+      status: PayoutStatus.requested,
+      batchId: null,
+    });
+    expect(await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
+    expect(await prisma.ledgerEntry.count({ where: { beneficiaryMembershipId: seller.id, status: LedgerStatus.processing } })).toBe(0);
+  });
+
+  it('legacy direct retry cannot settle a failed payout outside a reviewed batch', async () => {
+    const { tenant, seller, owner } = await scenario();
+    const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
+    const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
+    await new EngineService(prisma).approveSale(sale.id);
+    const requested = await createRequestedPayout(tenant.id, seller.id, 500_000n);
+    await prisma.payout.update({ where: { id: requested.id }, data: { status: PayoutStatus.failed, activeKey: null } });
+    await prisma.ledgerEntry.updateMany({
+      where: { tenantId: tenant.id, beneficiaryMembershipId: seller.id, status: LedgerStatus.payable },
+      data: { status: LedgerStatus.paid, payoutId: requested.id },
+    });
+
+    const response = await request(app.getHttpServer())
+      .post(`/v1/admin/payouts/${requested.id}/retry`)
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .expect(409);
+
+    expect(response.body.message).toContain('reviewed payout batch');
+    await expect(prisma.payout.findUniqueOrThrow({ where: { id: requested.id } })).resolves.toMatchObject({
+      status: PayoutStatus.failed,
+      paidAt: null,
+    });
+  });
+
+  it('legacy maker-checker batch approval cannot reserve funds without a reviewed preview', async () => {
+    const { tenant, seller, owner } = await scenario();
+    const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
+    const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
+    await new EngineService(prisma).approveSale(sale.id);
+    await seedReadyPayoutCompliance(prisma, tenant.id, seller.id, owner.userId);
+    const batch = await prisma.payoutBatch.create({
+      data: {
+        tenantId: tenant.id,
+        period: monthKey(new Date(), tenant.timezone),
+        method: 'manual',
+        membershipIds: [seller.id],
+        estimateCents: 500_000n,
+        proposedByUserId: seller.userId,
+      },
+    });
+
+    const response = await request(app.getHttpServer())
+      .post(`/v1/admin/payouts/batches/${batch.id}/approve`)
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .expect(409);
+
+    expect(response.body.message).toContain('reviewed payout batch');
+    await expect(prisma.payoutBatch.findUniqueOrThrow({ where: { id: batch.id } })).resolves.toMatchObject({
+      status: 'proposed',
+      approvedByUserId: null,
+      executedAt: null,
+    });
+    expect(await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
+    expect(await prisma.ledgerEntry.count({ where: { beneficiaryMembershipId: seller.id, status: LedgerStatus.processing } })).toBe(0);
+    expect(await prisma.ledgerEntry.count({ where: { beneficiaryMembershipId: seller.id, status: LedgerStatus.payable } })).toBe(1);
+  });
+
+  it('legacy maker-checker batch rejection cannot mutate a retired proposal', async () => {
+    const { tenant, seller, owner } = await scenario();
+    const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
+    const batch = await prisma.payoutBatch.create({
+      data: {
+        tenantId: tenant.id,
+        period: monthKey(new Date(), tenant.timezone),
+        method: 'manual',
+        membershipIds: [seller.id],
+        estimateCents: 0n,
+        proposedByUserId: seller.userId,
+      },
+    });
+
+    const response = await request(app.getHttpServer())
+      .post(`/v1/admin/payouts/batches/${batch.id}/reject`)
+      .set('Authorization', `Bearer ${ownerTok}`)
+      .expect(409);
+
+    expect(response.body.message).toContain('reviewed payout batch');
+    await expect(prisma.payoutBatch.findUniqueOrThrow({ where: { id: batch.id } })).resolves.toMatchObject({
+      status: 'proposed',
+      approvedByUserId: null,
+      executedAt: null,
+    });
+  });
+
+  it('enforces compliance for preview and reviewed confirmation, and stores only a redacted snapshot', async () => {
     const { tenant, seller, owner } = await scenario();
     const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
     const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
@@ -2220,12 +2352,12 @@ describe('payouts (integration)', () => {
     expect(await prisma.ledgerEntry.count({ where: { beneficiaryMembershipId: seller.id, status: LedgerStatus.processing } })).toBe(0);
 
     const requested = await createRequestedPayout(tenant.id, seller.id, 500_000n);
-    const blockedApproval = await request(app.getHttpServer())
+    const retiredDirectApproval = await request(app.getHttpServer())
       .post(`/v1/admin/payouts/${requested.id}/approve`)
       .set('Authorization', `Bearer ${ownerTok}`)
       .send({ method: 'manual' })
-      .expect(200);
-    expect(blockedApproval.body).toEqual({ processing: false, reason: 'payout_not_ready', netCents: '500000' });
+      .expect(409);
+    expect(retiredDirectApproval.body.message).toContain('reviewed payout batch');
     expect((await prisma.payout.findUniqueOrThrow({ where: { id: requested.id } })).status).toBe(PayoutStatus.requested);
 
     const providerReference = 'provider-sentinel-must-never-persist-in-snapshot';
@@ -2263,7 +2395,7 @@ describe('payouts (integration)', () => {
     expect(publicAndStored).not.toContain('maskedLabel');
     expect(publicAndStored).not.toContain('last4');
     const audits = await prisma.auditLog.findMany({ where: { tenantId: tenant.id } });
-    expect(JSON.stringify(audits)).not.toContain(providerReference);
+    expect(jsonForAssertion(audits)).not.toContain(providerReference);
   });
 
   it.each([
@@ -2573,15 +2705,9 @@ describe('payouts (integration)', () => {
       activePayout: null,
     });
     expect(await prisma.payout.count({ where: { tenantId: tenant.id, membershipId: seller.id } })).toBe(0);
-
-    const mine = await request(app.getHttpServer())
-      .get('/v1/app/payout-requests')
-      .set('Authorization', `Bearer ${sellerTok}`)
-      .expect(200);
-    expect(mine.body).toEqual([]);
   });
 
-  it('admin approval only moves a requested payout into processing', async () => {
+  it('reviewed batch confirmation only moves a requested payout into processing', async () => {
     const { tenant, seller, owner } = await scenario();
     const sellerTok = token({ userId: seller.userId, membershipId: seller.id, tenantId: tenant.id, role: Role.member });
     const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
@@ -2593,14 +2719,16 @@ describe('payouts (integration)', () => {
 
     const req1 = await createRequestedPayout(tenant.id, seller.id, 500_000n);
 
-    const approved = await request(app.getHttpServer())
-      .post(`/v1/admin/payouts/${req1.id}/approve`)
-      .set('Authorization', `Bearer ${ownerTok}`)
-      .send({ method: 'csv' })
-      .expect(200);
+    const reviewed = await startReviewedBatch(ownerTok, {
+      mode: 'all_eligible',
+      filters: { method: 'csv' },
+    });
 
-    expect(approved.body).toMatchObject({ processing: true, payoutId: req1.id, totalCents: '500000' });
-    expect(approved.body.batchId).toEqual(expect.any(String));
+    expect(reviewed.body).toMatchObject({ status: 'processing', processingCount: 1 });
+    expect(reviewed.body.id).toEqual(expect.any(String));
+    expect(reviewed.body.processing).toEqual(expect.arrayContaining([
+      expect.objectContaining({ membershipId: seller.id, payoutId: req1.id, totalCents: '500000' }),
+    ]));
     const payout = await prisma.payout.findUniqueOrThrow({ where: { id: req1.id } });
     expect(payout.status).toBe(PayoutStatus.processing);
     expect(payout.method).toBe('csv');
@@ -2621,14 +2749,10 @@ describe('payouts (integration)', () => {
     expect(await prisma.payout.count({ where: { tenantId: tenant.id, membershipId: seller.id } })).toBe(1);
   });
 
-  it('approve-request does not ignore a different processing payout for the same member and period', async () => {
-    const { tenant, seller, owner } = await scenario();
-    const ownerTok = token({ userId: owner.userId, membershipId: owner.id, tenantId: tenant.id, role: Role.tenant_owner });
-    const sale = await createSale(prisma, tenant.id, seller.id, 10_000_000n);
-    await new EngineService(prisma).approveSale(sale.id);
-    await seedReadyPayoutCompliance(prisma, tenant.id, seller.id, owner.userId);
+  it('enforces one active payout per member even within the same period', async () => {
+    const { tenant, seller } = await scenario();
     const requested = await createRequestedPayout(tenant.id, seller.id, 500_000n);
-    const legacyProcessing = await prisma.payout.create({
+    await expect(prisma.payout.create({
       data: {
         tenantId: tenant.id,
         membershipId: seller.id,
@@ -2638,23 +2762,10 @@ describe('payouts (integration)', () => {
         period: requested.period,
         activeKey: null,
       },
-    });
-
-    const response = await request(app.getHttpServer())
-      .post(`/v1/admin/payouts/${requested.id}/approve`)
-      .set('Authorization', `Bearer ${ownerTok}`)
-      .send({ method: 'manual' })
-      .expect(200);
-
-    expect(response.body).toEqual({ processing: false, reason: 'already_processing', netCents: '0' });
+    })).rejects.toMatchObject({ code: 'P2002' });
     expect((await prisma.payout.findUniqueOrThrow({ where: { id: requested.id } })).status).toBe(PayoutStatus.requested);
-    expect((await prisma.payout.findUniqueOrThrow({ where: { id: legacyProcessing.id } })).status).toBe(PayoutStatus.processing);
     expect(await prisma.payout.count({
-      where: { tenantId: tenant.id, membershipId: seller.id, period: requested.period, status: PayoutStatus.processing },
-    })).toBe(1);
-    expect(await prisma.payoutSettlementBatch.count({ where: { tenantId: tenant.id } })).toBe(0);
-    expect(await prisma.ledgerEntry.count({
-      where: { beneficiaryMembershipId: seller.id, status: LedgerStatus.payable },
+      where: { tenantId: tenant.id, membershipId: seller.id, status: { in: [PayoutStatus.requested, PayoutStatus.processing] } },
     })).toBe(1);
   });
 
@@ -2778,11 +2889,10 @@ describe('payouts (integration)', () => {
     expect(requestedReplay.body.id).toBe(payoutRequest.id);
     expect(requestedReplay.body.payoutReadiness).toEqual(requestedWallet.body.payoutReadiness);
 
-    await request(app.getHttpServer())
-      .post(`/v1/admin/payouts/${payoutRequest.id}/approve`)
-      .set('Authorization', `Bearer ${ownerTok}`)
-      .send({ method: 'csv' })
-      .expect(200);
+    await startReviewedBatch(ownerTok, {
+      mode: 'all_eligible',
+      filters: { method: 'csv' },
+    });
 
     const processingWallet = await request(app.getHttpServer())
       .get('/v1/app/wallet')
@@ -2956,11 +3066,10 @@ describe('payouts (integration)', () => {
       mutations: ['approve-request', 'reject-request'],
     });
 
-    await request(app.getHttpServer())
-      .post(`/v1/admin/payouts/${payout.id}/approve`)
-      .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ method: 'csv' })
-      .expect(200);
+    await startReviewedBatch(ownerToken, {
+      mode: 'all_eligible',
+      filters: { method: 'csv' },
+    });
     const processing = await request(app.getHttpServer())
       .get('/v1/admin/payouts')
       .set('Authorization', `Bearer ${processorToken}`)

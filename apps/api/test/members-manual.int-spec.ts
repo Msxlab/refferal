@@ -1,11 +1,12 @@
-import { ConflictException, INestApplication } from '@nestjs/common';
+import { ConflictException, ForbiddenException, INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { MembershipStatus, Role } from '@prisma/client';
 import { AppModule } from '../src/app.module';
 import { MembersAdminService } from '../src/members/members.admin.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { ActorContext } from '../src/common/actor';
-import { createChain, createTenant, truncateAll } from './helpers';
+import { defaultPermissionsForTier } from '../src/common/permissions';
+import { createChain, createPlatformAdmin, createTenant, truncateAll } from './helpers';
 
 /** Dalga 2 — manuel uye olusturma (davet beklemeden). */
 describe('manual member create (entegrasyon)', () => {
@@ -71,6 +72,82 @@ describe('manual member create (entegrasyon)', () => {
     await members.createManual(actor, owner.id, { fullName: 'Audit Test', email: 'audit@oppein.test' });
     const log = await prisma.auditLog.findFirst({ where: { tenantId: tenant.id, action: 'membership.create_manual' } });
     expect(log).toBeTruthy();
+  });
+
+  it('limited admin guncellenmis system tierin tasidigi fazladan izni vererek uye olusturamaz', async () => {
+    const tenant = await createTenant(prisma);
+    const [owner, admin] = await createChain(prisma, tenant.id, 2);
+    await prisma.tenantRole.create({
+      data: {
+        tenantId: tenant.id,
+        key: 'admin',
+        name: 'Administrator',
+        isSystem: true,
+        permissions: [...defaultPermissionsForTier(Role.tenant_admin), 'settings.data'],
+      },
+    });
+    await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
+    await prisma.membership.update({ where: { id: admin.id }, data: { role: Role.tenant_admin, roleId: null } });
+    const actor: ActorContext = { userId: admin.userId, tenantId: tenant.id };
+
+    await expect(
+      members.createManual(actor, admin.id, {
+        fullName: 'Escalation Attempt',
+        email: 'escalation-attempt@oppein.test',
+        role: Role.tenant_admin,
+      }),
+    ).rejects.toThrow(ForbiddenException);
+    await expect(prisma.user.findUnique({ where: { email: 'escalation-attempt@oppein.test' } })).resolves.toBeNull();
+  });
+
+  it('owner olusturdugu yonetim tierini guncel system role baglantisiyla kaydeder', async () => {
+    const { owner, actor, tenant } = await ownerCtx();
+    const systemAdmin = await prisma.tenantRole.create({
+      data: {
+        tenantId: tenant.id,
+        key: 'admin',
+        name: 'Administrator',
+        isSystem: true,
+        permissions: [...defaultPermissionsForTier(Role.tenant_admin), 'settings.data'],
+      },
+    });
+
+    const created = await members.createManual(actor, owner.id, {
+      fullName: 'Owner Created Admin',
+      email: 'owner-created-admin@oppein.test',
+      role: Role.tenant_admin,
+    });
+    await expect(prisma.membership.findUniqueOrThrow({ where: { id: created.id } })).resolves.toMatchObject({
+      role: Role.tenant_admin,
+      roleId: systemAdmin.id,
+    });
+  });
+
+  it('platform admin act-as retains authority to create the selected system tier', async () => {
+    const tenant = await createTenant(prisma);
+    const [owner] = await createChain(prisma, tenant.id, 1);
+    await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
+    const systemAdmin = await prisma.tenantRole.create({
+      data: {
+        tenantId: tenant.id,
+        key: 'admin',
+        name: 'Administrator',
+        isSystem: true,
+        permissions: [...defaultPermissionsForTier(Role.tenant_admin), 'settings.data'],
+      },
+    });
+    const platform = await createPlatformAdmin(prisma, 'Platform-Authority-Password-42!', 'manual-platform@test.refearn.local');
+    const actor: ActorContext = { userId: platform.id, tenantId: tenant.id };
+
+    const created = await members.createManual(actor, null, {
+      fullName: 'Platform Created Admin',
+      email: 'platform-created-admin@oppein.test',
+      role: Role.tenant_admin,
+    });
+    await expect(prisma.membership.findUniqueOrThrow({ where: { id: created.id } })).resolves.toMatchObject({
+      role: Role.tenant_admin,
+      roleId: systemAdmin.id,
+    });
   });
 
   it('updateProfile: ad/e-posta degisir, e-posta degisince emailVerifiedAt sifirlanir', async () => {

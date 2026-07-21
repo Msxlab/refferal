@@ -107,6 +107,12 @@ export const settlePayoutBatchSchema = z.object({
 });
 export type SettlePayoutBatchInput = z.infer<typeof settlePayoutBatchSchema>;
 
+export const dispatchPayoutBatchSchema = z.object({
+  dispatchReference: z.string().trim().min(1).max(240),
+  dispatchEvidence: z.string().trim().min(1).max(2000),
+});
+export type DispatchPayoutBatchInput = z.infer<typeof dispatchPayoutBatchSchema>;
+
 export const failPayoutBatchSchema = z.object({
   reason: z.string().trim().min(1).max(500),
 });

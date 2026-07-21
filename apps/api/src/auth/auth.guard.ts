@@ -15,6 +15,7 @@ import { MembershipStatus, Role, TenantStatus } from '@prisma/client';
 import { Request } from 'express';
 import { sha256 } from '../common/crypto';
 import { defaultPermissionsForTier } from '../common/permissions';
+import { redactHierarchyRequestUrl } from '../common/hierarchy-url-redaction';
 import { PrismaService } from '../prisma/prisma.service';
 import { authConfig } from './auth.config';
 import { mfaRequiredRoles } from './mfa-policy';
@@ -26,10 +27,10 @@ export const Public = (): CustomDecorator => SetMetadata(IS_PUBLIC_KEY, true);
 export const ROLES_KEY = 'roles';
 export const Roles = (...roles: Role[]): CustomDecorator => SetMetadata(ROLES_KEY, roles);
 
-/** Fine-grained permission key required by the route. owner/platform pass automatically. */
+/** Fine-grained permissions required by the route. owner/platform pass automatically. */
 export const PERMISSION_KEY = 'permission';
-export const RequirePermission = (permission: string): CustomDecorator =>
-  SetMetadata(PERMISSION_KEY, permission);
+export const RequirePermission = (...permissions: [string, ...string[]]): CustomDecorator =>
+  SetMetadata(PERMISSION_KEY, permissions.length === 1 ? permissions[0] : permissions);
 
 /** Cross-tenant platform surface: only isPlatformAdmin (plat claim) can access it. */
 export const PLATFORM_KEY = 'platformOnly';
@@ -76,11 +77,17 @@ export class AccessTokenGuard implements CanActivate {
     const requireMembership = this.reflector.getAllAndOverride<boolean>(REQUIRE_MEMBERSHIP_KEY, targets);
     const roles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, targets);
     const platformOnly = this.reflector.getAllAndOverride<boolean>(PLATFORM_KEY, targets);
-    const permission = this.reflector.getAllAndOverride<string>(PERMISSION_KEY, targets);
+    const permissionMetadata = this.reflector.getAllAndOverride<string | string[]>(PERMISSION_KEY, targets);
+    const permissions = permissionMetadata === undefined
+      ? []
+      : Array.isArray(permissionMetadata)
+        ? permissionMetadata
+        : [permissionMetadata];
     const mfaExempt = this.reflector.getAllAndOverride<boolean>(MFA_EXEMPT_KEY, targets);
     const accountSessionOnly = this.reflector.getAllAndOverride<boolean>(ACCOUNT_SESSION_ONLY_KEY, targets);
 
     const req = ctx.switchToHttp().getRequest<Request & { user?: RequestUser }>();
+    const requestUrl = redactHierarchyRequestUrl(req.url);
 
     // API anahtari (entegrasyon): X-Api-Key → olusturan admin'in uyeligi/rolu adina davranir.
     const apiKey = req.headers['x-api-key'];
@@ -123,7 +130,7 @@ export class AccessTokenGuard implements CanActivate {
         select: { isPlatformAdmin: true, totpEnabledAt: true, authGeneration: true },
       });
       if (!dbUser || !this.hasCurrentAuthGeneration(payload, dbUser.authGeneration)) {
-        this.logger.warn(`[security] stale_session user=${payload.sub} ${req.method} ${req.url}`);
+        this.logger.warn(`[security] stale_session user=${payload.sub} ${req.method} ${requestUrl}`);
         throw new UnauthorizedException('session is no longer active');
       }
     }
@@ -147,7 +154,7 @@ export class AccessTokenGuard implements CanActivate {
 
     // impersonation salt-okunur: admin uye adina yalniz GET yapabilir (para/mutasyon yasak)
     if (payload.imp && req.method !== 'GET') {
-      this.logger.warn(`[security] impersonation_write_blocked imp=${payload.imp} as=${payload.sub} ${req.method} ${req.url}`);
+      this.logger.warn(`[security] impersonation_write_blocked imp=${payload.imp} as=${payload.sub} ${req.method} ${requestUrl}`);
       throw new ForbiddenException('impersonation oturumu salt-okunurdur');
     }
 
@@ -161,7 +168,7 @@ export class AccessTokenGuard implements CanActivate {
         select: { status: true, role: true, tenant: { select: { status: true } } },
       });
       if (!m || m.status !== 'active' || m.tenant.status !== 'active') {
-        this.logger.warn(`[security] jwt_inactive_principal user=${payload.sub} mid=${payload.mid} ${req.method} ${req.url}`);
+        this.logger.warn(`[security] jwt_inactive_principal user=${payload.sub} mid=${payload.mid} ${req.method} ${requestUrl}`);
         throw new ForbiddenException('uyelik veya kiraci artik aktif degil');
       }
       // rol CANLI uyelikten — saklanmis stale rol bir downgrade'i asamaz
@@ -181,7 +188,7 @@ export class AccessTokenGuard implements CanActivate {
         this.prisma.user.findUnique({ where: { id: payload.sub }, select: { isPlatformAdmin: true } }),
       ]);
       if (!tenant || tenant.status !== TenantStatus.active || !user?.isPlatformAdmin) {
-        this.logger.warn(`[security] act_as_inactive_principal user=${payload.sub} tid=${payload.tid} ${req.method} ${req.url}`);
+        this.logger.warn(`[security] act_as_inactive_principal user=${payload.sub} tid=${payload.tid} ${req.method} ${requestUrl}`);
         throw new ForbiddenException('act-as: tenant askida veya platform yetkisi yok');
       }
     }
@@ -212,7 +219,7 @@ export class AccessTokenGuard implements CanActivate {
         },
       });
       if (!membership || membership.status !== MembershipStatus.active || membership.tenant.status !== TenantStatus.active) {
-        this.logger.warn(`[security] inactive_membership user=${payload.sub} mid=${payload.mid} ${req.method} ${req.url}`);
+        this.logger.warn(`[security] inactive_membership user=${payload.sub} mid=${payload.mid} ${req.method} ${requestUrl}`);
         throw new ForbiddenException('active membership not found');
       }
       const membershipVersion = membership.updatedAt.getTime();
@@ -222,7 +229,7 @@ export class AccessTokenGuard implements CanActivate {
         (payload.mver !== undefined || payload.rver !== undefined) &&
         (payload.mver !== membershipVersion || (payload.rver ?? null) !== roleVersion)
       ) {
-        this.logger.warn(`[security] stale_authz_token user=${payload.sub} mid=${payload.mid} ${req.method} ${req.url}`);
+        this.logger.warn(`[security] stale_authz_token user=${payload.sub} mid=${payload.mid} ${req.method} ${requestUrl}`);
       }
       payload.role = membership.role;
       payload.perms = roleRefControlsPermissions
@@ -237,7 +244,7 @@ export class AccessTokenGuard implements CanActivate {
       if (!payload.role || !roles.includes(payload.role)) {
         // Authorization denial: structured logs are enough here; DB writes in the guard would be too heavy.
         this.logger.warn(
-          `[security] authz_denied user=${payload.sub} role=${payload.role} need=${roles.join('|')} ${req.method} ${req.url}`,
+          `[security] authz_denied user=${payload.sub} role=${payload.role} need=${roles.join('|')} ${req.method} ${requestUrl}`,
         );
         throw new ForbiddenException('you do not have permission for this action');
       }
@@ -245,7 +252,7 @@ export class AccessTokenGuard implements CanActivate {
 
     if (platformOnly) {
       if (!payload.plat || !dbUser?.isPlatformAdmin) {
-        this.logger.warn(`[security] platform_denied user=${payload.sub} ${req.method} ${req.url}`);
+        this.logger.warn(`[security] platform_denied user=${payload.sub} ${req.method} ${requestUrl}`);
         throw new ForbiddenException('platform permission required');
       }
     } else if (payload.plat) {
@@ -255,7 +262,7 @@ export class AccessTokenGuard implements CanActivate {
     }
 
     if (platformOnly && !payload.plat) {
-      this.logger.warn(`[security] platform_denied user=${payload.sub} ${req.method} ${req.url}`);
+      this.logger.warn(`[security] platform_denied user=${payload.sub} ${req.method} ${requestUrl}`);
       throw new ForbiddenException('platform permission required');
     }
 
@@ -274,11 +281,11 @@ export class AccessTokenGuard implements CanActivate {
       this.enforceMfa(payload, userMfaEnabled, mfaEpoch, req);
     }
 
-    if (permission) {
+    if (permissions.length > 0) {
       const granted = !!payload.role && GOD_TIERS.has(payload.role);
-      if (!granted && !payload.perms?.includes(permission)) {
+      if (!granted && !permissions.every((permission) => payload.perms?.includes(permission))) {
         this.logger.warn(
-          `[security] perm_denied user=${payload.sub} role=${payload.role} need=${permission} ${req.method} ${req.url}`,
+          `[security] perm_denied user=${payload.sub} role=${payload.role} need=${permissions.join('|')} ${req.method} ${requestUrl}`,
         );
         throw new ForbiddenException('you do not have permission for this action');
       }
@@ -297,13 +304,13 @@ export class AccessTokenGuard implements CanActivate {
     const roleRequiresMfa = !!payload.role && required.has(payload.role);
     const platformRequiresMfa = !!payload.plat && required.has(Role.platform_admin);
     if ((roleRequiresMfa || platformRequiresMfa) && !userMfaEnabled) {
-      this.logger.warn(`[security] mfa_required user=${payload.sub} role=${payload.role} ${req.method} ${req.url}`);
+      this.logger.warn(`[security] mfa_required user=${payload.sub} role=${payload.role} ${req.method} ${redactHierarchyRequestUrl(req.url)}`);
       throw new ForbiddenException('2FA required for this account');
     }
     if (!(roleRequiresMfa || platformRequiresMfa)) return;
 
     if (!this.hasCurrentMfaAssurance(payload, mfaEpoch)) {
-      this.logger.warn(`[security] mfa_session_unassured user=${payload.sub} role=${payload.role} ${req.method} ${req.url}`);
+      this.logger.warn(`[security] mfa_session_unassured user=${payload.sub} role=${payload.role} ${req.method} ${redactHierarchyRequestUrl(req.url)}`);
       throw new ForbiddenException('2FA verification is required for this session');
     }
   }

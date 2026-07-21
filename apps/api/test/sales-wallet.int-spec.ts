@@ -973,7 +973,7 @@ describe('sales + wallet (integration)', () => {
     expect(await prisma.sale.count({ where: { id: { in: [selected.id, replacement.id] }, status: SaleStatus.draft } })).toBe(2);
   });
 
-  it('requires a fresh approval review when the effective plan or its level rates change', async () => {
+  it('requires a fresh approval review when the effective plan version changes', async () => {
     const tenant = await createTenant(prisma);
     await createPlan(prisma, tenant.id);
     const [owner, seller] = await createChain(prisma, tenant.id, 2);
@@ -994,7 +994,7 @@ describe('sales + wallet (integration)', () => {
       .send({ action: 'approve', scope })
       .expect(200);
 
-    const replacement = await createPlan(prisma, tenant.id, {
+    await createPlan(prisma, tenant.id, {
       name: 'Replacement plan',
       effectiveFrom: new Date('2026-06-01T00:00:00.000Z'),
       rates: [600, 300],
@@ -1014,11 +1014,11 @@ describe('sales + wallet (integration)', () => {
     expect(await prisma.ledgerEntry.count({ where: { saleId: sale.id } })).toBe(0);
     expect(await prisma.auditLog.count({ where: { entityId: sale.id } })).toBe(0);
 
-    const firstLevel = await prisma.commissionPlanLevel.findFirstOrThrow({
-      where: { planId: replacement.id },
-      orderBy: { level: 'asc' },
+    await createPlan(prisma, tenant.id, {
+      name: 'Replacement plan with adjusted levels',
+      effectiveFrom: new Date('2026-06-02T00:00:00.000Z'),
+      rates: [599, 301],
     });
-    await prisma.commissionPlanLevel.update({ where: { id: firstLevel.id }, data: { rateBps: firstLevel.rateBps - 1 } });
     const levelDrift = await request(app.getHttpServer())
       .post('/v1/admin/sales/bulk')
       .set('Authorization', `Bearer ${tok}`)

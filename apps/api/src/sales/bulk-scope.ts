@@ -16,6 +16,7 @@ const CANONICAL_POSITIVE_INTEGER = /^[1-9]\d*$/;
 
 export type NormalizedBulkFilters = {
   status?: 'draft' | 'approved' | 'void';
+  summaryMonth?: string;
   q?: string;
   from?: string;
   to?: string;
@@ -58,6 +59,7 @@ export function normalizeBulkScope(scope: BulkScope): NormalizedBulkScope {
 
   const filters: NormalizedBulkFilters = {};
   if (scope.filters.status !== undefined) filters.status = scope.filters.status;
+  if (scope.filters.summaryMonth !== undefined) filters.summaryMonth = scope.filters.summaryMonth;
   const query = scope.filters.q?.trim().toLowerCase();
   if (query) filters.q = query;
   if (scope.filters.from !== undefined) filters.from = canonicalDate(scope.filters.from);

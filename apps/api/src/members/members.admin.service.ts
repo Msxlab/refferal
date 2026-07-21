@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InviteStatus, LedgerStatus, MembershipStatus, PayoutStatus, Prisma, Role, SaleStatus, TenantStatus } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import { hash } from '@node-rs/argon2';
@@ -8,14 +8,27 @@ import { AccessTokenPayload } from '../auth/auth.types';
 import { auditFingerprint } from '../common/audit-redaction';
 import { randomCode } from '../common/crypto';
 import { csvCell } from '../common/csv';
+import { ALL_PERMISSIONS, TIER_TO_SYSTEM_ROLE, defaultPermissionsForTier } from '../common/permissions';
 import { monthKey } from '../engine/month';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../prisma/tenant-context.service';
 import { ActorContext } from '../common/actor';
 import { InvitesService } from '../invites/invites.service';
 import { MembershipsService } from '../memberships/memberships.service';
+import { readNetworkHealth } from './members.network-health';
+import { readMemberTreeSnapshot } from './members.tree-snapshot';
 
 const ASSIGNABLE_ROLES: Role[] = [Role.tenant_admin, Role.tenant_staff, Role.member];
+
+type RoleChangeAuthority = {
+  membershipId: string | null;
+  permissions: string[];
+};
+
+type TierRoleAssignment = {
+  roleId: string | null;
+  permissions: string[];
+};
 
 export type MemberSort = 'joinedAt' | 'fullName' | 'depth';
 export type SortDir = 'asc' | 'desc';
@@ -40,7 +53,10 @@ export class MembersAdminService {
   async impersonate(actor: ActorContext, membershipId: string) {
     const m = await this.prisma.membership.findFirst({
       where: { id: membershipId, tenantId: actor.tenantId },
-      include: { user: { select: { id: true, fullName: true, email: true } }, tenant: { select: { id: true, name: true } } },
+      include: {
+        user: { select: { id: true, fullName: true, email: true, authGeneration: true } },
+        tenant: { select: { id: true, name: true } },
+      },
     });
     if (!m) throw new NotFoundException('uyelik bu isletmede bulunamadi');
     if (m.role === Role.tenant_owner || m.role === Role.tenant_admin) {
@@ -55,6 +71,7 @@ export class MembersAdminService {
       tid: actor.tenantId,
       role: m.role,
       imp: actor.userId,
+      authGeneration: m.user.authGeneration,
     };
     const accessToken = await this.jwt.signAsync(payload, {
       secret: authConfig.accessSecret(),
@@ -127,7 +144,7 @@ export class MembersAdminService {
     const [soldAgg, earnAgg] = ids.length
       ? await Promise.all([
           this.prisma.sale.groupBy({ by: ['sellerMembershipId'], where: { tenantId, status: SaleStatus.approved, sellerMembershipId: { in: ids } }, _sum: { amountCents: true } }),
-          this.prisma.ledgerEntry.groupBy({ by: ['beneficiaryMembershipId'], where: { tenantId, status: { in: [LedgerStatus.payable, LedgerStatus.paid] }, beneficiaryMembershipId: { in: ids } }, _sum: { amountCents: true } }),
+          this.prisma.ledgerEntry.groupBy({ by: ['beneficiaryMembershipId'], where: { tenantId, status: { in: [LedgerStatus.payable, LedgerStatus.processing, LedgerStatus.paid] }, beneficiaryMembershipId: { in: ids } }, _sum: { amountCents: true } }),
         ])
       : [[], []];
     const soldBy = new Map(soldAgg.map((s) => [s.sellerMembershipId, s._sum.amountCents ?? 0n]));
@@ -266,6 +283,7 @@ export class MembersAdminService {
         commission: {
           pendingCents: bucket(LedgerStatus.pending).toString(),
           payableCents: bucket(LedgerStatus.payable).toString(),
+          processingCents: bucket(LedgerStatus.processing).toString(),
           paidCents: bucket(LedgerStatus.paid).toString(),
         },
         invites: {
@@ -350,6 +368,12 @@ export class MembersAdminService {
   ) {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: actor.tenantId } });
     if (tenant.status !== TenantStatus.active) throw new BadRequestException('isletme aktif degil');
+    const role = input.role && ASSIGNABLE_ROLES.includes(input.role) ? input.role : Role.member;
+    const tierAssignment = await this.tierRoleAssignmentFor(actor.tenantId, role);
+    if (role !== Role.member) {
+      const authority = await this.resolveRoleChangeAuthority(actor, actorMembershipId);
+      this.assertRoleGrantable(authority, tierAssignment.permissions);
+    }
 
     // asLeader=true ve sponsor verilmemisse: yeni KOK lider (agacin tepesinde, sponsorsuz).
     const asRoot = !!input.asLeader && !input.sponsorMembershipId && !input.sponsorReferralCode;
@@ -373,7 +397,6 @@ export class MembersAdminService {
     }
 
     const email = input.email.trim().toLowerCase();
-    const role = input.role && ASSIGNABLE_ROLES.includes(input.role) ? input.role : Role.member;
 
     const out = await this.prisma.$transaction(async (tx) => {
       let user = await tx.user.findUnique({ where: { email } });
@@ -387,13 +410,26 @@ export class MembersAdminService {
         const dup = await tx.membership.findFirst({ where: { tenantId: actor.tenantId, userId: user.id }, select: { id: true } });
         if (dup) throw new ConflictException('bu e-postali kullanici zaten bu isletmede uye');
       }
-      const membership = asRoot
+      const createdMembership = asRoot
         ? await this.memberships.createRoot(tx, { tenantId: actor.tenantId, userId: user.id, role, isTeamLeader: true })
         : await this.memberships.createUnder(tx, { tenantId: actor.tenantId, userId: user.id, sponsor: sponsor!, role });
+      const membership = createdMembership.roleId === tierAssignment.roleId
+        ? createdMembership
+        : await tx.membership.update({
+            where: { id: createdMembership.id },
+            data: { roleId: tierAssignment.roleId },
+          });
       return { membership, tempPassword, newUser: tempPassword !== null };
     }, { timeout: 15_000 });
 
-    await this.audit(actor, 'membership.create_manual', out.membership.id, { email, sponsorId: sponsor?.id ?? null, role, newUser: out.newUser, asLeader: asRoot });
+    await this.audit(actor, 'membership.create_manual', out.membership.id, {
+      email,
+      sponsorId: sponsor?.id ?? null,
+      role,
+      roleId: tierAssignment.roleId,
+      newUser: out.newUser,
+      asLeader: asRoot,
+    });
     return {
       id: out.membership.id,
       referralCode: out.membership.referralCode,
@@ -508,7 +544,7 @@ export class MembersAdminService {
                 AND s.seller_membership_id IN (SELECT id FROM sub)
             ), 0)::bigint AS vol_cents,
             COALESCE((
-              SELECT sum(ms.pending_cents + ms.payable_cents + ms.paid_cents)::bigint
+              SELECT sum(ms.pending_cents + ms.payable_cents + ms.processing_cents + ms.paid_cents)::bigint
               FROM monthly_summaries ms
               WHERE ms.tenant_id = l.tenant_id
                 AND ms.month = ${month}
@@ -563,59 +599,10 @@ export class MembersAdminService {
    * Tum sorgular salt-okunur (yerlesim/path'e dokunmaz).
    */
   async networkHealth(tenantId: string) {
-    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
-    const month = monthKey(new Date(), tenant.timezone);
-
-    // 1) durum dagilimi
-    const statusRows = await this.prisma.membership.groupBy({ by: ['status'], where: { tenantId }, _count: { _all: true } });
-    const members = statusRows.reduce((a, r) => a + r._count._all, 0);
-    const active = statusRows.find((r) => r.status === MembershipStatus.active)?._count._all ?? 0;
-    const inactive = members - active;
-
-    // 2) bu ay onayli satis yapan DISTINCT satici -> satissiz aktif uye orani (retention sinyali)
-    const sellers = await this.prisma.sale.findMany({
-      where: { tenantId, status: SaleStatus.approved, summaryMonth: month },
-      distinct: ['sellerMembershipId'],
-      select: { sellerMembershipId: true },
-    });
-    const noSaleCount = Math.max(0, active - sellers.length);
-    const noSaleActive = { count: noSaleCount, total: active, pct: active > 0 ? Math.round((noSaleCount / active) * 100) : 0 };
-
-    // 3) pasif kumeler: lider (isTeamLeader|root), ekibi var ama alt-agaci BU AY $0 satis
-    const leaders = await this.prisma.membership.findMany({
-      where: { tenantId, OR: [{ isTeamLeader: true }, { sponsorMembershipId: null }] },
-      orderBy: [{ depth: 'asc' }, { joinedAt: 'asc' }],
-      take: 200,
-      select: { id: true, referralCode: true, user: { select: { fullName: true } } },
-    });
-    let dormantClusters: Array<{ leaderId: string; leaderName: string; referralCode: string; teamSize: number }> = [];
-    if (leaders.length > 0) {
-      const leaderIds = leaders.map((l) => l.id);
-      // ekip boyu (kendisi haric) — tek ltree self-join
-      const teamRows = await this.prisma.$queryRaw<Array<{ id: string; team: bigint }>>(Prisma.sql`
-        SELECT l.id::text AS id, count(d.id)::bigint AS team
-        FROM memberships l
-        JOIN memberships d ON d.tenant_id = l.tenant_id AND d.path::ltree <@ l.path::ltree
-        WHERE l.tenant_id = ${tenantId}::uuid AND l.id::text IN (${Prisma.join(leaderIds)})
-        GROUP BY l.id`);
-      const teamById = new Map(teamRows.map((r) => [r.id, Math.max(0, Number(r.team) - 1)]));
-      // bu ay alt-agacta >=1 onayli satisi olan liderler
-      const soldRows = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-        SELECT DISTINCT l.id::text AS id
-        FROM memberships l
-        JOIN memberships d ON d.tenant_id = l.tenant_id AND d.path::ltree <@ l.path::ltree
-        JOIN sales s ON s.tenant_id = l.tenant_id AND s.seller_membership_id = d.id
-          AND s.status = ${SaleStatus.approved}::"SaleStatus" AND s.summary_month = ${month}
-        WHERE l.tenant_id = ${tenantId}::uuid AND l.id::text IN (${Prisma.join(leaderIds)})`);
-      const soldLeaderIds = new Set(soldRows.map((r) => r.id));
-      dormantClusters = leaders
-        .filter((l) => !soldLeaderIds.has(l.id) && (teamById.get(l.id) ?? 0) > 0)
-        .map((l) => ({ leaderId: l.id, leaderName: l.user.fullName, referralCode: l.referralCode, teamSize: teamById.get(l.id) ?? 0 }))
-        .sort((a, b) => b.teamSize - a.teamSize)
-        .slice(0, 20);
-    }
-
-    return { month, totals: { members, active, inactive }, noSaleActive, dormantClusters };
+    return this.prisma.$transaction(
+      (tx) => readNetworkHealth(tx, tenantId),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   async setStatus(actor: ActorContext, membershipId: string, status: MembershipStatus) {
@@ -650,11 +637,25 @@ export class MembersAdminService {
   async bulk(
     actor: ActorContext,
     input: { action: 'activate' | 'deactivate' | 'set_role'; ids: string[]; role?: Role; preview?: boolean },
+    actorMembershipId?: string | null,
   ) {
     this.tenantContext.assertActor(actor);
+    const requestedRole = input.role;
+    if (input.action === 'set_role' && !requestedRole) {
+      throw new BadRequestException('rol gerekli');
+    }
+    if (requestedRole && !ASSIGNABLE_ROLES.includes(requestedRole)) {
+      throw new BadRequestException('bu rol bu uctan atanamaz');
+    }
+    const roleAuthority = input.action === 'set_role'
+      ? await this.resolveRoleChangeAuthority(actor, actorMembershipId)
+      : null;
+    const tierAssignment = input.action === 'set_role'
+      ? await this.tierRoleAssignmentFor(actor.tenantId, requestedRole!)
+      : null;
     const rows = await this.prisma.membership.findMany({
       where: { id: { in: input.ids }, tenantId: actor.tenantId },
-      select: { id: true, role: true, status: true },
+      select: { id: true, role: true, roleId: true, status: true },
     });
     const byId = new Map(rows.map((r) => [r.id, r]));
 
@@ -666,8 +667,9 @@ export class MembersAdminService {
         const m = byId.get(id);
         if (!m) { skipped.push({ id, reason: 'bulunamadi' }); continue; }
         if (input.action === 'set_role') {
-          if (m.role === Role.tenant_owner) { skipped.push({ id, reason: 'owner rolu degismez' }); continue; }
-          if (m.role === input.role) { skipped.push({ id, reason: 'zaten bu rolde' }); continue; }
+          const denied = this.roleChangeDeniedReason(roleAuthority!, m, tierAssignment!);
+          if (denied) { skipped.push({ id, reason: denied }); continue; }
+          if (m.role === requestedRole && m.roleId === tierAssignment!.roleId) { skipped.push({ id, reason: 'zaten bu rolde' }); continue; }
           willChange++;
         } else {
           const target = input.action === 'activate' ? MembershipStatus.active : MembershipStatus.inactive;
@@ -691,8 +693,7 @@ export class MembersAdminService {
     for (const id of input.ids) {
       try {
         if (input.action === 'set_role') {
-          if (!input.role) throw new Error('rol gerekli');
-          await this.setRole(actor, id, input.role);
+          await this.setRole(actor, id, requestedRole!, actorMembershipId, roleAuthority!, tierAssignment!);
         } else {
           await this.setStatus(actor, id, input.action === 'activate' ? MembershipStatus.active : MembershipStatus.inactive);
         }
@@ -704,25 +705,46 @@ export class MembersAdminService {
     return { action: input.action, succeeded: succeeded.length, failed };
   }
 
-  async setRole(actor: ActorContext, membershipId: string, role: Role) {
+  async setRole(
+    actor: ActorContext,
+    membershipId: string,
+    role: Role,
+    actorMembershipId?: string | null,
+    authority?: RoleChangeAuthority,
+    tierAssignment?: TierRoleAssignment,
+  ) {
     this.tenantContext.assertActor(actor);
     if (!ASSIGNABLE_ROLES.includes(role)) {
       throw new BadRequestException('bu rol bu uctan atanamaz');
     }
+    const roleAuthority = authority ?? await this.resolveRoleChangeAuthority(actor, actorMembershipId);
+    const assignment = tierAssignment ?? await this.tierRoleAssignmentFor(actor.tenantId, role);
     const m = await this.requireInTenant(actor.tenantId, membershipId);
-    if (m.role === Role.tenant_owner) {
-      throw new BadRequestException('owner rolu bu uctan degistirilemez');
-    }
-    const updated = await this.prisma.membership.update({ where: { id: m.id }, data: { role } });
+    this.assertRoleChangeAllowed(roleAuthority, m, assignment);
+    const roleId = assignment.roleId;
+    const changed = role !== m.role || roleId !== m.roleId;
+    const updated = await this.prisma.membership.update({ where: { id: m.id }, data: { role, roleId } });
     // rol degisiminde bu uyeligin canli API anahtarlarini iptal et -- saklanmis eski yetkiyle calismaya devam etmesin
-    if (role !== m.role) {
+    if (changed) {
       const revoked = await this.prisma.apiKey.updateMany({
         where: { tenantId: actor.tenantId, membershipId: m.id, revokedAt: null },
         data: { revokedAt: new Date() },
       });
-      if (revoked.count > 0) await this.audit(actor, 'apikey.revoke_cascade', m.id, { reason: 'role_change', from: m.role, to: role, count: revoked.count });
+      if (revoked.count > 0) {
+        await this.audit(actor, 'apikey.revoke_cascade', m.id, {
+          reason: 'role_change',
+          from: m.role,
+          to: role,
+          count: revoked.count,
+        });
+      }
     }
-    await this.audit(actor, 'membership.set_role', m.id, { from: m.role, to: role });
+    await this.audit(actor, 'membership.set_role', m.id, {
+      from: m.role,
+      to: role,
+      fromRoleId: m.roleId,
+      toRoleId: roleId,
+    });
     return { id: updated.id, role: updated.role };
   }
 
@@ -758,23 +780,32 @@ export class MembersAdminService {
         _count: { _all: true },
         _sum: { amountCents: true },
       }),
-      // yasam-boyu kazanc (payable + paid) — isi haritasi + KPI + uye detayi icin
+      // yasam-boyu kazanilmis tutar (payable + processing + paid); pending henuz vested degil.
       this.prisma.ledgerEntry.groupBy({
         by: ['beneficiaryMembershipId'],
-        where: { tenantId, status: { in: [LedgerStatus.payable, LedgerStatus.paid] } },
+        where: {
+          tenantId,
+          status: { in: [LedgerStatus.payable, LedgerStatus.processing, LedgerStatus.paid] },
+        },
         _sum: { amountCents: true },
       }),
-      // BU AY komisyon (pending+payable+paid) — "canli aylik komisyon" (urunun cekirdek vaadi)
+      // BU AY komisyon (pending+payable+processing+paid) — "canli aylik komisyon".
       this.prisma.monthlySummary.groupBy({
         by: ['membershipId'],
         where: { tenantId, month },
-        _sum: { pendingCents: true, payableCents: true, paidCents: true },
+        _sum: { pendingCents: true, payableCents: true, processingCents: true, paidCents: true },
       }),
     ]);
     const bySeller = new Map(salesAgg.map((s) => [s.sellerMembershipId, s]));
     const byBenef = new Map(earnAgg.map((e) => [e.beneficiaryMembershipId, e._sum.amountCents ?? 0n]));
     const byMonthly = new Map(
-      monthlyAgg.map((g) => [g.membershipId, (g._sum.pendingCents ?? 0n) + (g._sum.payableCents ?? 0n) + (g._sum.paidCents ?? 0n)]),
+      monthlyAgg.map((g) => [
+        g.membershipId,
+        (g._sum.pendingCents ?? 0n)
+          + (g._sum.payableCents ?? 0n)
+          + (g._sum.processingCents ?? 0n)
+          + (g._sum.paidCents ?? 0n),
+      ]),
     );
 
     // teamSize (alt-agac kisi sayisi, kendisi haric) + subtreeRevenueCents (dugum + tum torunlarin
@@ -818,6 +849,17 @@ export class MembersAdminService {
     });
   }
 
+  /**
+   * Bounded tree read for visualization surfaces. The legacy tree() response stays unchanged;
+   * this endpoint makes truncation explicit and never aggregates outside the returned members.
+   */
+  async treeSnapshot(tenantId: string, rootMembershipId?: string) {
+    this.tenantContext.assertTenant(tenantId);
+    return this.prisma.$transaction(
+      (tx) => readMemberTreeSnapshot(tx, tenantId, rootMembershipId),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
   /** GDPR/KVKK DSAR (Dalga 3): uyenin tum kisisel verisini tek JSON'da derler (admin). */
   async exportData(tenantId: string, membershipId: string) {
     this.tenantContext.assertTenant(tenantId);
@@ -852,10 +894,106 @@ export class MembersAdminService {
   private async requireInTenant(tenantId: string, membershipId: string) {
     const m = await this.prisma.membership.findFirst({
       where: { id: membershipId, tenantId },
-      select: { id: true, role: true, status: true, isTeamLeader: true },
+      select: { id: true, role: true, roleId: true, status: true, isTeamLeader: true },
     });
     if (!m) throw new NotFoundException('membership was not found in this business');
     return m;
+  }
+
+  /** The legacy member-role endpoints must obey the same live permission ceiling as /admin/people. */
+  private async resolveRoleChangeAuthority(
+    actor: ActorContext,
+    actorMembershipId?: string | null,
+  ): Promise<RoleChangeAuthority> {
+    // A platform administrator acting as a tenant has no membership by design, but is minted as the tenant owner.
+    if (actorMembershipId === null) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: actor.userId },
+        select: { isPlatformAdmin: true },
+      });
+      if (!user?.isPlatformAdmin) {
+        throw new ForbiddenException('active membership not found');
+      }
+      return { membershipId: null, permissions: [...ALL_PERMISSIONS] };
+    }
+
+    const membership = await this.prisma.membership.findFirst({
+      where: {
+        tenantId: actor.tenantId,
+        userId: actor.userId,
+        ...(actorMembershipId ? { id: actorMembershipId } : {}),
+      },
+      select: {
+        id: true,
+        role: true,
+        status: true,
+        roleRef: { select: { permissions: true } },
+      },
+    });
+    if (!membership || membership.status !== MembershipStatus.active) {
+      throw new ForbiddenException('active membership not found');
+    }
+    if (membership.role === Role.tenant_owner || membership.role === Role.platform_admin) {
+      return { membershipId: membership.id, permissions: [...ALL_PERMISSIONS] };
+    }
+
+    const customRoleControlsPermissions =
+      membership.role === Role.tenant_admin || membership.role === Role.tenant_staff;
+    return {
+      membershipId: membership.id,
+      permissions: customRoleControlsPermissions
+        ? membership.roleRef?.permissions ?? defaultPermissionsForTier(membership.role)
+        : defaultPermissionsForTier(membership.role),
+    };
+  }
+
+  private assertRoleChangeAllowed(
+    authority: RoleChangeAuthority,
+    membership: { id: string; role: Role },
+    assignment: TierRoleAssignment,
+  ): void {
+    if (authority.membershipId === membership.id) {
+      throw new ForbiddenException('you cannot change your own role from this screen');
+    }
+    if (membership.role === Role.tenant_owner) {
+      throw new BadRequestException('owner rolu bu uctan degistirilemez');
+    }
+    this.assertRoleGrantable(authority, assignment.permissions);
+  }
+
+  private assertRoleGrantable(authority: RoleChangeAuthority, requestedPermissions: string[]): void {
+    const held = new Set(authority.permissions);
+    const escalating = requestedPermissions.filter((permission) => !held.has(permission));
+    if (escalating.length > 0) {
+      throw new ForbiddenException(`you cannot grant permissions you do not have: ${escalating.join(', ')}`);
+    }
+  }
+
+  private roleChangeDeniedReason(
+    authority: RoleChangeAuthority,
+    membership: { id: string; role: Role },
+    assignment: TierRoleAssignment,
+  ): string | null {
+    try {
+      this.assertRoleChangeAllowed(authority, membership, assignment);
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : 'bilinmeyen hata';
+    }
+  }
+
+  private async tierRoleAssignmentFor(tenantId: string, role: Role): Promise<TierRoleAssignment> {
+    if (role === Role.member) return { roleId: null, permissions: [] };
+    const key = TIER_TO_SYSTEM_ROLE[role];
+    if (!key) return { roleId: null, permissions: defaultPermissionsForTier(role) };
+    const systemRole = await this.prisma.tenantRole.findUnique({
+      where: { tenantId_key: { tenantId, key } },
+      select: { id: true, permissions: true },
+    });
+    return {
+      roleId: systemRole?.id ?? null,
+      permissions: [...new Set([...defaultPermissionsForTier(role), ...(systemRole?.permissions ?? [])])],
+    };
   }
 
   private async audit(actor: ActorContext, action: string, entityId: string, after: object) {

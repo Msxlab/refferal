@@ -17,13 +17,13 @@ const publicClients = [
 const webPublicSource = publicClients[0].source;
 const editorSource = readFileSync(path.join(repoRoot, 'apps/web/src/app/app/invite/page.tsx'), 'utf8');
 
-test('public invite clients depend only on the tenant-safe identity contract', () => {
+test('public invite clients depend only on the tenant-safe display-name contract', () => {
   for (const client of publicClients) {
     assert.doesNotMatch(client.source, /\binviter(?:Name|Message)\b/, `${client.name} must not depend on inviter identity`);
     assert.match(
       client.source,
-      /(?:You're invited to join|Join(?: the)?)[\s\S]{0,120}invite\.tenantName/,
-      `${client.name} must identify the destination by tenantName`,
+      /(?:You're invited to join|Join(?: the)?)[\s\S]{0,120}tenant\.displayName/,
+      `${client.name} must identify the destination by the tenant display name`,
     );
   }
 });

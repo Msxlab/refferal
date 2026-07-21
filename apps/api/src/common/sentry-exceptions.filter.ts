@@ -2,6 +2,7 @@ import { ArgumentsHost, Catch, HttpException } from '@nestjs/common';
 import { BaseExceptionFilter } from '@nestjs/core';
 import { Request } from 'express';
 import { captureError } from '../observability/sentry';
+import { redactHierarchyRequestUrl } from './hierarchy-url-redaction';
 
 /**
  * Global hata filtresi (Faz B4): VARSAYILAN Nest yanitini birebir KORUR (super.catch) +
@@ -16,7 +17,7 @@ export class SentryExceptionFilter extends BaseExceptionFilter {
       const req = host.switchToHttp().getRequest<Request & { user?: { sub?: string; tid?: string | null } }>();
       captureError(exception, {
         method: req?.method,
-        url: req?.url,
+        url: redactHierarchyRequestUrl(req?.url),
         userId: req?.user?.sub,
         tenantId: req?.user?.tid ?? undefined,
       });

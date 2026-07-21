@@ -74,7 +74,7 @@ const POLICY_FIELDS = [
   {
     id: 'auto-request-payouts',
     title: 'Automatic payout requests',
-    description: 'Create nightly payout requests when members meet the threshold; administrators still approve them.',
+    description: 'Create nightly payout requests only for members who meet the threshold and have completed payout readiness; administrators still review them.',
     key: 'autoRequestPayouts',
   },
   {

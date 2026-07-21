@@ -40,6 +40,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { key: 'members.manage', label: 'Edit member details' },
       { key: 'members.suspend', label: 'Suspend / reactivate members' },
       { key: 'network.view', label: 'View referral network' },
+      { key: 'network.financials.view', label: 'View referral network financial performance' },
     ],
   },
   {
@@ -101,11 +102,22 @@ export const ALL_PERMISSIONS: string[] = PERMISSION_GROUPS.flatMap((g) =>
   g.permissions.map((p) => p.key),
 );
 
+export function hasEffectivePermission(
+  principal: { role?: string | null; perms?: readonly string[] },
+  permission: string,
+): boolean {
+  return principal.role === 'tenant_owner'
+    || principal.role === 'platform_admin'
+    || principal.perms?.includes(permission) === true;
+}
+
 const allExcept = (...omit: string[]): string[] =>
   ALL_PERMISSIONS.filter((p) => !omit.includes(p));
 
 const viewOnly = (): string[] =>
-  ALL_PERMISSIONS.filter((p) => p.endsWith('.view') && p !== 'compliance.view');
+  ALL_PERMISSIONS.filter(
+    (p) => p.endsWith('.view') && p !== 'compliance.view' && p !== 'network.financials.view',
+  );
 
 /** System role definitions seeded for every tenant by RolesService.ensureSystemRoles. */
 export interface SystemRoleSeed {

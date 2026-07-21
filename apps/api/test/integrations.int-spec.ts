@@ -31,7 +31,7 @@ describe('integrations: api keys + webhooks (entegrasyon)', () => {
     const tenant = await createTenant(prisma);
     const [owner] = await createChain(prisma, tenant.id, 1);
     await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
-    const tok = jwt.sign({ sub: owner.userId, mid: owner.id, tid: tenant.id, role: Role.tenant_owner } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
+    const tok = jwt.sign({ sub: owner.userId, mid: owner.id, tid: tenant.id, role: Role.tenant_owner, authGeneration: 1 } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
 
     const created = await request(srv()).post('/v1/admin/api-keys').set('Authorization', `Bearer ${tok}`).send({ name: 'CRM' }).expect(201);
     const raw = created.body.key as string;
@@ -51,7 +51,7 @@ describe('integrations: api keys + webhooks (entegrasyon)', () => {
     const tenant = await createTenant(prisma);
     const [owner] = await createChain(prisma, tenant.id, 1);
     await prisma.membership.update({ where: { id: owner.id }, data: { role: Role.tenant_owner } });
-    const tok = jwt.sign({ sub: owner.userId, mid: owner.id, tid: tenant.id, role: Role.tenant_owner } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
+    const tok = jwt.sign({ sub: owner.userId, mid: owner.id, tid: tenant.id, role: Role.tenant_owner, authGeneration: 1 } as AccessTokenPayload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
     const auth = (r: request.Test) => r.set('Authorization', `Bearer ${tok}`);
 
     const hook = await auth(request(srv()).post('/v1/admin/webhooks').send({ url: 'https://example.com/wh', events: [] })).expect(201);

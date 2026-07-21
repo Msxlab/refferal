@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Post, Res } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Response } from 'express';
-import { CurrentUser, RequireMembership, Roles } from '../auth/auth.guard';
+import { CurrentUser, RequireMembership, RequirePermission, Roles } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
 import { ActorContext } from '../common/actor';
 import { ZodValidationPipe } from '../common/zod.pipe';
@@ -28,17 +28,20 @@ export class AdminChecksController {
     return { userId: user.sub, tenantId: user.tid as string };
   }
 
+  @RequirePermission('payouts.view')
   @Get()
   list(@CurrentUser() user: RequestUser) {
     return this.checks.list(user.tid as string);
   }
 
+  @RequirePermission('payouts.process')
   @HttpCode(200)
   @Post('run')
   run(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(generateRunSchema)) body: GenerateRunInput) {
     return this.checks.generateRun(this.actor(user), body);
   }
 
+  @RequirePermission('payouts.process')
   @HttpCode(200)
   @Post('mark-mailed')
   markMailed(@CurrentUser() user: RequestUser, @Body(new ZodValidationPipe(markMailedSchema)) body: MarkMailedInput) {
@@ -46,6 +49,7 @@ export class AdminChecksController {
   }
 
   /** Yazdirilabilir cek PDF'i (cek + register). Binary doner. */
+  @RequirePermission('payouts.view')
   @Post('pdf')
   async pdf(
     @CurrentUser() user: RequestUser,

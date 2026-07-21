@@ -19,7 +19,7 @@ import { authConfig } from '../src/auth/auth.config';
 import { AccessTokenPayload } from '../src/auth/auth.types';
 import { monthKey } from '../src/engine/month';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { createChain, createTenant, truncateAll } from './helpers';
+import { createChain, createTenant, seedReadyPayoutCompliance, truncateAll } from './helpers';
 
 describe('next best action recommendations (integration)', () => {
   let app: INestApplication;
@@ -252,6 +252,7 @@ describe('next best action recommendations (integration)', () => {
     const [member] = await createChain(prisma, tenant.id, 1);
     const enormousAmount = 9_007_199_254_740_993n;
     await createPayableLedger({ tenantId: tenant.id, membershipId: member.id, amountCents: enormousAmount });
+    await seedReadyPayoutCompliance(prisma, tenant.id, member.id, member.userId);
     const now = new Date();
     const period = monthKey(now, tenant.timezone);
     const processing = await prisma.payout.create({

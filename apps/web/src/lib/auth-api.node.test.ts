@@ -1,8 +1,30 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import {
+import type { Session, SessionStorageChange } from './auth.ts';
+
+// The app module graph uses Next/bundler-style imports and parameter properties, neither
+// of which Node's strip-only TypeScript loader executes. Install the local CJS
+// transpilation boundary so this test also runs directly.
+const requireForTest = createRequire(`${process.cwd()}/`);
+const testDirectory = join(process.cwd(), 'src', 'lib');
+const typescript = requireForTest('typescript') as typeof import('typescript');
+requireForTest.extensions['.ts'] = (module, filename) => {
+  const source = readFileSync(filename, 'utf8');
+  const { outputText } = typescript.transpileModule(source, {
+    compilerOptions: {
+      esModuleInterop: true,
+      module: typescript.ModuleKind.CommonJS,
+      target: typescript.ScriptTarget.ES2022,
+    },
+    fileName: filename,
+  });
+  (module as unknown as { _compile: (code: string, path: string) => void })._compile(outputText, filename);
+};
+const apiModule = requireForTest('./src/lib/api.ts') as typeof import('./api.ts');
+const {
   api,
   apiForSession,
   ApiError,
@@ -14,10 +36,12 @@ import {
   requestPasswordReset,
   setActiveCompanyToken,
   switchTenant,
-} from './api';
-import {
+} = apiModule;
+const authModule = requireForTest('./src/lib/auth.ts') as typeof import('./auth.ts');
+const {
   activeMembership,
   applyTenantSwitch,
+  canForTenantRoles,
   clearSession,
   getSession,
   isImpersonating,
@@ -28,9 +52,7 @@ import {
   subscribeToSessionStorageChanges,
   updateSession,
   withSessionMutation,
-  type Session,
-  type SessionStorageChange,
-} from './auth';
+} = authModule;
 
 const SESSION_KEY = 'refearn.session';
 const IMPERSONATOR_KEY = 'refearn.session.impersonator';
@@ -473,6 +495,48 @@ test('password reset requests use the exact unauthenticated JSON endpoint', asyn
   } finally {
     restoreFetch();
   }
+});
+
+test('authenticated JSON posts preserve an explicit idempotency header', async () => {
+  const browser = installBrowser();
+  await setSession(makeSession('access-token', 'refresh-token'));
+  const calls: Array<{ input: string; init?: RequestInit }> = [];
+  const restoreFetch = installFetch(async (input, init) => {
+    calls.push({ input: String(input), init });
+    return Response.json({ ok: true });
+  });
+
+  try {
+    await api.post(
+      '/admin/sales/bulk',
+      { scope: { mode: 'selected', ids: ['11111111-1111-4111-8111-111111111111'] }, previewToken: 'preview-token' },
+      { 'Idempotency-Key': 'bulk-action-11111111-1111-4111-8111-111111111111' },
+    );
+
+    assert.equal(calls.length, 1);
+    assert.equal(new Headers(calls[0].init?.headers).get('Idempotency-Key'), 'bulk-action-11111111-1111-4111-8111-111111111111');
+    assert.equal(new Headers(calls[0].init?.headers).get('Content-Type'), 'application/json');
+    assert.equal(authorization(calls[0].init), 'Bearer access-token');
+  } finally {
+    restoreFetch();
+    browser.restore();
+  }
+});
+
+test('role-aware capabilities deny admin routes to support and custom staff even when permission is present', () => {
+  assert.equal(typeof canForTenantRoles, 'function');
+  const support = makeSession(makeAccessToken({ role: 'tenant_staff', perms: ['members.manage', 'invites.create', 'sales.create'] }));
+  const customStaff = makeSession(makeAccessToken({ role: 'tenant_staff', perms: ['settings.security', 'sales.approve'] }));
+  const admin = makeSession(makeAccessToken({ role: 'tenant_admin', perms: ['members.manage', 'sales.approve'] }));
+
+  assert.equal(canForTenantRoles(support, 'members.manage', ['tenant_owner', 'tenant_admin']), false);
+  assert.equal(canForTenantRoles(support, 'invites.create', ['tenant_owner', 'tenant_admin']), false);
+  assert.equal(canForTenantRoles(customStaff, 'settings.security', ['tenant_owner', 'tenant_admin']), false);
+  assert.equal(canForTenantRoles(customStaff, 'sales.approve', ['tenant_owner', 'tenant_admin']), false);
+  assert.equal(canForTenantRoles(support, 'sales.create', ['tenant_owner', 'tenant_admin', 'tenant_staff']), true);
+  assert.equal(canForTenantRoles(admin, 'members.manage', ['tenant_owner', 'tenant_admin']), true);
+  assert.equal(canForTenantRoles(admin, 'sales.approve', ['tenant_owner', 'tenant_admin']), true);
+  assert.equal(canForTenantRoles(admin, 'settings.security', ['tenant_owner', 'tenant_admin']), false);
 });
 
 test('MFA login preserves the server challenge token for the completion request', async () => {
@@ -3876,7 +3940,7 @@ test('an owner-bound 200 response follows a concurrent proven refresh in the sam
 });
 
 test('the main-session storage boundary publishes local changes through the shared classifier', () => {
-  const authSource = readFileSync(join(__dirname, 'auth.ts'), 'utf8');
+  const authSource = readFileSync(join(testDirectory, 'auth.ts'), 'utf8');
 
   assert.match(authSource, /const localSessionChangeListeners/);
   assert.match(
@@ -3915,7 +3979,7 @@ test('the main-session storage boundary publishes local changes through the shar
 });
 
 test('refresh provenance retains no module-level Session or refresh-token registry', () => {
-  const apiSource = readFileSync(join(__dirname, 'api.ts'), 'utf8');
+  const apiSource = readFileSync(join(testDirectory, 'api.ts'), 'utf8');
 
   assert.doesNotMatch(apiSource, /provenRefreshes|rememberProvenRefresh/);
   assert.doesNotMatch(apiSource, /new Map<\s*string\s*,\s*Session\s*>/);
@@ -3923,7 +3987,7 @@ test('refresh provenance retains no module-level Session or refresh-token regist
 });
 
 test('authenticated shells and owner-bound mutation callers retain their ownership wiring', () => {
-  const source = (relativePath: string) => readFileSync(join(__dirname, relativePath), 'utf8');
+  const source = (relativePath: string) => readFileSync(join(testDirectory, relativePath), 'utf8');
   const shellContracts: Array<[string, RegExp]> = [
     ['../app/admin/layout.tsx', /isAdminRole\(activeMembership\(next\)\?\.role\)/],
     ['../app/app/layout.tsx', /Boolean\(activeMembership\(next\)\)/],

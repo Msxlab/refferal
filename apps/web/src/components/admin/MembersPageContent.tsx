@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { FormEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { api, apiForSession, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
 import { ColumnsMenu, Confirm, Loading, Modal, Pagination, SortableTh, SortDir, TableColumn, useTablePrefs, useToast } from '@/components/ui';
@@ -31,6 +31,7 @@ interface MemberItem {
 }
 interface MembersList { total: number; page: number; pageSize: number; items: MemberItem[] }
 const ROLES = ['member', 'tenant_staff', 'tenant_admin'];
+const MEMBER_ROLES = ['member'];
 // human labels for the raw role enums (API value stays the same)
 const ROLE_LABELS: Record<string, string> = { member: 'Rep', tenant_staff: 'Staff', tenant_admin: 'Admin', tenant_owner: 'Owner' };
 const roleLabel = (r: string): string => ROLE_LABELS[r] ?? r;
@@ -55,8 +56,35 @@ const MEMBER_COLUMNS: TableColumn[] = [
   { key: 'joined', label: 'Joined' },
 ];
 
-export function MembersPageContent({ tenantName, meIsAdmin }: { tenantName: string; meIsAdmin: boolean }) {
+function PermissionHint({ allowed, reason, children }: { allowed: boolean; reason: string; children: ReactNode }) {
+  const reasonId = useId();
+  if (allowed) return <>{children}</>;
+  return (
+    <>
+      <span className="inline-flex" tabIndex={0} aria-describedby={reasonId} title={reason}>
+        {children}
+      </span>
+      <span id={reasonId} className="sr-only">{reason}</span>
+    </>
+  );
+}
+
+export interface MembersPageCapabilities {
+  reportsExport: boolean;
+  memberDataExport: boolean;
+  membersSuspend: boolean;
+  settingsRoles: boolean;
+  membersManage: boolean;
+  invitesCreate: boolean;
+  settingsSecurity: boolean;
+}
+
+export function MembersPageContent({ tenantName, capabilities }: {
+  tenantName: string;
+  capabilities: MembersPageCapabilities;
+}) {
   const uid = useId();
+  const addRoles = capabilities.settingsRoles ? ROLES : MEMBER_ROLES;
   const [list, setList] = useState<MembersList | null>(null);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
@@ -119,7 +147,9 @@ export function MembersPageContent({ tenantName, meIsAdmin }: { tenantName: stri
   function onSort(field: string, d: SortDir) { setSort(field); setDir(d); setPage(1); }
 
   async function invite(e: FormEvent) {
-    e.preventDefault(); setError('');
+    e.preventDefault();
+    if (!capabilities.invitesCreate) { setError('Invitation creation permission is required.'); return; }
+    setError('');
     try {
       const res = await api.post<{ code: string }>('/admin/members/invite', sponsor.trim() ? { sponsorReferralCode: sponsor.trim() } : {});
       setLatest(res.code);
@@ -128,7 +158,10 @@ export function MembersPageContent({ tenantName, meIsAdmin }: { tenantName: stri
   }
 
   async function saveProfile(e: FormEvent) {
-    e.preventDefault(); if (!editM) return; setError(''); setBusy(true);
+    e.preventDefault();
+    if (!capabilities.membersManage) { setError('Member management permission is required.'); return; }
+    if (!editM) return;
+    setError(''); setBusy(true);
     try {
       await api.patch(`/admin/members/${editM.id}`, { fullName: editName.trim(), email: editEmail.trim() });
       showToast('Profile updated ✓');
@@ -138,13 +171,15 @@ export function MembersPageContent({ tenantName, meIsAdmin }: { tenantName: stri
   }
 
   async function createMember(e: FormEvent) {
-    e.preventDefault(); setError(''); setBusy(true);
+    e.preventDefault();
+    if (!capabilities.membersManage) { setError('Member management permission is required.'); return; }
+    setError(''); setBusy(true);
     try {
       const res = await api.post<{ referralCode: string; tempPassword?: string; newUser: boolean }>('/admin/members', {
         fullName: addName.trim(),
         email: addEmail.trim(),
         ...(addAsLeader ? { asLeader: true } : (addSponsor.trim() ? { sponsorReferralCode: addSponsor.trim() } : {})),
-        role: addRole,
+        role: capabilities.settingsRoles ? addRole : 'member',
       });
       setAddResult(res);
       showToast('Member added ✓');
@@ -153,6 +188,7 @@ export function MembersPageContent({ tenantName, meIsAdmin }: { tenantName: stri
   }
 
   async function toggleStatus(m: MemberItem) {
+    if (!capabilities.membersSuspend) { setError('Member suspension permission is required.'); return; }
     setBusy(true);
     try {
       await api.post(`/admin/members/${m.id}/${m.status === 'active' ? 'deactivate' : 'activate'}`);
@@ -163,6 +199,8 @@ export function MembersPageContent({ tenantName, meIsAdmin }: { tenantName: stri
 
   // dry-run: once etki ozetini al, modal'da goster
   async function openBulk(action: 'activate' | 'deactivate' | 'set_role') {
+    const permitted = action === 'set_role' ? capabilities.settingsRoles : capabilities.membersSuspend;
+    if (!permitted) { setError('You do not have permission for this bulk action.'); return; }
     const body = { action, ids: [...selected], ...(action === 'set_role' ? { role: bulkRole } : {}) };
     try {
       const pv = await api.post<typeof preview>('/admin/members/bulk', { ...body, preview: true });
@@ -172,6 +210,8 @@ export function MembersPageContent({ tenantName, meIsAdmin }: { tenantName: stri
   }
   async function applyBulk() {
     if (!pendingBulk) return;
+    const permitted = pendingBulk.action === 'set_role' ? capabilities.settingsRoles : capabilities.membersSuspend;
+    if (!permitted) { setError('You do not have permission for this bulk action.'); return; }
     setBusy(true);
     try {
       const res = await api.post<{ succeeded: number; failed: { id: string; reason: string }[] }>('/admin/members/bulk', {
@@ -184,13 +224,14 @@ export function MembersPageContent({ tenantName, meIsAdmin }: { tenantName: stri
   }
 
   async function changeRole(m: MemberItem, role: string) {
-    if (roleBusyId) return;
+    if (!capabilities.settingsRoles || roleBusyId) return;
     setRoleBusyId(m.id);
     try { await api.post(`/admin/members/${m.id}/role`, { role }); showToast('Role updated'); await load(); }
     catch (e) { setError(String((e as ApiError).message)); } finally { setRoleBusyId(null); }
   }
 
   async function exportCsv() {
+    if (!capabilities.reportsExport) { setError('Report export permission is required.'); return; }
     try { await downloadCsv(`/admin/members/export.csv${filterQuery ? `?${filterQuery}` : ''}`, 'members.csv'); }
     catch (e) { setError(String((e as ApiError).message)); }
   }
@@ -225,9 +266,29 @@ export function MembersPageContent({ tenantName, meIsAdmin }: { tenantName: stri
           </p>
         </div>
         <div className="row fade-in no-print" style={{ gap: 8 }}>
-          <Button variant="ghost" onClick={exportCsv}>⇩ Export CSV</Button>
-          <Button variant="ghost" onClick={() => { setError(''); setAddName(''); setAddEmail(''); setAddSponsor(''); setAddRole('member'); setAddAsLeader(false); setAddResult(null); setShowAdd(true); }}>＋ Add member</Button>
-          <Button onClick={() => { setLatest(null); setShowInvite(true); }}>✦ {t('members.invite')}</Button>
+          <PermissionHint allowed={capabilities.reportsExport} reason="Requires report export permission">
+            <Button
+              variant="ghost"
+              onClick={exportCsv}
+              disabled={!capabilities.reportsExport}
+              title={capabilities.reportsExport ? 'Export filtered members as CSV' : undefined}
+            >⇩ Export CSV</Button>
+          </PermissionHint>
+          <PermissionHint allowed={capabilities.membersManage} reason="Requires member management permission">
+            <Button
+              variant="ghost"
+              onClick={() => { setError(''); setAddName(''); setAddEmail(''); setAddSponsor(''); setAddRole('member'); setAddAsLeader(false); setAddResult(null); setShowAdd(true); }}
+              disabled={!capabilities.membersManage}
+              title={capabilities.membersManage ? 'Create a member' : undefined}
+            >＋ Add member</Button>
+          </PermissionHint>
+          <PermissionHint allowed={capabilities.invitesCreate} reason="Requires invitation creation permission">
+            <Button
+              disabled={!capabilities.invitesCreate}
+              title={capabilities.invitesCreate ? 'Invite a member' : undefined}
+              onClick={() => { setLatest(null); setShowInvite(true); }}
+            >✦ {t('members.invite')}</Button>
+          </PermissionHint>
         </div>
       </div>
 
@@ -284,9 +345,17 @@ export function MembersPageContent({ tenantName, meIsAdmin }: { tenantName: stri
                   {cols.isVisible('role') && (
                     <td onClick={(e) => e.stopPropagation()}>
                       {m.role === 'tenant_owner' ? <span className="faint">Owner</span> : (
-                        <select value={m.role} disabled={roleBusyId === m.id} onChange={(e) => changeRole(m, e.target.value)} style={{ width: 134 }}>
-                          {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
-                        </select>
+                        <PermissionHint allowed={capabilities.settingsRoles} reason="Requires role management permission">
+                          <select
+                            value={m.role}
+                            disabled={!capabilities.settingsRoles || roleBusyId === m.id}
+                            title={capabilities.settingsRoles ? 'Assign role' : undefined}
+                            onChange={(e) => changeRole(m, e.target.value)}
+                            style={{ width: 134 }}
+                          >
+                            {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
+                          </select>
+                        </PermissionHint>
                       )}
                     </td>
                   )}
@@ -294,11 +363,15 @@ export function MembersPageContent({ tenantName, meIsAdmin }: { tenantName: stri
                   {cols.isVisible('joined') && <td className="muted">{dateShort(m.joinedAt)}</td>}
                   <td className="no-print" style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                     <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
-                      <Button variant="ghost" size="sm" title="Edit profile" onClick={() => { setError(''); setEditM(m); setEditName(m.fullName); setEditEmail(m.email); }}>✎</Button>
+                      <PermissionHint allowed={capabilities.membersManage} reason="Requires member management permission">
+                        <Button variant="ghost" size="sm" disabled={!capabilities.membersManage} title={capabilities.membersManage ? 'Edit profile' : undefined} onClick={() => { setError(''); setEditM(m); setEditName(m.fullName); setEditEmail(m.email); }}>✎</Button>
+                      </PermissionHint>
                       {m.role !== 'tenant_owner' && (
-                        <Button variant="ghost" size="sm" onClick={() => setConfirmM(m)}>
-                          {m.status === 'active' ? t('members.deactivate') : t('members.activate')}
-                        </Button>
+                        <PermissionHint allowed={capabilities.membersSuspend} reason="Requires member suspension permission">
+                          <Button variant="ghost" size="sm" disabled={!capabilities.membersSuspend} onClick={() => setConfirmM(m)}>
+                            {m.status === 'active' ? t('members.deactivate') : t('members.activate')}
+                          </Button>
+                        </PermissionHint>
                       )}
                     </div>
                   </td>
@@ -315,14 +388,31 @@ export function MembersPageContent({ tenantName, meIsAdmin }: { tenantName: stri
           <div className="bulkbar no-print">
             <strong style={{ fontSize: 13 }}>{selected.size} selected</strong>
             <span style={{ flex: 1 }} />
-            <Button size="sm" disabled={selActivatable === 0} onClick={() => openBulk('activate')}>Activate {selActivatable || ''}</Button>
-            <Button size="sm" variant="destructive" disabled={selDeactivatable === 0} onClick={() => openBulk('deactivate')}>Deactivate {selDeactivatable || ''}</Button>
-            <span className="row" style={{ gap: 4 }}>
-              <select value={bulkRole} onChange={(e) => setBulkRole(e.target.value)} style={{ width: 'auto' }} aria-label="Bulk role">
-                {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
-              </select>
-              <Button size="sm" variant="ghost" onClick={() => openBulk('set_role')}>Set role</Button>
-            </span>
+            <PermissionHint allowed={capabilities.membersSuspend} reason="Requires member suspension permission">
+              <Button
+                size="sm"
+                disabled={!capabilities.membersSuspend || selActivatable === 0}
+                onClick={() => openBulk('activate')}
+              >Activate {selActivatable || ''}</Button>
+            </PermissionHint>
+            <PermissionHint allowed={capabilities.membersSuspend} reason="Requires member suspension permission">
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={!capabilities.membersSuspend || selDeactivatable === 0}
+                onClick={() => openBulk('deactivate')}
+              >Deactivate {selDeactivatable || ''}</Button>
+            </PermissionHint>
+            {capabilities.settingsRoles ? (
+              <span className="row" style={{ gap: 4 }}>
+                <select value={bulkRole} onChange={(e) => setBulkRole(e.target.value)} style={{ width: 'auto' }} aria-label="Bulk role">
+                  {ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
+                </select>
+                <Button size="sm" variant="ghost" onClick={() => openBulk('set_role')}>Set role</Button>
+              </span>
+            ) : (
+              <span className="faint" style={{ fontSize: 12 }} title="Requires role management permission">Role changes unavailable</span>
+            )}
             <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>Clear</Button>
           </div>
         )}
@@ -382,8 +472,9 @@ export function MembersPageContent({ tenantName, meIsAdmin }: { tenantName: stri
                 <div className="mb-3.5"><Label htmlFor={`${uid}-addemail`} className="mb-1.5 block">Email</Label><Input id={`${uid}-addemail`} type="email" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} required placeholder="name@company.com" /></div>
                 <div className="flex gap-3">
                   <div className="flex-[2]"><Label htmlFor={`${uid}-addsponsor`} className="mb-1.5 block">Sponsor code {addAsLeader ? '(leader — no sponsor)' : '(blank = owner)'}</Label><Input id={`${uid}-addsponsor`} value={addSponsor} onChange={(e) => setAddSponsor(e.target.value)} placeholder="e.g. ALICE1" disabled={addAsLeader} /></div>
-                  <div className="flex-1"><Label htmlFor={`${uid}-addrole`} className="mb-1.5 block">Role</Label><select id={`${uid}-addrole`} value={addRole} onChange={(e) => setAddRole(e.target.value)}>{ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}</select></div>
+                  <div className="flex-1"><Label htmlFor={`${uid}-addrole`} className="mb-1.5 block">Role</Label><select id={`${uid}-addrole`} value={addRole} onChange={(e) => setAddRole(e.target.value)}>{addRoles.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}</select></div>
                 </div>
+                {!capabilities.settingsRoles && <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>Staff and admin roles require role management permission.</div>}
                 <label className="row" style={{ gap: 8, cursor: 'pointer', fontSize: 13, margin: '8px 0' }}>
                   <input type="checkbox" checked={addAsLeader} onChange={(e) => setAddAsLeader(e.target.checked)} style={{ width: 'auto' }} />
                   🎖 Add as a new team leader (top of the tree, no sponsor)
@@ -454,7 +545,7 @@ export function MembersPageContent({ tenantName, meIsAdmin }: { tenantName: stri
         </Modal>
       )}
 
-      {detailId && <MemberDrawer id={detailId} tenantName={tenantName} meIsAdmin={meIsAdmin} onClose={() => setDetailId(null)} onNavigate={setDetailId} onChanged={load} onToast={showToast} />}
+      {detailId && <MemberDrawer id={detailId} tenantName={tenantName} capabilities={capabilities} onClose={() => setDetailId(null)} onNavigate={setDetailId} onChanged={load} onToast={showToast} />}
 
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
@@ -471,15 +562,15 @@ interface MemberDetail {
   stats: {
     directs: number;
     sales: { allTime: { count: number; cents: string }; thisMonth: { count: number; cents: string } };
-    commission: { pendingCents: string; payableCents: string; paidCents: string };
+    commission: { pendingCents: string; payableCents: string; processingCents: string; paidCents: string };
     invites: { total: number; used: number; pending: number };
   };
   recentSales: { id: string; saleDate: string; amountCents: string; status: string }[];
   recentLedger: { id: string; saleId: string; level: number; type: string; status: string; amountCents: string; createdAt: string }[];
 }
 
-function MemberDrawer({ id, tenantName, meIsAdmin, onClose, onNavigate, onChanged, onToast }: {
-  id: string; tenantName: string; meIsAdmin: boolean; onClose: () => void; onNavigate: (id: string) => void; onChanged: () => void; onToast: (m: string) => void;
+function MemberDrawer({ id, tenantName, capabilities, onClose, onNavigate, onChanged, onToast }: {
+  id: string; tenantName: string; capabilities: MembersPageCapabilities; onClose: () => void; onNavigate: (id: string) => void; onChanged: () => void; onToast: (m: string) => void;
 }) {
   const [d, setD] = useState<MemberDetail | null>(null);
   const [err, setErr] = useState('');
@@ -487,6 +578,7 @@ function MemberDrawer({ id, tenantName, meIsAdmin, onClose, onNavigate, onChange
   const [printing, setPrinting] = useState(false);
 
   async function exportData() {
+    if (!capabilities.memberDataExport) { setErr('Administrator report export permission is required.'); return; }
     try {
       const data = await api.get<unknown>(`/admin/members/${id}/export`);
       const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
@@ -497,6 +589,7 @@ function MemberDrawer({ id, tenantName, meIsAdmin, onClose, onNavigate, onChange
 
   async function viewAsMember() {
     if (!d) return;
+    if (!capabilities.settingsSecurity) { setErr('Security management permission is required.'); return; }
     try {
       const expectedAdmin = getSession();
       if (!expectedAdmin) throw new Error('session owner changed');
@@ -522,12 +615,13 @@ function MemberDrawer({ id, tenantName, meIsAdmin, onClose, onNavigate, onChange
   useEffect(() => { load(); }, [load]);
 
   async function setStatus(next: 'activate' | 'deactivate') {
+    if (!capabilities.membersSuspend) { setErr('Member suspension permission is required.'); return; }
     setBusy(true);
     try { await api.post(`/admin/members/${id}/${next}`); onToast(next === 'activate' ? 'Activated' : 'Deactivated'); load(); onChanged(); }
     catch (e) { setErr(String((e as ApiError).message)); } finally { setBusy(false); }
   }
   async function changeRole(role: string) {
-    if (busy) return;
+    if (!capabilities.settingsRoles || busy) return;
     setBusy(true);
     try { await api.post(`/admin/members/${id}/role`, { role }); onToast('Role updated'); load(); onChanged(); }
     catch (e) { setErr(String((e as ApiError).message)); } finally { setBusy(false); }
@@ -544,19 +638,30 @@ function MemberDrawer({ id, tenantName, meIsAdmin, onClose, onNavigate, onChange
       footer={p && (
         <>
           <Button variant="ghost" disabled={busy} onClick={() => setPrinting(true)}>🖶 Print summary</Button>
-          {meIsAdmin && <Button variant="ghost" disabled={busy} onClick={exportData}>⇩ Export data</Button>}
-          {meIsAdmin && p.role !== 'tenant_owner' && p.role !== 'tenant_admin' && (
+          {capabilities.memberDataExport && <Button variant="ghost" disabled={busy} onClick={exportData}>⇩ Export data</Button>}
+          {!capabilities.memberDataExport && <span className="faint" style={{ fontSize: 12 }}>Data export unavailable — administrator permission required</span>}
+          {capabilities.settingsSecurity && p.role !== 'tenant_owner' && p.role !== 'tenant_admin' && (
             <Button variant="ghost" disabled={busy} onClick={viewAsMember}>👁 View as member</Button>
           )}
           {p.role !== 'tenant_owner' && (
-            <select value={p.role} disabled={busy} onChange={(e) => changeRole(e.target.value)} style={{ width: 140 }}>
-              {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
+            <PermissionHint allowed={capabilities.settingsRoles} reason="Requires role management permission">
+              <select
+                value={p.role}
+                disabled={!capabilities.settingsRoles || busy}
+                title={capabilities.settingsRoles ? 'Assign role' : undefined}
+                onChange={(e) => changeRole(e.target.value)}
+                style={{ width: 140 }}
+              >
+                {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </PermissionHint>
           )}
           {p.role !== 'tenant_owner' && (
-            <Button variant={p.status === 'active' ? 'destructive' : 'default'} disabled={busy} onClick={() => setStatus(p.status === 'active' ? 'deactivate' : 'activate')}>
-              {p.status === 'active' ? 'Deactivate' : 'Activate'}
-            </Button>
+            <PermissionHint allowed={capabilities.membersSuspend} reason="Requires member suspension permission">
+              <Button variant={p.status === 'active' ? 'destructive' : 'default'} disabled={!capabilities.membersSuspend || busy} onClick={() => setStatus(p.status === 'active' ? 'deactivate' : 'activate')}>
+                {p.status === 'active' ? 'Deactivate' : 'Activate'}
+              </Button>
+            </PermissionHint>
           )}
         </>
       )}
@@ -583,6 +688,7 @@ function MemberDrawer({ id, tenantName, meIsAdmin, onClose, onNavigate, onChange
           <div className="row" style={{ gap: 8 }}>
             <Badge variant="pending">Pending: {money(d.stats.commission.pendingCents, cur)}</Badge>
             <Badge variant="payable">Payable: {money(d.stats.commission.payableCents, cur)}</Badge>
+            <Badge variant="secondary">In payout: {money(d.stats.commission.processingCents, cur)}</Badge>
             <Badge variant="success">Paid: {money(d.stats.commission.paidCents, cur)}</Badge>
           </div>
 
@@ -646,6 +752,7 @@ function MemberDrawer({ id, tenantName, meIsAdmin, onClose, onNavigate, onChange
             <tbody>
               <tr><td>Pending</td><td style={{ textAlign: 'right' }}>{money(d.stats.commission.pendingCents, cur)}</td></tr>
               <tr><td>Payable</td><td style={{ textAlign: 'right' }}>{money(d.stats.commission.payableCents, cur)}</td></tr>
+              <tr><td>In payout</td><td style={{ textAlign: 'right' }}>{money(d.stats.commission.processingCents, cur)}</td></tr>
               <tr><td>Paid</td><td style={{ textAlign: 'right' }}>{money(d.stats.commission.paidCents, cur)}</td></tr>
             </tbody>
           </table>

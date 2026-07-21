@@ -27,7 +27,7 @@ describe('impersonation (entegrasyon)', () => {
   beforeEach(async () => { await truncateAll(prisma); });
 
   function token(o: { userId: string; membershipId: string; tenantId: string; role: Role }): string {
-    const payload: AccessTokenPayload = { sub: o.userId, mid: o.membershipId, tid: o.tenantId, role: o.role };
+    const payload: AccessTokenPayload = { sub: o.userId, mid: o.membershipId, tid: o.tenantId, role: o.role, authGeneration: 1 };
     return jwt.sign(payload, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
   }
   const srv = () => app.getHttpServer();
@@ -55,6 +55,7 @@ describe('impersonation (entegrasyon)', () => {
     const claims = JSON.parse(Buffer.from(impTok.split('.')[1], 'base64').toString()) as AccessTokenPayload;
     expect(claims.imp).toBe(owner.userId);
     expect(claims.mid).toBe(member.id);
+    expect(claims.authGeneration).toBe(1);
 
     // GET (okuma) calisir
     await request(srv()).get('/v1/app/dashboard').set('Authorization', `Bearer ${impTok}`).expect(200);

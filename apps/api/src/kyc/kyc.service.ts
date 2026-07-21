@@ -3,6 +3,7 @@ import { PayoutProfileStatus, Prisma } from '@prisma/client';
 import { ActorContext } from '../common/actor';
 import { SecretCipher } from '../common/secret-cipher';
 import { PrismaService } from '../prisma/prisma.service';
+import { lockPayoutRiskState } from '../payouts/payout-risk-lock';
 import { SanctionsService } from '../sanctions/sanctions.service';
 import { UpsertProfileInput } from './kyc.types';
 
@@ -29,34 +30,48 @@ export class KycService {
     const taxIdLast4 = input.taxId.slice(-4);
     const accountLast4 = input.accountNumber.slice(-4);
     const now = new Date();
-    const sanctionsHit = await this.sanctions.isHit(input.legalName); // OFAC/AML taramasi (#10)
-    const data = {
-      legalName: input.legalName,
-      country: input.country,
-      taxIdType: input.taxIdType,
-      taxIdLast4,
-      bankName: input.bankName,
-      routingNumber: input.routingNumber,
-      accountType: input.accountType,
-      accountLast4,
-      accountEnc: await this.secretCipher.encrypt(input.accountNumber, {
-        purpose: 'payout-account',
-        tenantId: actor.tenantId,
-        recordId: membershipId,
-      }),
-      status: PayoutProfileStatus.pending_review,
-      rejectionReason: null,
-      reviewedByUserId: null,
-      reviewedAt: null,
-      sanctionsHit,
-      lastChangedAt: now,
-    };
-    const p = await this.prisma.payoutProfile.upsert({
-      where: { membershipId },
-      create: { tenantId: actor.tenantId, membershipId, ...data },
-      update: data,
+    const accountEnc = await this.secretCipher.encrypt(input.accountNumber, {
+      purpose: 'payout-account',
+      tenantId: actor.tenantId,
+      recordId: membershipId,
     });
-    await this.audit(actor, 'kyc.submit', p.id, { membershipId, status: p.status });
+    const p = await this.prisma.$transaction(async (tx) => {
+      await lockPayoutRiskState(tx);
+      const sanctionsHit = await this.sanctions.isHit(input.legalName); // OFAC/AML taramasi (#10)
+      const data = {
+        legalName: input.legalName,
+        country: input.country,
+        taxIdType: input.taxIdType,
+        taxIdLast4,
+        bankName: input.bankName,
+        routingNumber: input.routingNumber,
+        accountType: input.accountType,
+        accountLast4,
+        accountEnc,
+        status: PayoutProfileStatus.pending_review,
+        rejectionReason: null,
+        reviewedByUserId: null,
+        reviewedAt: null,
+        sanctionsHit,
+        lastChangedAt: now,
+      };
+      const profile = await tx.payoutProfile.upsert({
+        where: { membershipId },
+        create: { tenantId: actor.tenantId, membershipId, ...data },
+        update: data,
+      });
+      await tx.auditLog.create({
+        data: {
+          tenantId: actor.tenantId,
+          actorUserId: actor.userId,
+          action: 'kyc.submit',
+          entity: 'kyc',
+          entityId: profile.id,
+          after: { membershipId, status: profile.status } as Prisma.InputJsonValue,
+        },
+      });
+      return profile;
+    });
     return this.serialize(p);
   }
 
@@ -78,27 +93,43 @@ export class KycService {
 
   /** Admin karari: verify | reject (audit'li). */
   async decide(actor: ActorContext, membershipId: string, action: 'verify' | 'reject', reason?: string) {
-    const p = await this.prisma.payoutProfile.findUnique({ where: { membershipId } });
-    if (!p || p.tenantId !== actor.tenantId) throw new NotFoundException('odeme profili bulunamadi');
-    // verify aninda CANLI yeniden tara: submit'ten sonra listeye girmis bir ad onayda yakalanir
-    if (action === 'verify' && (await this.sanctions.isHit(p.legalName))) {
-      if (!p.sanctionsHit) {
-        await this.prisma.payoutProfile.update({ where: { membershipId }, data: { sanctionsHit: true } });
+    const result = await this.prisma.$transaction(async (tx) => {
+      await lockPayoutRiskState(tx);
+      const p = await tx.payoutProfile.findUnique({ where: { membershipId } });
+      if (!p || p.tenantId !== actor.tenantId) throw new NotFoundException('odeme profili bulunamadi');
+      // verify aninda CANLI yeniden tara: submit'ten sonra listeye girmis bir ad onayda yakalanir
+      if (action === 'verify' && (await this.sanctions.isHit(p.legalName))) {
+        if (!p.sanctionsHit) {
+          await tx.payoutProfile.update({ where: { membershipId }, data: { sanctionsHit: true } });
+        }
+        return { blocked: true as const };
       }
+      const status = action === 'verify' ? PayoutProfileStatus.verified : PayoutProfileStatus.rejected;
+      const updated = await tx.payoutProfile.update({
+        where: { membershipId },
+        data: {
+          status,
+          rejectionReason: action === 'reject' ? reason ?? 'rejected' : null,
+          reviewedByUserId: actor.userId,
+          reviewedAt: new Date(),
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          tenantId: actor.tenantId,
+          actorUserId: actor.userId,
+          action: action === 'verify' ? 'kyc.verify' : 'kyc.reject',
+          entity: 'kyc',
+          entityId: p.id,
+          after: { membershipId, reason: reason ?? null } as Prisma.InputJsonValue,
+        },
+      });
+      return { blocked: false as const, updated };
+    });
+    if (result.blocked) {
       throw new ConflictException('sanctions match (compliance review) - verify edilemez');
     }
-    const status = action === 'verify' ? PayoutProfileStatus.verified : PayoutProfileStatus.rejected;
-    const updated = await this.prisma.payoutProfile.update({
-      where: { membershipId },
-      data: {
-        status,
-        rejectionReason: action === 'reject' ? reason ?? 'rejected' : null,
-        reviewedByUserId: actor.userId,
-        reviewedAt: new Date(),
-      },
-    });
-    await this.audit(actor, action === 'verify' ? 'kyc.verify' : 'kyc.reject', p.id, { membershipId, reason: reason ?? null });
-    return this.serialize(updated);
+    return this.serialize(result.updated);
   }
 
   private serialize(p: {
@@ -124,9 +155,4 @@ export class KycService {
     };
   }
 
-  private async audit(actor: ActorContext, action: string, entityId: string, after: object) {
-    await this.prisma.auditLog.create({
-      data: { tenantId: actor.tenantId, actorUserId: actor.userId, action, entity: 'kyc', entityId, after: after as Prisma.InputJsonValue },
-    });
-  }
 }

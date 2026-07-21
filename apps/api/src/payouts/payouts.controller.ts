@@ -11,6 +11,8 @@ import { PayoutComplianceService } from './payout-compliance.service';
 import {
   decidePayoutSchema,
   DecidePayoutInput,
+  dispatchPayoutBatchSchema,
+  DispatchPayoutBatchInput,
   exportPayoutsSchema,
   ExportPayoutsInput,
   failPayoutBatchSchema,
@@ -134,7 +136,7 @@ export class AdminPayoutsController {
       ...payouts,
       items: payouts.items.map((payout) => ({
         ...payout,
-        presentation: withPayoutActionCandidates(payout.presentation, user),
+        presentation: withPayoutActionCandidates(payout.presentation, user, false, payout.batchStatus),
       })),
     };
   }
@@ -148,6 +150,17 @@ export class AdminPayoutsController {
     @Body(new ZodValidationPipe(settlePayoutBatchSchema)) body: SettlePayoutBatchInput,
   ) {
     return this.payouts.settleBatch(this.actor(user), id, body);
+  }
+
+  @HttpCode(200)
+  @Post('batches/:id/dispatch')
+  @RequirePermission('payouts.process')
+  dispatchBatch(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(dispatchPayoutBatchSchema)) body: DispatchPayoutBatchInput,
+  ) {
+    return this.payouts.dispatchBatch(this.actor(user), id, body);
   }
 
   @HttpCode(200)
@@ -211,6 +224,7 @@ export class AdminPayoutsController {
 
   // self-hosted ACH/NACHA banka dosyasi (statik route ':id'den ONCE)
   @Get('ach.txt')
+  @RequirePermission('payouts.export')
   @Header('Content-Type', 'text/plain; charset=utf-8')
   @Header('Content-Disposition', 'attachment; filename="payouts-ach.txt"')
   async ach(
@@ -231,6 +245,7 @@ export class AdminPayoutsController {
   // banka mutabakati: ekstre satirlarini odenmis payout'larla esle, 'cleared' isaretle
   @HttpCode(200)
   @Post('reconcile')
+  @RequirePermission('payouts.process')
   reconcile(
     @CurrentUser() user: RequestUser,
     @Body(new ZodValidationPipe(reconcilePayoutsSchema)) body: ReconcilePayoutsInput,
@@ -240,24 +255,28 @@ export class AdminPayoutsController {
 
   // maker-checker: bekleyen oneriler + onay/red (statik route'lar ':id'den ONCE)
   @Get('batches')
+  @RequirePermission('payouts.view')
   batches(@CurrentUser() user: RequestUser) {
     return this.payouts.listBatches(user.tid as string);
   }
 
   @HttpCode(200)
   @Post('batches/:id/approve')
+  @RequirePermission('payouts.process')
   approveBatch(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.payouts.approveBatch(this.actor(user), id);
   }
 
   @HttpCode(200)
   @Post('batches/:id/reject')
+  @RequirePermission('payouts.process')
   rejectBatch(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.payouts.rejectBatch(this.actor(user), id);
   }
 
   // DIKKAT: ':id' GET'i statik GET'lerden (payable, export.csv, batches) SONRA tanimli.
   @Get(':id')
+  @RequirePermission('payouts.view')
   detail(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.payouts.detail(user.tid as string, id);
   }
@@ -265,6 +284,7 @@ export class AdminPayoutsController {
   // talep karari (onay/red) — para etkileyen, audit'li
   @HttpCode(200)
   @Post(':id/decide')
+  @RequirePermission('payouts.process')
   decide(
     @CurrentUser() user: RequestUser,
     @Param('id', ParseUUIDPipe) id: string,
@@ -276,6 +296,7 @@ export class AdminPayoutsController {
   // basarisiz odemeyi yeniden dene
   @HttpCode(200)
   @Post(':id/retry')
+  @RequirePermission('payouts.process')
   retry(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.payouts.retry(this.actor(user), id);
   }

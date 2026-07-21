@@ -132,6 +132,7 @@ enum PayoutStatus {
 
 enum PayoutSettlementBatchStatus {
   processing
+  dispatched
   settled
   failed
 }
@@ -449,7 +450,9 @@ model Membership {
   @@unique([tenantId, id], map: "memberships_tenant_id_id_uidx")
   @@unique([tenantId, referralCode])
   @@index([tenantId, sponsorMembershipId])
+  @@index([tenantId, sponsorMembershipId, joinedAt, id], map: "memberships_tenant_sponsor_joined_id_idx")
   @@index([tenantId, path])
+  @@index([tenantId, depth, joinedAt, id], map: "memberships_tenant_depth_joined_id_idx")
   @@map("memberships")
 }
 
@@ -620,6 +623,7 @@ model Sale {
 
   @@index([tenantId, status])
   @@index([tenantId, saleDate])
+  @@index([tenantId, status, summaryMonth, saleDate(sort: Desc)], map: "sales_tenant_status_summary_month_sale_date_idx")
   @@unique([tenantId, externalRef], map: "sales_tenant_external_ref_uidx")
   @@index([tenantId, commissionPlanId], map: "sales_tenant_id_commission_plan_id_idx")
   @@map("sales")
@@ -830,6 +834,10 @@ model PayoutSettlementBatch {
   csvChecksum         String?           @map("csv_checksum")
   processingStartedAt DateTime          @default(now()) @map("processing_started_at")
   processingByUserId  String?           @map("processing_by_user_id") @db.Uuid
+  dispatchedAt        DateTime?         @map("dispatched_at")
+  dispatchedByUserId  String?           @map("dispatched_by_user_id") @db.Uuid
+  dispatchReference   String?           @map("dispatch_reference")
+  dispatchEvidence    String?           @map("dispatch_evidence")
   settledAt           DateTime?         @map("settled_at")
   settledByUserId     String?           @map("settled_by_user_id") @db.Uuid
   settlementReference String?           @map("settlement_reference")

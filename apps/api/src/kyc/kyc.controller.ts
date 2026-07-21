@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { PayoutProfileStatus, Role } from '@prisma/client';
-import { CurrentUser, RequireMembership, Roles } from '../auth/auth.guard';
+import { CurrentUser, RequireMembership, RequirePermission, Roles } from '../auth/auth.guard';
 import { RequestUser } from '../auth/auth.types';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { ActorContext } from '../common/actor';
@@ -42,11 +42,13 @@ export class AdminKycController {
     return { userId: user.sub, tenantId: user.tid as string };
   }
 
+  @RequirePermission('compliance.view')
   @Get()
   list(@CurrentUser() user: RequestUser, @Query(new ZodValidationPipe(listProfilesSchema)) q: ListProfilesInput) {
     return this.kyc.list(user.tid as string, q.status as PayoutProfileStatus | undefined);
   }
 
+  @RequirePermission('compliance.review')
   @HttpCode(200)
   @Post(':membershipId/decide')
   decide(

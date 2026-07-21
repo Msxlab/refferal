@@ -38,7 +38,11 @@ export class RanksService {
         SELECT count(*)::bigint AS c FROM memberships
         WHERE tenant_id = ${tenantId}::uuid AND path::ltree <@ ${me.path}::ltree AND id <> ${membershipId}::uuid`,
       client.ledgerEntry.aggregate({
-        where: { tenantId, beneficiaryMembershipId: membershipId, status: { in: [LedgerStatus.payable, LedgerStatus.paid] } },
+        where: {
+          tenantId,
+          beneficiaryMembershipId: membershipId,
+          status: { in: [LedgerStatus.payable, LedgerStatus.processing, LedgerStatus.paid] },
+        },
         _sum: { amountCents: true },
       }),
     ]);
@@ -153,7 +157,11 @@ export class RanksService {
         SELECT count(*)::bigint AS c FROM memberships
         WHERE tenant_id = ${tenantId}::uuid AND path::ltree <@ ${me.path}::ltree AND id <> ${membershipId}::uuid`,
       this.prisma.ledgerEntry.aggregate({
-        where: { tenantId, beneficiaryMembershipId: membershipId, status: { in: [LedgerStatus.payable, LedgerStatus.paid] } },
+        where: {
+          tenantId,
+          beneficiaryMembershipId: membershipId,
+          status: { in: [LedgerStatus.payable, LedgerStatus.processing, LedgerStatus.paid] },
+        },
         _sum: { amountCents: true },
       }),
       this.prisma.membership.count({ where: { tenantId, sponsorMembershipId: membershipId } }),

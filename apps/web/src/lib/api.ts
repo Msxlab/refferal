@@ -12,7 +12,7 @@ import { getActiveCompanyToken, setActiveCompanyToken as clearActiveCompanyToken
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/v1';
 const AUTH_REFRESH_LOCK = 'refearn.auth.refresh';
 
-/** SSE/EventSource gibi fetch disi tuketiciler icin API kok adresi. */
+/** SSE gibi özel akış istemcileri için API kök adresi. */
 export const API_BASE = BASE;
 
 // HQ drill-in: sahip bir sirkete indiginde /admin/* cagrilari bu token'i kullanir.
@@ -329,8 +329,8 @@ async function request<T>(
 
 export const api = {
   get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }),
+  post: <T>(path: string, body?: unknown, headers?: HeadersInit) =>
+    request<T>(path, { method: 'POST', headers, body: body !== undefined ? JSON.stringify(body) : undefined }),
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined }),
   put: <T>(path: string, body?: unknown) =>

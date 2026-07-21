@@ -22,6 +22,12 @@ function redactInviteeEmail(action: string, value: Prisma.JsonValue | null): Pri
   return redacted;
 }
 
+export interface TodoAccess {
+  salesApproval: boolean;
+  payoutProcessing: boolean;
+  complianceReview: boolean;
+}
+
 @Injectable()
 export class ReportsService {
   constructor(
@@ -172,18 +178,26 @@ export class ReportsService {
    * satis + incelenecek odeme talebi + basilacak/postalanacak cek + dolandiricilik incelemesi.
    * Yalniz count > 0 olanlar doner (bos kutu gosterilmez); her madde bir sayfaya yonlendirir.
    */
-  async todo(tenantId: string) {
+  async todo(tenantId: string, access: TodoAccess) {
     const [salesDraft, payoutsRequested, checksToMail, fraudOpen] = await Promise.all([
-      this.prisma.sale.count({ where: { tenantId, status: SaleStatus.draft } }),
-      this.prisma.payout.count({ where: { tenantId, status: { in: [PayoutStatus.requested, PayoutStatus.processing] } } }),
-      this.prisma.payout.count({ where: { tenantId, method: 'check', status: PayoutStatus.paid, mailedAt: null } }),
-      this.prisma.fraudFlag.count({ where: { tenantId, status: 'open', score: { gte: FRAUD_BLOCK_SCORE } } }),
+      access.salesApproval
+        ? this.prisma.sale.count({ where: { tenantId, status: SaleStatus.draft } })
+        : Promise.resolve(0),
+      access.payoutProcessing
+        ? this.prisma.payout.count({ where: { tenantId, status: { in: [PayoutStatus.requested, PayoutStatus.processing] } } })
+        : Promise.resolve(0),
+      access.payoutProcessing
+        ? this.prisma.payout.count({ where: { tenantId, method: 'check', status: PayoutStatus.paid, mailedAt: null } })
+        : Promise.resolve(0),
+      access.complianceReview
+        ? this.prisma.fraudFlag.count({ where: { tenantId, status: 'open', score: { gte: FRAUD_BLOCK_SCORE } } })
+        : Promise.resolve(0),
     ]);
     const items = [
       { key: 'sales_approval', label: 'Sales awaiting approval', count: salesDraft, href: '/admin/sales' },
       { key: 'payout_requests', label: 'Payout requests to review', count: payoutsRequested, href: '/admin/payouts' },
       { key: 'checks_to_process', label: 'Checks to print & mail', count: checksToMail, href: '/admin/checks' },
-      { key: 'fraud_review', label: 'Members flagged for review', count: fraudOpen, href: '/admin/members' },
+      { key: 'fraud_review', label: 'Members flagged for review', count: fraudOpen, href: '/admin/payouts' },
     ];
     return { items: items.filter((i) => i.count > 0), total: items.reduce((a, i) => a + i.count, 0) };
   }
@@ -194,7 +208,10 @@ export class ReportsService {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     const targetMonth = month ?? monthKey(new Date(), tenant.timezone);
 
-    const [memberCount, activeCount, approvedAgg, salesCount] = await this.prisma.$transaction([
+    // bu ayin NET komisyon gideri — monthly_summaries'ten (reversal/clawback dusulmus).
+    // ONEMLI: ham 'commission' ledger toplami void sonrasi reversal'lari yok sayip rakami SISIRIR
+    // ve ayni ekrandaki analytics() ile celisirdi; otorite/netted kaynak monthly_summaries'tir.
+    const [memberCount, activeCount, approvedAgg, salesCount, commissionAgg] = await this.prisma.$transaction([
       this.prisma.membership.count({ where: { tenantId } }),
       this.prisma.membership.count({ where: { tenantId, status: MembershipStatus.active } }),
       this.prisma.sale.aggregate({
@@ -202,15 +219,11 @@ export class ReportsService {
         _sum: { amountCents: true },
       }),
       this.prisma.sale.count({ where: { tenantId, status: SaleStatus.approved, summaryMonth: targetMonth } }),
-    ]);
-
-    // bu ayin NET komisyon gideri — monthly_summaries'ten (reversal/clawback dusulmus).
-    // ONEMLI: ham 'commission' ledger toplami void sonrasi reversal'lari yok sayip rakami SISIRIR
-    // ve ayni ekrandaki analytics() ile celisirdi; otorite/netted kaynak monthly_summaries'tir.
-    const commissionAgg = await this.prisma.monthlySummary.aggregate({
-      where: { tenantId, month: targetMonth },
-      _sum: { pendingCents: true, payableCents: true, paidCents: true },
-    });
+      this.prisma.monthlySummary.aggregate({
+        where: { tenantId, month: targetMonth },
+        _sum: { pendingCents: true, payableCents: true, processingCents: true, paidCents: true },
+      }),
+    ], { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 
     // Total payable balance across all time, using payable ledger net.
     const payableRows = await this.prisma.$queryRaw<Array<{ sum: bigint }>>`
@@ -232,13 +245,19 @@ export class ReportsService {
       this.prisma.monthlySummary.groupBy({
         by: ['membershipId'],
         where: { tenantId, month: targetMonth },
-        _sum: { pendingCents: true, payableCents: true, paidCents: true },
+        _sum: { pendingCents: true, payableCents: true, processingCents: true, paidCents: true },
       }),
     ]);
 
     // top earners isimleri + siralama
     const earnByMember = topEarnRows
-      .map((r) => ({ membershipId: r.membershipId, cents: (r._sum.pendingCents ?? 0n) + (r._sum.payableCents ?? 0n) + (r._sum.paidCents ?? 0n) }))
+      .map((r) => ({
+        membershipId: r.membershipId,
+        cents: (r._sum.pendingCents ?? 0n)
+          + (r._sum.payableCents ?? 0n)
+          + (r._sum.processingCents ?? 0n)
+          + (r._sum.paidCents ?? 0n),
+      }))
       .filter((r) => r.cents > 0n)
       .sort((a, b) => (b.cents > a.cents ? 1 : -1))
       .slice(0, 8);
@@ -254,7 +273,10 @@ export class ReportsService {
     }));
 
     const revenue = approvedAgg._sum.amountCents ?? 0n;
-    const commission = (commissionAgg._sum.pendingCents ?? 0n) + (commissionAgg._sum.payableCents ?? 0n) + (commissionAgg._sum.paidCents ?? 0n);
+    const commission = (commissionAgg._sum.pendingCents ?? 0n)
+      + (commissionAgg._sum.payableCents ?? 0n)
+      + (commissionAgg._sum.processingCents ?? 0n)
+      + (commissionAgg._sum.paidCents ?? 0n);
 
     return {
       month: targetMonth,
@@ -306,7 +328,7 @@ export class ReportsService {
       this.prisma.monthlySummary.groupBy({
         by: ['month'],
         where: { tenantId, month: { in: range } },
-        _sum: { pendingCents: true, payableCents: true, paidCents: true },
+        _sum: { pendingCents: true, payableCents: true, processingCents: true, paidCents: true },
         orderBy: { month: 'asc' },
       }),
       // Previous same-length period for comparison.
@@ -317,7 +339,7 @@ export class ReportsService {
       }),
       this.prisma.monthlySummary.aggregate({
         where: { tenantId, month: { in: prevRange } },
-        _sum: { pendingCents: true, payableCents: true, paidCents: true },
+        _sum: { pendingCents: true, payableCents: true, processingCents: true, paidCents: true },
       }),
       // Funnel: status distribution in the selected sale_date window.
       this.prisma.sale.groupBy({
@@ -342,7 +364,10 @@ export class ReportsService {
     const comMap = new Map(
       comByMonth.map((c) => [
         c.month,
-        (c._sum.pendingCents ?? 0n) + (c._sum.payableCents ?? 0n) + (c._sum.paidCents ?? 0n),
+        (c._sum.pendingCents ?? 0n)
+          + (c._sum.payableCents ?? 0n)
+          + (c._sum.processingCents ?? 0n)
+          + (c._sum.paidCents ?? 0n),
       ]),
     );
     const series = range.map((m) => {
@@ -362,7 +387,10 @@ export class ReportsService {
 
     const prevRevenue = prevRev._sum.amountCents ?? 0n;
     const prevCommission =
-      (prevCom._sum.pendingCents ?? 0n) + (prevCom._sum.payableCents ?? 0n) + (prevCom._sum.paidCents ?? 0n);
+      (prevCom._sum.pendingCents ?? 0n)
+      + (prevCom._sum.payableCents ?? 0n)
+      + (prevCom._sum.processingCents ?? 0n)
+      + (prevCom._sum.paidCents ?? 0n);
     const prevSales = prevRev._count._all;
 
     const pct = (cur: bigint, prev: bigint): number | null =>
@@ -535,7 +563,7 @@ export class ReportsService {
   /**
    * Para tutarliligi denetimi (gece + admin). Iki degismez:
    * A) her 'paid' payout.totalCents == bagli ledger satirlari toplami
-   * B) uye basina monthly_summaries (pending/payable/paid) == ledger toplami (status bazinda)
+   * B) uye basina monthly_summaries (pending/payable/processing/paid) == ledger toplami (status bazinda)
    * Sapma bulgulari doner; bos = saglikli.
    */
   async verifyFinancials(tenantId: string) {
@@ -550,26 +578,32 @@ export class ReportsService {
 
     // B: summary ↔ ledger (uye basina, status bazinda)
     const [summaries, ledger] = await Promise.all([
-      this.prisma.monthlySummary.groupBy({ by: ['membershipId'], where: { tenantId }, _sum: { pendingCents: true, payableCents: true, paidCents: true } }),
+      this.prisma.monthlySummary.groupBy({
+        by: ['membershipId'],
+        where: { tenantId },
+        _sum: { pendingCents: true, payableCents: true, processingCents: true, paidCents: true },
+      }),
       this.prisma.ledgerEntry.groupBy({ by: ['beneficiaryMembershipId', 'status'], where: { tenantId }, _sum: { amountCents: true } }),
     ]);
     const sBy = new Map(summaries.map((s) => [s.membershipId, s._sum]));
-    const lBy = new Map<string, { pending: bigint; payable: bigint; paid: bigint }>();
+    const lBy = new Map<string, { pending: bigint; payable: bigint; processing: bigint; paid: bigint }>();
     for (const r of ledger) {
-      const cur = lBy.get(r.beneficiaryMembershipId) ?? { pending: 0n, payable: 0n, paid: 0n };
+      const cur = lBy.get(r.beneficiaryMembershipId) ?? { pending: 0n, payable: 0n, processing: 0n, paid: 0n };
       if (r.status === 'pending') cur.pending += r._sum.amountCents ?? 0n;
       else if (r.status === 'payable') cur.payable += r._sum.amountCents ?? 0n;
+      else if (r.status === 'processing') cur.processing += r._sum.amountCents ?? 0n;
       else if (r.status === 'paid') cur.paid += r._sum.amountCents ?? 0n;
       lBy.set(r.beneficiaryMembershipId, cur);
     }
     const ids = new Set([...sBy.keys(), ...lBy.keys()]);
     const summaryMismatches: Array<{ membershipId: string; field: string; summary: string; ledger: string }> = [];
     for (const id of ids) {
-      const s = sBy.get(id) ?? { pendingCents: 0n, payableCents: 0n, paidCents: 0n };
-      const l = lBy.get(id) ?? { pending: 0n, payable: 0n, paid: 0n };
+      const s = sBy.get(id) ?? { pendingCents: 0n, payableCents: 0n, processingCents: 0n, paidCents: 0n };
+      const l = lBy.get(id) ?? { pending: 0n, payable: 0n, processing: 0n, paid: 0n };
       const checks: Array<[string, bigint, bigint]> = [
         ['pending', s.pendingCents ?? 0n, l.pending],
         ['payable', s.payableCents ?? 0n, l.payable],
+        ['processing', s.processingCents ?? 0n, l.processing],
         ['paid', s.paidCents ?? 0n, l.paid],
       ];
       for (const [field, sv, lv] of checks) {

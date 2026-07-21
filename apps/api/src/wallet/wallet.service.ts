@@ -1,7 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { LedgerStatus, LedgerType, MembershipStatus, PayoutStatus, SaleStatus } from '@prisma/client';
+import { ActorContext } from '../common/actor';
 import { publicBrandFromTenant } from '../common/branding';
 import { monthKey } from '../engine/month';
+import { NetworkHierarchyService } from '../members/network-hierarchy.service';
 import {
   evaluatePayoutReadiness,
   LegacyPayoutEligibilityReason,
@@ -10,6 +12,10 @@ import {
 import { PayoutComplianceService } from '../payouts/payout-compliance.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../prisma/tenant-context.service';
+import {
+  MemberTreeChildrenQuery,
+  MemberTreeDirectSearchInput,
+} from './wallet.types';
 
 function payoutEligibilityMessage(reason: LegacyPayoutEligibilityReason) {
   switch (reason) {
@@ -40,6 +46,7 @@ export class WalletService {
     private readonly prisma: PrismaService,
     private readonly tenantContext: TenantContextService,
     private readonly compliance: PayoutComplianceService,
+    private readonly hierarchy: NetworkHierarchyService,
   ) {}
 
   async brand(tenantId: string) {
@@ -50,6 +57,34 @@ export class WalletService {
     });
     return publicBrandFromTenant(tenant);
   }
+
+  /** Member-network hierarchy is delegated to the privacy-focused projection service. */
+  teamTree(actor: ActorContext, rootMembershipId: string) {
+    this.tenantContext.assertActor(actor);
+    this.tenantContext.assertMembership(rootMembershipId);
+    return this.hierarchy.memberContext(actor, { rootMembershipId });
+  }
+
+  teamTreeChildren(
+    actor: ActorContext,
+    rootMembershipId: string,
+    query: MemberTreeChildrenQuery,
+  ) {
+    this.tenantContext.assertActor(actor);
+    this.tenantContext.assertMembership(rootMembershipId);
+    return this.hierarchy.memberChildren(actor, { rootMembershipId, ...query });
+  }
+
+  teamTreeDirectSearch(
+    actor: ActorContext,
+    rootMembershipId: string,
+    input: MemberTreeDirectSearchInput,
+  ) {
+    this.tenantContext.assertActor(actor);
+    this.tenantContext.assertMembership(rootMembershipId);
+    return this.hierarchy.memberDirectSearch(actor, { rootMembershipId, ...input });
+  }
+
   /** Balance is the payable total. Processing funds are visible but non-withdrawable. */
   async wallet(
     membershipId: string,
@@ -185,7 +220,7 @@ export class WalletService {
     const rows = await this.prisma.monthlySummary.groupBy({
       by: ['month'],
       where: { tenantId, membershipId, month: { in: range } },
-      _sum: { pendingCents: true, payableCents: true, paidCents: true },
+      _sum: { pendingCents: true, payableCents: true, processingCents: true, paidCents: true },
       orderBy: { month: 'asc' },
     });
     const byMonth = new Map(rows.map((r) => [r.month, r._sum]));
@@ -194,13 +229,15 @@ export class WalletService {
       const s = byMonth.get(m);
       const pending = s?.pendingCents ?? 0n;
       const payable = s?.payableCents ?? 0n;
+      const processing = s?.processingCents ?? 0n;
       const paid = s?.paidCents ?? 0n;
       return {
         month: m,
         pendingCents: pending.toString(),
         payableCents: payable.toString(),
+        processingCents: processing.toString(),
         paidCents: paid.toString(),
-        totalCents: (pending + payable + paid).toString(),
+        totalCents: (pending + payable + processing + paid).toString(),
       };
     });
 
@@ -252,10 +289,16 @@ export class WalletService {
     const rows = await this.prisma.monthlySummary.groupBy({
       by: ['membershipId'],
       where: { tenantId, month },
-      _sum: { pendingCents: true, payableCents: true, paidCents: true },
+      _sum: { pendingCents: true, payableCents: true, processingCents: true, paidCents: true },
     });
     const totals = rows
-      .map((r) => ({ id: r.membershipId, total: (r._sum.pendingCents ?? 0n) + (r._sum.payableCents ?? 0n) + (r._sum.paidCents ?? 0n) }))
+      .map((r) => ({
+        id: r.membershipId,
+        total: (r._sum.pendingCents ?? 0n)
+          + (r._sum.payableCents ?? 0n)
+          + (r._sum.processingCents ?? 0n)
+          + (r._sum.paidCents ?? 0n),
+      }))
       .filter((t) => t.total > 0n)
       .sort((a, b) => (b.total > a.total ? 1 : b.total < a.total ? -1 : 0));
     const total = totals.length;
@@ -288,7 +331,10 @@ export class WalletService {
       paidCents: r.paidCents.toString(),
     }));
     const sum = (pick: (r: (typeof rows)[number]) => bigint) => rows.reduce((a, r) => a + pick(r), 0n);
-    const earnedThisMonth = sum((r) => r.pendingCents) + sum((r) => r.payableCents) + sum((r) => r.paidCents);
+    const earnedThisMonth = sum((r) => r.pendingCents)
+      + sum((r) => r.payableCents)
+      + sum((r) => r.processingCents)
+      + sum((r) => r.paidCents);
     const soldCents = soldThisMonth._sum.amountCents ?? 0n;
 
     return {

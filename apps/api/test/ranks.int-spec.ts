@@ -35,7 +35,7 @@ describe('ranks (entegrasyon)', () => {
     // owner'a $2,000 kazanc (payable) → Silver esigi ($1,000 + 3 ekip) gecilir
     await prisma.ledgerEntry.create({ data: { tenantId: tenant.id, saleId: null, beneficiaryMembershipId: owner.id, level: 0, rateBpsUsed: 0, amountCents: 200_000n, type: LedgerType.adjustment, status: LedgerStatus.payable, summaryMonth: '2026-06' } });
 
-    const p: AccessTokenPayload = { sub: owner.userId, mid: owner.id, tid: tenant.id, role: Role.tenant_owner };
+    const p: AccessTokenPayload = { sub: owner.userId, mid: owner.id, tid: tenant.id, role: Role.tenant_owner, authGeneration: 1 };
     const tok = jwt.sign(p, { secret: authConfig.accessSecret(), expiresIn: authConfig.accessTtlSeconds });
     const r = await request(app.getHttpServer()).get('/v1/app/rank').set('Authorization', `Bearer ${tok}`).expect(200);
 

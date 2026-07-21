@@ -10,6 +10,7 @@ import {
 import { Prisma, Role } from '@prisma/client';
 import { ActorContext } from '../common/actor';
 import {
+  ALL_PERMISSIONS,
   PERMISSION_GROUPS,
   SYSTEM_ROLES,
   TIER_TO_SYSTEM_ROLE,
@@ -226,6 +227,12 @@ export class RbacService implements OnModuleInit {
     }
     const m = await this.prisma.membership.findFirst({
       where: { id: membershipId, tenantId: actor.tenantId },
+      select: {
+        id: true,
+        role: true,
+        roleId: true,
+        roleRef: { select: { permissions: true } },
+      },
     });
     if (!m) throw new NotFoundException('membership not found');
     if (m.role === Role.tenant_owner) {
@@ -250,6 +257,7 @@ export class RbacService implements OnModuleInit {
     }
 
     const nextTier = (input.tier ?? m.role) as Role;
+    this.assertCanonicalTierDelegable(actorPerms, input.tier);
     let nextRoleId: string | null | undefined =
       input.roleId === undefined ? undefined : input.roleId;
     if (nextTier === Role.member) {
@@ -263,6 +271,16 @@ export class RbacService implements OnModuleInit {
         });
         nextRoleId = systemRole?.id ?? null;
       }
+    }
+
+    if (input.tier !== undefined || input.roleId !== undefined) {
+      const effectivePermissions = await this.effectiveAssignmentPermissions(
+        actor.tenantId,
+        nextTier,
+        nextRoleId,
+        m.roleRef?.permissions,
+      );
+      this.assertGrantable(actorPerms, effectivePermissions);
     }
 
     const before = { tier: m.role, roleId: m.roleId };
@@ -295,6 +313,40 @@ export class RbacService implements OnModuleInit {
       return membership.roleRefPermissions ?? defaultPermissionsForTier(membership.role);
     }
     return defaultPermissionsForTier(membership.role);
+  }
+
+  private async effectiveAssignmentPermissions(
+    tenantId: string,
+    tier: Role,
+    roleId: string | null | undefined,
+    existingRolePermissions?: string[] | null,
+  ): Promise<string[]> {
+    if (tier === Role.member) return [];
+
+    let assignedPermissions = existingRolePermissions ?? [];
+    if (roleId === null) {
+      assignedPermissions = [];
+    } else if (roleId !== undefined) {
+      const role = await this.prisma.tenantRole.findFirst({
+        where: { id: roleId, tenantId },
+        select: { permissions: true },
+      });
+      if (!role) throw new BadRequestException('role does not belong to this business');
+      assignedPermissions = role.permissions;
+    }
+
+    return [...new Set([...defaultPermissionsForTier(tier), ...assignedPermissions])];
+  }
+
+  /**
+   * `settings.roles` grants role-management access, not the ability to mint a peer administrator.
+   * The canonical admin tier is a delegation boundary: only a full-scope principal (owner,
+   * platform admin, or an explicitly all-permission custom role) may assign it.
+   */
+  private assertCanonicalTierDelegable(actorPerms: string[], requestedTier: Role | undefined): void {
+    if (requestedTier === Role.tenant_admin) {
+      this.assertGrantable(actorPerms, ALL_PERMISSIONS);
+    }
   }
 
   private async uniqueKey(tenantId: string, name: string): Promise<string> {

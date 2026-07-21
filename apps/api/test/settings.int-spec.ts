@@ -233,7 +233,7 @@ describe('admin settings (integration)', () => {
         requireKycForPayout: true,
         requirePayoutApproval: true,
         autoRequestPayouts: false,
-        branding: { logoText: 'Ledger', primaryColor: '#ABCDEF' },
+        branding: { logoText: 'LD', primaryColor: '#ABCDEF' },
       })
       .expect(200);
 
@@ -241,6 +241,7 @@ describe('admin settings (integration)', () => {
       where: { tenantId: tenant.id, action: 'tenant.update_settings' },
     });
     expect(audit.before).toEqual({
+      name: tenant.name,
       maturationRule: 'on_approval',
       maturationDays: null,
       payoutMinCents: '100000',
@@ -255,6 +256,7 @@ describe('admin settings (integration)', () => {
       branding: { tagline: 'Before', accentColor: '#222222' },
     });
     expect(audit.after).toEqual({
+      name: tenant.name,
       maturationRule: 'days_after_approval',
       maturationDays: 14,
       payoutMinCents: '250000',
@@ -269,7 +271,7 @@ describe('admin settings (integration)', () => {
       branding: {
         tagline: 'Before',
         accentColor: '#222222',
-        logoText: 'Ledger',
+        logoText: 'LD',
         primaryColor: '#ABCDEF',
       },
     });

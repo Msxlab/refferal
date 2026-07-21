@@ -574,7 +574,10 @@ export function applyTenantSwitch(
   );
 }
 
-const ADMIN_ROLES = new Set(['tenant_owner', 'tenant_admin', 'tenant_staff']);
+export const TENANT_STAFF_ROLES = ['tenant_owner', 'tenant_admin', 'tenant_staff'] as const;
+export const TENANT_ADMIN_ROLES = ['tenant_owner', 'tenant_admin'] as const;
+
+const ADMIN_ROLES = new Set<string>(TENANT_STAFF_ROLES);
 
 export function isAdminRole(role: string | undefined): boolean {
   return role !== undefined && ADMIN_ROLES.has(role);
@@ -698,10 +701,26 @@ export function sameSessionFamily(previous: Session, next: Session): boolean {
 /** Ince yetki kontrolu (UI). owner/platform her zaman gecer; backend ayrica zorlar.
  *  HQ drill-in'de aktif sirket (act-as) token'i varsa onun haklari degerlendirilir. */
 export function can(s: Session | null, permission: string): boolean {
-  const tok = getActiveCompanyToken();
-  const c = tok ? decodeClaims(tok) : accessClaims(s);
+  const c = effectiveAccessClaims(s);
   if (c.role && GOD_TIERS.has(c.role)) return true;
   return c.perms?.includes(permission) ?? false;
+}
+
+function effectiveAccessClaims(s: Session | null): AccessClaims {
+  const tok = getActiveCompanyToken();
+  return tok ? decodeClaims(tok) : accessClaims(s);
+}
+
+/** UI capability that mirrors both @Roles and @RequirePermission on tenant routes. */
+export function canForTenantRoles(
+  s: Session | null,
+  permission: string,
+  allowedRoles: readonly string[],
+): boolean {
+  const claims = effectiveAccessClaims(s);
+  if (!claims.role || !allowedRoles.includes(claims.role)) return false;
+  if (GOD_TIERS.has(claims.role)) return true;
+  return claims.perms?.includes(permission) ?? false;
 }
 
 /** Role-based default landing path: admin roles to /admin, members to /app (SPEC 4.3). */
