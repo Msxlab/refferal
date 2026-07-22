@@ -74,20 +74,20 @@ ulaşmalıdır. Obsidian'ın kişisel UI durumunun commit edilmesi engellenmelid
 
 **Kabul kriterleri:**
 
-- [ ] `AGENTS.md`, ilk oryantasyon adımı olarak `docs/knowledge/START-HERE.md`'yi
+- [x] `AGENTS.md`, ilk oryantasyon adımı olarak `docs/knowledge/START-HERE.md`'yi
       gösterir; `CONTINUE-HERE.md` tam okuma ve `git status --short` kuralını
       zayıflatmaz.
-- [ ] `START-HERE.md`, sıralı okuma akışını, secret/PII yasağını, maddi karar
+- [x] `START-HERE.md`, sıralı okuma akışını, secret/PII yasağını, maddi karar
       yazım protokolünü ve handoff güncelleme yükümlülüğünü tanımlar.
-- [ ] `.obsidian/` local-only olarak ignore edilir; mevcut Git-tracked dosyalar
+- [x] `.obsidian/` local-only olarak ignore edilir; mevcut Git-tracked dosyalar
       etkilenmez.
 
 **Doğrulama:**
 
-- [ ] `rg` ile `AGENTS.md` ve `START-HERE.md` içindeki okuma sırası doğrulanır.
-- [ ] `git check-ignore -v .obsidian/workspace.json` local-state kuralını
+- [x] `rg` ile `AGENTS.md` ve `START-HERE.md` içindeki okuma sırası doğrulanır.
+- [x] `git check-ignore -v .obsidian/workspace.json` local-state kuralını
       gösterir.
-- [ ] Fresh-clone senaryosu manuel olarak okunur: `AGENTS → START-HERE →
+- [x] Fresh-clone senaryosu manuel olarak okunur: `AGENTS → START-HERE →
       CONTINUE-HERE → git status`.
 
 **Bağımlılıklar:** Yok
