@@ -5,6 +5,7 @@ dist/
 next-env.d.ts
 .expo/
 .expo-export/
+.obsidian/
 coverage/
 *.tsbuildinfo
 .env
